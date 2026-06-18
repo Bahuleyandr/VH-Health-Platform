@@ -20,6 +20,14 @@ export const SECURITY_CONFIG = {
 
   // OTP settings
   otp: {
+    // Cross-session / per-phone failed-verify cap. This is the single source of
+    // truth for the per-phone OTP attempt ceiling: it backs the SEC-7
+    // cross-session lock (services/otpService.js#isPhoneVerifyLocked) AND the
+    // admin password-reset OTP lock (services/auth/authService.js). It is
+    // intentionally distinct from — and looser than — the per-SESSION verify
+    // cap in config/otpConfig.js (`maxAttempts`, default 3), which counts
+    // attempts on a single otp_sessions row. The two are layered defences, not
+    // duplicates: do not collapse them into one value.
     maxAttemptsPerPhone: 5,
     expiryMinutes: 10,
     codeLength: 6,

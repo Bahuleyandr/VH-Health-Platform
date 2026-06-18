@@ -1,6 +1,5 @@
 // src/utils/r2CleanupJob.js
 
-import cron from 'node-cron';
 import logger from '../logging/logger.js';
 import { listObjectsV2, deleteObject } from './r2Storage.js';
 
@@ -66,11 +65,17 @@ export async function executeCleanup() {
 }
 
 /**
- * Schedules the R2 cleanup job to run monthly.
+ * @deprecated Registration moved into src/utils/scheduler.js so the job runs
+ * under withJobLock() (in-process Set + cross-replica Postgres advisory lock),
+ * matching every other cron. Without the lock, every worker×replica (up to 6
+ * processes) ran a concurrent R2 sweep, racing deletes against the same bucket.
+ * Kept as a no-op shim so any stray caller does not double-register a bare,
+ * unlocked cron. The scheduler is the single registration site — see the
+ * `r2-cleanup` registerCron there.
  */
 export function scheduleCleanupJob() {
-  cron.schedule('0 3 1 * *', () => {
-    executeCleanup();
-  });
-  logger.info('⏰ R2 Cleanup job scheduled to run monthly on the 1st at 03:00 AM.');
+  logger.warn(
+    'scheduleCleanupJob() is a deprecated no-op — the R2 cleanup job is now ' +
+    'registered under withJobLock() in scheduler.js. Ignoring this call.',
+  );
 }

@@ -114,4 +114,56 @@ describe('Rate Limiting', () => {
     expect(emp1003).not.toBe(emp1006);
     expect(rateLimitTesting.authRateLimiterConfig.skipSuccessfulRequests).toBe(true);
   });
+
+  // Item 1 (auth-hygiene audit §5): the admin MFA challenge-verify endpoint
+  // carries no username/email — only an opaque challengeToken that maps 1:1 to
+  // one admin account. The auth limiter must fold that token into the key so
+  // the 2FA step is keyed per-account, not IP-only.
+  it('keys MFA challenge-verify requests by IP + challenge token (not IP alone)', () => {
+    const baseReq = {
+      headers: { 'x-api-key': API_KEY },
+      get: (name) => (name === 'x-api-key' ? API_KEY : undefined),
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+
+    const ipOnly = rateLimitTesting.authKeyGenerator({ ...baseReq, body: {} });
+    const challengeA = rateLimitTesting.authKeyGenerator({
+      ...baseReq,
+      body: { challengeToken: 'challenge-token-admin-a', code: '111111' },
+    });
+    const challengeB = rateLimitTesting.authKeyGenerator({
+      ...baseReq,
+      body: { challengeToken: 'challenge-token-admin-b', code: '222222' },
+    });
+
+    // Two different admins' challenges (e.g. behind one NAT) get distinct
+    // buckets, so one cannot exhaust the other's attempts.
+    expect(challengeA).not.toBe(challengeB);
+    // And neither collapses to the plain IP-only key.
+    expect(challengeA).not.toBe(ipOnly);
+    expect(challengeB).not.toBe(ipOnly);
+    // The same challenge token always maps to the same bucket regardless of the
+    // submitted code, so an attacker rotating codes shares one account bucket.
+    const challengeARetry = rateLimitTesting.authKeyGenerator({
+      ...baseReq,
+      body: { challengeToken: 'challenge-token-admin-a', code: '999999' },
+    });
+    expect(challengeARetry).toBe(challengeA);
+    // The raw challenge secret must never appear in the limiter key.
+    expect(challengeA).not.toContain('challenge-token-admin-a');
+  });
+
+  it('auth limiter still falls back to IP-only when no account or challenge token is present', () => {
+    const baseReq = {
+      headers: {},
+      get: () => undefined,
+      ip: '203.0.113.7',
+      socket: { remoteAddress: '203.0.113.7' },
+      body: {},
+    };
+    const key = rateLimitTesting.authKeyGenerator(baseReq);
+    expect(key).toMatch(/^auth:/);
+    expect(key).not.toContain(':chal:');
+  });
 });

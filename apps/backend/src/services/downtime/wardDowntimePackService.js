@@ -204,10 +204,10 @@ async function collectBedEntry(bed, { tenantId } = {}) {
             AND tenant_id = $2::uuid
             AND COALESCE(status, 'scheduled') IN ('scheduled', 'due', 'held')
             AND scheduled_time BETWEEN NOW() - INTERVAL '1 hour'
-                                   AND NOW() + INTERVAL '${MAR_WINDOW_HOURS} hours'
+                                   AND NOW() + ($3::int * INTERVAL '1 hour')
           ORDER BY scheduled_time ASC
           LIMIT 60`,
-        patientUid, tid,
+        patientUid, tid, MAR_WINDOW_HOURS,
       )
       : Promise.resolve([]),
     patientUid

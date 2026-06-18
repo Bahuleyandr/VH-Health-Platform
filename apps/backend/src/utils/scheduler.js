@@ -181,7 +181,7 @@ import purgeLogs from '../scripts/cleanup-logs.js';
 // R2 Maintenance Jobs
 import { retryFailedNotifications } from '../services/notificationRetryService.js';
 import { runUnreadCriticalEscalation } from '../services/notification/notificationService.js';
-import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
+import { executeArchiveMigration } from './archiveMigrationJob.js';
 
 // Clinical-AI workflow resume scheduler — Phase 5 of the rollout.
 import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.js';
@@ -237,7 +237,7 @@ import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
-import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
+import { executeCleanup } from './r2CleanupJob.js';
 import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
 import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
 import { expiryRadarSweep } from '../services/staff/credentialingService.js';
@@ -459,11 +459,23 @@ if (process.env.NODE_ENV !== 'test') {
   // it in-process too meant up to 6 concurrent nightly pg_dumps across the
   // worker×replica fleet. The CronJob is the single authoritative runner.
 
-  // 🗓️ Monthly on 1st at 02:00 - Archive migration
-  scheduleArchiveMigrationJob();
+  // 🗓️ Monthly on 1st at 02:00 - Archive migration.
+  // Wrapped in withJobLock (audit §5 reliability): without it, every
+  // worker×replica (up to 6 processes) spawned a concurrent r2-migrate-archive
+  // child on the same tick. The advisory lock makes exactly one process across
+  // the fleet run it; executeArchiveMigration now resolves on child exit so the
+  // lock is held for the migration's full duration.
+  registerCron('0 2 1 * *', withJobLock('archive-migration', async () => {
+    logger.info('Scheduled Task: Archive migration...');
+    await executeArchiveMigration();
+  }));
 
-  // 🗓️ Daily at 03:00 - R2 Cleanup
-  scheduleR2CleanupJob();
+  // 🗓️ Monthly on 1st at 03:00 - R2 storage cleanup.
+  // Wrapped in withJobLock (audit §5 reliability): previously a bare cron, so
+  // all 6 processes raced deletes against the same R2 bucket. Single-runner now.
+  registerCron('0 3 1 * *', withJobLock('r2-cleanup', async () => {
+    await executeCleanup();
+  }));
 
   // 🗓️ Weekly on Sunday at 03:00 - Purge archived logs
   registerCron('0 3 * * 0', withJobLock('purge-archives', async () => {

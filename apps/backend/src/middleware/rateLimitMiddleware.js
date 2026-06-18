@@ -63,6 +63,25 @@ const authKeyGenerator = (req) => {
   // Extract account identifier from request body (login endpoints).
   const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';
   if (account) return `auth:${ip}:${String(account).toLowerCase()}`;
+
+  // MFA challenge verify (/auth/admin/mfa/challenge/verify) carries no
+  // username/email — only an opaque `challengeToken` that maps 1:1 to a single
+  // admin account (persisted in totp_challenges by AuthService.adminLogin). Key
+  // by IP + a hash of that token so brute-forcing one admin's 2FA code shares a
+  // bucket regardless of source IP (defeats IP rotation), AND so many admins
+  // behind one NAT each get their own bucket (each holds a distinct challenge).
+  // Without this the limiter degraded to IP-only for the 2FA step. Hash the
+  // token so the limiter store never holds the raw challenge secret.
+  const challengeToken = req.body?.challengeToken;
+  if (challengeToken) {
+    const challengeHash = crypto
+      .createHash('sha256')
+      .update(String(challengeToken))
+      .digest('hex')
+      .slice(0, 24);
+    return `auth:${ip}:chal:${challengeHash}`;
+  }
+
   return `auth:${ip}`;
 };
 

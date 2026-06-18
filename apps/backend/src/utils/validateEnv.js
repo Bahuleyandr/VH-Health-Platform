@@ -40,6 +40,16 @@ const envSchema = Joi.object({
   HTTP_KEEPALIVE_TIMEOUT_MS: Joi.number().min(0).optional().label('HTTP_KEEPALIVE_TIMEOUT_MS'),
   HTTP_HEADERS_TIMEOUT_MS:   Joi.number().min(0).optional().label('HTTP_HEADERS_TIMEOUT_MS'),
 
+  // Global express.json / urlencoded body limit (audit §5). OPTIONAL — defaults
+  // to '1mb' in app.js when unset. Conservative on purpose: JSON parsing is a
+  // CPU-bound DoS surface and file uploads go through multer, not express.json.
+  // Accepts a bytes() string ('1mb', '512kb') or a raw byte count.
+  HTTP_BODY_LIMIT: Joi.string()
+    .pattern(/^\d+(\.\d+)?\s*(b|kb|mb|gb)?$/i)
+    .allow('')
+    .optional()
+    .label('HTTP_BODY_LIMIT'),
+
   // App-layer DB statement timeout (DB-2 / B2.8). Applied to the PRIMARY
   // connection via ?options=-c statement_timeout=<ms> in the URL (session
   // default; overridden to 120s inside migration transactions). Default 30000.
@@ -55,6 +65,19 @@ const envSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development')
     .label('NODE_ENV'),
+
+  // Dev-only OTP bypass opt-in. When 'true' (and NODE_ENV is NOT production),
+  // OTP generation returns the fixed '123456' for local/CI flows that cannot
+  // complete a real OTP round-trip (see config/otpConfig.js). OPTIONAL and
+  // OFF by default. Fail-closed: under NODE_ENV=production the value 'true' is
+  // REJECTED at startup so a stray flag can never weaken OTP security in prod
+  // (the runtime guard in otpConfig.js is the second line of defence).
+  ALLOW_DEV_OTP: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().valid('false', '').optional()
+      .messages({ 'any.only': 'ALLOW_DEV_OTP must not be "true" when NODE_ENV=production' }),
+    otherwise: Joi.string().valid('true', 'false').allow('').optional(),
+  }).label('ALLOW_DEV_OTP'),
 
   // Storage credentials — optional but warn if missing
   CF_ACCOUNT_ID: Joi.string().optional().label('CF_ACCOUNT_ID'),

@@ -7,9 +7,11 @@ metadata:
     # TLS via cert-manager (Let's Encrypt prod issuer — overlay may switch to
     # `letsencrypt-staging` in dev/staging to avoid rate limits).
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # Request/response tunables — match backend's 10mb JSON body limit
-    # but allow larger multipart uploads for patient record attachments
-    # (validatePatientUpload caps at 25MB PDF, so 50m leaves headroom).
+    # Request/response tunables — the backend's express.json limit is small
+    # (HTTP_BODY_LIMIT, default 1mb; configmap) because large JSON is a DoS
+    # surface. This proxy-body-size is sized for the multipart UPLOAD path
+    # (validatePatientUpload caps at 25MB PDF, so 50m leaves headroom), which
+    # goes through multer rather than express.json.
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"

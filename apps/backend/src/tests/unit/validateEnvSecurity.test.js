@@ -71,3 +71,25 @@ describe('validateEnv signed integration secrets', () => {
     expect(result.status).toBe(0);
   });
 });
+
+// Item 4 (auth-hygiene audit §5): the dev-OTP opt-in must fail closed in prod.
+describe('validateEnv dev-OTP opt-in', () => {
+  it('fails closed in production when ALLOW_DEV_OTP=true', () => {
+    const result = runValidateEnv({ ALLOW_DEV_OTP: 'true' });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('ALLOW_DEV_OTP');
+  });
+
+  it('allows production boot when ALLOW_DEV_OTP=false', () => {
+    const result = runValidateEnv({ ALLOW_DEV_OTP: 'false' });
+
+    expect(result.status).toBe(0);
+  });
+
+  it('allows production boot when ALLOW_DEV_OTP is unset', () => {
+    const result = runValidateEnv();
+
+    expect(result.status).toBe(0);
+  });
+});

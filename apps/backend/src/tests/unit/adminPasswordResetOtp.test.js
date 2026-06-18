@@ -45,7 +45,11 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
 }));
 
 // ── Import the service under test (after mocks) ─────────────────────
+// NOTE: securityConfig is intentionally NOT mocked here so we exercise the real
+// SECURITY_CONFIG.otp.maxAttemptsPerPhone that the password-reset lock now
+// reads from (Item 2 — single source of truth for the OTP attempt cap).
 const { AuthService } = await import('../../services/auth/authService.js');
+const { SECURITY_CONFIG } = await import('../../config/securityConfig.js');
 
 const ADMIN_UID = '550e8400-e29b-41d4-a716-446655440099';
 
@@ -169,6 +173,38 @@ describe('AuthService.adminResetPassword', () => {
       data: { attempts: 5, used: true },
     });
     expect(mockPrisma.admins.update).not.toHaveBeenCalled();
+  });
+
+  it('locks exactly at SECURITY_CONFIG.otp.maxAttemptsPerPhone (single source of truth)', async () => {
+    // Item 2: the password-reset cap is no longer a hardcoded literal — it
+    // reads from securityConfig. Drive the boundary off the config value so a
+    // future config change keeps the lock in lock-step and a re-hardcode would
+    // fail this test.
+    const cap = SECURITY_CONFIG.otp.maxAttemptsPerPhone;
+    expect(cap).toBeGreaterThanOrEqual(1);
+
+    // One below the cap: a wrong code increments but must NOT lock.
+    await seedAdminAndOtp({ attempts: cap - 2 });
+    await expect(
+      AuthService.adminResetPassword('root', '000001', NEW_PASSWORD)
+    ).rejects.toThrow('Invalid or expired OTP');
+    expect(mockPrisma.password_reset_otps.update).toHaveBeenCalledWith({
+      where: { id: 77 },
+      data: { attempts: cap - 1 },
+    });
+
+    jest.clearAllMocks();
+    wireTransaction();
+
+    // At the cap: this failure reaches the cap and burns the OTP.
+    await seedAdminAndOtp({ attempts: cap - 1 });
+    await expect(
+      AuthService.adminResetPassword('root', '000002', NEW_PASSWORD)
+    ).rejects.toThrow(/Too many invalid attempts/);
+    expect(mockPrisma.password_reset_otps.update).toHaveBeenCalledWith({
+      where: { id: 77 },
+      data: { attempts: cap, used: true },
+    });
   });
 
   it('still accepts a legacy PLAINTEXT OTP row during rollout', async () => {

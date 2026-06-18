@@ -29,11 +29,13 @@ import * as otpService from './otpService.js';
 // any in-flight legacy plaintext row still matches via the === fallback.
 const OTP_HASH_ROUNDS = 6;
 
-// Lock a single password-reset OTP after this many failed verify attempts
-// (matches SECURITY_CONFIG.otp.maxAttemptsPerPhone). Once locked the row is
-// marked used so the admin must request a fresh OTP — blocks online guessing
-// of the 6-digit code.
-const PASSWORD_RESET_OTP_MAX_ATTEMPTS = 5;
+// Lock a single password-reset OTP after this many failed verify attempts.
+// Single source of truth: SECURITY_CONFIG.otp.maxAttemptsPerPhone — previously
+// this was a hardcoded literal that merely *claimed* to match the config, so a
+// change to the config would have silently left this path on the old value.
+// Once the cap is reached the row is marked used so the admin must request a
+// fresh OTP — blocks online guessing of the 6-digit code.
+const PASSWORD_RESET_OTP_MAX_ATTEMPTS = SECURITY_CONFIG.otp.maxAttemptsPerPhone;
 
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */

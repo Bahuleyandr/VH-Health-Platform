@@ -3,6 +3,13 @@ import logger from '../logging/logger.js';
 const routeErrors = new Map(); // key: route, value: { count, firstError, lastError, errors }
 const WINDOW_MS = 60_000;
 const THRESHOLD = 5;
+// Cap the number of distinct route keys tracked. Without this the Map grows one
+// entry per ever-seen route key and is never evicted — a slow memory leak,
+// especially under path-fuzzing (req.path varies per probe when req.route is
+// unmatched). Map preserves insertion order, so the first key is the
+// least-recently-inserted; we touch-on-access (delete+set) to make it LRU and
+// evict the oldest once over the cap.
+const MAX_TRACKED_ROUTES = 1000;
 const healingActions = [];
 
 export function selfHealingMiddleware(req, res, next) {
@@ -18,10 +25,22 @@ export function selfHealingMiddleware(req, res, next) {
 
 function recordError(route, statusCode) {
   const now = Date.now();
-  if (!routeErrors.has(route)) {
-    routeErrors.set(route, { count: 0, firstError: now, lastError: now, errors: [] });
+  let entry = routeErrors.get(route);
+  if (entry) {
+    // Touch: re-insert so this key becomes most-recently-used (moves to the
+    // back of the Map's insertion order).
+    routeErrors.delete(route);
+  } else {
+    entry = { count: 0, firstError: now, lastError: now, errors: [] };
   }
-  const entry = routeErrors.get(route);
+  routeErrors.set(route, entry);
+
+  // Evict the least-recently-used key(s) once over the cap. A while-loop keeps
+  // the invariant even if MAX_TRACKED_ROUTES is ever lowered at runtime.
+  while (routeErrors.size > MAX_TRACKED_ROUTES) {
+    const oldestKey = routeErrors.keys().next().value;
+    routeErrors.delete(oldestKey);
+  }
   // Reset window if expired
   if (now - entry.firstError > WINDOW_MS) {
     entry.count = 0;
@@ -79,4 +98,15 @@ export function getHealthReport() {
     monitoredRoutes: routeErrors.size,
   };
   return report;
+}
+
+// Test-only seams. Exported so the eviction cap can be asserted without
+// fabricating 1000+ real 500s, and so a test can start from a clean Map.
+export const __MAX_TRACKED_ROUTES = MAX_TRACKED_ROUTES;
+export function __recordErrorForTest(route, statusCode = 500) {
+  recordError(route, statusCode);
+}
+export function __resetForTest() {
+  routeErrors.clear();
+  healingActions.length = 0;
 }

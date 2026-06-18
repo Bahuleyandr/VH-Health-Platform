@@ -429,17 +429,25 @@ app.use(compression({ threshold: 1024 })); // Only compress responses > 1KB
 app.use(requestIdMiddleware);
 app.use(sentryScopeMiddleware);
 app.use(apiVersionMiddleware);
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ limit: '1mb', extended: true }));
+// JSON/urlencoded body limit. Driven by HTTP_BODY_LIMIT (the configmap already
+// declared this as an app-read value) with a conservative 1mb default — large
+// JSON parsing is a CPU-bound DoS surface, and the only legitimately large
+// bodies (file uploads) go through multer, NOT express.json. Operators tune
+// this knob explicitly; the ingress proxy-body-size (50m) covers multipart
+// uploads separately. Registered in validateEnv.js.
+const HTTP_BODY_LIMIT = process.env.HTTP_BODY_LIMIT || '1mb';
+app.use(express.json({ limit: HTTP_BODY_LIMIT }));
+app.use(express.urlencoded({ limit: HTTP_BODY_LIMIT, extended: true }));
 app.use(corsMiddleware);
 
 // Logging
 app.use(loggingMiddleware);
 app.use(logger.morganMiddleware);
 
-// User context middleware
-app.use(attachUserContext);
-// NOTE: normalizeIdentityFields runs AFTER JWT auth below
+// User context middleware (Sentry req.user + request context) is mounted
+// AFTER jwtAuth / tenantContextMiddleware below — at this point req.user and
+// req.tenantId do not exist yet, so attaching here made Sentry.setUser a no-op
+// (audit §5 reliability). See the app.use(attachUserContext) past jwtAuth.
 
 // Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
 app.use(auditLogMiddleware);
@@ -578,6 +586,12 @@ app.use(enforceFullScope);
 app.use(tenantContextMiddleware);  // Resolves req.tenantId after JWT auth
 app.use(tenantRlsMiddleware);      // Phase-2: seed AsyncLocalStorage so prisma auto-applies setTenant when AUTH_ENFORCE_TENANT_RLS=true
 app.use(normalizeIdentityFields); // runs AFTER JWT auth
+// Sentry user/request context — mounted HERE (not before jwtAuth) so req.user
+// and req.tenantId are populated; otherwise Sentry.setUser was always a no-op
+// (audit §5 reliability). Authenticated routes are the ones whose errors we
+// most need attributed to a user; public/pre-auth routes still get the
+// per-request tags from sentryScopeMiddleware mounted at the top of the chain.
+app.use(attachUserContext);
 
 // ====================================
 // AUTHENTICATED ROUTES (API key required)

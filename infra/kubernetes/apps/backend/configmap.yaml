@@ -55,8 +55,12 @@ data:
   # APIs are reachable.
   ADMIN_IP_ALLOWLIST: ""
 
-  # Feature flags / timeouts that the app reads directly
-  HTTP_BODY_LIMIT: "10mb"
+  # Feature flags / timeouts that the app reads directly.
+  # HTTP_BODY_LIMIT drives express.json/urlencoded (app.js). Kept conservative:
+  # JSON parsing is a CPU-bound DoS surface and file uploads use multer (capped
+  # at 25MB PDF / 10MB image), NOT express.json. Raise deliberately only if a
+  # JSON endpoint legitimately needs larger payloads.
+  HTTP_BODY_LIMIT: "1mb"
   STATEMENT_TIMEOUT_MS: "30000"
   AUTH_ENFORCE_TENANT_RLS: "true"
   HL7_INBOUND_ENABLED: "false"
