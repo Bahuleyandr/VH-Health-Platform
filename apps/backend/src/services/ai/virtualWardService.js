@@ -18,6 +18,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { isAdmin } from '../../utils/roleHelpers.js';
 
 const MODULE_KEY = 'virtual_ward_triage';
 
@@ -156,7 +157,7 @@ export async function enrollPatient({ tenantId = null, patientUid, admissionId =
 async function resolveEnrollment({ tenantId, patientUid, enrollmentId }) {
   if (enrollmentId) {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, tenant_id, patient_uid, status FROM virtual_ward_enrollments
+      `SELECT id, tenant_id, patient_uid, status, care_manager_uid FROM virtual_ward_enrollments
        WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
       Number.parseInt(enrollmentId, 10),
       tenantId
@@ -165,7 +166,7 @@ async function resolveEnrollment({ tenantId, patientUid, enrollmentId }) {
   }
   if (patientUid) {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, tenant_id, patient_uid, status FROM virtual_ward_enrollments
+      `SELECT id, tenant_id, patient_uid, status, care_manager_uid FROM virtual_ward_enrollments
        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'active'
        ORDER BY start_date DESC LIMIT 1`,
       tenantId,
@@ -195,6 +196,24 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
     enrollmentId,
   });
   if (!enrollment) throw AppError.notFound('Active virtual-ward enrollment not found for patient');
+
+  // Staff IDOR guard (#7): a non-patient caller may submit a check-in only for a
+  // patient they are responsible for — the enrollment's assigned care manager,
+  // or an admin/super-admin with oversight. Without this, any in-scope staff
+  // role could fabricate symptoms/vitals for an ARBITRARY enrolled patient and
+  // trigger (or noise-suppress) clinical escalations. (The PATIENT self-only
+  // lock above covers patient callers.)
+  if (callerRole !== 'PATIENT') {
+    const isCareManager = enrollment.care_manager_uid
+      && callerUid
+      && String(enrollment.care_manager_uid) === String(callerUid);
+    if (!isCareManager && !isAdmin(callerRole)) {
+      throw AppError.forbidden(
+        'Only the assigned care manager (or an admin) may submit a check-in for this patient',
+        'VIRTUAL_WARD_NOT_CARE_MANAGER',
+      );
+    }
+  }
 
   const triage = triageCheckIn({ symptoms, vitals, medicationAdherencePct, moodScore, painScore });
 
