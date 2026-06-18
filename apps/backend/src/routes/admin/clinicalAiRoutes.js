@@ -25,6 +25,7 @@ import teleconsultAiRoutes from './clinicalAi/teleconsultAiRoutes.js';
 import trialSafetyOperationsRoutes from './clinicalAi/trialSafetyOperationsRoutes.js';
 import dischargeComposeRoutes from './clinicalAi/dischargeComposeRoutes.js';
 import priorAuthAppealRoutes from './clinicalAi/priorAuthAppealRoutes.js';
+import qualityCaseRoutes from './clinicalAi/qualityCaseRoutes.js';
 import { requireClinicalAiControl } from './clinicalAi/shared.js';
 
 const router = express.Router();
@@ -56,5 +57,6 @@ router.use('/', teleconsultAiRoutes);
 router.use('/', trialSafetyOperationsRoutes);
 router.use('/', dischargeComposeRoutes);
 router.use('/', priorAuthAppealRoutes);
+router.use('/', qualityCaseRoutes);
 
 export default router;

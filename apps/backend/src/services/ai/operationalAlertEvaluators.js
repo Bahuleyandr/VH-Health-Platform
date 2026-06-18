@@ -828,6 +828,109 @@ async function _evaluateAcuityLive({ tenantId, now }) {
   return candidates;
 }
 
+// ---------------------------------------------------------------------------
+// 13. quality_case_review — M&M/RCA queue: surface HIGH/CRITICAL open incidents
+// ---------------------------------------------------------------------------
+// Signal: quality_incidents with severity HIGH/CRITICAL that are not yet
+// resolved or closed. Emits one candidate per open incident, with GENERIC
+// summary (no PHI — incident description is not included).
+// Severity map: CRITICAL → critical, HIGH → high.
+async function evaluateQualityCaseReview({ tenantId }) {
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT id, severity
+         FROM quality_incidents
+        WHERE tenant_id = $1::uuid
+          AND UPPER(severity) IN ('HIGH', 'CRITICAL')
+          AND LOWER(status) NOT IN ('resolved', 'closed')`,
+      tenantId
+    );
+  } catch (err) {
+    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
+    throw err;
+  }
+
+  if (!rows || !rows.length) return [];
+
+  return rows.map((row) => {
+    const sev = String(row.severity || '').toUpperCase();
+    const severity = sev === 'CRITICAL' ? 'critical' : 'high';
+    return {
+      module_key: 'quality_case_review',
+      domain: 'quality',
+      owner_role: 'QUALITY_OFFICER',
+      scope_key: `quality_incident:${row.id}`,
+      scope_label: `Quality incident #${row.id}`,
+      alert_category: 'quality_case',
+      severity,
+      summary: 'High-severity quality incident requiring M&M/RCA review',
+      metrics: { incident_id: Number(row.id), severity: row.severity },
+      recommended_actions: [
+        'Schedule M&M/RCA committee review.',
+        'Assign root-cause investigator within 48 hours.',
+      ],
+      source_citations: [
+        { source_type: 'quality_incidents', source_id: String(row.id), label: `Quality incident #${row.id}` },
+      ],
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 14. rca_draft_generator — readmission RCA queue: surface unreviewed readmissions
+// ---------------------------------------------------------------------------
+// Signal: admissions where prior_admission_id IS NOT NULL (auto-populated
+// within 7 days of a prior discharge by migration 230). Only surfaces
+// readmissions in the last 14 days that have no open quality alert yet.
+// The runSweep reconcile layer handles dedup — we emit all candidates and
+// let the upsert ON CONFLICT deduplicate.
+async function evaluateReadmissionRca({ tenantId, now }) {
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 14);
+  const cutoffIso = cutoff.toISOString();
+
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT id, prior_admission_id
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND prior_admission_id IS NOT NULL
+          AND admitted_at >= $2::timestamptz`,
+      tenantId,
+      cutoffIso
+    );
+  } catch (err) {
+    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
+    throw err;
+  }
+
+  if (!rows || !rows.length) return [];
+
+  return rows.map((row) => ({
+    module_key: 'rca_draft_generator',
+    domain: 'quality',
+    owner_role: 'QUALITY_OFFICER',
+    scope_key: `readmission:${row.id}`,
+    scope_label: 'Readmission review',
+    alert_category: 'readmission_review',
+    severity: 'moderate',
+    summary: 'Unplanned readmission within 7 days — RCA review',
+    metrics: {
+      admission_id: Number(row.id),
+      prior_admission_id: Number(row.prior_admission_id),
+    },
+    recommended_actions: [
+      'Review discharge notes and contributing factors.',
+      'Complete RCA draft within 72 hours of identification.',
+    ],
+    source_citations: [
+      { source_type: 'admissions', source_id: String(row.id), label: `Readmission #${row.id}` },
+    ],
+  }));
+}
+
 export const OPERATIONAL_ALERT_EVALUATORS = [
   { module_key: 'pharmacy_stockout_predictor',       domain: 'pharmacy',     owner_role: 'MATERIALS_MANAGER',    evaluate: evaluatePharmacyStockoutBridge },
   { module_key: 'blood_bank_demand_forecast',        domain: 'blood_bank',   owner_role: 'BLOOD_BANK_STAFF',     evaluate: evaluateBloodBankBridge },
@@ -846,4 +949,7 @@ export const OPERATIONAL_ALERT_EVALUATORS = [
   { module_key: 'biomed_device_maintenance',         domain: 'biomed',       owner_role: 'BIOMEDICAL_STAFF',     evaluate: evaluateBiomedMaintenanceBridge },
   { module_key: 'inventory_intelligence',            domain: 'inventory',    owner_role: 'MATERIALS_MANAGER',    evaluate: evaluateInventoryBridge },
   { module_key: 'procurement_negotiation_assistant', domain: 'procurement',  owner_role: 'PROCUREMENT_LEAD',     evaluate: evaluateProcurementBridge },
+  // Quality domain evaluators (forward roadmap #6)
+  { module_key: 'quality_case_review',               domain: 'quality',      owner_role: 'QUALITY_OFFICER',      evaluate: evaluateQualityCaseReview },
+  { module_key: 'rca_draft_generator',               domain: 'quality',      owner_role: 'QUALITY_OFFICER',      evaluate: evaluateReadmissionRca },
 ];
