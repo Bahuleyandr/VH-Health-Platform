@@ -432,7 +432,7 @@ async function insertMissingDrugChartAudit({
        (uid, role, action, resource, resource_id, metadata, created_at)
      SELECT NULL::uuid,
             'system',
-            $2,
+            $2::varchar,
             'admission',
             $1::text,
             $3::jsonb,
@@ -440,7 +440,7 @@ async function insertMissingDrugChartAudit({
       WHERE NOT EXISTS (
         SELECT 1
           FROM audit_logs
-         WHERE action = $2
+         WHERE action = $2::varchar
            AND resource = 'admission'
            AND resource_id = $1::text
       )
@@ -634,7 +634,7 @@ export async function recordFirstDrugChartEntry(order) {
          (uid, role, action, resource, resource_id, metadata, created_at)
        SELECT $2::uuid,
               'system',
-              $3,
+              $3::varchar,
               'admission',
               $1::text,
               $4::jsonb,
@@ -642,7 +642,7 @@ export async function recordFirstDrugChartEntry(order) {
         WHERE NOT EXISTS (
           SELECT 1
             FROM audit_logs
-           WHERE action = $3
+           WHERE action = $3::varchar
              AND resource = 'admission'
              AND resource_id = $1::text
         )
