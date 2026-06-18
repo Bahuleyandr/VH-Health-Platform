@@ -1690,21 +1690,8 @@ export const getPrescription = async (req, res) => {
     // isStaff()-or-isAdmin() gate suffices. Scoped here rather than in
     // routing because the route-level RBAC already allows PATIENT (and
     // we need PATIENT to reach /:id for their OWN script).
-    const role = String(req.user?.role || '').toUpperCase();
-    const isPrivileged = [
-      'ADMIN',
-      'SUPER_ADMIN',
-      'DOCTOR',
-      'NURSING_STAFF',
-      'PHARMACY_STAFF',
-      'PHARMACY_INCHARGE',
-      'BILLING_STAFF'
-    ].includes(role);
-    if (!isPrivileged) {
-      const callerId = req.user?.id ?? req.user?.userId;
-      if (!callerId || String(rx.patient_id) !== String(callerId)) {
-        return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
-      }
+    if (!callerMayAccessPrescription(req, rx.patient_id)) {
+      return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
 
     // Sign URLs — pass the request-derived baseUrl so the pdf/photo URL
@@ -1770,6 +1757,11 @@ export const getPrescriptionByAppointment = async (req, res) => {
     }
 
     const rx = result[0];
+    // IDOR: a PATIENT may only read their OWN prescription (this endpoint is
+    // PATIENT-reachable by RBAC and keys on appointment_id).
+    if (!callerMayAccessPrescription(req, rx.patient_id)) {
+      return error(res, 'No prescription found for this appointment', HTTP_STATUS.NOT_FOUND);
+    }
     if (rx.pdf_key) {
       const baseUrl = `${req.protocol}://${req.get('host')}`;
       try {
@@ -2466,6 +2458,28 @@ export const orderPharmacyFromPrescription = async (req, res) => {
   }
 };
 
+// Shared prescription-access predicate. Patient-role callers may only access
+// their OWN prescriptions; the listed staff roles read any. Single-sourced so
+// the by-id, by-appointment, and PDF endpoints can't drift apart — the PDF +
+// by-appointment endpoints previously OMITTED this and were patient-to-patient
+// IDOR-able by enumerating the SERIAL prescription/appointment id (#4).
+const PRESCRIPTION_READ_ROLES = [
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'NURSING_STAFF',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'BILLING_STAFF',
+];
+
+function callerMayAccessPrescription(req, patientId) {
+  const role = String(req.user?.role || '').toUpperCase();
+  if (PRESCRIPTION_READ_ROLES.includes(role)) return true;
+  const callerId = req.user?.id ?? req.user?.userId;
+  return !!callerId && String(patientId) === String(callerId);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GET /prescriptions/pdf/:id — download prescription PDF (signed URL redirect)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2478,10 +2492,14 @@ export const downloadPrescriptionPDF = async (req, res) => {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
     const result = await prisma.$queryRawUnsafe(
-      'SELECT pdf_key FROM e_prescriptions WHERE id=$1',
+      'SELECT pdf_key, patient_id FROM e_prescriptions WHERE id=$1',
       id
     );
     if (result.length === 0 || !result[0].pdf_key) {
+      return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);
+    }
+    // IDOR: a PATIENT may only download their OWN prescription PDF.
+    if (!callerMayAccessPrescription(req, result[0].patient_id)) {
       return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);
     }
 
