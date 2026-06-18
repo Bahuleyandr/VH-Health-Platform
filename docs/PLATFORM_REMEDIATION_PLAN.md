@@ -177,3 +177,73 @@ Source: `docs/PLATFORM_SECURITY_AUDIT_2026-06-10.md` +
 - Flutter: `melos run analyze` green; FULL `melos run test` green (patient + staff + core).
 - Infra: `kubectl kustomize` renders prod / apps / dalekdefender overlays; all changed YAML parses; new workflows YAML-validated.
 - NOTE on full `npm test` (single process): OOMs on this workstation at default heap regardless of these changes — use `npm run test:ci` (chunked) locally, as CI does.
+
+## External re-audit pass — 2026-06-18
+
+An independent 6-agent re-audit raised 12 findings. Each was verified against
+`main` BEFORE any fix (live single-tenant-exploitable vs latent multi-tenant vs
+stale/false). Eight confirmed-live items were fixed, verified, and merged to
+both remotes; the rest were deferred or refuted with evidence.
+
+### Fixed (live)
+
+- [x] **#6 — admin login/MFA cookie-only regression.** A prior token-leak fix
+  made `/api/login`(+mfa) strip `token`/`accessToken`/`refreshToken` from the
+  body (cookie-only), but `apps/admin/src/lib/api-client.ts` still threw "No
+  token received", breaking admin+staff login and both MFA flows. Client now
+  treats `200 + admin/staff profile` as success; the masking unit test was
+  rewritten (red→green). Merge `9e349dd3`.
+- [x] **#3c — clinical note ↔ appointment patient mismatch.** `createNote`
+  bound a note to an appointment via `appointment_id` without checking the
+  note's `patient_uid` matched the appointment's patient (cross-patient
+  chart/timeline write by an authorized clinician). Added the consistency guard
+  (`NOTE_APPOINTMENT_PATIENT_MISMATCH`) + real-PG deep test. Merge `1bab07e1`.
+- [x] **#7a — unguarded patient-report explainer.** `/patient-report-explanations`
+  was the only explainer route with no access guard and persisted a
+  caller-asserted `patient_uid`/`admission_id` with format-validation only.
+  Added the direct `patientAccessGuard` (shadow→GO_LIVE) + a load-bearing
+  tenant-scoped existence/consistency check before persist + deep test. Merge
+  `501bfd06`.
+- [x] **#8 — bearer JWT in WebSocket URL.** Core `RealtimeClient` and the staff
+  `WebSocketService` sent the JWT as `/ws?token=…` (leaks to proxy/ingress
+  access logs). Both now send `{action:'auth',token}` as the first message
+  frame (the handshake `wsServer.js` already supports and the patient WS already
+  used). Merge `26727836`.
+- [x] **#9 — realtime not torn down on logout.** Patient logout / idle-timeout /
+  401 never disconnected the `RealtimeClient` singleton, leaving authenticated
+  PHI channels live for the prior user on shared devices. All teardown paths now
+  route through `LogoutService.logout()` (which disconnects both realtime
+  clients). Merge `26727836`.
+- [x] **#10 — non-idempotent mutating retries.** `VHHttpClient._sendWithRetry`
+  retried POST/PUT/PATCH with no `Idempotency-Key` (lost-2xx double-write); the
+  patient `MutationQueue` was also keyless on replay. Now auto-mints a stable
+  key reused across retries/401, threads it through the `ApiClient` facade, and
+  the queue mints once per logical write (reused across online attempt +
+  replay). http_client_test 16/16 incl. 2 new. Merge `76835ce1`.
+- [x] **#12a — downloads bypassed SPKI pinning.** `document_opener` +
+  `cache_file_utils` used raw `package:http` `http.get` (with a hand-attached
+  bearer) for PHI downloads. Backend-host URLs now route through the pinned
+  `VHHttpClient.getBytes`; genuinely off-host (e.g. pre-signed R2) URLs stay on
+  a plain GET. Merge `a1b24a4e`.
+- [x] **#12b — cache key ignored acting-as profile.** `ApiCacheManager`
+  derived the on-disk key from the path only, so a dependent's PHI (fetched
+  under a guardian's delegated session) could collide with / be served back on
+  the guardian's profile. `_keyForPath` now namespaces by
+  `VHHttpClient.actingAsUidProvider` (null = legacy key, no regression). Merge
+  `a1b24a4e`.
+
+### Deferred / not-real
+
+- [ ] **#2 ABDM, #3a/#3b clinical-note phone+downtime, #4 payroll, #5 doctors —
+  LATENT multi-tenant.** Real `tenant_id`/scoping omissions, but not exploitable
+  in single-tenant today (RBAC on payroll/doctors verified solid). Fold into the
+  multi-tenant data-layer cutover; ensure payroll/doctors tables are on that
+  migration checklist.
+- **#1 expired-token refresh — FALSE.** `ignoreExpiration` is refresh-only,
+  signature-checked, and the old jti is blacklisted on rotation. No fix.
+- **#7b lab explainer "uid as patient_uid" — FALSE.** `investigations.uid` IS
+  the patient uid in this schema; the mapping is correct.
+- **#11 deploy blockers — working as designed.** All-zeros image digests +
+  `FILL_ME` admin CIDR are intentional fail-closed placeholders; Kyverno-Enforce
+  is GO_LIVE-gated. *(operator: confirm Kyverno's image-verify identity matches
+  whatever signs the Forgejo-built images.)*
