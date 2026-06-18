@@ -247,3 +247,47 @@ both remotes; the rest were deferred or refuted with evidence.
   `FILL_ME` admin CIDR are intentional fail-closed placeholders; Kyverno-Enforce
   is GO_LIVE-gated. *(operator: confirm Kyverno's image-verify identity matches
   whatever signs the Forgejo-built images.)*
+
+### Deeper re-scan (2026-06-18, same day) — additional fixes
+
+A second, deeper read of the same `main` raised 7 more items; each verified
+before fixing. Five were live and are fixed + merged:
+
+- [x] **#4 — prescription-PDF IDOR (HIGH, patient-exploitable).** `GET
+  /prescriptions/pdf/:id` (`downloadPrescriptionPDF`) returned a signed PDF URL
+  by bare SERIAL id with NO ownership check while the route admits PATIENT — any
+  patient could enumerate the id and fetch any other patient's prescription PDF.
+  Extracted a shared `callerMayAccessPrescription` predicate (patient sees own,
+  listed staff see any) and applied it to the PDF route + `getPrescription` +
+  `getPrescriptionByAppointment` so they can't drift again. Deep test 5/5. Merge
+  `b830f04d`.
+- [x] **#7 — virtual-ward check-in staff IDOR.** `submitCheckIn` locked PATIENT
+  callers to self but applied no check to staff — any in-scope staff role could
+  fabricate vitals/symptoms (→ escalations) for any enrolled patient. Now a
+  non-patient caller must be the enrollment's `care_manager_uid` or an admin
+  (403 `VIRTUAL_WARD_NOT_CARE_MANAGER`). Deep test 4/4. Merge `996d12ff`.
+- [x] **#2-clinical — EHR-query patient guard + tenant scoping.** The
+  clinical-plane `POST /ehr-query` (sibling of the #7a fix) had only a passive
+  logger and `answerEhrQuery` loaded the timeline + admission packet
+  tenant-unscoped/access-unchecked (the lone `collectAdmissionClinicalContext`
+  caller omitting tenantId). Added `patientAccessGuard` (+ parity guard on the
+  clinical-plane report explainer) and threaded `tenantId` into both loads. Merge
+  `b97259fe`. *(Tier E patient-engagement loads have the same tenant-predicate-less
+  SELECTs but are admin/IP-allowlisted control-plane — lower-priority follow-up.)*
+- [x] **#1-ABDM — consent-scope clamp.** `handleDataRequest` passed the HI
+  request's `hiTypes`/`dateRange` straight through (grant was only a fallback),
+  allowing over-disclosure beyond the consented scope. Now intersects HI types +
+  clamps the date window to the grant before persist/process. Deep test 1/1.
+  Merge `553ab612`.
+- [x] **#6 — local security gate unblocked.** gitleaks false-positive on a
+  throwaway localhost Postgres URL annotated; **51 committed DB-dump files under
+  `apps/backend/backups/` untracked** (`git rm --cached`; already gitignored —
+  they remain in git HISTORY, a separate destructive scrub decision); semgrep's
+  Windows `cp1252` `UnicodeDecodeError` fixed by setting `PYTHONUTF8` in
+  `scripts/local-ci.mjs`. `--only=security,infra` now green. Merge `5fac23eb`.
+
+Re-confirmed not-actionable now: prescription/pharmacy **lifecycle** routes are
+staff-only by hard RBAC (no patient-IDOR); care-team ABAC shadow mode, admin/ops
+tenant isolation, HL7 global secret, FHIR per-patient, and the admin
+x-forwarded-for allowlist remain latent multi-tenant or GO_LIVE-gated by design.
+The eight prior fixes were all confirmed present.
