@@ -6603,9 +6603,12 @@ model otp_logs {
   user_agent     String?
   created_by     String?  @db.Uuid
   created_at     DateTime @default(now()) @db.Timestamp(6)
+  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_otp_logs_tenant")
 
   @@index([created_at])
   @@index([phone])
+  @@index([tenant_id], map: "idx_otp_logs_tenant_id")
 }
 
 model otp_sessions {
@@ -6618,9 +6621,12 @@ model otp_sessions {
   attempts   Int      @default(0)
   verified   Boolean  @default(false)
   created_at DateTime @default(now()) @db.Timestamp(6)
+  tenant_id  String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants    tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_otp_sessions_tenant")
 
   @@index([expires_at])
   @@index([phone])
+  @@index([tenant_id], map: "idx_otp_sessions_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -6706,9 +6712,12 @@ model password_reset_otps {
   used       Boolean  @default(false)
   created_at DateTime @default(now()) @db.Timestamp(6)
   attempts   Int      @default(0)
+  tenant_id  String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants    tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_password_reset_otps_tenant")
 
   @@index([expires_at])
   @@index([user_id])
+  @@index([tenant_id], map: "idx_password_reset_otps_tenant_id")
 }
 
 model patient_allergies {
@@ -9331,9 +9340,12 @@ model tenants {
   ophthalmic_exams                           ophthalmic_exams[]
   ophthalmic_refractions                     ophthalmic_refractions[]
   ot_schedules                               ot_schedules[]
+  otp_logs                                   otp_logs[]
+  otp_sessions                               otp_sessions[]
   package_items                              package_items[]
   packages                                   packages[]
   pain_assessments                           pain_assessments[]
+  password_reset_otps                        password_reset_otps[]
   patient_access_audit_log                   patient_access_audit_log[]
   patient_access_break_glass                 patient_access_break_glass[]
   patient_access_break_glass_status_history  patient_access_break_glass_status_history[]
@@ -9424,6 +9436,8 @@ model tenants {
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
   triage_assessments                         triage_assessments[]
+  user_active_sessions                       user_active_sessions[]
+  user_sessions                              user_sessions[]
   users                                      users[]
   video_sessions                             video_sessions[]
   virtual_ward_check_ins                     virtual_ward_check_ins[]
@@ -9681,8 +9695,11 @@ model user_active_sessions {
   issued_at    DateTime @default(now()) @db.Timestamptz(6)
   expires_at   DateTime @db.Timestamptz(6)
   created_at   DateTime @default(now()) @db.Timestamptz(6)
+  tenant_id    String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants      tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_active_sessions_tenant")
 
   @@index([jti], map: "idx_user_active_sessions_jti")
+  @@index([tenant_id], map: "idx_user_active_sessions_tenant_id")
 }
 
 model user_deactivation_log {
@@ -9749,9 +9766,12 @@ model user_sessions {
   platform    String?   @db.VarChar(50)
   expires_at  DateTime? @db.Timestamp(6)
   created_at  DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_sessions_tenant")
 
   @@index([expires_at])
   @@index([user_id])
+  @@index([tenant_id], map: "idx_user_sessions_tenant_id")
 }
 
 model user_status_history {
@@ -9772,7 +9792,7 @@ model user_status_history {
 model users {
   id                                                                               Int                               @id @default(autoincrement())
   uid                                                                              String                            @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                                                                            String                            @unique @db.VarChar(15)
+  phone                                                                            String                            @db.VarChar(15)
   name                                                                             String?                           @db.VarChar(255)
   gender                                                                           String?                           @db.VarChar(20)
   address                                                                          String?
@@ -9923,6 +9943,8 @@ model users {
   dependents                                                                       users[]                           @relation("users_guardian_user_fk")
   tenants                                                                          tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([tenant_id, firebase_uid], map: "uniq_users_tenant_firebase_uid", where: raw("(firebase_uid IS NOT NULL)"))
+  @@unique([tenant_id, phone], map: "uniq_users_tenant_phone")
   @@index([preferred_language], map: "idx_users_preferred_language")
   @@index([status], map: "idx_users_status")
   @@index([tenant_id], map: "idx_users_tenant_id")
