@@ -9,6 +9,7 @@ import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -36,10 +37,8 @@ const messageAttachmentUpload = multer({
 
 // Sanitize message text fields
 const sanitizeMessageFields = sanitizeBody('body', 'subject');
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
-const tenantOf = req =>
-  req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+const tenantOf = req => resolveTenantOrThrow(req);
 
 const normalizeRole = role =>
   String(role || '')

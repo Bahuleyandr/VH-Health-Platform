@@ -17,14 +17,14 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { ROLES, isAdmin, isLeadership } from '../../utils/roleHelpers.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = express.Router();
 
 const canManage = (role) => isAdmin(role) || isLeadership(role) || role === ROLES.HR_STAFF || role === 'SUPER_ADMIN';
 
 function tenantOf(req) {
-  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
-    '00000000-0000-4000-8000-000000000001';
+  return resolveTenantOrThrow(req);
 }
 
 function handleFailure(res, err, context) {

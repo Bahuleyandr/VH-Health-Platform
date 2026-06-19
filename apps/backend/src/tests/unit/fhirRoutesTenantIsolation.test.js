@@ -34,6 +34,8 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: TENANT_A,
+  resolveTenantOrThrow: (req) => req?.tenantId || TENANT_A,
+  requireTenantId: (tenantId) => tenantId || TENANT_A,
 }));
 
 jest.unstable_mockModule('../../services/emr/vitalsChartService.js', () => ({

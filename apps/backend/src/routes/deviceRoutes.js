@@ -8,7 +8,7 @@ import logger from '../logging/logger.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
-import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
 
@@ -18,7 +18,7 @@ logger.info('✅ deviceRoutes loaded with RBAC protection');
 const ADMIN_DEVICE_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function normalizeRole(role) {

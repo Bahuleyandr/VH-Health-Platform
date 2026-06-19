@@ -9,13 +9,12 @@ import {
   deleteFile,
   getFileStream 
 } from '../../services/investigation/fileService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
-
 function tenantOf(req) {
-  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id || DEFAULT_TENANT;
+  return resolveTenantOrThrow(req);
 }
 
 async function checkInvestigationAccess(req, rawInvestigationId) {

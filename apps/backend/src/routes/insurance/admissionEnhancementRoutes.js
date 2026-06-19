@@ -29,6 +29,7 @@ import prisma from '../../lib/prisma.js';
 import * as claims from '../../services/insurance/claimsService.js';
 import { normalizeClinicalJustification, ENHANCEMENT_JUSTIFICATION_TEMPLATE } from '../../services/insurance/clinicalJustificationTemplate.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 // mergeParams: true — `:admissionId` is declared on the parent mount in
 // app.js (`/api/v1/admissions/:admissionId/tpa-enhancement`); without
@@ -36,8 +37,7 @@ import { success, error } from '../../utils/responseHelper.js';
 const router = Router({ mergeParams: true });
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
-    '00000000-0000-4000-8000-000000000001';
+  return resolveTenantOrThrow(req);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────

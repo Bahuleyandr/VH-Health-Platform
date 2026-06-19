@@ -7,6 +7,7 @@ import logger from '../../logging/logger.js';
 import dietaryService from '../../services/dietary/dietaryService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -17,8 +18,7 @@ const validate = (req, res, next) => {
 const router = Router();
 
 function tenantOf(req) {
-  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
-    '00000000-0000-4000-8000-000000000001';
+  return resolveTenantOrThrow(req);
 }
 
 /**

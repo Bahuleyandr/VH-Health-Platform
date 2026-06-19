@@ -15,6 +15,9 @@ import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
+// Aliased: this file has its own request-level requireTenantId(req); this is the
+// value-level fail-closed guard for the anti-spoof claim source below.
+import { requireTenantId as requireTenantValue } from '../../services/tenant/tenantService.js';
 
 const FULL_OP_QUEUE_ROLES = new Set([
   'ADMIN',
@@ -1219,7 +1222,7 @@ export const registerWalkIn = async (req, res) => {
     // also defaulted. The `x-tenant-id` header is deliberately NOT consulted
     // here — it must remain UNTRUSTED. Finding:
     //   2026-05-22-cross-tenant-rls-receptionist-0ff7bac5.
-    const actingTenantId = req.user?.tenant_id || '00000000-0000-4000-8000-000000000001';
+    const actingTenantId = requireTenantValue(req.user?.tenant_id);
     // Accept common field-name aliases before destructure so callers using
     // `date_of_birth` / `dob` / `gender` / `birthdate` are not silently
     // dropped. The Paediatrics walk-in flow hit this — the receptionist

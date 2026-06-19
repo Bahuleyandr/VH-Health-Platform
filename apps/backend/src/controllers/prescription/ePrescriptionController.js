@@ -19,6 +19,7 @@ import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { formatTemperatureForDisplay } from '../../services/prescription/prescriptionPdfHelper.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 
 // ─── Frequency label map ─────────────────────────────────────────────────────
 const FREQ_LABELS = {
@@ -1272,7 +1273,7 @@ export const createPrescription = async (req, res) => {
     //   2026-05-09-obstetric-anc-patient-supplements-missing.
     try {
       await maybePropagateAncSupplements({
-        tenantId: req.user?.tenantId || '00000000-0000-4000-8000-000000000001',
+        tenantId: requireTenantId(req.user?.tenantId),
         patient_uid: patientUid,
         medications,
         prescribed_by: doctorUid

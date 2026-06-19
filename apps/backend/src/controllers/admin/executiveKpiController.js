@@ -7,13 +7,11 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
-
 function tenantOf(req) {
-  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
-    DEFAULT_TENANT;
+  return resolveTenantOrThrow(req);
 }
 
 export async function getExecutiveKpi(req, res) {

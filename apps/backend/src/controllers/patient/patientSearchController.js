@@ -25,7 +25,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { error, success } from '../../utils/responseHelper.js';
@@ -43,7 +43,7 @@ function validPatientPhone(rawValue) {
 }
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function normalizeGender(value) {

@@ -6,7 +6,7 @@ import logger from '../logging/logger.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import feedbackService from '../services/feedback/feedbackService.js';
 import { resolveDoctorFilterId } from '../services/doctor/doctorRefService.js';
-import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import prisma from '../lib/prisma.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
@@ -15,7 +15,7 @@ import { isClinical, isAdmin } from '../utils/roleHelpers.js';
 import { parseListQuery } from '../utils/listQuery.js';
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function isAdminRole(role) {

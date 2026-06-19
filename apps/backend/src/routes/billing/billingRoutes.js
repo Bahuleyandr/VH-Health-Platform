@@ -10,8 +10,7 @@ import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { requiredUUID, requiredString, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
-
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -22,7 +21,7 @@ const validate = (req, res, next) => {
 const router = Router();
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function ensurePatientSelfAccess(req, patientUid) {

@@ -4,14 +4,14 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { LookupService } from '../../services/user/lookupService.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function safeSearchCriteria({ phone, uid, name, email }) {

@@ -18,7 +18,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
-const { resolveTenantOrThrow, resolveTenantForUser } = await import('../../services/tenant/tenantService.js');
+const { resolveTenantOrThrow, requireTenantId, resolveTenantForUser } = await import('../../services/tenant/tenantService.js');
 
 const savedFlag = process.env.ALLOW_DEFAULT_TENANT;
 afterEach(() => {
@@ -44,6 +44,25 @@ describe('resolveTenantOrThrow', () => {
   it('returns the default tenant when ALLOW_DEFAULT_TENANT=true', () => {
     process.env.ALLOW_DEFAULT_TENANT = 'true';
     expect(resolveTenantOrThrow({})).toBe(DEFAULT_TENANT_ID);
+  });
+});
+
+describe('requireTenantId (service-layer value guard)', () => {
+  it('returns a truthy tenant id unchanged', () => {
+    expect(requireTenantId(TENANT_A)).toBe(TENANT_A);
+  });
+
+  it('throws 403 TENANT_CONTEXT_REQUIRED on a falsy tenant when default not allowed', () => {
+    delete process.env.ALLOW_DEFAULT_TENANT;
+    let err;
+    try { requireTenantId(null); } catch (e) { err = e; }
+    expect(err?.statusCode).toBe(403);
+    expect(err?.code).toBe('TENANT_CONTEXT_REQUIRED');
+  });
+
+  it('returns the default tenant on a falsy tenant when ALLOW_DEFAULT_TENANT=true', () => {
+    process.env.ALLOW_DEFAULT_TENANT = 'true';
+    expect(requireTenantId(undefined)).toBe(DEFAULT_TENANT_ID);
   });
 });
 

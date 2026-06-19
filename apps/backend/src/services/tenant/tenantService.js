@@ -223,7 +223,23 @@ export async function resolveTenantForUser(userUid, { failClosed = false } = {})
  * @returns {string} resolved tenant id
  */
 export function resolveTenantOrThrow(req) {
-  if (req?.tenantId) return req.tenantId;
+  return requireTenantId(req?.tenantId);
+}
+
+/**
+ * Value-level fail-closed guard for the service layer (W1, multi-tenancy
+ * program). Returns the given tenantId if truthy; otherwise throws 403
+ * TENANT_CONTEXT_REQUIRED — UNLESS `ALLOW_DEFAULT_TENANT=true` (single-tenant
+ * installs), in which case it returns the default tenant. This is the sanctioned
+ * replacement for `tenantId || DEFAULT_TENANT_ID` in service `scopedTx`/`tenantOr`
+ * helpers: a falsy tenant on a clinical/money write must fail, not silently
+ * scope to the default tenant.
+ *
+ * @param {string|null|undefined} tenantId
+ * @returns {string} a valid tenant id
+ */
+export function requireTenantId(tenantId) {
+  if (tenantId) return tenantId;
   if (isDefaultTenantAllowed()) return DEFAULT_TENANT_ID;
   throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
 }
@@ -293,6 +309,7 @@ export default {
   resolveTenantForRequest,
   resolveTenantForUser,
   resolveTenantOrThrow,
+  requireTenantId,
   updateTenant,
   DEFAULT_TENANT_ID,
 };

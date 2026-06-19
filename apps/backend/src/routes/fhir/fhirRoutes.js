@@ -29,7 +29,7 @@ import {
   attachResourceCodings,
   normalizeClinicalCodings,
 } from '../../services/terminology/clinicalCodeBindingService.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import {
   authorizePatientAccessRequest,
   patientAccessErrorPayload,
@@ -66,7 +66,7 @@ const requireFhirExportConsent = requireConsent('data_sharing', {
 });
 
 function tenantOf(req) {
-  const tenantId = req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id || DEFAULT_TENANT_ID;
+  const tenantId = resolveTenantOrThrow(req);
   const normalized = String(tenantId || '').trim().toLowerCase();
   if (!UUID_RE.test(normalized)) {
     throw AppError.forbidden('FHIR tenant context is required', 'FHIR_TENANT_REQUIRED');

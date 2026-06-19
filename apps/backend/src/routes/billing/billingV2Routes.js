@@ -17,6 +17,7 @@ import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = Router();
 const BILLING_V2_EXTRA_STAFF_ROLES = [
@@ -88,8 +89,7 @@ function requireCashOut(req, res, next) {
 }
 
 function tenantOf(req) {
-  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
-    '00000000-0000-4000-8000-000000000001';
+  return resolveTenantOrThrow(req);
 }
 
 function pickBillingContext(row = {}) {

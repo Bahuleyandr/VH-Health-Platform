@@ -46,6 +46,8 @@ jest.unstable_mockModule('../../services/ai/documentIntelligenceService.js', () 
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
+  resolveTenantOrThrow: (req) => req?.tenantId || '00000000-0000-4000-8000-000000000001',
+  requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
 }));
 
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({

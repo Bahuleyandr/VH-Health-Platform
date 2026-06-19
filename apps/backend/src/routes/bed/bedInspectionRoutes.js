@@ -8,12 +8,12 @@ import logger from '../../logging/logger.js';
 import * as svc from '../../services/bed/bedInspectionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
-    '00000000-0000-4000-8000-000000000001';
+  return resolveTenantOrThrow(req);
 }
 
 function wrap(handler) {

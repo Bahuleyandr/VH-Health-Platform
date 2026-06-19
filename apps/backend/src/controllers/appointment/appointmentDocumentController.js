@@ -11,7 +11,7 @@ import {
   authorizePatientAccessRequest,
   SAFE_PATIENT_ACCESS_DENIAL_MESSAGE,
 } from '../../services/security/accessDecisionService.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
@@ -79,7 +79,7 @@ function isMissingSchemaError(err) {
 }
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 async function loadPatientRecordExtractionMap(records, patientId, tenantId = DEFAULT_TENANT_ID) {
