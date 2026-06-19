@@ -88,7 +88,11 @@ function mockTransferRows({ fromBedType, toBedType, toStatus = 'available' }) {
       id: 200, bed_number: 'B2', ward_id: 5, status: 'occupied',
       patient_uid: PATIENT, assigned_at: new Date(),
       created_at: new Date(), updated_at: new Date(), bed_type: toBedType,
-    }]);
+    }])
+    // bed_cleaning_turnaround SLA rule lookup (startWorkflowSla, in-tx) — return
+    // no rule so the SLA start is a clean no-op for this unit-level mock. The
+    // real atomic behaviour is proven in bed-cleaning-sla-atomicity.deep.test.js.
+    .mockResolvedValueOnce([]);
 }
 
 describe('bedManagementService.transferPatient — class-change reconciliation (H D34)', () => {

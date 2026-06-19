@@ -1,6 +1,6 @@
 // src/services/referral/referralService.js
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -367,95 +367,112 @@ class ReferralService {
       throw AppError.badRequest('An active admission doctor is required for ward referrals');
     }
 
-    // Prisma ORM — column names validated at runtime against schema.prisma.
-    // Defaults for status ('pending') come from the schema itself, so we
-    // don't set them here.
-    const referral = await prisma.referrals.create({
-      data: {
-        referral_number: referralNumber,
-        tenant_id: tenantId,
-        patient_uid,
-        encounter_id: encounter_id || null,
-        referring_doctor: resolvedReferringDoctor,
-        referred_to_doctor: referred_to_doctor || null,
-        referred_to_department,
-        referral_type: referral_type || 'internal',
-        reason,
-        urgency: urgency || 'routine',
-        priority: priorityForUrgency(urgency),
-        clinical_summary: clinical_summary || null,
-        requester_id: requesterUid || null,
-        performer_id: performer_id || referred_to_doctor || null,
-        source: source || 'ward',
-        request_context: request_context || {},
-      },
-      select: {
-        id: true,
-        referral_number: true,
-        tenant_id: true,
-        patient_uid: true,
-        encounter_id: true,
-        referring_doctor: true,
-        referred_to_doctor: true,
-        referred_to_department: true,
-        referral_type: true,
-        reason: true,
-        urgency: true,
-        clinical_summary: true,
-        status: true,
-        priority: true,
-        requester_id: true,
-        performer_id: true,
-        first_seen_at: true,
-        first_seen_by: true,
-        source: true,
-        created_at: true,
-      },
-    });
+    // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md)
+    // + Phase 0/1 transaction rule (apps/backend CLAUDE.md): the referral detail
+    // row, its canonical referral.requested timeline + audit event, and the
+    // referral_response SLA start are ONE atomic unit. Previously the canonical
+    // event + SLA-start ran post-commit inside bestEffortReferralCanonical, so an
+    // SLA-start failure was silently swallowed — a referral could exist with no
+    // response-time clock and no timeline row (the safety artifact vanished).
+    // Emitting them on `tx` (via { db: tx }) means a canonical/SLA failure rolls
+    // the referral back rather than leaving an orphan. Pre-flight lookups
+    // (_assertCanCreateForPatient / _generateReferralNumber / _resolveReferringDoctor)
+    // already ran on plain prisma above (Phase 0) so a not-found surfaces as 4xx,
+    // not a 500 inside the tx.
+    const referral = await setTenantTx(tenantId, async (tx) => {
+      // Prisma ORM — column names validated at runtime against schema.prisma.
+      // Defaults for status ('pending') come from the schema itself, so we
+      // don't set them here.
+      const created = await tx.referrals.create({
+        data: {
+          referral_number: referralNumber,
+          tenant_id: tenantId,
+          patient_uid,
+          encounter_id: encounter_id || null,
+          referring_doctor: resolvedReferringDoctor,
+          referred_to_doctor: referred_to_doctor || null,
+          referred_to_department,
+          referral_type: referral_type || 'internal',
+          reason,
+          urgency: urgency || 'routine',
+          priority: priorityForUrgency(urgency),
+          clinical_summary: clinical_summary || null,
+          requester_id: requesterUid || null,
+          performer_id: performer_id || referred_to_doctor || null,
+          source: source || 'ward',
+          request_context: request_context || {},
+        },
+        select: {
+          id: true,
+          referral_number: true,
+          tenant_id: true,
+          patient_uid: true,
+          encounter_id: true,
+          referring_doctor: true,
+          referred_to_doctor: true,
+          referred_to_department: true,
+          referral_type: true,
+          reason: true,
+          urgency: true,
+          clinical_summary: true,
+          status: true,
+          priority: true,
+          requester_id: true,
+          performer_id: true,
+          first_seen_at: true,
+          first_seen_by: true,
+          source: true,
+          created_at: true,
+        },
+      });
 
-    const notifications = await this._notifyReferralRecipients(referral);
-    await bestEffortReferralCanonical('referral request', async () => {
       await recordCanonicalClinicalEvent({
         tenantId,
-        patientUid: referral.patient_uid,
-        encounterId: referral.encounter_id,
+        patientUid: created.patient_uid,
+        encounterId: created.encounter_id,
         eventType: 'referral.requested',
-        eventSubtype: referral.referred_to_department,
-        eventStatus: referral.status,
+        eventSubtype: created.referred_to_department,
+        eventStatus: created.status,
         sourceTable: 'referrals',
-        sourceId: referral.id,
+        sourceId: created.id,
         resourceType: 'referral',
-        resourceId: referral.id,
+        resourceId: created.id,
         actorUid: requesterUid,
         actorRole: actor_role,
-        summary: `Referral requested to ${referral.referred_to_department}`,
+        summary: `Referral requested to ${created.referred_to_department}`,
         payload: {
-          referral_number: referral.referral_number,
-          referred_to_doctor: referral.referred_to_doctor,
-          referred_to_department: referral.referred_to_department,
-          urgency: referral.urgency,
-          reason: referral.reason,
-          clinical_summary: referral.clinical_summary,
-          source: referral.source,
+          referral_number: created.referral_number,
+          referred_to_doctor: created.referred_to_doctor,
+          referred_to_department: created.referred_to_department,
+          urgency: created.urgency,
+          reason: created.reason,
+          clinical_summary: created.clinical_summary,
+          source: created.source,
         },
-        afterState: referral,
-      });
+        afterState: created,
+      }, { db: tx });
       await startWorkflowSla({
         tenantId,
         ruleCode: 'referral_response',
-        patientUid: referral.patient_uid,
-        encounterId: referral.encounter_id,
+        patientUid: created.patient_uid,
+        encounterId: created.encounter_id,
         sourceTable: 'referrals',
-        sourceId: referral.id,
-        priority: referral.priority || referral.urgency || 'normal',
-        assignedUserUid: referral.referred_to_doctor,
+        sourceId: created.id,
+        priority: created.priority || created.urgency || 'normal',
+        assignedUserUid: created.referred_to_doctor,
         metadata: {
-          referral_number: referral.referral_number,
-          referred_to_department: referral.referred_to_department,
-          urgency: referral.urgency,
+          referral_number: created.referral_number,
+          referred_to_department: created.referred_to_department,
+          urgency: created.urgency,
         },
-      });
+      }, { db: tx });
+
+      return created;
     });
+
+    // Notifications are a genuinely fire-and-forget downstream (external push /
+    // staff inbox) — Phase 1.5 post-commit, must never roll back the referral.
+    const notifications = await this._notifyReferralRecipients(referral);
     logger.info(`Referral created: ${referralNumber} from ${referring_doctor} to ${referred_to_department}`);
     return { ...referral, notifications };
   }

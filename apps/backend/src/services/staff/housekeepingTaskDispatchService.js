@@ -5,7 +5,16 @@ import { emitHousekeepingRequestRaised } from '../clinical/canonicalOperationalB
 
 const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
-const SLA_MINUTES = { urgent: 30, high: 120, normal: 240, low: 1440 };
+// Bed-cleaning turnaround target. `high` is the urgency every bed-cleaning
+// dispatch uses (createBedCleaningRequest below always passes urgency:'high'),
+// and it MUST agree with the canonical `bed_cleaning_turnaround` workflow_sla_rule
+// (migration 269, target_minutes = 30) — otherwise the housekeeping_requests
+// `sla_due_at` clock (this map) and the canonical workflow-SLA clock disagree on
+// when a turnover is late. Reconciled to the migration's 30-min rule (the
+// infection-control / throughput target the canonical SLA + escalation engine
+// enforce); the prior 120 was an un-sourced duplicate. `urgent` keeps 30 (same
+// target); `normal`/`low` are non-bed-cleaning lanes and unchanged.
+const SLA_MINUTES = { urgent: 30, high: 30, normal: 240, low: 1440 };
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function cleanText(value, fallback = '') {

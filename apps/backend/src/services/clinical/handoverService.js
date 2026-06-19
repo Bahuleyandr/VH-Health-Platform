@@ -1,5 +1,5 @@
 // src/services/clinical/handoverService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateClinicalText } from '../ai/localLlmClient.js';
 import { publishEvent } from '../events/eventOutboxService.js';
@@ -30,15 +30,6 @@ function eventMatches(event, type) {
 
 function recent(events, type, count = 5) {
   return events.filter((event) => eventMatches(event, type)).slice(0, count);
-}
-
-async function bestEffortHandoverTimelineEvent(label, input) {
-  try {
-    return await recordCanonicalClinicalEvent(input);
-  } catch (err) {
-    logger.warn(`Canonical handover event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
 }
 
 function buildHandoverFallback(patientUid, timeline) {
@@ -229,16 +220,23 @@ export async function createHandover(data) {
     throw AppError.badRequest(`Invalid shift: ${shift}. Must be one of: ${VALID_SHIFTS.join(', ')}`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO nurse_handovers
-       (tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
-        patient_summary, active_issues, pending_tasks, medications_due,
-        special_instructions)
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6::uuid, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12)
-     RETURNING id, tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
-               shift, patient_summary, summary, active_issues, pending_tasks, medications_due,
-               alerts, special_instructions, status, acknowledged, created_at, updated_at`,
-    
+  // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md)
+  // + Phase 0/1 transaction rule (apps/backend CLAUDE.md): the SBAR handover
+  // detail row and its canonical handover.created timeline + audit event are ONE
+  // atomic unit. Previously the canonical event ran post-commit inside the
+  // swallowing bestEffortHandoverTimelineEvent, so a handover (a shift-safety
+  // artifact) could persist with no timeline/audit row. Emitting it on `tx`
+  // (via { db: tx }) means a canonical-write failure rolls the handover back.
+  const rows = await setTenantTx(tenantId, async (tx) => {
+    const inserted = await tx.$queryRawUnsafe(
+      `INSERT INTO nurse_handovers
+         (tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
+          patient_summary, active_issues, pending_tasks, medications_due,
+          special_instructions)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6::uuid, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12)
+       RETURNING id, tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
+                 shift, patient_summary, summary, active_issues, pending_tasks, medications_due,
+                 alerts, special_instructions, status, acknowledged, created_at, updated_at`,
       tenantId,
       patient_uid,
       ward || null,
@@ -251,13 +249,44 @@ export async function createHandover(data) {
       JSON.stringify(pending_tasks),
       JSON.stringify(medications_due),
       special_instructions || null,
-    
-  );
+    );
+
+    const createdRow = inserted[0];
+    await recordCanonicalClinicalEvent({
+      tenantId: createdRow.tenant_id,
+      patientUid: patient_uid,
+      eventType: 'handover.created',
+      eventSubtype: createdRow.shift,
+      eventStatus: createdRow.status || 'pending',
+      sourceTable: 'nurse_handovers',
+      sourceId: createdRow.id,
+      resourceType: 'handover',
+      resourceId: createdRow.id,
+      actorUid: outgoing_nurse,
+      summary: `Handover created for ${createdRow.shift || shift.toLowerCase()} shift`,
+      payload: {
+        ward: createdRow.ward,
+        bed_number: createdRow.bed_number,
+        outgoing_nurse: createdRow.outgoing_nurse,
+        incoming_nurse: createdRow.incoming_nurse,
+        active_issues: active_issues || [],
+        pending_tasks: pending_tasks || [],
+        medications_due: medications_due || [],
+      },
+      afterState: createdRow,
+      timelineIdempotencyKey: `nurse_handovers:${createdRow.id}:created`,
+      auditIdempotencyKey: `nurse_handovers:${createdRow.id}:audit:created`,
+    }, { db: tx });
+
+    return inserted;
+  });
 
   logger.info(`Handover created by nurse ${outgoing_nurse} for patient ${patient_uid} (${shift} shift)`);
   const created = { ...rows[0], patient_uid, ward: ward || null, bed_number: bed_number || null, outgoing_nurse, incoming_nurse: incoming_nurse || null, shift: shift.toLowerCase() };
-  emitHandover(created);
 
+  // Realtime emit + event outbox are fire-and-forget downstreams (Phase 1.5,
+  // post-commit) — they must never roll back the handover write.
+  emitHandover(created);
   await publishEvent({
     eventType: 'clinical.handover.created',
     aggregateType: 'nurse_handover',
@@ -270,32 +299,6 @@ export async function createHandover(data) {
     },
   });
 
-  await bestEffortHandoverTimelineEvent('handover create', {
-    tenantId: created.tenant_id,
-    patientUid: patient_uid,
-    eventType: 'handover.created',
-    eventSubtype: created.shift,
-    eventStatus: created.status || 'pending',
-    sourceTable: 'nurse_handovers',
-    sourceId: created.id,
-    resourceType: 'handover',
-    resourceId: created.id,
-    actorUid: outgoing_nurse,
-    summary: `Handover created for ${created.shift || shift.toLowerCase()} shift`,
-    payload: {
-      ward: created.ward,
-      bed_number: created.bed_number,
-      outgoing_nurse: created.outgoing_nurse,
-      incoming_nurse: created.incoming_nurse,
-      active_issues: active_issues || [],
-      pending_tasks: pending_tasks || [],
-      medications_due: medications_due || [],
-    },
-    afterState: created,
-    timelineIdempotencyKey: `nurse_handovers:${created.id}:created`,
-    auditIdempotencyKey: `nurse_handovers:${created.id}:audit:created`,
-  });
-
   return rows[0];
 }
 
@@ -306,6 +309,8 @@ export async function createHandover(data) {
  * @returns {Object} Updated handover record
  */
 export async function acknowledgeHandover(id, nurseUid) {
+  // Phase 0 — pre-flight existence/state check on plain prisma so a not-found /
+  // already-acknowledged surfaces as 4xx, never a 500 inside the tx.
   const existing = await prisma.$queryRawUnsafe(
     'SELECT id, tenant_id, patient_uid, acknowledged, incoming_nurse FROM nurse_handovers WHERE id = $1',
     id
@@ -319,43 +324,56 @@ export async function acknowledgeHandover(id, nurseUid) {
     throw AppError.conflict('Handover has already been acknowledged');
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE nurse_handovers
-     SET acknowledged = true,
-         acknowledged_at = NOW(),
-         incoming_nurse = COALESCE(incoming_nurse, $2)
-     WHERE id = $1
-     RETURNING id, tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
-               shift, patient_summary, summary, active_issues, pending_tasks, medications_due,
-               alerts, special_instructions, status, acknowledged, acknowledged_at, created_at, updated_at`,
-    id, nurseUid
-  );
+  const tenantId = existing[0].tenant_id || DEFAULT_TENANT_ID;
+
+  // Canonical timeline invariant + Phase 0/1 rule: the acknowledgement state
+  // flip and its canonical handover.acknowledged timeline + audit event are ONE
+  // atomic unit (previously the canonical event was swallowed post-commit). On
+  // `tx` so a canonical-write failure rolls the acknowledgement back.
+  const rows = await setTenantTx(tenantId, async (tx) => {
+    const updated = await tx.$queryRawUnsafe(
+      `UPDATE nurse_handovers
+       SET acknowledged = true,
+           acknowledged_at = NOW(),
+           incoming_nurse = COALESCE(incoming_nurse, $2)
+       WHERE id = $1
+       RETURNING id, tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
+                 shift, patient_summary, summary, active_issues, pending_tasks, medications_due,
+                 alerts, special_instructions, status, acknowledged, acknowledged_at, created_at, updated_at`,
+      id, nurseUid
+    );
+
+    const updatedRow = updated[0];
+    await recordCanonicalClinicalEvent({
+      tenantId: updatedRow.tenant_id,
+      patientUid: updatedRow.patient_uid,
+      eventType: 'handover.acknowledged',
+      eventSubtype: updatedRow.shift,
+      eventStatus: 'acknowledged',
+      sourceTable: 'nurse_handovers',
+      sourceId: updatedRow.id,
+      resourceType: 'handover',
+      resourceId: updatedRow.id,
+      actorUid: nurseUid,
+      summary: `Handover acknowledged for ${updatedRow.shift || 'shift'}`,
+      payload: { acknowledged_by: nurseUid, incoming_nurse: updatedRow.incoming_nurse },
+      beforeState: { acknowledged: false, incoming_nurse: existing[0].incoming_nurse },
+      afterState: { acknowledged: true, incoming_nurse: updatedRow.incoming_nurse },
+      timelineIdempotencyKey: `nurse_handovers:${updatedRow.id}:acknowledged`,
+      auditIdempotencyKey: `nurse_handovers:${updatedRow.id}:audit:acknowledged`,
+    }, { db: tx });
+
+    return updated;
+  });
 
   logger.info(`Handover ${id} acknowledged by nurse ${nurseUid}`);
+  // Event outbox publish is a fire-and-forget downstream (Phase 1.5 post-commit).
   await publishEvent({
     eventType: 'clinical.handover.acknowledged',
     aggregateType: 'nurse_handover',
     aggregateId: id,
     patientUid: rows[0].patient_uid,
     payload: { acknowledged_by: nurseUid },
-  });
-  await bestEffortHandoverTimelineEvent('handover acknowledge', {
-    tenantId: rows[0].tenant_id,
-    patientUid: rows[0].patient_uid,
-    eventType: 'handover.acknowledged',
-    eventSubtype: rows[0].shift,
-    eventStatus: 'acknowledged',
-    sourceTable: 'nurse_handovers',
-    sourceId: rows[0].id,
-    resourceType: 'handover',
-    resourceId: rows[0].id,
-    actorUid: nurseUid,
-    summary: `Handover acknowledged for ${rows[0].shift || 'shift'}`,
-    payload: { acknowledged_by: nurseUid, incoming_nurse: rows[0].incoming_nurse },
-    beforeState: { acknowledged: false, incoming_nurse: existing[0].incoming_nurse },
-    afterState: { acknowledged: true, incoming_nurse: rows[0].incoming_nurse },
-    timelineIdempotencyKey: `nurse_handovers:${rows[0].id}:acknowledged`,
-    auditIdempotencyKey: `nurse_handovers:${rows[0].id}:audit:acknowledged`,
   });
   return rows[0];
 }

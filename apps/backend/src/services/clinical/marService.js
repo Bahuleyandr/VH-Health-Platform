@@ -138,41 +138,57 @@ async function recordCanonicalMarEvent({
     || record.created_at?.toISOString?.()
     || Date.now();
 
+  // The canonical MAR timeline + audit event is a medication-safety artifact and
+  // must be ATOMIC with the detail write (docs/CANONICAL_CLINICAL_TIMELINE.md).
+  // When called with a transaction handle (`db`), let recordCanonicalClinicalEvent
+  // govern error handling: it already swallows ONLY 42P01 (canonical layer not
+  // migrated onto this DB) and RE-THROWS every other fault, so a real canonical
+  // failure aborts the caller's tx and the detail write rolls back — no orphan
+  // MAR row without a timeline/audit row. The previous unconditional try/catch
+  // here swallowed ALL failures, silently breaking that atomicity inside the tx.
+  // Only the post-commit path (no `db`) keeps a best-effort swallow.
+  const emit = () => recordCanonicalClinicalEvent({
+    tenantId: record.tenant_id,
+    patientUid: record.patient_uid,
+    encounterId,
+    eventType,
+    eventStatus: status,
+    sourceTable: 'medication_administrations',
+    sourceId: String(record.id),
+    resourceType: 'mar',
+    resourceId: String(record.id),
+    actorUid: actorUid || record.administered_by,
+    actorRole,
+    summary: `${record.medication_name || 'Medication'} ${status || 'updated'}`,
+    payload: {
+      medication_administration_id: record.id,
+      medication_name: record.medication_name || null,
+      dose: record.dose || record.dosage || null,
+      route: record.route || null,
+      scheduled_time: record.scheduled_time || null,
+      administered_at: record.administered_at || null,
+      previous_status: previousStatus,
+      status,
+      source_clinical_order_id: sourceClinicalOrderId || null,
+      notes: record.notes || null,
+      hold_reason: record.hold_reason || null,
+      refusal_reason: record.refusal_reason || null,
+      ...payload,
+    },
+    beforeState: previousStatus ? { status: previousStatus } : null,
+    afterState: { status },
+    tags: ['mar', 'medication'],
+    timelineIdempotencyKey: `medication_administrations:${record.id}:${eventType}:${status || 'none'}:${stamp}`,
+    auditIdempotencyKey: `medication_administrations:${record.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
+  }, db ? { db } : undefined);
+
+  if (db) {
+    // In-tx: propagate (atomic). recordCanonicalClinicalEvent has already
+    // narrowed the swallow to the canonical-table-absent case.
+    return emit();
+  }
   try {
-    return await recordCanonicalClinicalEvent({
-      tenantId: record.tenant_id,
-      patientUid: record.patient_uid,
-      encounterId,
-      eventType,
-      eventStatus: status,
-      sourceTable: 'medication_administrations',
-      sourceId: String(record.id),
-      resourceType: 'mar',
-      resourceId: String(record.id),
-      actorUid: actorUid || record.administered_by,
-      actorRole,
-      summary: `${record.medication_name || 'Medication'} ${status || 'updated'}`,
-      payload: {
-        medication_administration_id: record.id,
-        medication_name: record.medication_name || null,
-        dose: record.dose || record.dosage || null,
-        route: record.route || null,
-        scheduled_time: record.scheduled_time || null,
-        administered_at: record.administered_at || null,
-        previous_status: previousStatus,
-        status,
-        source_clinical_order_id: sourceClinicalOrderId || null,
-        notes: record.notes || null,
-        hold_reason: record.hold_reason || null,
-        refusal_reason: record.refusal_reason || null,
-        ...payload,
-      },
-      beforeState: previousStatus ? { status: previousStatus } : null,
-      afterState: { status },
-      tags: ['mar', 'medication'],
-      timelineIdempotencyKey: `medication_administrations:${record.id}:${eventType}:${status || 'none'}:${stamp}`,
-      auditIdempotencyKey: `medication_administrations:${record.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
-    }, db ? { db } : undefined);
+    return await emit();
   } catch (err) {
     logger.warn(`Canonical MAR event skipped for row ${record.id}`, {
       error: err?.message || String(err),
@@ -225,6 +241,11 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
   }
 
   const results = [];
+  // Single-tenant-safe: the medication_administrations.tenant_id column carries a
+  // literal default, so an insert that omits it lands on the default tenant.
+  // setTenantTx(tenantId) makes the per-row detail write + canonical MAR event
+  // atomic and tenant-scoped.
+  const tenantId = context.tenantId || DEFAULT_TENANT_ID;
 
   for (const med of expandedMeds) {
     if (!med.medication_name || !med.dose || !med.route || !med.scheduled_time) {
@@ -236,11 +257,12 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       throw AppError.badRequest(`Invalid route: ${med.route}. Must be one of: ${VALID_ROUTES.join(', ')}`);
     }
 
-    // F-2 — idempotency guard. If an active (non-cancelled) row already
-    // exists for the same patient + medication in the same clinical slot,
-    // return it instead of creating a duplicate. The one-minute tolerance
-    // absorbs ER-to-ICU carry-over millisecond drift while preserving
-    // normal repeated-dose schedules. Findings:
+    // F-2 — idempotency guard (Phase 0, pre-flight on plain prisma). If an
+    // active (non-cancelled) row already exists for the same patient +
+    // medication in the same clinical slot, return it instead of creating a
+    // duplicate. The one-minute tolerance absorbs ER-to-ICU carry-over
+    // millisecond drift while preserving normal repeated-dose schedules.
+    // Findings:
     // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
     // 2026-05-20-emergency-walk-in-nurse-7622bcce.
     const dup = await prisma.$queryRawUnsafe(
@@ -260,12 +282,16 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       continue;
     }
 
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO medication_administrations
-         (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
-       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
-
+    // Phase 1 — atomic: the scheduled MAR row + its canonical mar.scheduled
+    // timeline + audit event commit together (or roll back together). Previously
+    // the canonical event ran outside the tx, swallowed — so a scheduled dose
+    // could exist with no canonical safety record.
+    const row = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO medication_administrations
+           (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
+         RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, tenant_id, created_at`,
         patientUid,
         prescriptionId || null,
         med.medication_name,
@@ -273,20 +299,22 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
         normalizedRoute,
         med.scheduled_time,
         med.notes || null,
-
-    );
-    results.push(rows[0]);
-    await recordCanonicalMarEvent({
-      record: rows[0],
-      eventType: 'mar.scheduled',
-      actorUid: context.actorUid,
-      actorRole: context.actorRole,
-      encounterId: context.encounterId,
-      sourceClinicalOrderId: context.sourceClinicalOrderId,
-      payload: {
-        prescription_id: prescriptionId || null,
-      },
+      );
+      await recordCanonicalMarEvent({
+        record: rows[0],
+        eventType: 'mar.scheduled',
+        actorUid: context.actorUid,
+        actorRole: context.actorRole,
+        encounterId: context.encounterId,
+        sourceClinicalOrderId: context.sourceClinicalOrderId,
+        payload: {
+          prescription_id: prescriptionId || null,
+        },
+        db: tx,
+      });
+      return rows[0];
     });
+    results.push(row);
   }
 
   logger.info(`Scheduled ${results.length} medications for patient ${patientUid}`);
@@ -436,8 +464,9 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
  * @returns {Object} Updated record
  */
 export async function recordMissed(id, reason, missedBy = null) {
+  // Phase 0 — pre-flight existence/state check on plain prisma.
   const existing = await prisma.$queryRawUnsafe(
-    'SELECT id, status FROM medication_administrations WHERE id = $1',
+    'SELECT id, status, tenant_id FROM medication_administrations WHERE id = $1',
     id
   );
 
@@ -449,25 +478,34 @@ export async function recordMissed(id, reason, missedBy = null) {
     throw AppError.invalidTransition(existing[0].status, 'missed', ['scheduled']);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE medication_administrations
-     SET status = 'missed', notes = COALESCE($2, notes)
-     WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-               status, administered_by, notes, tenant_id, created_at, updated_at`,
-    id, reason
-  );
+  const tenantId = existing[0].tenant_id || DEFAULT_TENANT_ID;
 
-  await recordCanonicalMarEvent({
-    record: rows[0],
-    eventType: 'mar.missed',
-    actorUid: missedBy,
-    previousStatus: existing[0].status,
-    payload: { reason },
+  // Phase 1 — atomic: the missed-dose state flip + its canonical mar.missed
+  // timeline + audit event commit together. A missed dose is a safety event;
+  // emitting the canonical row on `tx` (was swallowed outside the tx) means a
+  // canonical-write failure rolls the state change back rather than losing it.
+  const row = await setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE medication_administrations
+       SET status = 'missed', notes = COALESCE($2, notes)
+       WHERE id = $1
+       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+                 status, administered_by, notes, tenant_id, created_at, updated_at`,
+      id, reason
+    );
+    await recordCanonicalMarEvent({
+      record: rows[0],
+      eventType: 'mar.missed',
+      actorUid: missedBy,
+      previousStatus: existing[0].status,
+      payload: { reason },
+      db: tx,
+    });
+    return rows[0];
   });
 
   logger.info(`Medication ${id} marked as missed`);
-  return rows[0];
+  return row;
 }
 
 /**
@@ -482,8 +520,9 @@ export async function holdMedication(id, reason, heldBy) {
     throw AppError.badRequest('Hold reason is required');
   }
 
+  // Phase 0 — pre-flight existence/state check on plain prisma.
   const existing = await prisma.$queryRawUnsafe(
-    'SELECT id, status FROM medication_administrations WHERE id = $1',
+    'SELECT id, status, tenant_id FROM medication_administrations WHERE id = $1',
     id
   );
 
@@ -495,26 +534,35 @@ export async function holdMedication(id, reason, heldBy) {
     throw AppError.invalidTransition(existing[0].status, 'held', ['scheduled']);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE medication_administrations
-     SET status = 'held', hold_reason = $2, administered_by = $3::uuid
-     WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-               status, administered_by, hold_reason, notes, tenant_id,
-               created_at, updated_at`,
-    id, reason, heldBy
-  );
+  const tenantId = existing[0].tenant_id || DEFAULT_TENANT_ID;
 
-  await recordCanonicalMarEvent({
-    record: rows[0],
-    eventType: 'mar.held',
-    actorUid: heldBy,
-    previousStatus: existing[0].status,
-    payload: { reason },
+  // Phase 1 — atomic: the hold state flip + its canonical mar.held timeline +
+  // audit event commit together. Emitting on `tx` (was swallowed outside the tx)
+  // means a canonical-write failure rolls the hold back rather than losing the
+  // safety record.
+  const row = await setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE medication_administrations
+       SET status = 'held', hold_reason = $2, administered_by = $3::uuid
+       WHERE id = $1
+       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+                 status, administered_by, hold_reason, notes, tenant_id,
+                 created_at, updated_at`,
+      id, reason, heldBy
+    );
+    await recordCanonicalMarEvent({
+      record: rows[0],
+      eventType: 'mar.held',
+      actorUid: heldBy,
+      previousStatus: existing[0].status,
+      payload: { reason },
+      db: tx,
+    });
+    return rows[0];
   });
 
   logger.info(`Medication ${id} held by ${heldBy}: ${reason}`);
-  return rows[0];
+  return row;
 }
 
 /**

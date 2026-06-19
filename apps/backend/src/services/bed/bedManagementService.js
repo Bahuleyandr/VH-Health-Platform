@@ -12,9 +12,36 @@ import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
 import { emitBedMarkedReady, emitFinalDischargeCompleted } from '../clinical/canonicalOperationalBridgeService.js';
+import {
+  completeWorkflowSla,
+  startWorkflowSla,
+} from '../clinical/canonicalClinicalPlatformService.js';
 
 function tenantOf(options = {}) {
   return options.tenantId || getCurrentTenantId() || null;
+}
+
+// Start the canonical bed-cleaning-turnaround SLA, keyed to the BED, INSIDE the
+// caller's bed-write transaction (`tx`). Audit §3: the cleaning-SLA start was
+// previously only created post-commit + best-effort inside createBedCleaningRequest
+// (keyed to the housekeeping_requests row) — so if that swallowed dispatch failed,
+// a bed could go to 'cleaning' with NO turnaround clock running at all (an
+// infection-control / throughput tracking gap). Anchoring an SLA instance to the
+// bed itself makes the start atomic with the bed→cleaning flip: it commits with
+// the bed write or rolls back with it. The post-commit housekeeping dispatch still
+// starts its own request-keyed SLA for the fan-out/assignment workflow; this
+// bed-keyed instance is the durable safety clock. Uses the SAME canonical rule
+// (`bed_cleaning_turnaround`, migration 269, target 30 min) so both clocks agree.
+async function startBedCleaningSlaInTx(tx, { tenantId, bedId, patientUid = null, trigger }) {
+  return startWorkflowSla({
+    tenantId,
+    ruleCode: 'bed_cleaning_turnaround',
+    patientUid,
+    sourceTable: 'beds',
+    sourceId: String(bedId),
+    priority: 'high',
+    metadata: { bed_id: bedId, trigger },
+  }, { db: tx });
 }
 
 class BedManagementService {
@@ -270,6 +297,16 @@ class BedManagementService {
           payload: { bed_id: bedId, discharge_path: 'bed_management' },
         });
       }
+
+      // Atomic cleaning-SLA start (audit §3a): the bed just went to 'cleaning',
+      // so start the bed-cleaning-turnaround clock in THIS tx — not post-commit
+      // best-effort inside createBedCleaningRequest below.
+      await startBedCleaningSlaInTx(tx, {
+        tenantId: tenantId || DEFAULT_TENANT_ID,
+        bedId,
+        patientUid: dischargePatientUid,
+        trigger: 'final_discharge',
+      });
 
       return {
         updated: updated[0],
@@ -538,6 +575,16 @@ class BedManagementService {
         patientUid, admission.id, fromBedId, toBedId, reason, transferredBy
       );
 
+      // Atomic cleaning-SLA start (audit §3a): the vacated (from) bed just went
+      // to 'cleaning', so start its turnaround clock in THIS tx rather than
+      // relying on the post-commit best-effort createBedCleaningRequest below.
+      await startBedCleaningSlaInTx(tx, {
+        tenantId: tenantId || DEFAULT_TENANT_ID,
+        bedId: fromBedId,
+        patientUid,
+        trigger: 'bed_transfer',
+      });
+
       return {
         fromBedId,
         fromBedType: fromBed.bed_type,
@@ -729,6 +776,23 @@ class BedManagementService {
           transition_at: new Date().toISOString(),
         }),
       );
+
+      // Complete the bed-keyed cleaning-turnaround SLA in the SAME tx as the
+      // bed→available flip (audit §3a). This closes the durable clock started
+      // atomically at discharge/transfer. completeWorkflowSla is a no-op when no
+      // matching instance exists (e.g. a bed seeded directly into 'cleaning'),
+      // so it is safe regardless of how the bed entered cleaning.
+      await completeWorkflowSla({
+        tenantId: effectiveTenantId || DEFAULT_TENANT_ID,
+        ruleCode: 'bed_cleaning_turnaround',
+        sourceTable: 'beds',
+        sourceId: String(bedId),
+        metadata: {
+          marked_ready_by: actorUid || null,
+          cleaning_ticket_id: cleaningTicketId || null,
+          cleaner_id: cleanerId || null,
+        },
+      }, { db: tx });
 
       return updated;
     });
