@@ -340,7 +340,7 @@ model admin_activity_logs {
 
 model admins {
   uid                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username              String    @unique @db.VarChar(255)
+  username              String    @unique(map: "uniq_admins_platform_username", where: raw("(tenant_id IS NULL)")) @db.VarChar(255)
   password_hash         String    @db.VarChar(255)
   email                 String?   @db.VarChar(255)
   name                  String?   @db.VarChar(255)
@@ -364,9 +364,13 @@ model admins {
   deactivated_at        DateTime? @db.Timestamp(6)
   reactivated_by        String?   @db.Uuid
   reactivated_at        DateTime? @db.Timestamp(6)
+  tenant_id             String?   @db.Uuid
+  tenants               tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admins_tenant")
 
+  @@unique([tenant_id, username], map: "uniq_admins_tenant_username", where: raw("(tenant_id IS NOT NULL)"))
   @@index([status])
   @@index([username])
+  @@index([tenant_id], map: "idx_admins_tenant_id")
 }
 
 model admissions {
@@ -9130,6 +9134,7 @@ model tenants {
   abdm_practitioner_mappings                 abdm_practitioner_mappings[]
   abdm_webhook_events                        abdm_webhook_events[]
   abha_profiles                              abha_profiles[]
+  admins                                     admins[]
   admissions                                 admissions[]
   advance_deductions                         advance_deductions[]
   allergies                                  allergies[]
