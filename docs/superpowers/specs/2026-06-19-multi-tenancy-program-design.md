@@ -139,7 +139,8 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 - **Gate/done:** chunked-as-postgres green with `ALLOW_DEFAULT_TENANT=true` (no behavior change) AND a new test matrix proving that with the flag **off**, a request with no resolved tenant 403s and a resolved request still works. Lint rule active.
 - **Depends-on:** —.
 
-### Wave 2 — DB schema completeness
+### Wave 2 — DB schema completeness  ✅ DONE + gated (2026-06-19)
+- **Status:** COMPLETE — migrations 328–336, deep suite `tenant-rls-w2-schema.deep.test.js` (11/11), full chunked-as-postgres gate GREEN on a rebuilt QA DB. 502 tenant_id tables all policied (`check-phi-tenant-id` allowlist empty); residual tenant_id-less = 34 global-by-design. Detail + reusable learnings in `2026-06-19-w2-db-schema-completeness-design.md` (Status line) and the memory `project_vh_health_multitenancy_program`.
 - **Objective:** every tenant-owned row carries `tenant_id`+RLS; every human-facing identifier is unique per tenant.
 - **Scope:** migrations adding `tenant_id`+RLS+FORCE+GUC-default to `payment_transactions`, payroll/salary cluster, `consultations`/`health_records`/`sos_alerts`, `staff`/`doctors`/`departments`/`wards`, then the HR/housekeeping/config clusters and the audit/activity-log tables (decision §8.4, append-only preserved); **per-tenant patient identity** — convert `users`/identity uniques to `(tenant_id, phone/firebase_uid/email)` and tenant-scope the OTP/session tables (decision §8.1); **`admins` tenant-binding** (`tenant_id` for ADMIN, null for SUPER_ADMIN — decision §8.2); convert ~37 document-number global uniques to `(tenant_id, …)`; backfill from linked `users.tenant_id`/parent. `prisma db pull` + `check-schema-drift` per migration.
 - **Code/Infra:** Code (raw SQL migrations).
