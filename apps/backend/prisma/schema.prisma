@@ -787,7 +787,7 @@ model appointments {
   advised_for_admission_by             String?                      @db.Uuid
   advised_for_admission_note           String?
   parent_appointment_id                Int?
-  visit_no                             String?                      @unique(map: "idx_appointments_visit_no_unique", where: raw("(visit_no IS NOT NULL)")) @db.VarChar(50)
+  visit_no                             String?                      @db.VarChar(50)
   payer_type                           String?                      @db.VarChar(30)
   patient_category                     String?                      @db.VarChar(30)
   insurer_name                         String?                      @db.VarChar(160)
@@ -810,6 +810,7 @@ model appointments {
   teleconsultations                    teleconsultations[]
 
   @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
+  @@unique([tenant_id, visit_no], map: "uniq_appointments_tenant_visit_no", where: raw("(visit_no IS NOT NULL)"))
   @@index([appointment_date])
   @@index([doctor_id])
   @@index([patient_id])
@@ -4081,7 +4082,7 @@ model clinical_nursing_ambient_sessions {
 
 model clinical_orders {
   id            Int       @id @default(autoincrement())
-  order_number  String    @unique @db.VarChar(80)
+  order_number  String    @db.VarChar(80)
   encounter_id  String?   @db.Uuid
   patient_uid   String    @db.Uuid
   order_type    String    @db.VarChar(50)
@@ -4104,6 +4105,7 @@ model clinical_orders {
   tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_orders_tenant")
 
+  @@unique([tenant_id, order_number], map: "uniq_clinical_orders_tenant_order_number")
   @@index([encounter_id, created_at(sort: Desc)], map: "idx_clinical_orders_encounter")
   @@index([order_type, created_at(sort: Desc)], map: "idx_clinical_orders_medication_created")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_clinical_orders_patient_created")
@@ -5379,7 +5381,7 @@ model idempotency_keys {
 model incident_reports {
   id                                        Int       @id @default(autoincrement())
   tenant_id                                 String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  report_number                             String    @unique @default(dbgenerated("((('INC-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || substr((gen_random_uuid())::text, 1, 8))")) @db.VarChar(30)
+  report_number                             String    @default(dbgenerated("((('INC-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || substr((gen_random_uuid())::text, 1, 8))")) @db.VarChar(30)
   reporter_id                               String?   @db.Uuid
   incident_type                             String    @db.VarChar(50)
   severity                                  String    @default("moderate") @db.VarChar(20)
@@ -5409,6 +5411,7 @@ model incident_reports {
   users_incident_reports_resolved_byTousers users?    @relation("incident_reports_resolved_byTousers", fields: [resolved_by], references: [uid], onUpdate: NoAction)
   tenants                                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, report_number], map: "uniq_incident_reports_tenant_report_number")
   @@index([reporter_id, created_at(sort: Desc)], map: "idx_incident_reports_reporter_created")
   @@index([status, priority, created_at(sort: Desc)], map: "idx_incident_reports_status_priority")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_incident_reports_tenant_created")
@@ -5443,7 +5446,7 @@ model infection_cases {
 
 model insurance_claims {
   id                                 Int                                  @id @default(autoincrement())
-  claim_number                       String                               @unique @db.VarChar(30)
+  claim_number                       String                               @db.VarChar(30)
   patient_uid                        String                               @db.Uuid
   invoice_id                         Int?
   insurance_provider                 String                               @db.VarChar(255)
@@ -5469,6 +5472,7 @@ model insurance_claims {
   parent_claim                       insurance_claims?                    @relation("InsuranceClaimEnhancement", fields: [parent_claim_id], references: [id], onUpdate: NoAction)
   child_claims                       insurance_claims[]                   @relation("InsuranceClaimEnhancement")
 
+  @@unique([tenant_id, claim_number], map: "uniq_insurance_claims_tenant_claim_number")
   @@index([patient_uid])
   @@index([status])
   @@index([submitted_at])
@@ -5656,7 +5660,7 @@ model investigation_booking_history {
 
 model investigation_bookings {
   id                                                  BigInt                          @id @default(autoincrement())
-  booking_number                                      String?                         @unique @db.VarChar(40)
+  booking_number                                      String?                         @db.VarChar(40)
   patient_id                                          Int
   patient_name                                        String?                         @db.VarChar(255)
   patient_phone                                       String?                         @db.VarChar(20)
@@ -5713,6 +5717,7 @@ model investigation_bookings {
   users_investigation_bookings_patient_idTousers      users                           @relation("investigation_bookings_patient_idTousers", fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "investigation_bookings_patient_fk")
   users_investigation_bookings_phlebotomist_idTousers users?                          @relation("investigation_bookings_phlebotomist_idTousers", fields: [phlebotomist_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_phlebotomist_fk")
 
+  @@unique([tenant_id, booking_number], map: "uniq_investigation_bookings_tenant_booking_number", where: raw("(booking_number IS NOT NULL)"))
   @@index([created_at], map: "idx_invbook_created_at")
   @@index([patient_id], map: "idx_invbook_patient_id")
   @@index([status], map: "idx_invbook_status")
@@ -5905,7 +5910,7 @@ model investment_declarations {
 
 model invoices {
   id                   Int                    @id @default(autoincrement())
-  invoice_number       String                 @unique @db.VarChar(30)
+  invoice_number       String                 @db.VarChar(30)
   patient_uid          String                 @db.Uuid
   appointment_id       Int?
   type                 String                 @db.VarChar(50)
@@ -5930,6 +5935,7 @@ model invoices {
   tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_invoices_tenant")
   payment_transactions payment_transactions[]
 
+  @@unique([tenant_id, invoice_number], map: "uniq_invoices_tenant_invoice_number")
   @@index([invoice_number])
   @@index([issued_at])
   @@index([patient_uid])
@@ -7845,7 +7851,7 @@ model prescriptions {
 
 model quality_incidents {
   id                Int       @id @default(autoincrement())
-  incident_number   String    @unique @db.VarChar(50)
+  incident_number   String    @db.VarChar(50)
   reported_by       String    @db.Uuid
   patient_uid       String?   @db.Uuid
   incident_type     String    @db.VarChar(50)
@@ -7864,6 +7870,7 @@ model quality_incidents {
   tenant_id         String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_quality_incidents_tenant")
 
+  @@unique([tenant_id, incident_number], map: "uniq_quality_incidents_tenant_incident_number")
   @@index([created_at(sort: Desc)], map: "idx_quality_incidents_created_at")
   @@index([patient_uid], map: "idx_quality_incidents_patient_uid")
   @@index([severity], map: "idx_quality_incidents_severity")
@@ -7909,7 +7916,7 @@ model radiology_orders {
 
 model referrals {
   id                                        Int       @id @default(autoincrement())
-  referral_number                           String    @unique @db.VarChar(50)
+  referral_number                           String    @db.VarChar(50)
   patient_uid                               String    @db.Uuid
   encounter_id                              String?   @db.Uuid
   referring_doctor                          String    @db.Uuid
@@ -7942,6 +7949,7 @@ model referrals {
   users_referrals_referred_to_doctorTousers users?    @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
   users_referrals_referring_doctorTousers   users     @relation("referrals_referring_doctorTousers", fields: [referring_doctor], references: [uid], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([tenant_id, referral_number], map: "uniq_referrals_tenant_referral_number")
   @@index([created_at(sort: Desc)], map: "idx_referrals_created_at")
   @@index([patient_uid], map: "idx_referrals_patient_uid")
   @@index([referred_to_doctor], map: "idx_referrals_referred_to_doctor")
@@ -8409,7 +8417,7 @@ model staff_devices {
 model staff_grievances {
   id                                        Int       @id @default(autoincrement())
   tenant_id                                 String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  grievance_number                          String    @unique @default(dbgenerated("((('GRV-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || substr((gen_random_uuid())::text, 1, 8))")) @db.VarChar(30)
+  grievance_number                          String    @default(dbgenerated("((('GRV-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || substr((gen_random_uuid())::text, 1, 8))")) @db.VarChar(30)
   reporter_id                               String?   @db.Uuid
   grievance_type                            String    @db.VarChar(50)
   subject                                   String    @db.VarChar(200)
@@ -8434,6 +8442,7 @@ model staff_grievances {
   users_staff_grievances_resolved_byTousers users?    @relation("staff_grievances_resolved_byTousers", fields: [resolved_by], references: [uid], onUpdate: NoAction)
   tenants                                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([tenant_id, grievance_number], map: "uniq_staff_grievances_tenant_grievance_number")
   @@index([reporter_id, created_at(sort: Desc)], map: "idx_staff_grievances_reporter_created")
   @@index([status, priority, created_at(sort: Desc)], map: "idx_staff_grievances_status_priority")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_staff_grievances_tenant_created")
@@ -10017,7 +10026,7 @@ model advance_deposits {
   id                Int                @id @default(autoincrement())
   admission_id      Int
   patient_uid       String             @db.Uuid
-  receipt_number    String             @unique @db.VarChar(40)
+  receipt_number    String             @db.VarChar(40)
   amount            Decimal            @db.Decimal(10, 2)
   parent_deposit_id Int?
   payment_method    String             @db.VarChar(40)
@@ -10034,6 +10043,7 @@ model advance_deposits {
   parent            advance_deposits?  @relation("AdvanceDepositRefund", fields: [parent_deposit_id], references: [id], onUpdate: NoAction)
   refunds           advance_deposits[] @relation("AdvanceDepositRefund")
 
+  @@unique([tenant_id, receipt_number], map: "uniq_advance_deposits_tenant_receipt_number")
   @@index([admission_id])
   @@index([patient_uid])
   @@index([parent_deposit_id])
@@ -10047,7 +10057,7 @@ model attendant_passes {
   id                    Int        @id @default(autoincrement())
   admission_id          Int
   patient_uid           String     @db.Uuid
-  pass_number           String     @unique @db.VarChar(40)
+  pass_number           String     @db.VarChar(40)
   pass_index            Int
   patient_name_snapshot String?    @db.VarChar(255)
   pass_color            String?    @db.VarChar(20)
@@ -10067,6 +10077,7 @@ model attendant_passes {
   admission             admissions @relation(fields: [admission_id], references: [id], onDelete: Cascade)
 
   @@unique([admission_id, pass_index])
+  @@unique([tenant_id, pass_number], map: "uniq_attendant_passes_tenant_pass_number")
   @@index([admission_id])
   @@index([admission_id], map: "idx_attendant_passes_admission")
   @@index([status], map: "idx_attendant_passes_active", where: raw("((status)::text = 'active'::text)"))
@@ -10075,7 +10086,7 @@ model attendant_passes {
 
 model ward_indents {
   id               Int                 @id @default(autoincrement())
-  indent_number    String              @unique @db.VarChar(40)
+  indent_number    String              @db.VarChar(40)
   ward_id          Int?
   ward_name        String?             @db.VarChar(80)
   indent_type      String              @default("pharmacy") @db.VarChar(40)
@@ -10099,6 +10110,7 @@ model ward_indents {
   items            ward_indent_items[]
   ward             wards?              @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, indent_number], map: "uniq_ward_indents_tenant_indent_number")
   @@index([ward_id, status, requested_at(sort: Desc)])
   @@index([ward_id, status, requested_at(sort: Desc)], map: "idx_ward_indents_ward_status")
   @@index([admission_id], map: "idx_ward_indents_admission_id", where: raw("(admission_id IS NOT NULL)"))
@@ -10398,7 +10410,7 @@ model billing_invoice_items {
 
 model billing_invoices {
   id                          Int                           @id @default(autoincrement())
-  invoice_number              String?                       @unique @db.VarChar(50)
+  invoice_number              String?                       @db.VarChar(50)
   patient_uid                 String                        @db.Uuid
   patient_phone               String?                       @db.VarChar(15)
   patient_name                String?                       @db.VarChar(255)
@@ -10436,6 +10448,7 @@ model billing_invoices {
   patient_message_threads     patient_message_threads[]
   tpa_claims                  tpa_claims[]
 
+  @@unique([tenant_id, invoice_number], map: "uniq_billing_invoices_tenant_invoice_number", where: raw("(invoice_number IS NOT NULL)"))
   @@index([issued_at(sort: Desc)], map: "idx_invoices_issued_at")
   @@index([patient_uid], map: "idx_invoices_patient")
   @@index([status], map: "idx_invoices_status")
@@ -10545,7 +10558,7 @@ model billing_refunds {
 
 model billing_service_master {
   id            Int       @id @default(autoincrement())
-  code          String    @unique @db.VarChar(50)
+  code          String    @db.VarChar(50)
   description   String    @db.VarChar(255)
   category      String    @db.VarChar(50)
   default_price Decimal   @default(0) @db.Decimal(12, 2)
@@ -10556,6 +10569,7 @@ model billing_service_master {
   created_at    DateTime? @default(now()) @db.Timestamptz(6)
   updated_at    DateTime? @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, code], map: "uniq_billing_service_master_tenant_code")
   @@index([tenant_id], map: "idx_service_master_tenant")
   @@index([category], map: "idx_service_master_category", where: raw("(is_active = true)"))
 }
@@ -10594,7 +10608,7 @@ model clinical_order_set_items {
 
 model clinical_order_sets {
   id                              Int                               @id @default(autoincrement())
-  code                            String                            @unique @db.VarChar(60)
+  code                            String                            @db.VarChar(60)
   title                           String                            @db.VarChar(255)
   specialty                       String?                           @db.VarChar(60)
   condition_codes                 String[]
@@ -10607,6 +10621,7 @@ model clinical_order_sets {
   clinical_order_set_applications clinical_order_set_applications[]
   clinical_order_set_items        clinical_order_set_items[]
 
+  @@unique([tenant_id, code], map: "uniq_clinical_order_sets_tenant_code")
   @@index([specialty, active], map: "idx_clinical_order_sets_specialty")
   @@index([tenant_id], map: "idx_clinical_order_sets_tenant_id")
 }
@@ -10954,7 +10969,7 @@ model insurance_preauth {
   policy_id                   Int
   patient_uid                 String                        @db.Uuid
   admission_id                Int?
-  preauth_number              String                        @unique @db.VarChar(80)
+  preauth_number              String                        @db.VarChar(80)
   tpa_reference_id            String?                       @db.VarChar(120)
   request_type                String                        @default("planned") @db.VarChar(20)
   parent_preauth_id           Int?
@@ -10992,6 +11007,7 @@ model insurance_preauth {
   tpa_claim_documents         tpa_claim_documents[]
   tpa_claims                  tpa_claims[]
 
+  @@unique([tenant_id, preauth_number], map: "uniq_insurance_preauth_tenant_preauth_number")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_insurance_preauth_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_insurance_preauth_status")
   @@index([admission_id], map: "idx_insurance_preauth_admission", where: raw("(admission_id IS NOT NULL)"))
@@ -11453,7 +11469,7 @@ model maternity_pregnancies {
 
 model or_procedure_catalog {
   id                   Int      @id @default(autoincrement())
-  procedure_code       String   @unique @db.VarChar(50)
+  procedure_code       String   @db.VarChar(50)
   display_name         String   @db.VarChar(255)
   specialty            String?  @db.VarChar(80)
   typical_duration_min Int
@@ -11469,6 +11485,7 @@ model or_procedure_catalog {
   created_at           DateTime @default(now()) @db.Timestamptz(6)
   updated_at           DateTime @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, procedure_code], map: "uniq_or_procedure_catalog_tenant_procedure_code")
   @@index([specialty, active], map: "idx_or_procedure_specialty")
   @@index([tenant_id], map: "idx_or_procedure_catalog_tenant_id")
 }
@@ -11476,7 +11493,7 @@ model or_procedure_catalog {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model or_rooms {
   id               Int       @id @default(autoincrement())
-  code             String    @unique @db.VarChar(40)
+  code             String    @db.VarChar(40)
   display_name     String    @db.VarChar(120)
   block            String?   @db.VarChar(40)
   specialty_focus  String?   @db.VarChar(80)
@@ -11491,6 +11508,7 @@ model or_rooms {
   created_at       DateTime  @default(now()) @db.Timestamptz(6)
   updated_at       DateTime  @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, code], map: "uniq_or_rooms_tenant_code")
   @@index([status, code], map: "idx_or_rooms_status")
   @@index([tenant_id], map: "idx_or_rooms_tenant_id")
 }
@@ -11704,7 +11722,7 @@ model tpa_claim_documents {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model tpa_claims {
   id                       Int                        @id @default(autoincrement())
-  claim_number             String                     @unique @db.VarChar(80)
+  claim_number             String                     @db.VarChar(80)
   policy_id                Int
   preauth_id               Int?
   invoice_id               Int?
@@ -11743,6 +11761,7 @@ model tpa_claims {
   insurance_policies       insurance_policies         @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   insurance_preauth        insurance_preauth?         @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, claim_number], map: "uniq_tpa_claims_tenant_claim_number")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_tpa_claims_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_tpa_claims_status")
   @@index([parent_claim_id], map: "idx_tpa_claims_parent_claim")
@@ -12727,7 +12746,7 @@ model pmjay_case_counter {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model pmjay_cases {
   id                      Int                 @id @default(autoincrement())
-  case_number             String              @unique @db.VarChar(80)
+  case_number             String              @db.VarChar(80)
   beneficiary_id          Int
   patient_uid             String              @db.Uuid
   admission_id            Int?
@@ -12756,6 +12775,7 @@ model pmjay_cases {
   pmjay_beneficiaries     pmjay_beneficiaries @relation(fields: [beneficiary_id], references: [id], onUpdate: NoAction)
   pmjay_packages          pmjay_packages      @relation(fields: [package_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, case_number], map: "uniq_pmjay_cases_tenant_case_number")
   @@index([beneficiary_id], map: "idx_pmjay_cases_beneficiary")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_pmjay_cases_patient")
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_pmjay_cases_status")
