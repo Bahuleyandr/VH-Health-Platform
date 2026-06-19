@@ -7014,10 +7014,13 @@ model payment_transactions {
   status          String    @default("completed") @db.VarChar(50)
   processed_by    String?   @db.Uuid
   created_at      DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_transactions_tenant")
   invoices        invoices? @relation(fields: [invoice_id], references: [id])
 
   @@index([created_at])
   @@index([invoice_id])
+  @@index([tenant_id], map: "idx_payment_transactions_tenant_id")
 }
 
 model payroll_runs {
@@ -9267,6 +9270,7 @@ model tenants {
   patient_vitals                             patient_vitals[]
   payer_tariff_links                         payer_tariff_links[]
   payers                                     payers[]
+  payment_transactions                       payment_transactions[]
   pharmacy_expiry_alerts                     pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items               pharmacy_goods_receipt_items[]
   pharmacy_goods_receipts                    pharmacy_goods_receipts[]
