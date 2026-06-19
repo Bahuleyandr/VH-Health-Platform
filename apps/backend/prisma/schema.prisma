@@ -9689,6 +9689,7 @@ model tenants {
   tasks                                      tasks[]
   teleconsult_provider_configs               teleconsult_provider_configs?
   teleconsultations                          teleconsultations[]
+  tenant_interop_secrets                     tenant_interop_secrets[]
   tpa_claim_correspondence                   tpa_claim_correspondence[]
   tpa_claim_documents                        tpa_claim_documents[]
   tpas                                       tpas[]
@@ -14989,4 +14990,20 @@ model totp_challenges {
 
   @@index([admin_id], map: "idx_totp_challenges_admin_id")
   @@index([expires_at], map: "idx_totp_challenges_expires_at")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tenant_interop_secrets {
+  id                Int      @id @default(autoincrement())
+  tenant_id         String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  kind              String   @db.VarChar(40)
+  sender_identifier String   @db.VarChar(255)
+  secret_ciphertext String
+  status            String   @default("active") @db.VarChar(20)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_interop_secrets_tenant")
+
+  @@unique([kind, sender_identifier], map: "uniq_tenant_interop_secrets_kind_sender")
+  @@index([tenant_id], map: "idx_tenant_interop_secrets_tenant_id")
 }

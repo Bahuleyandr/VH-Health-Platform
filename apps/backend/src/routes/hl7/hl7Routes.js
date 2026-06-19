@@ -19,6 +19,8 @@ import {
 } from '../../services/hl7/hl7Transformer.js';
 import { AppError } from '../../utils/AppError.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
+import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
@@ -37,13 +39,35 @@ function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-async function assertHl7InboundAuthentic(req, { message, controlId }) {
+async function assertHl7InboundAuthentic(req, { message, controlId, receivingFacility }) {
   const requestId = req.headers['x-hl7-message-id'] || req.headers['x-request-id'] || controlId;
   const signature = req.headers['x-hl7-signature'] || req.headers['x-vhhealth-hl7-signature'];
   const timestamp = req.headers['x-hl7-timestamp'] || req.headers.timestamp;
+
+  // W3: resolve the destination tenant from the MSH-6 receiving facility BEFORE
+  // the HMAC check, then verify with THAT tenant's secret — so one hospital's
+  // secret cannot authenticate a message aimed at another. (Sending facility is
+  // many-to-one to a hospital; the RECEIVING facility identifies the tenant.)
+  // A per-tenant row (tenant_interop_secrets) wins. Legacy single-tenant: with
+  // HL7_RECEIVING_FACILITY unset, the global secret backs the default tenant for
+  // any receiver (unchanged); once it is set, the facility must match. An
+  // unrecognized receiver with no usable secret is rejected.
+  let tenantId = await resolveTenantBySender('hl7_inbound', receivingFacility);
+  let secret = tenantId ? await getInteropSecret(tenantId, 'hl7_inbound') : null;
+  if (!secret && process.env.HL7_INBOUND_SHARED_SECRET) {
+    const configuredFacility = String(process.env.HL7_RECEIVING_FACILITY || '').trim();
+    if (!configuredFacility || String(receivingFacility || '').trim() === configuredFacility) {
+      tenantId = DEFAULT_TENANT_ID;
+      secret = process.env.HL7_INBOUND_SHARED_SECRET;
+    }
+  }
+  if (!tenantId || !secret) {
+    throw AppError.unauthorized('HL7 inbound sender not recognized', 'HL7_INBOUND_SENDER_UNKNOWN');
+  }
+
   // Sync fast-path: HMAC + freshness + same-process replay.
   verifySignedRequest({
-    secret: process.env.HL7_INBOUND_SHARED_SECRET || '',
+    secret,
     signature,
     timestamp,
     requestId,
@@ -62,6 +86,7 @@ async function assertHl7InboundAuthentic(req, { message, controlId }) {
     context: 'HL7 inbound message',
     codePrefix: 'HL7_INBOUND',
   });
+  req.tenantId = tenantId; // the authenticated destination tenant
 }
 
 // Resolve the patient by uid GLOBALLY (the sender's tenant is not in the
@@ -113,7 +138,7 @@ router.post(
     const controlId = parsed.msh.messageControlId || '';
 
     try {
-      await assertHl7InboundAuthentic(req, { message, controlId });
+      await assertHl7InboundAuthentic(req, { message, controlId, receivingFacility: parsed.msh?.receivingFacility });
     } catch (err) {
       logger.warn('HL7 inbound message rejected by authenticity check', {
         messageType,

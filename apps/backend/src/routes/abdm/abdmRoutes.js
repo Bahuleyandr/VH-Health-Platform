@@ -12,6 +12,8 @@ import { success, error } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 
 // ====================================
 // CALLBACK ROUTER — Public (no JWT)
@@ -46,14 +48,25 @@ async function validateABDMRequest(req, res, next) {
     return error(res, 'ABDM integration is not enabled', 503);
   }
 
-  if (!ABDM_CONFIG.hipId) {
-    logger.error('ABDM callback rejected: ABDM_HIP_ID is not configured');
-    return error(res, 'ABDM HIP ID is not configured', 503);
+  const hipId = req.headers['x-hip-id'];
+  if (!hipId) {
+    logger.warn('ABDM callback rejected: missing HIP ID');
+    return error(res, 'Invalid HIP ID', 401);
   }
 
-  const hipId = req.headers['x-hip-id'];
-  if (!hipId || hipId !== ABDM_CONFIG.hipId) {
-    logger.warn('ABDM callback rejected: HIP ID mismatch', { received: hipId, expected: ABDM_CONFIG.hipId });
+  // W3: resolve the tenant from the HIP id BEFORE the HMAC check, then verify with
+  // THAT tenant's secret — so one hospital's secret cannot authenticate a callback
+  // aimed at another. A per-tenant row (tenant_interop_secrets) wins; the
+  // configured global HIP id is the env-backed DEFAULT tenant (single-tenant
+  // unchanged). An unrecognized HIP id is rejected — no blanket global fallback.
+  let tenantId = await resolveTenantBySender('abdm_callback', hipId);
+  let callbackSecret = tenantId ? await getInteropSecret(tenantId, 'abdm_callback') : null;
+  if (!callbackSecret && ABDM_CONFIG.hipId && hipId === ABDM_CONFIG.hipId) {
+    tenantId = DEFAULT_TENANT_ID;
+    callbackSecret = ABDM_CONFIG.callbackSecret;
+  }
+  if (!tenantId || !callbackSecret) {
+    logger.warn('ABDM callback rejected: unrecognized HIP ID', { received: hipId });
     return error(res, 'Invalid HIP ID', 401);
   }
 
@@ -66,7 +79,7 @@ async function validateABDMRequest(req, res, next) {
   try {
     // Sync fast-path: HMAC + freshness + same-process replay.
     verifySignedRequest({
-      secret: ABDM_CONFIG.callbackSecret,
+      secret: callbackSecret,
       signature,
       timestamp,
       requestId,
@@ -94,6 +107,10 @@ async function validateABDMRequest(req, res, next) {
     return error(res, err.message, err.statusCode || 401);
   }
 
+  // Hand the resolved tenant to the downstream handler (it still re-derives the
+  // tenant from the matched patient/consent for the write, but this records the
+  // callback's authenticated tenant).
+  req.tenantId = tenantId;
   next();
 }
 
