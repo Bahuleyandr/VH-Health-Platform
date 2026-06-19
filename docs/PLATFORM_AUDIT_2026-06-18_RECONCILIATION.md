@@ -9,14 +9,15 @@
 > **Follow-up fixes since this reconciliation (2026-06-19, TDD + gated):**
 > **Batch A** — C-4b ABDM consent-artefact threading (`8fc850f5`), admin CSV formula-injection (`202a3908`), allergy severity-downgrade + fail-open UNION (`11d09c9d`), MAR lock-free dup-guard mig 327 (`d7550fd7`), audit-writer durable fallback (`76382052`), ABDM callback shared replay (`08e542f0`), revenue-cycle cron per-tenant fan-out (`d9957c73`), token aud/iss enforcement (`26a68691`).
 > **Batch B** — clinical-safety SLA/canonical atomicity for referral/handover/MAR(schedule/missed/held)/bed-cleaning (`57cc251f`); SUPER_ADMIN 2FA step-up on the admin-portal control planes + a newly-found 2FA challenge-verify timezone bug that would have locked out every 2FA admin (`8f00e565`).
-> The per-finding lines below are flipped accordingly. **Remaining High ❌ (2):** triage-chatbot raw-text-on-parse-fail (arms only when a live model provider is selected) and the iOS `com.example` bundle id.
+> **Batch B (cont.)** — triage-chatbot fail-closed on unparseable output + critical safety flag (`161b28be`).
+> The per-finding lines below are flipped accordingly. **Remaining High ❌ (1):** the iOS `com.example` bundle id (release-config change — needs the iOS toolchain + Firebase reconfig, deliberately deferred).
 
 ## Tally (≈140 sub-findings)
 
 | Tier | ✅ | ⏸️ | 🔧 | ❌ |
 |---|---|---|---|---|
 | Critical (C-1…C-9) | 27 | 0 | 0 | 2 |
-| High (§3) | ~34 | 3 | 4 | 2 |
+| High (§3) | ~35 | 3 | 4 | 1 |
 | Medium (§4) | 21 | 13 | 3 | 6 |
 | Low (§5) | 16 | 7 | 0 | 6 |
 
@@ -86,7 +87,7 @@ C-5 cron `pg_try_advisory_lock` in `withJobLock` + externalized-twins removed; C
 
 ### Clinical AI
 - 🔧 Patient RAG chatbot — still no in-route enable-gate / full `runOutputDefenses`; safe only because module is OFF + a new admin-side enable guard (`403a83e2`). No in-service fail-closed assertion.
-- ❌ **Triage chatbot returns raw model text on JSON-parse failure** — `triageService.js:233`; defenses annotate but don't block. Arms when a live provider is selected.
+- ✅ **Triage chatbot fail-closed on bad/dangerous output (`161b28be`)** — parse-failure no longer echoes raw model text to the patient (returns a safe canned escalation + logs raw server-side), and a **critical** output-defense flag now BLOCKS the parsed content instead of returning it (was log-only). Shared `buildBlockedTriage` (`see_doctor_now`, no `raw`, `blocked:true`, flags surfaced); non-critical flags still annotate. Unit-tested (`triageService.test.js` — raw-not-leaked / critical-blocks / non-critical-annotates). Still dormant until a live model provider is selected.
 
 ### FHIR / HL7 / ABDM (beyond C-4)
 - 🔧 ABDM consent-artifact crypto-verify — built, flag-gated; operator must enable + supply CM public key (also see C-4b route gap above)
@@ -145,7 +146,7 @@ offline queue AES-256-GCM; staff_id-scoped (no cross-user drain); Windows `WDA_E
 6. ~~Token aud/iss enforcement; SUPER_ADMIN un-scoped bypass~~ — **both FIXED**: `26a68691` (aud/iss validation), `8f00e565` (SUPER_ADMIN 2FA step-up on admin-portal control planes **+ a newly-found 2FA challenge-verify timezone bug that would have locked out every 2FA admin**).
 7. **C-1 `billingService.updateClaimStatus`** from-state guard (legacy path) — still open.
 
-**Medium concern:** triage raw-text-on-parse-fail; idempotency on clinical mounts; `getHealthStatistics` fake zeros; canary downgrade; `completeChecklist` rewrite-lock; rate-limit Redis store. *(revenue-cycle cron fan-out — FIXED `d9957c73`.)*
+**Medium concern:** idempotency on clinical mounts; `getHealthStatistics` fake zeros; canary downgrade; `completeChecklist` rewrite-lock; rate-limit Redis store. *(revenue-cycle cron fan-out — FIXED `d9957c73`; triage raw-text/critical-flag fail-open — FIXED.)*
 
 **Operator-gated (🔧):** seal non-super DB role + kubeseal secrets; Kyverno Audit→Enforce (cosign secret); SMART mount-shim; ABDM consent-verify enable + CM key; monitoring ArgoCD auto-sync; DR drill / monitoring deploy / secret rotation / external pen-test-cert.
 
