@@ -10,6 +10,24 @@ const toUuidOrNull = (value) => {
   return UUID_RE.test(normalized) ? normalized : null;
 };
 
+// Durable, never-throwing file fallback for the HIPAA access log. The DB INSERT
+// runs inside a detached setImmediate (fire-and-forget), so a throw out of the
+// fallback would become an unhandled rejection and silently drop the audit.
+// logger.warn lands in error.log/combined.log; if even that throws (transport /
+// serialization failure) we degrade to console.error rather than losing the
+// entry or crashing the deferred callback. HIPAA audit must never be lost.
+function _logPhiAccessToFile(entry) {
+  try {
+    logger.warn('HIPAA audit DB write failed, logging to file:', entry);
+  } catch (logErr) {
+    try {
+      console.error('HIPAA_AUDIT file fallback failed:', JSON.stringify(entry), logErr?.message);
+    } catch {
+      // Last resort exhausted; never throw out of the audit path.
+    }
+  }
+}
+
 /**
  * Log HIPAA-required access to Protected Health Information (PHI).
  * Records who accessed what patient data, when, and from where.
@@ -58,8 +76,11 @@ export function logPhiAccess({
         actorUidNorm, subjectUidNorm, actingFlag, deviceType || null, tenantIdNorm,
       );
     } catch (err) {
-      // Fallback to file log — HIPAA audit must never be lost
-      logger.warn('HIPAA audit DB write failed, logging to file:', {
+      // Fallback to file log — HIPAA audit must never be lost. Routed through a
+      // defensive helper so a logger/transport failure inside this detached
+      // setImmediate cannot escape as an unhandled rejection (which would
+      // silently drop the audit).
+      _logPhiAccessToFile({
         accessed_by: userId,
         accessed_by_role: userRole,
         patient_id: patientId,
@@ -71,7 +92,7 @@ export function logPhiAccess({
         device_type: deviceType || null,
         tenant_id: tenantId || null,
         timestamp: new Date().toISOString(),
-        error: err.message
+        error: err?.message
       });
     }
   });
