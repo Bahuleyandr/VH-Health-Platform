@@ -63,6 +63,11 @@ data:
   HTTP_BODY_LIMIT: "1mb"
   STATEMENT_TIMEOUT_MS: "30000"
   AUTH_ENFORCE_TENANT_RLS: "true"
+  # W1 (multi-tenancy): tenant resolution fails closed by default. The current
+  # single-hospital deploy opts INTO the legacy default-tenant floor so behavior
+  # is unchanged; flip to "false" at the multi-tenant cutover (W7) so a request
+  # that resolves no tenant 403s instead of silently acting as the default tenant.
+  ALLOW_DEFAULT_TENANT: "true"
   HL7_INBOUND_ENABLED: "false"
   # Tenant-RLS runtime role (roadmap A2): tenant-scoped transactions SET LOCAL
   # ROLE to this non-owner, non-BYPASSRLS role before applying

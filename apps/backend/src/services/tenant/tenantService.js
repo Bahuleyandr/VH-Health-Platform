@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { isDefaultTenantAllowed } from '../../config/tenantRlsConfig.js';
 
 export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -188,13 +189,19 @@ export async function updateTenant(tenantId, patch = {}) {
 }
 
 export async function resolveTenantForUser(userUid, { failClosed = false } = {}) {
-  if (!userUid) return DEFAULT_TENANT_ID;
+  // When failClosed, a missing uid or a lookup MISS returns null (not the
+  // default tenant) so the caller's fail-closed gate can fire — silently
+  // defaulting here would mask a missing-tenant bug as default-tenant activity
+  // (W1, multi-tenancy program). Single-tenant installs (failClosed=false) keep
+  // the legacy default floor.
+  const onMiss = failClosed ? null : DEFAULT_TENANT_ID;
+  if (!userUid) return onMiss;
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
       userUid
     );
-    return rows[0]?.tenant_id || DEFAULT_TENANT_ID;
+    return rows[0]?.tenant_id || onMiss;
   } catch (err) {
     if (failClosed) {
       throw AppError.internal('Tenant context lookup failed', 'TENANT_CONTEXT_LOOKUP_FAILED');
@@ -202,6 +209,23 @@ export async function resolveTenantForUser(userUid, { failClosed = false } = {})
     logger.debug('resolveTenantForUser fallback to default', { error: err.message });
     return DEFAULT_TENANT_ID;
   }
+}
+
+/**
+ * Fail-closed tenant resolver for handlers/services. Returns the tenant already
+ * resolved onto `req.tenantId` by tenantContextMiddleware; if absent, throws
+ * 403 TENANT_CONTEXT_REQUIRED — UNLESS `ALLOW_DEFAULT_TENANT=true` (single-tenant
+ * installs), in which case it returns the default tenant. This is the single
+ * sanctioned replacement for the scattered `req.tenantId || … || DEFAULT_TENANT_ID`
+ * resolvers (W1, multi-tenancy program).
+ *
+ * @param {import('express').Request} req
+ * @returns {string} resolved tenant id
+ */
+export function resolveTenantOrThrow(req) {
+  if (req?.tenantId) return req.tenantId;
+  if (isDefaultTenantAllowed()) return DEFAULT_TENANT_ID;
+  throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
 }
 
 const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -268,6 +292,7 @@ export default {
   listTenants,
   resolveTenantForRequest,
   resolveTenantForUser,
+  resolveTenantOrThrow,
   updateTenant,
   DEFAULT_TENANT_ID,
 };

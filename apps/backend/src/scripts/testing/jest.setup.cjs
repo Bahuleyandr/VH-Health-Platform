@@ -47,6 +47,11 @@ if (!process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_ENCRYPTION_KEY.leng
 // normal login shape. Pin to 'false' unless a test explicitly overrides.
 process.env.REQUIRE_MFA_FOR_SUPER_ADMIN ||= 'false';
 
+// W1 (multi-tenancy): tenant resolution now fails closed by default. The legacy
+// test fixtures rely on the single-tenant default-tenant floor, so allow it here
+// unless a test (e.g. the fail-closed suite) overrides it.
+process.env.ALLOW_DEFAULT_TENANT ||= 'true';
+
 // Keep Jest output small enough to avoid CI heap blowups from repeated app bootstrap logs.
 console.log = () => {};
 console.info = () => {};
