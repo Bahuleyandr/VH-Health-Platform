@@ -4,14 +4,16 @@
 - **Method:** 7 read-only verification auditors, one per domain, each confirming the actual cited code at HEAD (not the remediation plan's claims) with `file:line` + commit evidence. Headline "untouched" claims re-confirmed via `git log <range> -- <file>`.
 - **Legend:** ✅ fixed · ⏸️ consciously deferred (compensating control) · 🔧 operator-gated (needs cluster action) · ❌ not done / partial / regressed.
 
-> **Correction to the earlier status:** prior summaries stated "all criticals + all highs done." That was the wave-level label, not a per-finding truth. This reconciliation shows the **criticals are ~all closed** (2 small residuals) but **several HIGH items were never addressed** — most importantly the "Clinical core & safety (beyond C-2/C-3)" subsection (5 of 6 items untouched), the three lossy audit-writer paths, token aud/iss enforcement, and a live admin CSV-injection.
+> **Correction to the earlier status:** prior summaries stated "all criticals + all highs done." That was the wave-level label, not a per-finding truth. This reconciliation showed the **criticals ~all closed** but **several HIGH items were never addressed**.
+>
+> **Follow-up fixes since this reconciliation (2026-06-19, TDD + gated):** C-4b ABDM consent-artefact threading (`8fc850f5`), admin CSV formula-injection (`202a3908`), allergy severity-downgrade + fail-open UNION (`11d09c9d`), and the MAR lock-free dup-guard via migration 327 (`d7550fd7`). The per-finding lines below are flipped accordingly. Still open in Clinical-safety: referral/handover/cleaning SLA best-effort, MAR canonical-outside-tx in schedule/missed/held; plus the audit-writer lossy paths, token aud/iss, SUPER_ADMIN scoping, ABDM callback replay store, and revenue-cycle cron fan-out.
 
 ## Tally (≈140 sub-findings)
 
 | Tier | ✅ | ⏸️ | 🔧 | ❌ |
 |---|---|---|---|---|
 | Critical (C-1…C-9) | 27 | 0 | 0 | 2 |
-| High (§3) | ~22 | 3 | 4 | ~11 |
+| High (§3) | ~25 | 3 | 4 | ~8 |
 | Medium (§4) | 21 | 13 | 3 | 6 |
 | Low (§5) | 16 | 7 | 0 | 6 |
 
@@ -73,9 +75,9 @@ C-5 cron `pg_try_advisory_lock` in `withJobLock` + externalized-twins removed; C
 ### Clinical core & safety (beyond C-2/C-3) — ⚠️ 5 of 6 UNTOUCHED
 - ✅ WHO sign-out gate + consent-at-incision — `theatreService.js:384,559` (`67920133`)
 - ❌ **Referral response-SLA** best-effort outside tx — `referralService.js` untouched
-- ❌ **MAR** canonical outside tx + **lock-free dup-guard** (no `FOR UPDATE`, no unique index) — `marService.js` untouched
+- ✅/❌ **MAR** — **lock-free dup-guard FIXED (`d7550fd7`)**: migration 327 partial-unique `uniq_mar_administered_dose` makes a second administered row for the same (patient_uid, medication_name, scheduled_time) impossible regardless of concurrency; `23505`→`MAR_DUPLICATE_ADMINISTRATION`; deep-tested. ❌ residual: the separate "canonical write outside tx" in `scheduleMedications`/`recordMissed`/`holdMedication` is still best-effort (`recordAdministration` was already in-tx).
 - ❌ **Handover** SBAR canonical best-effort — `handoverService.js` untouched
-- ❌ **Allergy SEVERE→warning degrade + UNION fail-open** (one source's fault blanks all allergies) — `allergySourceService.js` untouched
+- ✅ **Allergy SEVERE→warning degrade + UNION fail-open — FIXED (`11d09c9d`)**: `rankSeverity` fails safe (present-but-unparseable → SEVERE; explicit no-claim sentinels stay 0) and the prescription gate ranks severity instead of matching a hardcoded label set; `getUnifiedActiveAllergies` queries each source independently so one source's schema fault degrades only that source. Unit-tested.
 - ❌ **Cleaning-turnaround SLA** best-effort + 30-vs-120-min clock mismatch — `bedManagementService.js`/`housekeepingTaskDispatchService.js`
 
 ### Clinical AI
@@ -99,7 +101,7 @@ offline queue AES-256-GCM; staff_id-scoped (no cross-user drain); Windows `WDA_E
 
 ### Admin / infra
 - ✅ `NEXT_PUBLIC_API_KEY` removed + CI guard (`check-no-public-secrets.mjs`)
-- ⏸️ Admin appointment tenant predicate — relies on RLS (single-tenant-latent) / ❌ **CSV formula-escape NOT applied — `appointmentAdminRoutes.js:404` hand-rolls CSV, bypassing the `escapeCsvField` helper → live CSV-injection via PHI fields**
+- ⏸️ Admin appointment tenant predicate — relies on RLS (single-tenant-latent) / ✅ **CSV formula-injection FIXED (`202a3908`)**: the export builds via the new `src/utils/csv.js` (`rowsToCsv`/`escapeCsvField` — formula-neutralized + RFC-4180-quoted); unit-tested.
 - 🔧 cosign key-based attestor added; operator must create the secret + flip Kyverno to Enforce
 - ✅ ArgoCD `apps`/`platform` auto-sync removed (⚠️ `monitoring.yaml` still auto-syncs HEAD; ⏸️ project `namespaceResourceWhitelist` still `*`)
 - 🔧 Runtime DB-role sealing + alert/backup secrets — prepped in-repo; operator must seal the role + kubeseal real secrets
@@ -131,9 +133,9 @@ offline queue AES-256-GCM; staff_id-scoped (no cross-user drain); Windows `WDA_E
 ## 6. Genuine open gaps, prioritized
 
 **Higher concern (clinical-safety + security correctness):**
-1. Clinical-safety highs untouched — **MAR lock-free dup-guard / canonical-outside-tx**, **allergy SEVERE→warning + UNION fail-open**, referral/handover SLA best-effort, cleaning-SLA + clock mismatch.
+1. Clinical-safety highs — **MAR lock-free dup-guard FIXED** (mig 327, `d7550fd7`) + **allergy SEVERE-downgrade & fail-open UNION FIXED** (`11d09c9d`). Still open: referral/handover SLA best-effort outside tx, cleaning-SLA + 30-vs-120-min clock mismatch, and MAR canonical-outside-tx in schedule/missed/held.
 2. **Audit writers lossy** (auditLog drop-on-full, hipaaAudit fire-and-forget, accessDecision swallow) — contradicts "audit never lost."
-3. **Admin appointment CSV formula-injection** (live) — route bypasses the `escapeCsvField` helper.
+3. ~~Admin appointment CSV formula-injection~~ — **FIXED (`202a3908`)** via `rowsToCsv`/`escapeCsvField`.
 4. **ABDM callback HMAC replay** still process-local (HL7 fixed, ABDM not).
 5. ~~**C-4b ABDM consent-verify** route never passes the artifact~~ — **FIXED (`8fc850f5`)**: route now threads the artefact + signature into the verifier; unit-tested (route extraction + valid/tampered/missing signature).
 6. **Token aud/iss enforcement** (claims emitted, never validated); **SUPER_ADMIN** un-scoped bypass.
