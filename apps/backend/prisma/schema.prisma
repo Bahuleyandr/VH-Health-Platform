@@ -601,11 +601,14 @@ model annual_review_reminders {
   revision_id      Int?
   status           String?           @default("pending") @db.VarChar(20)
   created_at       DateTime?         @default(now()) @db.Timestamptz(6)
+  tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   salary_revisions salary_revisions? @relation(fields: [revision_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users            users?            @relation(fields: [staff_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  tenants          tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_annual_review_reminders_tenant")
 
   @@unique([staff_uid, review_year])
   @@index([review_year], map: "idx_annual_review_year")
+  @@index([tenant_id], map: "idx_annual_review_reminders_tenant_id")
 }
 
 model annual_tax_summaries {
@@ -657,8 +660,11 @@ model anomalies {
   period_start     DateTime? @db.Date
   period_end       DateTime? @db.Date
   created_at       DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_anomalies_tenant")
 
   @@index([staff_id])
+  @@index([tenant_id], map: "idx_anomalies_tenant_id")
 }
 
 model api_access_logs {
@@ -670,9 +676,12 @@ model api_access_logs {
   status_code Int?
   response_ms Int?
   created_at  DateTime @default(now()) @db.Timestamp(6)
+  tenant_id   String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_api_access_logs_tenant")
 
   @@index([created_at])
   @@index([endpoint])
+  @@index([tenant_id], map: "idx_api_access_logs_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -764,10 +773,13 @@ model appointment_status_history {
   changed_by_role String?      @db.VarChar(40)
   reason          String?
   created_at      DateTime     @default(now()) @db.Timestamp(6)
+  tenant_id       String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   appointments    appointments @relation(fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "appt_status_hist_appointment_fk")
   users           users?       @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "appt_status_hist_user_fk")
+  tenants         tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_status_history_tenant")
 
   @@index([appointment_id, created_at], map: "idx_appt_status_hist_appointment_id_time")
+  @@index([tenant_id], map: "idx_appointment_status_history_tenant_id")
 }
 
 model appointments {
@@ -880,10 +892,13 @@ model attendance_logs {
   location     String?  @db.VarChar(255)
   hours_worked Float?
   created_at   DateTime @default(now()) @db.Timestamp(6)
+  tenant_id    String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   users        users?   @relation(fields: [staff_id], references: [id], onUpdate: NoAction)
+  tenants      tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_attendance_logs_tenant")
 
   @@index([staff_id])
   @@index([staff_id], map: "idx_attendance_logs_staff_id_fk")
+  @@index([tenant_id], map: "idx_attendance_logs_tenant_id")
 }
 
 model audit_log {
@@ -960,12 +975,15 @@ model auth_logs {
   created_at     DateTime @default(now()) @db.Timestamp(6)
   jti            String?  @db.VarChar(100)
   device_info    String?
+  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_auth_logs_tenant")
 
   @@index([created_at])
   @@index([phone])
   @@index([user_id])
   @@index([user_id, created_at(sort: Desc)], map: "idx_auth_logs_user_created")
   @@index([jti], map: "idx_auth_logs_jti", where: raw("(jti IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_auth_logs_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1000,8 +1018,11 @@ model batch_upload_logs {
   category                 String?  @db.VarChar(100)
   is_hipaa_protected       Boolean?
   completed_at             DateTime @default(now()) @db.Timestamp(6)
+  tenant_id                String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                  tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_batch_upload_logs_tenant")
 
   @@index([uploaded_by])
+  @@index([tenant_id], map: "idx_batch_upload_logs_tenant_id")
 }
 
 model bed_transfers {
@@ -1134,8 +1155,11 @@ model bulk_operation_logs {
   error_count       Int?
   operation_details Json?
   performed_at      DateTime @default(now()) @db.Timestamp(6)
+  tenant_id         String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bulk_operation_logs_tenant")
 
   @@index([operation_type])
+  @@index([tenant_id], map: "idx_bulk_operation_logs_tenant_id")
 }
 
 model bulk_revision_jobs {
@@ -4251,7 +4275,7 @@ model consultations {
 
 model data_breaches {
   id                              Int                         @id @default(autoincrement())
-  breach_id                       String?                     @unique @default(dbgenerated("((('BRH-'::text || to_char(now(), 'YYYYMM'::text)) || '-'::text) || lpad((nextval((pg_get_serial_sequence('data_breaches'::text, 'id'::text))::regclass))::text, 4, '0'::text))")) @db.VarChar(30)
+  breach_id                       String?                     @default(dbgenerated("((('BRH-'::text || to_char(now(), 'YYYYMM'::text)) || '-'::text) || lpad((nextval((pg_get_serial_sequence('data_breaches'::text, 'id'::text))::regclass))::text, 4, '0'::text))")) @db.VarChar(30)
   severity                        String                      @db.VarChar(20)
   description                     String
   affected_records                Int?                        @default(0)
@@ -4273,13 +4297,17 @@ model data_breaches {
   risk_assessment                 Json                        @default("{}")
   dpa_id                          Int?
   cross_border_impact             Boolean                     @default(false)
+  tenant_id                       String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   data_processing_activities      data_processing_activities? @relation(fields: [dpa_id], references: [id], onUpdate: NoAction)
+  tenants                         tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_data_breaches_tenant")
 
+  @@unique([tenant_id, breach_id], map: "uniq_data_breaches_tenant_breach_id", where: raw("(breach_id IS NOT NULL)"))
   @@index([discovered_at], map: "idx_data_breaches_discovered_at")
   @@index([severity], map: "idx_data_breaches_severity")
   @@index([status], map: "idx_data_breaches_status")
   @@index([dpa_id], map: "idx_breach_dpa", where: raw("(dpa_id IS NOT NULL)"))
   @@index([severity, discovered_at], map: "idx_breach_regulator_pending", where: raw("((regulator_notified_at IS NULL) AND ((severity)::text = ANY (ARRAY[('high'::character varying)::text, ('critical'::character varying)::text])))"))
+  @@index([tenant_id], map: "idx_data_breaches_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -4355,9 +4383,12 @@ model department_audit_log {
   old_data      Json?
   new_data      Json?
   created_at    DateTime @default(now()) @db.Timestamp(6)
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_department_audit_log_tenant")
 
   @@index([created_at])
   @@index([department_id])
+  @@index([tenant_id], map: "idx_department_audit_log_tenant_id")
 }
 
 model departments {
@@ -4400,11 +4431,14 @@ model devices {
   last_used   DateTime? @db.Timestamp(6)
   created_at  DateTime  @default(now()) @db.Timestamp(6)
   updated_at  DateTime  @db.Timestamp(6)
+  tenant_id   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_devices_tenant")
 
   @@index([device_id])
   @@index([is_active])
   @@index([phone])
   @@index([uid])
+  @@index([tenant_id], map: "idx_devices_tenant_id")
 }
 
 model diagnoses {
@@ -4933,9 +4967,12 @@ model failed_notifications {
   next_retry_at DateTime? @db.Timestamptz(6)
   status        String?   @default("pending") @db.VarChar(20)
   created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_failed_notifications_tenant")
 
   @@index([status, next_retry_at], map: "idx_failed_notifications_status")
   @@index([user_id], map: "idx_failed_notifications_user")
+  @@index([tenant_id], map: "idx_failed_notifications_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -4995,6 +5032,8 @@ model feedback {
   updated_at      DateTime  @db.Timestamp(6)
   responded_at    DateTime? @db.Timestamp(6)
   response_status String?   @db.VarChar(50)
+  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_feedback_tenant")
 
   @@index([category])
   @@index([phone])
@@ -5002,6 +5041,7 @@ model feedback {
   @@index([status])
   @@index([uid])
   @@index([response_status], map: "idx_feedback_response_status")
+  @@index([tenant_id], map: "idx_feedback_tenant_id")
 }
 
 model file_access_logs {
@@ -5035,8 +5075,11 @@ model file_deletion_log {
   deletion_type      String?  @db.VarChar(50)
   deleted_at         DateTime @default(now()) @db.Timestamp(6)
   ip_address         String?  @db.VarChar(45)
+  tenant_id          String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants            tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_file_deletion_log_tenant")
 
   @@index([deleted_by])
+  @@index([tenant_id], map: "idx_file_deletion_log_tenant_id")
 }
 
 model file_metadata {
@@ -5152,10 +5195,13 @@ model gdpr_erasure_log {
   duration_ms      Int      @default(0)
   results          Json?
   created_at       DateTime @default(now()) @db.Timestamp(6)
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gdpr_erasure_log_tenant")
 
   @@index([completed_at], map: "idx_gdpr_erasure_log_completed_at")
   @@index([requested_by], map: "idx_gdpr_erasure_log_requested_by", where: raw("(requested_by IS NOT NULL)"))
   @@index([uid], map: "idx_gdpr_erasure_log_uid", where: raw("(uid IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_gdpr_erasure_log_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -5197,11 +5243,14 @@ model health_milestone_claims {
   redeemed_at       DateTime?         @db.Timestamptz(6)
   redeemed_by       String?           @db.VarChar(100)
   expires_at        DateTime          @db.Timestamptz(6)
+  tenant_id         String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants           tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_health_milestone_claims_tenant")
   health_milestones health_milestones @relation(fields: [milestone_id], references: [id])
 
   @@unique([user_uid, milestone_id])
   @@index([user_uid])
   @@index([voucher_code])
+  @@index([tenant_id], map: "idx_health_milestone_claims_tenant_id")
 }
 
 model health_milestones {
@@ -5232,10 +5281,13 @@ model health_point_ledger {
   earned_at       DateTime  @default(now()) @db.Timestamptz(6)
   expires_at      DateTime? @db.Timestamptz(6)
   created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_health_point_ledger_tenant")
 
   @@unique([user_uid, activity_type, activity_ref_id])
   @@index([user_uid, earned_at(sort: Desc)])
   @@index([user_uid])
+  @@index([tenant_id], map: "idx_health_point_ledger_tenant_id")
 }
 
 model health_records {
@@ -5544,6 +5596,8 @@ model insurance_claim_caps {
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @default(now()) @db.Timestamptz(6)
   tpa_claim_id    Int?
+  tenant_id       String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_insurance_claim_caps_tenant")
   insurance_claim insurance_claims? @relation(fields: [claim_id], references: [id], onDelete: Cascade)
   tpa_claim       tpa_claims?       @relation(fields: [tpa_claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -5553,6 +5607,7 @@ model insurance_claim_caps {
   @@index([claim_id], map: "idx_insurance_claim_caps_claim")
   @@index([category, claim_id], map: "idx_insurance_claim_caps_category")
   @@index([tpa_claim_id], map: "idx_insurance_claim_caps_tpa_claim", where: raw("(tpa_claim_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_insurance_claim_caps_tenant_id")
 }
 
 model intake_output {
@@ -5701,9 +5756,12 @@ model investigation_booking_history {
   changed_by_role        String?                @db.VarChar(40)
   notes                  String?
   created_at             DateTime               @default(now()) @db.Timestamp(6)
+  tenant_id              String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigation_booking_history_tenant")
   investigation_bookings investigation_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "invbookhist_booking_fk")
 
   @@index([booking_id, created_at], map: "idx_invbookhist_booking_id_time")
+  @@index([tenant_id], map: "idx_investigation_booking_history_tenant_id")
 }
 
 model investigation_bookings {
@@ -5785,8 +5843,11 @@ model investigation_files {
   file_size        BigInt?
   uploaded_by      String?  @db.Uuid
   created_at       DateTime @default(now()) @db.Timestamp(6)
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigation_files_tenant")
 
   @@index([investigation_id])
+  @@index([tenant_id], map: "idx_investigation_files_tenant_id")
 }
 
 model investigation_template_tests {
@@ -5797,8 +5858,11 @@ model investigation_template_tests {
   normal_range String?  @db.VarChar(100)
   unit         String?  @db.VarChar(50)
   cost         Decimal? @db.Decimal(12, 2)
+  tenant_id    String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants      tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigation_template_tests_tenant")
 
   @@index([template_id])
+  @@index([tenant_id], map: "idx_investigation_template_tests_tenant_id")
 }
 
 model investigation_templates {
@@ -5812,8 +5876,11 @@ model investigation_templates {
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @db.Timestamp(6)
   updated_by    String?  @db.Uuid
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigation_templates_tenant")
 
   @@index([department_id])
+  @@index([tenant_id], map: "idx_investigation_templates_tenant_id")
 }
 
 model investigation_test_catalog {
@@ -6011,11 +6078,14 @@ model leave_applications {
   reviewed_at       DateTime? @db.Timestamp(6)
   review_notes      String?
   created_at        DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id         String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_leave_applications_tenant")
   users             users?    @relation(fields: [staff_id], references: [id], onUpdate: NoAction)
 
   @@index([staff_id], map: "idx_leave_applications_staff_id_fk")
   @@index([staff_id])
   @@index([status])
+  @@index([tenant_id], map: "idx_leave_applications_tenant_id")
 }
 
 model leave_balance_overrides {
@@ -6026,8 +6096,11 @@ model leave_balance_overrides {
   reason        String?
   overridden_by String?  @db.Uuid
   created_at    DateTime @default(now()) @db.Timestamp(6)
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_leave_balance_overrides_tenant")
 
   @@index([staff_id])
+  @@index([tenant_id], map: "idx_leave_balance_overrides_tenant_id")
 }
 
 model leave_encashments {
@@ -6055,11 +6128,16 @@ model leave_encashments {
 
 model leave_types {
   id                 Int      @id @default(autoincrement())
-  leave_type         String   @unique @db.VarChar(50)
+  leave_type         String   @db.VarChar(50)
   annual_entitlement Int?
   description        String?
   is_active          Boolean  @default(true)
   created_at         DateTime @default(now()) @db.Timestamp(6)
+  tenant_id          String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants            tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_leave_types_tenant")
+
+  @@unique([tenant_id, leave_type], map: "uniq_leave_types_tenant_leave_type")
+  @@index([tenant_id], map: "idx_leave_types_tenant_id")
 }
 
 model legal_holds {
@@ -6071,9 +6149,12 @@ model legal_holds {
   released_at DateTime? @db.Timestamp(6)
   released_by String?   @db.Uuid
   notes       String?
+  tenant_id   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_legal_holds_tenant")
 
   @@index([created_at], map: "idx_legal_holds_created_at")
   @@index([user_uid], map: "idx_legal_holds_user_uid_active", where: raw("(released_at IS NULL)"))
+  @@index([tenant_id], map: "idx_legal_holds_tenant_id")
 }
 
 model medical_activity_logs {
@@ -6431,10 +6512,13 @@ model notification_delivery_log {
   error_type      String?  @db.VarChar(100)
   error_message   String?
   created_at      DateTime @default(now()) @db.Timestamp(6)
+  tenant_id       String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_delivery_log_tenant")
 
   @@index([created_at])
   @@index([error_type])
   @@index([status])
+  @@index([tenant_id], map: "idx_notification_delivery_log_tenant_id")
 }
 
 model notification_outbox {
@@ -6472,8 +6556,11 @@ model notification_templates {
   is_active        Boolean  @default(true)
   created_at       DateTime @default(now()) @db.Timestamp(6)
   updated_at       DateTime @db.Timestamp(6)
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_templates_tenant")
 
   @@index([type])
+  @@index([tenant_id], map: "idx_notification_templates_tenant_id")
 }
 
 model notifications {
@@ -6884,8 +6971,11 @@ model patient_feedback {
   rating      Float?
   review_text String?
   created_at  DateTime @default(now()) @db.Timestamp(6)
+  tenant_id   String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_feedback_tenant")
 
   @@index([doctor_id])
+  @@index([tenant_id], map: "idx_patient_feedback_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7148,11 +7238,14 @@ model payslip_queries {
   resolution_note       String?
   created_at            DateTime?               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
+  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslip_queries_tenant")
   payslips              payslips?               @relation(fields: [payslip_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payslip_query_replies payslip_query_replies[]
 
   @@index([payslip_id], map: "idx_pq_payslip")
   @@index([staff_uid], map: "idx_pq_staff")
+  @@index([tenant_id], map: "idx_payslip_queries_tenant_id")
 }
 
 model payslip_query_replies {
@@ -7162,7 +7255,11 @@ model payslip_query_replies {
   author_role     String           @db.VarChar(20)
   message         String
   created_at      DateTime?        @default(now()) @db.Timestamptz(6)
+  tenant_id       String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslip_query_replies_tenant")
   payslip_queries payslip_queries? @relation(fields: [query_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id], map: "idx_payslip_query_replies_tenant_id")
 }
 
 model payslips {
@@ -7276,9 +7373,12 @@ model pharmacy_catalog {
   description           String?
   created_at            DateTime? @default(now()) @db.Timestamptz(6)
   updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id             String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants               tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
 
   @@index([is_active, is_available, in_stock], map: "idx_pharmacy_catalog_active")
   @@index([category], map: "idx_pharmacy_catalog_category")
+  @@index([tenant_id], map: "idx_pharmacy_catalog_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7449,8 +7549,12 @@ model pharmacy_order_history {
   changed_by_role String?         @db.VarChar(50)
   notes           String?
   created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  tenant_id       String          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_order_history_tenant")
   users           users?          @relation(fields: [changed_by], references: [id], onUpdate: NoAction)
   pharmacy_orders pharmacy_orders @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id], map: "idx_pharmacy_order_history_tenant_id")
 }
 
 model pharmacy_orders {
@@ -8078,10 +8182,13 @@ model replacement_requests {
   responded_at         DateTime? @db.Timestamp(6)
   hr_approved_at       DateTime? @db.Timestamp(6)
   hr_approved_by       Int?
+  tenant_id            String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_replacement_requests_tenant")
 
   @@index([status, requested_at(sort: Desc)], map: "idx_replacement_requests_status")
   @@index([replacement_staff_id, status], map: "idx_replacement_requests_replacement_staff", where: raw("(replacement_staff_id IS NOT NULL)"))
   @@index([requester_id, requested_at(sort: Desc)], map: "idx_replacement_requests_requester", where: raw("(requester_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_replacement_requests_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -8094,9 +8201,12 @@ model report_updates {
   message     String
   is_internal Boolean  @default(false)
   created_at  DateTime @default(now()) @db.Timestamptz(6)
+  tenant_id   String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_report_updates_tenant")
   users       users?   @relation(fields: [author_id], references: [uid], onUpdate: NoAction)
 
   @@index([report_type, report_id, created_at], map: "idx_report_updates_report")
+  @@index([tenant_id], map: "idx_report_updates_tenant_id")
 }
 
 model salary_advances {
@@ -8207,10 +8317,13 @@ model scheduled_notifications {
   status     String    @default("pending") @db.VarChar(20)
   sent_at    DateTime? @db.Timestamptz(6)
   created_at DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants    tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_scheduled_notifications_tenant")
   users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_user_fk")
 
   @@index([user_id, status], map: "idx_scheduled_notifications_user")
   @@index([send_at], map: "idx_scheduled_notifications_pending_due", where: raw("((status)::text = 'pending'::text)"))
+  @@index([tenant_id], map: "idx_scheduled_notifications_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -8468,6 +8581,8 @@ model staff_attendance {
   created_by             String?        @db.Uuid
   updated_by             String?        @db.Uuid
   updated_at             DateTime       @default(now()) @db.Timestamp(6)
+  tenant_id              String         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                tenants        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_attendance_tenant")
   users                  users          @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   staff_breaks           staff_breaks[]
 
@@ -8477,6 +8592,7 @@ model staff_attendance {
   @@index([staff_uid])
   @@index([timestamp])
   @@index([type])
+  @@index([tenant_id], map: "idx_staff_attendance_tenant_id")
 }
 
 model staff_auth_sessions {
@@ -8488,9 +8604,12 @@ model staff_auth_sessions {
   ip_address    String?   @db.VarChar(45)
   last_activity DateTime? @db.Timestamp(6)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_auth_sessions_tenant")
 
   @@index([expires_at])
   @@index([staff_id])
+  @@index([tenant_id], map: "idx_staff_auth_sessions_tenant_id")
 }
 
 model staff_devices {
@@ -8504,9 +8623,12 @@ model staff_devices {
   registered_location String?   @db.VarChar(255)
   trust_expires_at    DateTime? @db.Timestamp(6)
   last_used           DateTime? @db.Timestamp(6)
+  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_devices_tenant")
 
   @@index([device_id])
   @@index([staff_id])
+  @@index([tenant_id], map: "idx_staff_devices_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -8700,12 +8822,15 @@ model staff_onboarding_tasks {
   assigned_to    String?   @db.Uuid
   due_date       DateTime? @db.Date
   priority       String?   @default("medium") @db.VarChar(20)
+  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_onboarding_tasks_tenant")
   users          users?    @relation(fields: [staff_id], references: [id], onUpdate: NoAction)
 
   @@index([priority], map: "idx_staff_onboarding_tasks_priority")
   @@index([staff_id], map: "idx_staff_onboarding_tasks_staff_id_fk")
   @@index([staff_id])
   @@index([due_date], map: "idx_staff_onboarding_tasks_due", where: raw("(due_date IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_staff_onboarding_tasks_tenant_id")
 }
 
 model staff_performance_reviews {
@@ -8721,10 +8846,13 @@ model staff_performance_reviews {
   training_recommendations String?
   review_date              DateTime? @db.Date
   created_at               DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id                String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                  tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_performance_reviews_tenant")
   users                    users?    @relation(fields: [staff_id], references: [id], onUpdate: NoAction)
 
   @@index([staff_id], map: "idx_staff_performance_reviews_staff_id_fk")
   @@index([staff_id])
+  @@index([tenant_id], map: "idx_staff_performance_reviews_tenant_id")
 }
 
 model staff_roster_preferences {
@@ -8811,9 +8939,12 @@ model staff_shift_assignments {
   effective_from DateTime? @default(dbgenerated("CURRENT_DATE")) @db.Date
   effective_to   DateTime? @db.Date
   created_at     DateTime? @default(now()) @db.Timestamp(6)
+  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_assignments_tenant")
 
   @@index([staff_id, effective_from, effective_to], map: "idx_staff_shift_assignments_active")
   @@index([staff_id], map: "idx_staff_shift_assignments_staff", where: raw("(staff_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_staff_shift_assignments_tenant_id")
 }
 
 model staff_shifts {
@@ -8829,9 +8960,12 @@ model staff_shifts {
   is_preset                Boolean?  @default(false)
   grace_minutes            Int?      @default(15)
   created_at               DateTime? @default(now()) @db.Timestamp(6)
+  tenant_id                String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                  tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shifts_tenant")
 
   @@index([is_active], map: "idx_staff_shifts_active", where: raw("(is_active = true)"))
   @@index([department], map: "idx_staff_shifts_department", where: raw("(department IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_staff_shifts_tenant_id")
 }
 
 model step_profiles {
@@ -8843,8 +8977,11 @@ model step_profiles {
   opted_in      Boolean  @default(true)
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @db.Timestamp(6)
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_step_profiles_tenant")
 
   @@index([user_uid])
+  @@index([tenant_id], map: "idx_step_profiles_tenant_id")
 }
 
 model step_rewards {
@@ -8857,10 +8994,13 @@ model step_rewards {
   is_applied   Boolean   @default(false)
   expires_at   DateTime? @db.Timestamp(6)
   created_at   DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_step_rewards_tenant")
 
   @@index([reward_month])
   @@index([user_uid])
   @@index([user_uid, is_applied])
+  @@index([tenant_id], map: "idx_step_rewards_tenant_id")
 }
 
 model step_sessions {
@@ -8880,12 +9020,15 @@ model step_sessions {
   source_device      String?   @db.VarChar(120)
   source_app         String?   @db.VarChar(120)
   recorded_at_source DateTime? @db.Timestamptz(6)
+  tenant_id          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants            tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_step_sessions_tenant")
 
   @@unique([user_uid, source, source_day], map: "idx_step_sessions_user_source_day", where: raw("(source_day IS NOT NULL)"))
   @@index([started_at])
   @@index([user_uid])
   @@index([user_uid, started_at])
   @@index([source, source_day(sort: Desc)], map: "idx_step_sessions_source_day")
+  @@index([tenant_id], map: "idx_step_sessions_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9168,18 +9311,27 @@ model tenants {
   allergies                                  allergies[]
   ambulance_requests                         ambulance_requests[]
   anesthesia_records                         anesthesia_records[]
+  annual_review_reminders                    annual_review_reminders[]
   annual_tax_summaries                       annual_tax_summaries[]
+  anomalies                                  anomalies[]
+  api_access_logs                            api_access_logs[]
   api_clients                                api_clients[]
   api_keys                                   api_keys[]
   appointment_documents                      appointment_documents[]
   appointment_queue_status_history           appointment_queue_status_history[]
   appointment_queues                         appointment_queues[]
+  appointment_status_history                 appointment_status_history[]
   appointment_waitlist                       appointment_waitlist[]
   appointments                               appointments[]
   approvals                                  approvals[]
+  attendance_disputes                        attendance_disputes[]
+  attendance_logs                            attendance_logs[]
+  attendance_regularization                  attendance_regularization[]
   audit_log                                  audit_log[]
   audit_logs                                 audit_logs[]
+  auth_logs                                  auth_logs[]
   automation_rules                           automation_rules[]
+  batch_upload_logs                          batch_upload_logs[]
   bed_transfers                              bed_transfers[]
   beds                                       beds[]
   billing_advance_settlements                billing_advance_settlements[]
@@ -9187,6 +9339,7 @@ model tenants {
   blood_requests                             blood_requests[]
   blood_units                                blood_units[]
   bookable_resources                         bookable_resources[]
+  bulk_operation_logs                        bulk_operation_logs[]
   bulk_revision_jobs                         bulk_revision_jobs[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
@@ -9202,6 +9355,7 @@ model tenants {
   chemo_administrations                      chemo_administrations[]
   chemo_cumulative_doses                     chemo_cumulative_doses[]
   chemo_cycles                               chemo_cycles[]
+  chemo_protocol_drugs                       chemo_protocol_drugs[]
   chemo_protocols                            chemo_protocols[]
   chemo_treatment_plans                      chemo_treatment_plans[]
   claim_denials                              claim_denials[]
@@ -9294,23 +9448,31 @@ model tenants {
   clinical_longitudinal_risk                 clinical_longitudinal_risk[]
   clinical_notes                             clinical_notes[]
   clinical_nursing_ambient_sessions          clinical_nursing_ambient_sessions[]
+  clinical_order_set_items                   clinical_order_set_items[]
   clinical_orders                            clinical_orders[]
   clinical_trial_match_results               clinical_trial_match_results[]
   clinical_trials_catalog                    clinical_trials_catalog[]
   clinical_voice_notes                       clinical_voice_notes[]
   consultations                              consultations[]
+  data_breaches                              data_breaches[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
   dental_procedures                          dental_procedures[]
   dental_tooth_findings                      dental_tooth_findings[]
+  department_audit_log                       department_audit_log[]
   departments                                departments[]
+  devices                                    devices[]
   diagnoses                                  diagnoses[]
+  dialysis_intra_obs                         dialysis_intra_obs[]
   dialysis_prescriptions                     dialysis_prescriptions[]
+  dialysis_serology                          dialysis_serology[]
   dialysis_session_events                    dialysis_session_events[]
   diet_orders                                diet_orders[]
   discharge_consults                         discharge_consults[]
+  discharge_summary_sections                 discharge_summary_sections[]
   doctors                                    doctors[]
   downtime_snapshots                         downtime_snapshots[]
+  drug_return_lines                          drug_return_lines[]
   e_prescriptions                            e_prescriptions[]
   emergency_visits                           emergency_visits[]
   encryption_keys                            encryption_keys[]
@@ -9320,29 +9482,48 @@ model tenants {
   facilities                                 facilities?
   facility_locations                         facility_locations[]
   facility_rooms                             facility_rooms[]
+  failed_notifications                       failed_notifications[]
   fall_risk_assessments                      fall_risk_assessments[]
   family_members                             family_members[]
+  feedback                                   feedback[]
   file_access_logs                           file_access_logs[]
+  file_deletion_log                          file_deletion_log[]
   file_metadata                              file_metadata[]
   follow_up_plans                            follow_up_plans[]
   full_final_settlements                     full_final_settlements[]
+  gdpr_erasure_log                           gdpr_erasure_log[]
+  geofence_breaches                          geofence_breaches[]
   growth_charts                              growth_charts[]
+  health_milestone_claims                    health_milestone_claims[]
+  health_point_ledger                        health_point_ledger[]
   health_records                             health_records[]
   hipaa_access_log                           hipaa_access_log[]
   hl7_feed_subscriptions                     hl7_feed_subscriptions[]
   hl7_outbound_messages                      hl7_outbound_messages[]
+  housekeeping_floor_assignments             housekeeping_floor_assignments[]
+  housekeeping_logs                          housekeeping_logs[]
+  housekeeping_request_recipients            housekeeping_request_recipients[]
+  housekeeping_request_updates               housekeeping_request_updates[]
+  housekeeping_requests                      housekeeping_requests[]
+  housekeeping_zones                         housekeeping_zones[]
   hr_activity_logs                           hr_activity_logs[]
   idempotency_keys                           idempotency_keys[]
   incident_reports                           incident_reports[]
   india_compliance_evidence                  india_compliance_evidence[]
   infection_cases                            infection_cases[]
+  insurance_claim_caps                       insurance_claim_caps[]
   insurance_claims                           insurance_claims[]
+  insurance_preauth_responses                insurance_preauth_responses[]
   intake_output                              intake_output[]
   integration_credentials                    integration_credentials[]
   integration_logs                           integration_logs[]
   integrations                               integrations[]
   intraop_notes                              intraop_notes[]
+  investigation_booking_history              investigation_booking_history[]
   investigation_bookings                     investigation_bookings[]
+  investigation_files                        investigation_files[]
+  investigation_template_tests               investigation_template_tests[]
+  investigation_templates                    investigation_templates[]
   investigations                             investigations[]
   investment_declarations                    investment_declarations[]
   invoices                                   invoices[]
@@ -9358,7 +9539,12 @@ model tenants {
   lab_interface_messages                     lab_interface_messages[]
   lab_specimen_status_history                lab_specimen_status_history[]
   lab_specimens                              lab_specimens[]
+  leave_applications                         leave_applications[]
+  leave_balance_overrides                    leave_balance_overrides[]
   leave_encashments                          leave_encashments[]
+  leave_types                                leave_types[]
+  legal_holds                                legal_holds[]
+  maternity_apgar_scores                     maternity_apgar_scores[]
   medical_activity_logs                      medical_activity_logs[]
   medical_records                            medical_records[]
   medication_administrations                 medication_administrations[]
@@ -9368,12 +9554,16 @@ model tenants {
   mfa_backup_codes                           mfa_backup_codes[]
   mfa_challenges                             mfa_challenges[]
   mfa_devices                                mfa_devices[]
+  micro_isolates                             micro_isolates[]
+  micro_sensitivities                        micro_sensitivities[]
   mlc_records                                mlc_records[]
   nabh_indicator_snapshots                   nabh_indicator_snapshots[]
   news2_scores                               news2_scores[]
   note_drafts                                note_drafts[]
+  notification_delivery_log                  notification_delivery_log[]
   notification_events                        notification_events[]
   notification_outbox                        notification_outbox[]
+  notification_templates                     notification_templates[]
   notifications                              notifications[]
   numbering_series                           numbering_series[]
   nurse_handovers                            nurse_handovers[]
@@ -9382,6 +9572,7 @@ model tenants {
   ot_schedules                               ot_schedules[]
   otp_logs                                   otp_logs[]
   otp_sessions                               otp_sessions[]
+  overtime_requests                          overtime_requests[]
   package_items                              package_items[]
   packages                                   packages[]
   pain_assessments                           pain_assessments[]
@@ -9395,6 +9586,7 @@ model tenants {
   patient_consents                           patient_consents[]
   patient_data_rights_requests               patient_data_rights_requests[]
   patient_duplicate_candidates               patient_duplicate_candidates[]
+  patient_feedback                           patient_feedback[]
   patient_identifiers                        patient_identifiers[]
   patient_merge_requests                     patient_merge_requests[]
   patient_problems                           patient_problems[]
@@ -9404,13 +9596,17 @@ model tenants {
   payers                                     payers[]
   payment_transactions                       payment_transactions[]
   payroll_runs                               payroll_runs[]
+  payslip_queries                            payslip_queries[]
+  payslip_query_replies                      payslip_query_replies[]
   payslips                                   payslips[]
   pharmacy_activity_logs                     pharmacy_activity_logs[]
+  pharmacy_catalog                           pharmacy_catalog[]
   pharmacy_expiry_alerts                     pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items               pharmacy_goods_receipt_items[]
   pharmacy_goods_receipts                    pharmacy_goods_receipts[]
   pharmacy_inventory_batches                 pharmacy_inventory_batches[]
   pharmacy_inventory_items                   pharmacy_inventory_items[]
+  pharmacy_order_history                     pharmacy_order_history[]
   pharmacy_orders                            pharmacy_orders[]
   pharmacy_purchase_order_items              pharmacy_purchase_order_items[]
   pharmacy_purchase_orders                   pharmacy_purchase_orders[]
@@ -9431,6 +9627,8 @@ model tenants {
   radiology_orders                           radiology_orders[]
   referrals                                  referrals[]
   remote_prescriptions                       remote_prescriptions[]
+  replacement_requests                       replacement_requests[]
+  report_updates                             report_updates[]
   research_crf_forms                         research_crf_forms[]
   research_crf_responses                     research_crf_responses[]
   research_enrollments                       research_enrollments[]
@@ -9442,6 +9640,7 @@ model tenants {
   salary_advances                            salary_advances[]
   salary_arrears                             salary_arrears[]
   salary_revisions                           salary_revisions[]
+  scheduled_notifications                    scheduled_notifications[]
   service_catalog                            service_catalog[]
   sla_definitions                            sla_definitions[]
   smart_access_tokens                        smart_access_tokens[]
@@ -9450,9 +9649,13 @@ model tenants {
   sos_alerts                                 sos_alerts[]
   staff                                      staff[]
   staff_access_audit_log                     staff_access_audit_log[]
+  staff_attendance                           staff_attendance[]
+  staff_auth_sessions                        staff_auth_sessions[]
+  staff_breaks                               staff_breaks[]
   staff_commute_profile_audit                staff_commute_profile_audit[]
   staff_commute_profiles                     staff_commute_profiles[]
   staff_credentials                          staff_credentials[]
+  staff_devices                              staff_devices[]
   staff_grievances                           staff_grievances[]
   staff_leave_forecast_audit                 staff_leave_forecast_audit[]
   staff_leave_forecast_runs                  staff_leave_forecast_runs[]
@@ -9462,9 +9665,21 @@ model tenants {
   staff_message_thread_participants          staff_message_thread_participants[]
   staff_message_threads                      staff_message_threads[]
   staff_messages                             staff_messages[]
+  staff_onboarding_tasks                     staff_onboarding_tasks[]
+  staff_performance_reviews                  staff_performance_reviews[]
   staff_roster_preferences                   staff_roster_preferences[]
   staff_roster_runs                          staff_roster_runs[]
   staff_salary                               staff_salary[]
+  staff_shift_assignments                    staff_shift_assignments[]
+  staff_shift_roster_assignment_audit        staff_shift_roster_assignment_audit[]
+  staff_shift_roster_assignments             staff_shift_roster_assignments[]
+  staff_shift_roster_boards                  staff_shift_roster_boards[]
+  staff_shift_roster_request_audit           staff_shift_roster_request_audit[]
+  staff_shift_roster_requests                staff_shift_roster_requests[]
+  staff_shifts                               staff_shifts[]
+  step_profiles                              step_profiles[]
+  step_rewards                               step_rewards[]
+  step_sessions                              step_sessions[]
   surgical_implants                          surgical_implants[]
   surgical_safety_checklists                 surgical_safety_checklists[]
   tariff_items                               tariff_items[]
@@ -9473,18 +9688,28 @@ model tenants {
   tasks                                      tasks[]
   teleconsult_provider_configs               teleconsult_provider_configs?
   teleconsultations                          teleconsultations[]
+  tpa_claim_correspondence                   tpa_claim_correspondence[]
+  tpa_claim_documents                        tpa_claim_documents[]
   tpas                                       tpas[]
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
   triage_assessments                         triage_assessments[]
+  user_action_logs                           user_action_logs[]
   user_active_sessions                       user_active_sessions[]
+  user_deactivation_log                      user_deactivation_log[]
+  user_devices                               user_devices[]
+  user_reactivation_log                      user_reactivation_log[]
+  user_role_audit                            user_role_audit[]
   user_sessions                              user_sessions[]
+  user_status_history                        user_status_history[]
   users                                      users[]
+  vascular_access                            vascular_access[]
   video_sessions                             video_sessions[]
   virtual_ward_check_ins                     virtual_ward_check_ins[]
   virtual_ward_enrollments                   virtual_ward_enrollments[]
   virtual_ward_escalations                   virtual_ward_escalations[]
   vitals_chart                               vitals_chart[]
+  ward_indent_items                          ward_indent_items[]
   wards                                      wards[]
   webhook_deliveries                         webhook_deliveries[]
   webhook_subscriptions                      webhook_subscriptions[]
@@ -9721,9 +9946,12 @@ model user_action_logs {
   details        Json?
   ip_address     String?  @db.VarChar(45)
   created_at     DateTime @default(now()) @db.Timestamp(6)
+  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_action_logs_tenant")
 
   @@index([created_at])
   @@index([user_id])
+  @@index([tenant_id], map: "idx_user_action_logs_tenant_id")
 }
 
 model user_active_sessions {
@@ -9752,8 +9980,11 @@ model user_deactivation_log {
   deactivated_at      DateTime @default(now()) @db.Timestamp(6)
   ip_address          String?  @db.VarChar(45)
   user_data           Json?
+  tenant_id           String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_deactivation_log_tenant")
 
   @@index([user_id])
+  @@index([tenant_id], map: "idx_user_deactivation_log_tenant_id")
 }
 
 model user_devices {
@@ -9770,10 +10001,13 @@ model user_devices {
   device_type String?   @db.VarChar(50)
   ip_address  String?   @db.VarChar(45)
   updated_at  DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_devices_tenant")
 
   @@unique([user_uid, device_id])
   @@index([updated_at(sort: Desc)], map: "idx_user_devices_updated")
   @@index([user_uid])
+  @@index([tenant_id], map: "idx_user_devices_tenant_id")
 }
 
 model user_reactivation_log {
@@ -9783,8 +10017,11 @@ model user_reactivation_log {
   reactivation_reason String?
   reactivated_at      DateTime @default(now()) @db.Timestamp(6)
   ip_address          String?  @db.VarChar(45)
+  tenant_id           String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_reactivation_log_tenant")
 
   @@index([user_id])
+  @@index([tenant_id], map: "idx_user_reactivation_log_tenant_id")
 }
 
 model user_role_audit {
@@ -9796,8 +10033,11 @@ model user_role_audit {
   reason         String?
   action_type    String?  @db.VarChar(50)
   changed_at     DateTime @default(now()) @db.Timestamp(6)
+  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_role_audit_tenant")
 
   @@index([phone])
+  @@index([tenant_id], map: "idx_user_role_audit_tenant_id")
 }
 
 model user_sessions {
@@ -9824,8 +10064,11 @@ model user_status_history {
   change_reason   String?
   changed_at      DateTime @default(now()) @db.Timestamp(6)
   ip_address      String?  @db.VarChar(45)
+  tenant_id       String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_status_history_tenant")
 
   @@index([user_id])
+  @@index([tenant_id], map: "idx_user_status_history_tenant_id")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -10278,10 +10521,13 @@ model ward_indent_items {
   notes               String?
   created_at          DateTime     @default(now()) @db.Timestamptz(6)
   updated_at          DateTime     @default(now()) @db.Timestamptz(6)
+  tenant_id           String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ward_indent_items_tenant")
   indent              ward_indents @relation(fields: [ward_indent_id], references: [id], onDelete: Cascade)
 
   @@index([ward_indent_id])
   @@index([ward_indent_id], map: "idx_ward_indent_items_indent")
+  @@index([tenant_id], map: "idx_ward_indent_items_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -10445,16 +10691,19 @@ model attendance_disputes {
   resolved_by                                      Int?
   created_at                                       DateTime? @default(now()) @db.Timestamptz(6)
   updated_at                                       DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id                                        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   users_attendance_disputes_resolved_byTousers     users?    @relation("attendance_disputes_resolved_byTousers", fields: [resolved_by], references: [id], onUpdate: NoAction)
   users_attendance_disputes_reviewed_byTousers     users?    @relation("attendance_disputes_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction)
   users_attendance_disputes_reviewed_by_uidTousers users?    @relation("attendance_disputes_reviewed_by_uidTousers", fields: [reviewed_by_uid], references: [uid], onUpdate: NoAction)
   users_attendance_disputes_staff_idTousers        users     @relation("attendance_disputes_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users_attendance_disputes_staff_uidTousers       users?    @relation("attendance_disputes_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction)
+  tenants                                          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_attendance_disputes_tenant")
 
   @@unique([staff_id, dispute_date])
   @@index([staff_id, dispute_date], map: "idx_attendance_disputes_staff")
   @@index([staff_uid], map: "idx_attendance_disputes_staff_uid")
   @@index([status], map: "idx_attendance_disputes_status")
+  @@index([tenant_id], map: "idx_attendance_disputes_tenant_id")
 }
 
 model attendance_regularization {
@@ -10469,13 +10718,16 @@ model attendance_regularization {
   reviewed_at                                        DateTime? @db.Timestamptz(6)
   created_at                                         DateTime  @default(now()) @db.Timestamptz(6)
   updated_at                                         DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id                                          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   users_attendance_regularization_reviewed_byTousers users?    @relation("attendance_regularization_reviewed_byTousers", fields: [reviewed_by], references: [uid], onUpdate: NoAction)
   users_attendance_regularization_staff_idTousers    users     @relation("attendance_regularization_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                            tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_attendance_regularization_tenant")
 
   @@unique([staff_id, date])
   @@index([reviewed_by], map: "idx_attendance_regularization_reviewed_by")
   @@index([staff_id, date], map: "idx_attendance_regularization_staff")
   @@index([status], map: "idx_attendance_regularization_status")
+  @@index([tenant_id], map: "idx_attendance_regularization_tenant_id")
 }
 
 model billing_advance_settlements {
@@ -10754,9 +11006,12 @@ model clinical_order_set_items {
   payload             Json
   default_selected    Boolean             @default(true)
   created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  tenant_id           String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   clinical_order_sets clinical_order_sets @relation(fields: [order_set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_order_set_items_tenant")
 
   @@index([order_set_id, display_order], map: "idx_clinical_order_set_items_set")
+  @@index([tenant_id], map: "idx_clinical_order_set_items_tenant_id")
 }
 
 model clinical_order_sets {
@@ -10809,17 +11064,20 @@ model geofence_breaches {
   metadata                                 Json     @default("{}")
   occurred_at                              DateTime @default(now()) @db.Timestamptz(6)
   created_at                               DateTime @default(now()) @db.Timestamptz(6)
+  tenant_id                                String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                                  tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_geofence_breaches_tenant")
   users_geofence_breaches_staff_idTousers  users?   @relation("geofence_breaches_staff_idTousers", fields: [staff_id], references: [id], onUpdate: NoAction)
   users_geofence_breaches_staff_uidTousers users?   @relation("geofence_breaches_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction)
 
   @@index([action], map: "idx_geofence_breaches_action")
   @@index([alerted], map: "idx_geofence_breaches_alerted")
   @@index([staff_id, occurred_at(sort: Desc)], map: "idx_geofence_breaches_staff_time")
+  @@index([tenant_id], map: "idx_geofence_breaches_tenant_id")
 }
 
 model housekeeping_logs {
   id                                             Int                 @id @default(autoincrement())
-  log_number                                     String              @unique @default(dbgenerated("((('HKL-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_log_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
+  log_number                                     String              @default(dbgenerated("((('HKL-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_log_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
   staff_id                                       Int
   staff_uid                                      String?             @db.Uuid
   zone_id                                        Int?
@@ -10839,15 +11097,19 @@ model housekeeping_logs {
   logged_at                                      DateTime            @default(now()) @db.Timestamptz(6)
   created_at                                     DateTime?           @default(now()) @db.Timestamptz(6)
   updated_at                                     DateTime?           @default(now()) @db.Timestamptz(6)
+  tenant_id                                      String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                                        tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_logs_tenant")
   users_housekeeping_logs_staff_idTousers        users               @relation("housekeeping_logs_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users_housekeeping_logs_staff_uidTousers       users?              @relation("housekeeping_logs_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction)
   users_housekeeping_logs_verified_byTousers     users?              @relation("housekeeping_logs_verified_byTousers", fields: [verified_by], references: [id], onUpdate: NoAction)
   users_housekeeping_logs_verified_by_uidTousers users?              @relation("housekeeping_logs_verified_by_uidTousers", fields: [verified_by_uid], references: [uid], onUpdate: NoAction)
   housekeeping_zones                             housekeeping_zones? @relation(fields: [zone_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, log_number], map: "uniq_housekeeping_logs_tenant_log_number")
   @@index([staff_id, logged_at], map: "idx_housekeeping_logs_staff")
   @@index([status], map: "idx_housekeeping_logs_status")
   @@index([zone_id], map: "idx_housekeeping_logs_zone")
+  @@index([tenant_id], map: "idx_housekeeping_logs_tenant_id")
 }
 
 model housekeeping_request_updates {
@@ -10859,11 +11121,14 @@ model housekeeping_request_updates {
   message                                              String
   is_internal                                          Boolean?              @default(false)
   created_at                                           DateTime?             @default(now()) @db.Timestamptz(6)
+  tenant_id                                            String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                                              tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_request_updates_tenant")
   users_housekeeping_request_updates_author_idTousers  users?                @relation("housekeeping_request_updates_author_idTousers", fields: [author_id], references: [id], onUpdate: NoAction)
   users_housekeeping_request_updates_author_uidTousers users?                @relation("housekeeping_request_updates_author_uidTousers", fields: [author_uid], references: [uid], onUpdate: NoAction)
   housekeeping_requests                                housekeeping_requests @relation(fields: [request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([request_id, created_at], map: "idx_housekeeping_request_updates_request")
+  @@index([tenant_id], map: "idx_housekeeping_request_updates_tenant_id")
 }
 
 model housekeeping_floor_assignments {
@@ -10888,6 +11153,8 @@ model housekeeping_floor_assignments {
   roster_board_id      Int?
   roster_assignment_id Int?
   assignment_kind      String    @default("redeploy") @db.VarChar(30)
+  tenant_id            String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_floor_assignments_tenant")
 
   @@index([assigned_by, created_at], map: "idx_hk_floor_assignments_incharge")
   @@index([assignment_kind, status, effective_from, effective_to], map: "idx_hk_floor_assignments_kind_active")
@@ -10895,6 +11162,7 @@ model housekeeping_floor_assignments {
   @@index([shift_label, effective_from, effective_to], map: "idx_hk_floor_assignments_shift")
   @@index([staff_id, status, effective_to], map: "idx_hk_floor_assignments_staff_active")
   @@index([zone_id, status, effective_to], map: "idx_hk_floor_assignments_zone_active")
+  @@index([tenant_id], map: "idx_housekeeping_floor_assignments_tenant_id")
 }
 
 model staff_shift_roster_assignment_audit {
@@ -10908,10 +11176,13 @@ model staff_shift_roster_assignment_audit {
   before_snapshot                Json                            @default("{}")
   after_snapshot                 Json                            @default("{}")
   created_at                     DateTime                        @default(now()) @db.Timestamptz(6)
+  tenant_id                      String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                        tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_assignment_audit_tenant")
   staff_shift_roster_assignments staff_shift_roster_assignments? @relation(fields: [assignment_id], references: [id], onUpdate: NoAction)
   staff_shift_roster_boards      staff_shift_roster_boards?      @relation(fields: [roster_id], references: [id], onUpdate: NoAction)
 
   @@index([roster_id, created_at(sort: Desc)], map: "idx_staff_shift_roster_audit_roster")
+  @@index([tenant_id], map: "idx_staff_shift_roster_assignment_audit_tenant_id")
 }
 
 model staff_shift_roster_assignments {
@@ -10930,12 +11201,15 @@ model staff_shift_roster_assignments {
   notes                               String?
   created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
   updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
+  tenant_id                           String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   staff_shift_roster_assignment_audit staff_shift_roster_assignment_audit[]
+  tenants                             tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_assignments_tenant")
   staff_shift_roster_boards           staff_shift_roster_boards             @relation(fields: [roster_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([roster_id], map: "idx_staff_shift_roster_assignments_roster")
   @@index([staff_id, status], map: "idx_staff_shift_roster_assignments_staff")
   @@index([assignment_target_type, assignment_target_id, status], map: "idx_staff_shift_roster_assignments_target")
+  @@index([tenant_id], map: "idx_staff_shift_roster_assignments_tenant_id")
 }
 
 model staff_shift_roster_boards {
@@ -10955,12 +11229,15 @@ model staff_shift_roster_boards {
   published_at                        DateTime?                             @db.Timestamptz(6)
   created_at                          DateTime                              @default(now()) @db.Timestamptz(6)
   updated_at                          DateTime                              @default(now()) @db.Timestamptz(6)
+  tenant_id                           String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   staff_shift_roster_assignment_audit staff_shift_roster_assignment_audit[]
   staff_shift_roster_assignments      staff_shift_roster_assignments[]
+  tenants                             tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_boards_tenant")
 
-  @@unique([department, roster_date, shift_label], map: "staff_shift_roster_boards_unique_shift")
+  @@unique([tenant_id, department, roster_date, shift_label], map: "uniq_staff_shift_roster_boards_tenant_shift")
   @@index([department, roster_date, shift_label], map: "idx_staff_shift_roster_boards_dept_date")
   @@index([status, roster_date], map: "idx_staff_shift_roster_boards_status")
+  @@index([tenant_id], map: "idx_staff_shift_roster_boards_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -10974,8 +11251,11 @@ model staff_shift_roster_request_audit {
   before_snapshot Json     @default("{}")
   after_snapshot  Json     @default("{}")
   created_at      DateTime @default(now()) @db.Timestamptz(6)
+  tenant_id       String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_request_audit_tenant")
 
   @@index([request_id, created_at(sort: Desc)], map: "idx_staff_shift_roster_request_audit_request")
+  @@index([tenant_id], map: "idx_staff_shift_roster_request_audit_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11009,15 +11289,18 @@ model staff_shift_roster_requests {
   metadata                Json      @default("{}")
   created_at              DateTime  @default(now()) @db.Timestamptz(6)
   updated_at              DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id               String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_shift_roster_requests_tenant")
 
   @@index([department, status, requested_start_date, requested_end_date], map: "idx_staff_shift_roster_requests_dept_window")
   @@index([staff_id, requested_start_date(sort: Desc)], map: "idx_staff_shift_roster_requests_staff")
   @@index([assignment_target_type, assignment_target_id, status], map: "idx_staff_shift_roster_requests_target")
+  @@index([tenant_id], map: "idx_staff_shift_roster_requests_tenant_id")
 }
 
 model housekeeping_requests {
   id                                                 Int                               @id @default(autoincrement())
-  request_number                                     String                            @unique @default(dbgenerated("((('HKR-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_request_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
+  request_number                                     String                            @default(dbgenerated("((('HKR-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_request_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
   requester_id                                       Int
   requester_uid                                      String?                           @db.Uuid
   zone_id                                            Int?
@@ -11047,8 +11330,10 @@ model housekeeping_requests {
   sla_breached                                       Boolean?                          @default(false)
   created_at                                         DateTime?                         @default(now()) @db.Timestamptz(6)
   updated_at                                         DateTime?                         @default(now()) @db.Timestamptz(6)
+  tenant_id                                          String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   housekeeping_request_recipients                    housekeeping_request_recipients[]
   housekeeping_request_updates                       housekeeping_request_updates[]
+  tenants                                            tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_requests_tenant")
   users_housekeeping_requests_assigned_byTousers     users?                            @relation("housekeeping_requests_assigned_byTousers", fields: [assigned_by], references: [id], onUpdate: NoAction)
   users_housekeeping_requests_assigned_by_uidTousers users?                            @relation("housekeeping_requests_assigned_by_uidTousers", fields: [assigned_by_uid], references: [uid], onUpdate: NoAction)
   users_housekeeping_requests_assigned_toTousers     users?                            @relation("housekeeping_requests_assigned_toTousers", fields: [assigned_to], references: [id], onUpdate: NoAction)
@@ -11059,9 +11344,11 @@ model housekeeping_requests {
   users_housekeeping_requests_verified_by_uidTousers users?                            @relation("housekeeping_requests_verified_by_uidTousers", fields: [verified_by_uid], references: [uid], onUpdate: NoAction)
   housekeeping_zones                                 housekeeping_zones?               @relation(fields: [zone_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, request_number], map: "uniq_housekeeping_requests_tenant_request_number")
   @@index([assigned_to, status], map: "idx_housekeeping_requests_assigned")
   @@index([requester_id, created_at], map: "idx_housekeeping_requests_requester")
   @@index([status, urgency], map: "idx_housekeeping_requests_status")
+  @@index([tenant_id], map: "idx_housekeeping_requests_tenant_id")
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
@@ -11074,10 +11361,13 @@ model housekeeping_zones {
   is_active             Boolean                 @default(true)
   created_at            DateTime?               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
+  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   housekeeping_logs     housekeeping_logs[]
   housekeeping_requests housekeeping_requests[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_zones_tenant")
 
   @@index([is_active, zone_type], map: "idx_housekeeping_zones_active")
+  @@index([tenant_id], map: "idx_housekeeping_zones_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11191,9 +11481,12 @@ model insurance_preauth_responses {
   decided_at          DateTime          @default(now()) @db.Timestamptz(6)
   recorded_by         String?           @db.Uuid
   created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  tenant_id           String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_insurance_preauth_responses_tenant")
   insurance_preauth   insurance_preauth @relation(fields: [preauth_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([preauth_id, decided_at(sort: Desc)], map: "idx_insurance_preauth_resp_preauth")
+  @@index([tenant_id], map: "idx_insurance_preauth_responses_tenant_id")
 }
 
 model lab_critical_alerts {
@@ -11394,10 +11687,13 @@ model maternity_apgar_scores {
   total_score        Int?
   recorded_by        String?            @db.Uuid
   recorded_at        DateTime           @default(now()) @db.Timestamptz(6)
+  tenant_id          String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_maternity_apgar_scores_tenant")
   maternity_newborns maternity_newborns @relation(fields: [newborn_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([newborn_id, time_minute])
   @@index([newborn_id, time_minute], map: "idx_maternity_apgar_newborn")
+  @@index([tenant_id], map: "idx_maternity_apgar_scores_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11681,6 +11977,8 @@ model overtime_requests {
   rejection_reason                               String?
   created_at                                     DateTime? @default(now()) @db.Timestamptz(6)
   updated_at                                     DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id                                      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                                        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_overtime_requests_tenant")
   users_overtime_requests_approved_byTousers     users?    @relation("overtime_requests_approved_byTousers", fields: [approved_by], references: [id], onUpdate: NoAction)
   users_overtime_requests_approved_by_uidTousers users?    @relation("overtime_requests_approved_by_uidTousers", fields: [approved_by_uid], references: [uid], onUpdate: NoAction)
   users_overtime_requests_staff_idTousers        users     @relation("overtime_requests_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -11689,6 +11987,7 @@ model overtime_requests {
   @@index([staff_id, date], map: "idx_overtime_requests_staff")
   @@index([staff_uid], map: "idx_overtime_requests_staff_uid")
   @@index([status], map: "idx_overtime_requests_status")
+  @@index([tenant_id], map: "idx_overtime_requests_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11816,6 +12115,8 @@ model staff_breaks {
   duration_minutes                    Decimal?          @db.Decimal(8, 2)
   created_at                          DateTime?         @default(now()) @db.Timestamptz(6)
   updated_at                          DateTime?         @default(now()) @db.Timestamptz(6)
+  tenant_id                           String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                             tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_breaks_tenant")
   staff_attendance                    staff_attendance? @relation(fields: [attendance_id], references: [id], onUpdate: NoAction)
   users_staff_breaks_staff_idTousers  users             @relation("staff_breaks_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users_staff_breaks_staff_uidTousers users?            @relation("staff_breaks_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction)
@@ -11823,6 +12124,7 @@ model staff_breaks {
   @@index([staff_id, break_start], map: "idx_staff_breaks_staff")
   @@index([staff_uid], map: "idx_staff_breaks_staff_uid")
   @@index([staff_id], map: "idx_staff_breaks_open", where: raw("(break_end IS NULL)"))
+  @@index([tenant_id], map: "idx_staff_breaks_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11837,11 +12139,14 @@ model tpa_claim_correspondence {
   attachments       Json?              @default("[]")
   recorded_by       String?            @db.Uuid
   recorded_at       DateTime           @default(now()) @db.Timestamptz(6)
+  tenant_id         String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants           tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tpa_claim_correspondence_tenant")
   tpa_claims        tpa_claims?        @relation(fields: [claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   insurance_preauth insurance_preauth? @relation(fields: [preauth_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([claim_id, recorded_at(sort: Desc)], map: "idx_claim_corr_claim", where: raw("(claim_id IS NOT NULL)"))
   @@index([preauth_id, recorded_at(sort: Desc)], map: "idx_claim_corr_preauth", where: raw("(preauth_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_tpa_claim_correspondence_tenant_id")
 }
 
 model tpa_claim_counter {
@@ -11865,11 +12170,14 @@ model tpa_claim_documents {
   uploaded_by       String?            @db.Uuid
   uploaded_at       DateTime           @default(now()) @db.Timestamptz(6)
   notes             String?
+  tenant_id         String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants           tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tpa_claim_documents_tenant")
   tpa_claims        tpa_claims?        @relation(fields: [claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   insurance_preauth insurance_preauth? @relation(fields: [preauth_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([claim_id], map: "idx_claim_docs_claim", where: raw("(claim_id IS NOT NULL)"))
   @@index([preauth_id], map: "idx_claim_docs_preauth", where: raw("(preauth_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_tpa_claim_documents_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12107,9 +12415,12 @@ model dialysis_intra_obs {
   created_at         DateTime          @default(now()) @db.Timestamptz(6)
   source             String            @default("staff") @db.VarChar(12)
   source_device      String?           @db.VarChar(80)
+  tenant_id          String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   dialysis_sessions  dialysis_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialysis_intra_obs_tenant")
 
   @@index([session_id, recorded_at], map: "idx_dialysis_obs_session")
+  @@index([tenant_id], map: "idx_dialysis_intra_obs_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12157,10 +12468,13 @@ model dialysis_serology {
   reported_by         String?           @db.Uuid
   notes               String?
   created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  tenant_id           String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   dialysis_patients   dialysis_patients @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialysis_serology_tenant")
 
   @@index([dialysis_patient_id, test_date(sort: Desc)], map: "idx_dialysis_serology_patient")
   @@index([dialysis_patient_id], map: "idx_dialysis_serology_seroconv", where: raw("is_seroconversion"))
+  @@index([tenant_id], map: "idx_dialysis_serology_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12267,10 +12581,13 @@ model discharge_summary_sections {
   edited_by            String?             @db.Uuid
   edited_at            DateTime?           @db.Timestamptz(6)
   body_translations    Json                @default("{}")
+  tenant_id            String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   discharge_summaries  discharge_summaries @relation(fields: [discharge_summary_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discharge_summary_sections_tenant")
 
   @@unique([discharge_summary_id, section_key])
   @@index([discharge_summary_id, display_order], map: "idx_discharge_sections_summary")
+  @@index([tenant_id], map: "idx_discharge_summary_sections_tenant_id")
 }
 
 model discharge_summary_templates {
@@ -12340,10 +12657,13 @@ model drug_return_lines {
   witness_name                String?             @db.VarChar(160)
   notes                       String?
   created_at                  DateTime            @default(now()) @db.Timestamptz(6)
+  tenant_id                   String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   drug_return_batches         drug_return_batches @relation(fields: [batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                     tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_drug_return_lines_tenant")
 
   @@index([batch_id], map: "idx_drug_return_lines_batch")
   @@index([drug_name], map: "idx_drug_return_lines_drug")
+  @@index([tenant_id], map: "idx_drug_return_lines_tenant_id")
 }
 
 model drug_return_serial_counter {
@@ -12580,11 +12900,14 @@ model micro_isolates {
   is_xdr              Boolean               @default(false)
   comments            String?
   created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  tenant_id           String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_micro_isolates_tenant")
   micro_orders        micro_orders          @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   micro_sensitivities micro_sensitivities[]
 
   @@index([order_id], map: "idx_micro_isolates_order")
   @@index([id], map: "idx_micro_isolates_resistance", where: raw("(is_mrsa OR is_esbl OR is_amp_c OR is_carbapenemase OR is_vre OR is_xdr)"))
+  @@index([tenant_id], map: "idx_micro_isolates_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12631,10 +12954,13 @@ model micro_sensitivities {
   method           String?        @db.VarChar(30)
   notes            String?
   created_at       DateTime       @default(now()) @db.Timestamptz(6)
+  tenant_id        String         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_micro_sensitivities_tenant")
   micro_isolates   micro_isolates @relation(fields: [isolate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([isolate_id, antibiotic_code])
   @@index([isolate_id], map: "idx_micro_sensitivities_isolate")
+  @@index([tenant_id], map: "idx_micro_sensitivities_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12998,10 +13324,13 @@ model vascular_access {
   last_doppler_date   DateTime?           @db.Date
   notes               String?
   created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  tenant_id           String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   dialysis_sessions   dialysis_sessions[]
+  tenants             tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_vascular_access_tenant")
   dialysis_patients   dialysis_patients   @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([dialysis_patient_id, active(sort: Desc), created_date(sort: Desc)], map: "idx_vascular_access_patient")
+  @@index([tenant_id], map: "idx_vascular_access_tenant_id")
 }
 
 model clinical_ai_corpus {
@@ -13360,6 +13689,8 @@ model housekeeping_request_recipients {
   notified_at                                            DateTime?             @db.Timestamptz(6)
   created_at                                             DateTime              @default(now()) @db.Timestamptz(6)
   updated_at                                             DateTime              @default(now()) @db.Timestamptz(6)
+  tenant_id                                              String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                                                tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_request_recipients_tenant")
   housekeeping_requests                                  housekeeping_requests @relation(fields: [request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users_housekeeping_request_recipients_staff_idTousers  users                 @relation("housekeeping_request_recipients_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users_housekeeping_request_recipients_staff_uidTousers users?                @relation("housekeeping_request_recipients_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction)
@@ -13367,6 +13698,7 @@ model housekeeping_request_recipients {
   @@unique([request_id, staff_id], map: "housekeeping_request_recipients_unique")
   @@index([request_id], map: "idx_housekeeping_request_recipients_request")
   @@index([staff_id, request_id], map: "idx_housekeeping_request_recipients_staff")
+  @@index([tenant_id], map: "idx_housekeeping_request_recipients_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -14188,10 +14520,13 @@ model chemo_protocol_drugs {
   max_lifetime_dose_per_m2 Decimal?                @db.Decimal(10, 3)
   sequence                 Int                     @default(1)
   notes                    String?
+  tenant_id                String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   chemo_administrations    chemo_administrations[]
   chemo_protocols          chemo_protocols         @relation(fields: [protocol_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                  tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_protocol_drugs_tenant")
 
   @@index([protocol_id, sequence], map: "idx_chemo_protocol_drugs_protocol")
+  @@index([tenant_id], map: "idx_chemo_protocol_drugs_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
