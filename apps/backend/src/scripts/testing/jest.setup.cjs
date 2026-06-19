@@ -35,6 +35,10 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 if (!process.env.FIELD_ENCRYPTION_KEY || process.env.FIELD_ENCRYPTION_KEY.length < 32) {
   process.env.FIELD_ENCRYPTION_KEY = 'test-field-encryption-key-32chars!!';
 }
+// W3 WS5: master KEK that wraps per-tenant KEKs (envelope: master -> tenant KEK -> DEK).
+if (!process.env.FIELD_ENCRYPTION_MASTER_KEK || process.env.FIELD_ENCRYPTION_MASTER_KEK.length < 32) {
+  process.env.FIELD_ENCRYPTION_MASTER_KEK = 'test-field-encryption-master-kek-32c';
+}
 if (!process.env.TOTP_ENCRYPTION_KEY || process.env.TOTP_ENCRYPTION_KEY.length < 32) {
   process.env.TOTP_ENCRYPTION_KEY = 'test-totp-encryption-key-32chars!!!!';
 }
