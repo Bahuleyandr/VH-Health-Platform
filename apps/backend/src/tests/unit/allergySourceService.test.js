@@ -63,7 +63,10 @@ describe('getUnifiedActiveAllergies', () => {
       patientId: 42,
       patientUid: '5054d4be-801f-4a40-8abc-d658ef86f6c8',
     });
-    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    // Now resilient: a patient-resolution query followed by independent
+    // per-source queries (so one source's fault can't zero the rest). The
+    // first call is the resolution query and still receives id + uid.
+    expect(db.$queryRawUnsafe).toHaveBeenCalled();
     const [, idArg, uidArg] = db.$queryRawUnsafe.mock.calls[0];
     expect(idArg).toBe(42);
     expect(uidArg).toBe('5054d4be-801f-4a40-8abc-d658ef86f6c8');

@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
+import { getUnifiedActiveAllergies, rankSeverity, SEVERE_BLOCK_RANK } from '../../services/clinical/allergySourceService.js';
 import { evaluateDrugKb } from '../../services/clinical/drugKnowledgeBaseService.js';
 
 /**
@@ -799,8 +799,11 @@ export async function validatePrescriptionSafety(patientId, medications) {
               sources: allergy.sources,
               message: `Patient is allergic to "${allergy.allergen}" — "${med.name || med.medication_name}" may cause a reaction`,
             };
-            const sev = String(allergy.severity || '').toUpperCase();
-            if (sev === 'SEVERE' || sev === 'LIFE_THREATENING' || sev === 'ANAPHYLAXIS' || sev === 'CONTRAINDICATED') {
+            // Rank-based gate (fail-safe): SEVERE/CONTRAINDICATED and above are
+            // hard blockers; a present-but-unrecognized severity ranks as SEVERE
+            // so a documented allergy is never silently downgraded to a warning
+            // because its label wasn't in a hardcoded set (audit §3).
+            if (rankSeverity(allergy.severity) >= SEVERE_BLOCK_RANK) {
               blockers.push(issue);
             } else {
               warnings.push(issue);
