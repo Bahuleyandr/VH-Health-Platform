@@ -148,7 +148,8 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 - **Gate/done:** drift clean; `check-phi-tenant-id` allowlist stays empty; 2-tenant deep tests prove isolation + that tenant #2 can create an invoice/visit/claim (no `23505`).
 - **Depends-on:** — (parallel to W1; W1 makes the new columns *enforced*).
 
-### Wave 3 — Per-tenant secrets & shared state
+### Wave 3 — Per-tenant secrets & shared state  ✅ DONE + gated (2026-06-20)
+- **Status:** COMPLETE — 7 workstreams (tenants.settings accessor, Redis rate-limit + per-tenant quotas, tenant-key cache, api_keys→validateApiKey, per-tenant KEK + re-wrap + crypto-shred [mig 337], ABDM/HL7 interop secrets + resolve-before-HMAC [mig 338], cron fan-out). Full chunked-as-postgres gate GREEN on a rebuilt DB. Detail + residuals in `2026-06-19-w3-per-tenant-secrets-shared-state-design.md` (Status line) and the memory `project_vh_health_multitenancy_program`.
 - **Objective:** anything that varies by hospital identity is per-tenant; shared state is tenant/replica-safe.
 - **Scope:** `tenant_interop_secrets` (ABDM/HL7) + resolve-tenant-before-HMAC; wire `api_keys` into `validateApiKey`; **per-tenant field-encryption KEK** — random per-tenant KEK wrapped by the master KEK in `tenant_encryption_keys`, routed via `getKekProvider()`, enabling per-tenant crypto-shred (decision §8.5); Redis-backed rate-limit (+ optional per-tenant quota); tenant-key `cacheMiddleware` + uid caches; fan out the 5 default-tenant crons; per-tenant branding/keys via `tenants.settings`.
 - **Code/Infra:** Code + Infra (Redis wired; secret store; KEK provider).
