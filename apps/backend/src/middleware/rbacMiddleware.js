@@ -47,7 +47,11 @@ export default function rbacMiddleware(allowedRoles = []) {
       const userRole = normalizeRole(req.user.role);
       const rawUserRole = normalizeRole(req.user.rawRole);
 
-      // SUPER_ADMIN bypass (also handled by hasRole, but explicit here for clarity)
+      // SUPER_ADMIN bypass (also handled by hasRole, but explicit here for clarity).
+      // NOTE: this is an UN-SCOPED master-key bypass — a SUPER_ADMIN satisfies any
+      // requireRole() gate. Sensitive control planes (admin/system) must additionally
+      // mount `requireSuperAdminStepUp` so that the bypass on those namespaces is only
+      // granted to a 2FA-verified session (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
       if (userRole === SUPER_ADMIN || rawUserRole === SUPER_ADMIN) return next();
 
       // Check role membership (case-insensitive)
@@ -77,3 +81,60 @@ export const requireRole = (...roles) => rbacMiddleware(roles);
 
 /** Alias: require any of the provided roles */
 export const requireAnyRole = (...roles) => rbacMiddleware(roles);
+
+/**
+ * Step-up gate for SUPER_ADMIN on sensitive namespaces (audit 2026-06-18 —
+ * "SUPER_ADMIN un-scoped bypass" HIGH).
+ *
+ * `requireRole(...)` grants SUPER_ADMIN an un-scoped bypass of every role gate.
+ * That is intentional for routine administration, but it means a single
+ * compromised/over-broad super-admin token can act on the most sensitive
+ * control planes (admin dashboards, system config, role/user management) with
+ * no second factor. Mount this AFTER `requireRole(...)` on those namespaces:
+ * the SUPER_ADMIN bypass is then only honoured for a session that completed the
+ * admin 2FA challenge (the token carries `mfa: true`, surfaced onto
+ * `req.user.mfa` by jwtMiddleware). Non-super users are unaffected — they have
+ * already satisfied the upstream role check.
+ *
+ * Recovery / rollout: a super-admin without an `mfa` claim re-authenticates via
+ * the admin 2FA challenge (`POST /api/v1/auth/admin/mfa/challenge/verify`),
+ * which is mounted outside the guarded namespaces. Super-admins must therefore
+ * have TOTP enrolled — see docs/GO_LIVE_ACTIVATION_CHECKLIST.md.
+ *
+ * @type {import('express').RequestHandler}
+ */
+export const requireSuperAdminStepUp = (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const isSuperAdmin =
+      normalizeRole(req.user.role) === SUPER_ADMIN ||
+      normalizeRole(req.user.rawRole) === SUPER_ADMIN;
+
+    // Non-super users were already gated by the upstream requireRole(...) — pass through.
+    if (!isSuperAdmin) return next();
+
+    // SUPER_ADMIN must present a 2FA-verified session. Only an explicit boolean
+    // true counts (never a coerced/forged value).
+    if (req.user.mfa === true) return next();
+
+    logSecurityEvent('SUPER_ADMIN_STEP_UP_REQUIRED', {
+      userId: req.user.uid || req.user.id,
+      userRole: req.user.rawRole || req.user.role,
+      ip: req.ip,
+      userAgent: req.headers?.['user-agent'],
+      path: req.originalUrl,
+      method: req.method,
+      reason: 'SUPER_ADMIN accessed a sensitive namespace without a 2FA-verified (step-up) session',
+    });
+    return res.status(403).json({
+      success: false,
+      error: 'This sensitive operation requires a 2FA-verified super-admin session. Re-authenticate via the admin MFA challenge and retry.',
+      code: 'SUPER_ADMIN_MFA_REQUIRED',
+    });
+  } catch (err) {
+    return next(err);
+  }
+};

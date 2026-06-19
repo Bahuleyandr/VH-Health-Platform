@@ -146,3 +146,24 @@ describe('jwtMiddleware.req.user shape', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+// The `mfa` claim is stamped only on tokens minted by the admin 2FA challenge
+// (mfaVerifyChallenge). It must survive onto req.user so requireSuperAdminStepUp
+// can gate sensitive namespaces (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
+describe('jwtMiddleware.req.user.mfa (2FA step-up claim)', () => {
+  it('surfaces mfa:true from a 2FA-verified admin token', async () => {
+    const req = makeReq({ uid: 'a0000000-0000-4000-8000-00000000000a', id: 7, role: 'SUPER_ADMIN', mfa: true });
+    const res = makeRes();
+    let nextCalled = false;
+    await jwtMiddleware(req, res, () => { nextCalled = true; });
+    expect(nextCalled).toBe(true);
+    expect(req.user.mfa).toBe(true);
+  });
+
+  it('does not invent mfa when the token lacks the claim (password-only session)', async () => {
+    const req = makeReq({ uid: 'a0000000-0000-4000-8000-00000000000b', id: 8, role: 'ADMIN' });
+    const res = makeRes();
+    await jwtMiddleware(req, res, () => {});
+    expect(req.user.mfa).not.toBe(true);
+  });
+});

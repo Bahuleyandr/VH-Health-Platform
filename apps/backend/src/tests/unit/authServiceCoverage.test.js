@@ -344,10 +344,16 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
       expiresAt: expiresAt.toISOString(),
       admin: { uid: 'admin-uid-1', username: 'root' },
     });
-    expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO totp_challenges'),
-      'admin-uid-1', 'chal-1', expiresAt,
+    // expires_at is computed server-side (NOW() + INTERVAL), NOT bound as a JS
+    // Date — a bound Date was reinterpreted across the Node/DB timezone gap and
+    // stored in the past, so every challenge read back as already-expired and
+    // login-time 2FA could never complete. (audit 2026-06-18 follow-up)
+    const insertCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO totp_challenges'),
     );
+    expect(insertCall).toBeTruthy();
+    expect(insertCall[0]).toMatch(/NOW\(\)\s*\+\s*INTERVAL/i);
+    expect(insertCall.slice(1)).toEqual(['admin-uid-1', 'chal-1']);
   });
 
   it('FAILS CLOSED (503, no JWT) when the totp_challenges insert throws (audit 2026-06-18 §3)', async () => {

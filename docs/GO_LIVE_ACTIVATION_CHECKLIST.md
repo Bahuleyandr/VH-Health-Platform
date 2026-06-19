@@ -55,6 +55,10 @@ is silently bypassed. Full detail: PHASE0 §1 (readonly) + §8 (runtime role).
 - [ ] **B3.** Seal `vhhealth-pg-readonly` (rotates the predictable initdb pw — every already-bootstrapped cluster still has the literal `set-in-sealed-secret`). *(PHASE0 §1)* (date / initials): ______
 - [ ] **B4.** Seal the remaining prod app secrets: `JWT_SECRET`, per-client `API_KEY_*`, R2 creds, Firebase service account, `SENTRY_DSN`, `MCP_BEARER_TOKEN` (≥32 chars — server refuses shorter). (date / initials): ______
 - [ ] **B5.** Set `HL7_FEED_HOST_ALLOWLIST` to the partner-HIS hostnames (defense-in-depth on the SSRF guard). *(PHASE0 §4)* (date / initials): ______
+- [ ] **B6.** **SUPER_ADMIN 2FA step-up** (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass). The admin-portal control planes (`/api/v1/admin`, `/api/v1/admin/gamification`, `/api/v1/system`, `/api/v1/logs`) now mount `requireSuperAdminStepUp`: a `SUPER_ADMIN` who relies on the role's blanket RBAC bypass must additionally hold a **2FA-verified** session (JWT `mfa:true`, stamped only by the admin TOTP enrollment-confirm / login challenge-verify paths) or the route returns **403 `SUPER_ADMIN_MFA_REQUIRED`**. Normal `ADMIN`s are unaffected. Before relying on admin-portal access:
+  - [ ] Set `REQUIRE_MFA_FOR_SUPER_ADMIN: "true"` in `configmap.yaml` so every super-admin login forces TOTP enrollment/challenge (pairs the login gate with the step-up gate). (date / initials): ______
+  - [ ] Ensure **every** `SUPER_ADMIN` account has TOTP enrolled via `POST /api/v1/auth/admin/mfa/{setup-enroll,setup-confirm}` (mounted **outside** the guarded namespaces, so enrollment/recovery is always reachable even when a super-admin is currently blocked). A super-admin without TOTP cannot reach the admin portal. (date / initials): ______
+  - [ ] Smoke-check: a super-admin password-only token gets 403 `SUPER_ADMIN_MFA_REQUIRED` on `/api/v1/system`; the same admin after completing the TOTP challenge passes. (date / initials): ______
 
 ---
 

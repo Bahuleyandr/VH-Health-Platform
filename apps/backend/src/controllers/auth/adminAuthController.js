@@ -558,6 +558,12 @@ export const mfaSetupConfirm = async (req, res) => {
       sub: admin.uid,
       iss: 'vh-health-backend',
       aud: 'vh-health-admin',
+      // 2FA step-up claim — minted only after the admin proves possession of their
+      // TOTP factor (first-time enrollment confirm or login challenge-verify), so
+      // these are the only paths entitled to mark the session as 2FA-verified.
+      // requireSuperAdminStepUp gates SUPER_ADMIN on sensitive namespaces on this
+      // claim (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
+      mfa: true,
     }, SECURITY_CONFIG.jwt.adminExpiry);
 
     logger.info('Admin MFA enrolled via first-time setup', { adminId });
@@ -662,6 +668,12 @@ export const mfaVerifyChallenge = async (req, res) => {
       sub: admin.uid,
       iss: 'vh-health-backend',
       aud: 'vh-health-admin',
+      // 2FA step-up claim — minted only after the admin proves possession of their
+      // TOTP factor (first-time enrollment confirm or login challenge-verify), so
+      // these are the only paths entitled to mark the session as 2FA-verified.
+      // requireSuperAdminStepUp gates SUPER_ADMIN on sensitive namespaces on this
+      // claim (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
+      mfa: true,
     }, SECURITY_CONFIG.jwt.adminExpiry);
 
     logger.info('Admin MFA challenge verified', { adminId, viaBackup: !!useBackupCode });

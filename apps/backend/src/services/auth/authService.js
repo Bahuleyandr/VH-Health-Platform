@@ -330,10 +330,17 @@ export class AuthService {
         const { challengeToken, expiresAt } = generateChallengeToken();
 
         try {
+          // Store the expiry server-side (NOW() + interval) instead of binding a
+          // client-side JS Date. A bound Date is reinterpreted across the Node
+          // process timezone vs the DB session timezone: on a non-UTC host this
+          // wrote expires_at in the PAST (IST offset), so mfaVerifyChallenge's
+          // `expires_at > NOW()` check read every challenge as already-expired and
+          // login-time 2FA could never complete. Server-side time is authoritative,
+          // tz-independent, and matches the verify check. (audit 2026-06-18 follow-up)
           await prisma.$queryRawUnsafe(
             `INSERT INTO totp_challenges (admin_id, challenge_token, expires_at, created_at)
-             VALUES ($1, $2, $3, NOW())`,
-            admin.uid, challengeToken, expiresAt
+             VALUES ($1, $2, NOW() + INTERVAL '5 minutes', NOW())`,
+            admin.uid, challengeToken
           );
         } catch (challengeErr) {
           logger.error('TOTP challenge persistence failed — failing CLOSED (no JWT issued)', {

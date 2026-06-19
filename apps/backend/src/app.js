@@ -42,7 +42,7 @@ import {
   dataExportRateLimiter,
   dashboardRateLimiter
 } from './middleware/rateLimitMiddleware.js';
-import { requireRole } from './middleware/rbacMiddleware.js';
+import { requireRole, requireSuperAdminStepUp } from './middleware/rbacMiddleware.js';
 import { sanitizeAllBodyStrings } from './middleware/sanitizeMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { sentryScopeMiddleware } from './middleware/sentryScopeMiddleware.js';
@@ -1058,19 +1058,24 @@ app.use('/api/v1/admin/surgical', (req, res) => {
   const target = req.originalUrl.replace('/api/v1/admin/surgical', '/api/v1/surgical');
   res.redirect(308, target);
 });
-app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
-app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
+// SUPER_ADMIN step-up (audit 2026-06-18 — un-scoped bypass): requireRole grants
+// SUPER_ADMIN an un-scoped bypass, so on these admin-portal control planes the
+// master-key role must additionally present a 2FA-verified session
+// (requireSuperAdminStepUp). Normal ADMINs are unaffected. Pairs with the
+// REQUIRE_MFA_FOR_SUPER_ADMIN login flag — see docs/GO_LIVE_ACTIVATION_CHECKLIST.md.
+app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
+app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 
 // System settings + status — admin-portal surface, so IP-allowlisted like
 // /api/v1/admin (fails closed in production until ADMIN_IP_ALLOWLIST is set;
 // transparent in dev/test). Audit finding #5.
-app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, systemRoutes);
+app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, systemRoutes);
 
 // Audit + system logs — same admin-portal IP allowlist as /api/v1/admin.
 // Previously role-gated + rate-limited but reachable from any IP in
 // production; the audit/system log surface must match admin-dashboard
 // network exposure. Audit finding #5.
-app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, logRoutes);
+app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, logRoutes);
 
 // Radiology
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
