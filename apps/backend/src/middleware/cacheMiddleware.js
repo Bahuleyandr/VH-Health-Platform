@@ -1,6 +1,33 @@
 // src/middleware/cacheMiddleware.js — Express response caching via Redis
-import { cacheGet, cacheSet } from '../lib/redis.js';
+import { cacheGet, cacheSet, cacheClear } from '../lib/redis.js';
 import logger from '../logging/logger.js';
+
+/**
+ * Build a TENANT-SCOPED cache key. Including the tenant is mandatory: two
+ * hospitals hitting the same path+query must never share a cached response
+ * (PHI/data bleed). A missing tenant buckets under `default` rather than
+ * collapsing into a tenant-blind key.
+ *
+ * Key format: `keyPrefix:tenantId:METHOD:path:querystring`
+ *
+ * @param {string} keyPrefix
+ * @param {{tenantId?: string, method: string, path: string, query: string}} parts
+ * @returns {string}
+ */
+export function buildCacheKey(keyPrefix, { tenantId, method, path, query }) {
+  return `${keyPrefix}:${tenantId || 'default'}:${method}:${path}:${query || ''}`;
+}
+
+/**
+ * Evict every cached response for one tenant under a key prefix
+ * (e.g. on a mutation). No-op when Redis is unavailable.
+ *
+ * @param {string} keyPrefix
+ * @param {string} tenantId
+ */
+export function clearTenantCache(keyPrefix, tenantId) {
+  return cacheClear(`${keyPrefix}:${tenantId || 'default'}:*`);
+}
 
 /**
  * Express middleware that caches JSON responses in Redis.
@@ -9,12 +36,16 @@ import logger from '../logging/logger.js';
  * @param {string} keyPrefix   — prefix for the cache key (e.g. "appointments")
  * @returns {Function} Express middleware
  *
- * Cache key format: `keyPrefix:METHOD:path:querystring`
+ * Cache key format: `keyPrefix:tenantId:METHOD:path:querystring` (tenant-scoped).
  *
  * Behaviour:
  *  - Only GET requests are cached.
  *  - Admin users always receive fresh data (cache is skipped).
  *  - Adds `X-Cache: HIT` or `X-Cache: MISS` header.
+ *
+ * NOTE: dormant by design — not mounted on any route (W3 decision C). The
+ * tenant-scoped key closes the data-bleed gap BEFORE it is ever enabled;
+ * mounting is a deliberate per-route decision for a later wave.
  */
 export function cacheResponse(ttlSeconds, keyPrefix) {
   return async (req, res, next) => {
@@ -31,7 +62,12 @@ export function cacheResponse(ttlSeconds, keyPrefix) {
     const queryString = req.originalUrl.includes('?')
       ? req.originalUrl.split('?')[1]
       : '';
-    const cacheKey = `${keyPrefix}:${req.method}:${req.path}:${queryString}`;
+    const cacheKey = buildCacheKey(keyPrefix, {
+      tenantId: req.tenantId,
+      method: req.method,
+      path: req.path,
+      query: queryString,
+    });
 
     try {
       const cached = await cacheGet(cacheKey);
