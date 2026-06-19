@@ -6,14 +6,17 @@
 
 > **Correction to the earlier status:** prior summaries stated "all criticals + all highs done." That was the wave-level label, not a per-finding truth. This reconciliation showed the **criticals ~all closed** but **several HIGH items were never addressed**.
 >
-> **Follow-up fixes since this reconciliation (2026-06-19, TDD + gated):** C-4b ABDM consent-artefact threading (`8fc850f5`), admin CSV formula-injection (`202a3908`), allergy severity-downgrade + fail-open UNION (`11d09c9d`), and the MAR lock-free dup-guard via migration 327 (`d7550fd7`). The per-finding lines below are flipped accordingly. Still open in Clinical-safety: referral/handover/cleaning SLA best-effort, MAR canonical-outside-tx in schedule/missed/held; plus the audit-writer lossy paths, token aud/iss, SUPER_ADMIN scoping, ABDM callback replay store, and revenue-cycle cron fan-out.
+> **Follow-up fixes since this reconciliation (2026-06-19, TDD + gated):**
+> **Batch A** — C-4b ABDM consent-artefact threading (`8fc850f5`), admin CSV formula-injection (`202a3908`), allergy severity-downgrade + fail-open UNION (`11d09c9d`), MAR lock-free dup-guard mig 327 (`d7550fd7`), audit-writer durable fallback (`76382052`), ABDM callback shared replay (`08e542f0`), revenue-cycle cron per-tenant fan-out (`d9957c73`), token aud/iss enforcement (`26a68691`).
+> **Batch B** — clinical-safety SLA/canonical atomicity for referral/handover/MAR(schedule/missed/held)/bed-cleaning (`57cc251f`); SUPER_ADMIN 2FA step-up on the admin-portal control planes + a newly-found 2FA challenge-verify timezone bug that would have locked out every 2FA admin (`8f00e565`).
+> The per-finding lines below are flipped accordingly. **Remaining High ❌ (2):** triage-chatbot raw-text-on-parse-fail (arms only when a live model provider is selected) and the iOS `com.example` bundle id.
 
 ## Tally (≈140 sub-findings)
 
 | Tier | ✅ | ⏸️ | 🔧 | ❌ |
 |---|---|---|---|---|
 | Critical (C-1…C-9) | 27 | 0 | 0 | 2 |
-| High (§3) | ~25 | 3 | 4 | ~8 |
+| High (§3) | ~34 | 3 | 4 | 2 |
 | Medium (§4) | 21 | 13 | 3 | 6 |
 | Low (§5) | 16 | 7 | 0 | 6 |
 
@@ -51,14 +54,15 @@ C-5 cron `pg_try_advisory_lock` in `withJobLock` + externalized-twins removed; C
 ### Auth / session
 - ✅ Admin 2FA fail-closed on TOTP-insert-fail — `authService.js:329` + mig 325
 - ✅ Divergent `totpRoutes` deleted — file gone (`d7fd0211`)
-- ❌ **Token audience/issuer enforcement** — admin login now emits `iss`/`aud` claims but `jwtUtils.js:98` `verifyToken` never validates them; realm separation still role-claim-only.
-- ❌ **SUPER_ADMIN single un-scoped master key** — blanket RBAC bypass intact (`rbacMiddleware.js:51`), no per-namespace scoping / `mfa:true`. Partial compensating control: cross-tenant override now needs a reason + is audited.
+- ✅ **2FA login challenge-verify tz bug fixed (`8f00e565`)** — `totp_challenges.expires_at` was bound as a client JS Date → reinterpreted across the Node/DB timezone gap → stored ~5.5h in the PAST, so `expires_at > NOW()` was always false and login-time challenge-verify *always failed* (would lock out every 2FA admin once enabled). Now computed server-side (`NOW() + INTERVAL`). Surfaced by the first-ever integration test of the challenge-verify path (`mfa-enforcement.deep.test.js` sc.7). *[newly-found latent bug, not in original audit]*
+- ✅ **Token audience/issuer enforcement (`26a68691`)** — `verifyToken`/`verifyTokenAllowExpired` call `assertAudienceAndIssuer` after `jwt.verify`; throws only when a *present* claim is wrong-realm (missing = backward-compat no-op). `generateToken` defaults `iss=vh-health-backend` + per-role `aud`. Unit-tested (`jwtAudienceIssuer.test.js`).
+- ✅ **SUPER_ADMIN un-scoped master key — scoped behind 2FA step-up (`8f00e565`)** — new `requireSuperAdminStepUp` mounted on the admin-portal control planes (`/api/v1/admin`, `/admin/gamification`, `/system`, `/logs`): a SUPER_ADMIN relying on the blanket bypass must hold a 2FA-verified session (JWT `mfa:true`, stamped only by the TOTP enroll-confirm / login challenge-verify paths, carried onto `req.user` by jwtMiddleware) else `403 SUPER_ADMIN_MFA_REQUIRED`. Normal ADMINs unaffected; recovery endpoints sit outside the gate. Unit + deep-tested (`superAdminStepUp.test.js`, `mfa-enforcement.deep.test.js` sc.7/8); operational activation = GO_LIVE B6. Cross-tenant override compensating control (reason+audit) also retained.
 
 ### Multi-tenancy / RLS — ✅ all 3
 `escalateStuckOrders` per-tenant; `runMissingDrugChartSweep` nurse-recipient + `notifications.tenant_id` explicit; `rbacService.assignRole/toggleUserStatus` actor-tenant-scoped. (`07d6a300`, `f87987db`)
 
 ### Revenue cycle / billing
-- ❌ **Revenue-cycle tracker cron still default-tenant-only** — service is tenant-parameterized but `scheduler.js:543` calls `runRevenueCycleSweep({})`; no fan-out. (Flag-gated off + advisory read-model.)
+- ✅ **Revenue-cycle tracker cron fans out per-tenant (`d9957c73`)** — new `runRevenueCycleSweepAllTenants()` iterates `tenants` with per-tenant fault isolation; `scheduler.js` calls it (flag-gate/cadence/withJobLock unchanged). Unit-tested.
 - ✅ `billingService.updateClaimStatus` tenant filter (+ `appealLetterGenerator.loadClaim`)
 - ✅ Cash-out paths re-gated to `requireCashOut` (excludes receptionist/nurse)
 - ✅ TPA decision+payment idempotency/state-guards
@@ -70,15 +74,15 @@ C-5 cron `pg_try_advisory_lock` in `withJobLock` + externalized-twins removed; C
 - ✅ requireConsent mounted on `$everything` export (export-surface by design; single-resource reads stay on RBAC+ABAC)
 - ✅ Audit append-only triggers on all 6 audit tables (mig 324) + hourly advisory-locked verifier with loud alert
 - ⏸️ Audit chain HMAC keying + off-box anchor — explicitly deferred (documented)
-- ❌ **Audit writers still best-effort/lossy** — `auditLog.js:405` drop-on-full (no fallback on that path), `hipaaAudit.js:37` fire-and-forget, `accessDecisionService.js:964` swallow + no row when patient unresolved. **All 3 untouched.**
+- ✅ **Audit writers durable fallback (`76382052`)** — queue-full drop / deferred-write failure / swallowed patient-access audit now route to a Winston file sink; the unresolved-patient case emits a marked file-sink record instead of dropping. (`auditLog.js`, `hipaaAudit.js`, `accessDecisionService.js`.) Unit-tested.
 
 ### Clinical core & safety (beyond C-2/C-3) — ⚠️ 5 of 6 UNTOUCHED
 - ✅ WHO sign-out gate + consent-at-incision — `theatreService.js:384,559` (`67920133`)
-- ❌ **Referral response-SLA** best-effort outside tx — `referralService.js` untouched
-- ✅/❌ **MAR** — **lock-free dup-guard FIXED (`d7550fd7`)**: migration 327 partial-unique `uniq_mar_administered_dose` makes a second administered row for the same (patient_uid, medication_name, scheduled_time) impossible regardless of concurrency; `23505`→`MAR_DUPLICATE_ADMINISTRATION`; deep-tested. ❌ residual: the separate "canonical write outside tx" in `scheduleMedications`/`recordMissed`/`holdMedication` is still best-effort (`recordAdministration` was already in-tx).
-- ❌ **Handover** SBAR canonical best-effort — `handoverService.js` untouched
+- ✅ **Referral response-SLA atomic (`57cc251f`)** — `createReferral` persists the referral + canonical `referral.requested` + `startWorkflowSla('referral_response')` in one `setTenantTx`. Deep-tested (`referral-canonical-atomicity.deep.test.js`).
+- ✅/❌ **MAR** — **lock-free dup-guard FIXED (`d7550fd7`)**: migration 327 partial-unique `uniq_mar_administered_dose` makes a second administered row for the same (patient_uid, medication_name, scheduled_time) impossible regardless of concurrency; `23505`→`MAR_DUPLICATE_ADMINISTRATION`; deep-tested. ✅ residual also fixed (`57cc251f`): `scheduleMedications`/`recordMissed`/`holdMedication` now write the canonical MAR event inside `setTenantTx` (re-throws non-42P01 so the detail row + canonical event are atomic); `recordAdministration` was already in-tx. Deep-tested (`mar-canonical-atomicity.deep.test.js`).
+- ✅ **Handover canonical atomic (`57cc251f`)** — `createHandover`/`acknowledgeHandover` persist the canonical event inside `setTenantTx`. Deep-tested (`handover-canonical-atomicity.deep.test.js`).
 - ✅ **Allergy SEVERE→warning degrade + UNION fail-open — FIXED (`11d09c9d`)**: `rankSeverity` fails safe (present-but-unparseable → SEVERE; explicit no-claim sentinels stay 0) and the prescription gate ranks severity instead of matching a hardcoded label set; `getUnifiedActiveAllergies` queries each source independently so one source's schema fault degrades only that source. Unit-tested.
-- ❌ **Cleaning-turnaround SLA** best-effort + 30-vs-120-min clock mismatch — `bedManagementService.js`/`housekeepingTaskDispatchService.js`
+- ✅ **Cleaning-turnaround SLA atomic + clock reconciled (`57cc251f`)** — bed-keyed `bed_cleaning_turnaround` SLA started in-tx from `dischargePatient`/`transferPatient`, completed in-tx by `markBedReady`; dispatch clock reconciled 120→30 min (mig 269 canonical target). Deep-tested (`bed-cleaning-sla-atomicity.deep.test.js`).
 
 ### Clinical AI
 - 🔧 Patient RAG chatbot — still no in-route enable-gate / full `runOutputDefenses`; safe only because module is OFF + a new admin-side enable guard (`403a83e2`). No in-service fail-closed assertion.
@@ -87,7 +91,7 @@ C-5 cron `pg_try_advisory_lock` in `withJobLock` + externalized-twins removed; C
 ### FHIR / HL7 / ABDM (beyond C-4)
 - 🔧 ABDM consent-artifact crypto-verify — built, flag-gated; operator must enable + supply CM public key (also see C-4b route gap above)
 - ✅ Unauthenticated ABDM/HL7 inbound rate-limited — `abdmRoutes.js:24`, `hl7Routes.js:31`
-- ❌ **HMAC replay store wired for HL7 only; ABDM callback still process-local `Map`** — `signedRequest.js` shared store (mig 321) not invoked by `abdmRoutes.js:54`. Replay across replicas/after-restart not caught. (Unintentional omission; ABDM disabled today.)
+- ✅ **ABDM callback shared replay store (`08e542f0`)** — `validateABDMRequest` (now async) runs `assertSharedReplayOnce({replayNamespace:'abdm-callback', …})` fail-closed (mirrors HL7), using the cross-replica store (mig 321). Unit-tested (`abdmCallbackSharedReplay.test.js`).
 
 ### Data layer — ✅ all
 money mutations atomic; `appointments` double-booking partial-unique (mig 322); `medications.price` + `investigation_template_tests.cost` → `numeric(12,2)` (mig 323).
@@ -133,15 +137,15 @@ offline queue AES-256-GCM; staff_id-scoped (no cross-user drain); Windows `WDA_E
 ## 6. Genuine open gaps, prioritized
 
 **Higher concern (clinical-safety + security correctness):**
-1. Clinical-safety highs — **MAR lock-free dup-guard FIXED** (mig 327, `d7550fd7`) + **allergy SEVERE-downgrade & fail-open UNION FIXED** (`11d09c9d`). Still open: referral/handover SLA best-effort outside tx, cleaning-SLA + 30-vs-120-min clock mismatch, and MAR canonical-outside-tx in schedule/missed/held.
-2. **Audit writers lossy** (auditLog drop-on-full, hipaaAudit fire-and-forget, accessDecision swallow) — contradicts "audit never lost."
+1. ~~Clinical-safety highs~~ — **ALL FIXED.** MAR lock-free dup-guard (mig 327, `d7550fd7`), allergy SEVERE-downgrade & fail-open UNION (`11d09c9d`), and referral/handover/MAR(schedule/missed/held)/bed-cleaning SLA + canonical atomicity incl. 120→30-min clock reconcile (`57cc251f`). Deep-tested.
+2. ~~Audit writers lossy~~ — **FIXED (`76382052`)**: queue-full / deferred-fail / unresolved-patient now route to a durable file sink.
 3. ~~Admin appointment CSV formula-injection~~ — **FIXED (`202a3908`)** via `rowsToCsv`/`escapeCsvField`.
-4. **ABDM callback HMAC replay** still process-local (HL7 fixed, ABDM not).
-5. ~~**C-4b ABDM consent-verify** route never passes the artifact~~ — **FIXED (`8fc850f5`)**: route now threads the artefact + signature into the verifier; unit-tested (route extraction + valid/tampered/missing signature).
-6. **Token aud/iss enforcement** (claims emitted, never validated); **SUPER_ADMIN** un-scoped bypass.
-7. **C-1 `billingService.updateClaimStatus`** from-state guard (legacy path).
+4. ~~ABDM callback HMAC replay~~ — **FIXED (`08e542f0`)**: shared cross-replica store, fail-closed (mirrors HL7).
+5. ~~**C-4b ABDM consent-verify** route never passes the artifact~~ — **FIXED (`8fc850f5`)**: route now threads the artefact + signature into the verifier; unit-tested.
+6. ~~Token aud/iss enforcement; SUPER_ADMIN un-scoped bypass~~ — **both FIXED**: `26a68691` (aud/iss validation), `8f00e565` (SUPER_ADMIN 2FA step-up on admin-portal control planes **+ a newly-found 2FA challenge-verify timezone bug that would have locked out every 2FA admin**).
+7. **C-1 `billingService.updateClaimStatus`** from-state guard (legacy path) — still open.
 
-**Medium concern:** triage raw-text-on-parse-fail; idempotency on clinical mounts; `getHealthStatistics` fake zeros; canary downgrade; `completeChecklist` rewrite-lock; revenue-cycle cron fan-out; rate-limit Redis store.
+**Medium concern:** triage raw-text-on-parse-fail; idempotency on clinical mounts; `getHealthStatistics` fake zeros; canary downgrade; `completeChecklist` rewrite-lock; rate-limit Redis store. *(revenue-cycle cron fan-out — FIXED `d9957c73`.)*
 
 **Operator-gated (🔧):** seal non-super DB role + kubeseal secrets; Kyverno Audit→Enforce (cosign secret); SMART mount-shim; ABDM consent-verify enable + CM key; monitoring ArgoCD auto-sync; DR drill / monitoring deploy / secret rotation / external pen-test-cert.
 
