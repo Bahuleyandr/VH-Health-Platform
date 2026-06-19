@@ -195,7 +195,9 @@ import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChai
 
 // Revenue-cycle standing-queue tracker — flag-gated. Advisory tracker only.
 // Per-stage auto-generation triggers are DEFERRED (human-in-loop design).
-import { runRevenueCycleSweep } from '../services/billing/revenueCycleTrackerService.js';
+// Fans out per-tenant (audit §3): the bare runRevenueCycleSweep({}) collapsed to
+// the default tenant only, so every other tenant's queue went untracked.
+import { runRevenueCycleSweepAllTenants } from '../services/billing/revenueCycleTrackerService.js';
 
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
 import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliveryService.js';
@@ -537,10 +539,12 @@ if (process.env.NODE_ENV !== 'test') {
 
   // Revenue-cycle tracker sweep — flag-gated. Projects PA→appeal spine into
   // revenue_cycle_runs standing queue every 5 minutes. Advisory/read-model
-  // only; never auto-submits or generates drafts.
+  // only; never auto-submits or generates drafts. Fans out over ALL tenants
+  // (audit §3) — runs under the withJobLock super-admin context, each tenant
+  // fault-isolated so one tenant's failure can't abort the others.
   if (String(process.env.REVENUE_CYCLE_TRACKER_ENABLED || '').toLowerCase() === 'true') {
     registerCron('*/5 * * * *', withJobLock('revenue-cycle-tracker-sweep', async () => {
-      const r = await runRevenueCycleSweep({});
+      const r = await runRevenueCycleSweepAllTenants();
       logger.info('revenue-cycle-tracker-sweep complete', r);
     }));
   }

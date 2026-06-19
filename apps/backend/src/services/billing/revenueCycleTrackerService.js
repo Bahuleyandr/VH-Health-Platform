@@ -227,6 +227,58 @@ export async function runRevenueCycleSweep({ tenantId } = {}) {
 }
 
 /**
+ * Per-tenant fan-out wrapper for the revenue-cycle sweep (platform audit §3).
+ *
+ * The cron previously called runRevenueCycleSweep({}) once; resolveTenantId(
+ * undefined) collapsed to DEFAULT_TENANT_ID, so only the default tenant's
+ * denied-PA / appeal cases were ever projected into revenue_cycle_runs — every
+ * other tenant's queue was silently never tracked. This discovers all tenants
+ * and runs the sweep once PER tenant.
+ *
+ * Mirrors the established per-tenant aggregator pattern (escalateStuckOrders,
+ * runAuditChainVerification): SELECT id FROM tenants, loop, fault-isolate each
+ * tenant in its own try/catch so one tenant's failure can't abort the rest or
+ * crash the scheduler tick. Runs under the cron's existing super-admin context
+ * (the withJobLock wrapper applies runWithSuperAdmin); each sweep call passes
+ * its specific tenant id, and runRevenueCycleSweep re-scopes its writes via
+ * setTenant per row.
+ *
+ * @returns {{ tenantsSwept: number, processed: number, errors: number }}
+ */
+export async function runRevenueCycleSweepAllTenants() {
+  let tenants;
+  try {
+    tenants = await prisma.$queryRawUnsafe('SELECT id FROM tenants');
+  } catch (err) {
+    // Tenant discovery failure must not crash the scheduler tick — surface it
+    // loudly and skip this run rather than throwing out of the cron body.
+    logger.error('revenue-cycle-tracker-sweep: tenant discovery failed', { err: err.message });
+    return { tenantsSwept: 0, processed: 0, errors: 0 };
+  }
+
+  let tenantsSwept = 0;
+  let processed = 0;
+  let errors = 0;
+  for (const t of tenants) {
+    try {
+      const r = await runRevenueCycleSweep({ tenantId: t.id });
+      processed += r.processed;
+      errors += r.errors;
+    } catch (err) {
+      // runRevenueCycleSweep folds its own fatals into { errors } and resolves,
+      // but defend the fan-out anyway: one tenant throwing must not stop the
+      // others or escape the cron tick.
+      errors += 1;
+      logger.error(`revenue-cycle-tracker-sweep: tenant ${t.id} failed`, { err: err.message });
+    }
+    tenantsSwept += 1;
+  }
+
+  logger.info('revenue-cycle-tracker-sweep all-tenants complete', { tenantsSwept, processed, errors });
+  return { tenantsSwept, processed, errors };
+}
+
+/**
  * List revenue_cycle_runs for a tenant, optionally filtered by status/stage.
  * Ordered by last_evaluated_at DESC (most recently swept first).
  *
