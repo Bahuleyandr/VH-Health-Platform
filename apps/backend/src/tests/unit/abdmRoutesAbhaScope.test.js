@@ -27,6 +27,7 @@ jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
 
 jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
   verifySignedRequest: jest.fn(() => ({ ok: true })),
+  assertSharedReplayOnce: jest.fn().mockResolvedValue(true),
 }));
 
 const { patientRouter } = await import('../../routes/abdm/abdmRoutes.js');

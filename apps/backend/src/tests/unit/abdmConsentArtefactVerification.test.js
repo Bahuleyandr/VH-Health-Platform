@@ -31,9 +31,11 @@ jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
     PURPOSES: ['CAREMGT'],
   },
 }));
-// Let the route's HMAC gate pass without a real signed gateway request.
+// Let the route's HMAC gate + cross-replica replay guard pass without a real
+// signed gateway request (assertSharedReplayOnce resolves = not a replay).
 jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
   verifySignedRequest: jest.fn(),
+  assertSharedReplayOnce: jest.fn().mockResolvedValue(true),
 }));
 jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
   genericLimiter: (_req, _res, next) => next(),

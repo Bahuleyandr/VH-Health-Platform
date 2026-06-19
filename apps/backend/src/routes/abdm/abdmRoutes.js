@@ -10,7 +10,7 @@ import logger from '../../logging/logger.js';
 import abdmService from '../../services/abdm/abdmService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
-import { verifySignedRequest } from '../../utils/signedRequest.js';
+import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 
 // ====================================
@@ -28,9 +28,16 @@ const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-requ
  * Middleware: Validate ABDM gateway request authenticity.
  * ABDM callbacks are public by mount, so enabled callbacks must be
  * self-authenticating: HIP id, timestamp, request id, HMAC signature,
- * and process-local replay protection.
+ * and replay protection.
+ *
+ * Replay protection is two-layered, mirroring HL7 /receive:
+ *   - verifySignedRequest: sync HMAC + freshness + same-PROCESS replay (Map).
+ *   - assertSharedReplayOnce: cross-REPLICA replay guard (Redis SET NX EX → DB
+ *     interop_replay_guard, fail-closed). The per-process Map is defeated by the
+ *     3-replica cluster / a restart, so a captured (still-fresh) signed callback
+ *     replayed against a different replica would otherwise be accepted again.
  */
-function validateABDMRequest(req, res, next) {
+async function validateABDMRequest(req, res, next) {
   if (!ABDM_CALLBACK_PATHS.has(req.path)) {
     return next('router');
   }
@@ -50,16 +57,34 @@ function validateABDMRequest(req, res, next) {
     return error(res, 'Invalid HIP ID', 401);
   }
 
+  // Resolve the signed-request fields once so the same identity feeds BOTH the
+  // sync HMAC check and the cross-replica replay claim.
+  const signature = req.headers['x-abdm-signature'] || req.headers['x-vhhealth-abdm-signature'];
+  const timestamp = req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp;
+  const requestId = req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id;
+
   try {
+    // Sync fast-path: HMAC + freshness + same-process replay.
     verifySignedRequest({
       secret: ABDM_CONFIG.callbackSecret,
-      signature: req.headers['x-abdm-signature'] || req.headers['x-vhhealth-abdm-signature'],
-      timestamp: req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp,
-      requestId: req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id,
+      signature,
+      timestamp,
+      requestId,
       payload: req.body || {},
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
       replayNamespace: 'abdm-callback',
+    });
+    // Cross-replica replay guard (the per-process Map above is defeated by the
+    // multi-worker / multi-replica cluster). Fail-closed like HL7: a detected
+    // replay OR an unreachable store rejects the request.
+    await assertSharedReplayOnce({
+      replayNamespace: 'abdm-callback',
+      requestId,
+      timestamp,
+      signature,
+      context: 'ABDM callback',
+      codePrefix: 'ABDM_CALLBACK',
     });
   } catch (err) {
     logger.warn('ABDM callback rejected: authenticity check failed', {
