@@ -214,6 +214,23 @@ export async function triageSymptoms({
     : '';
   const userMessage = `${symptoms.trim()}${contextBlock}`;
 
+  // Fail-closed patient-facing response builder. Used when the model output
+  // cannot be trusted (unparseable, or a critical safety flag fired): never
+  // echoes the raw/parsed model content, always escalates to a clinician, and
+  // surfaces the reason + any detection flags. (audit 2026-06-18 — triage
+  // fail-open paths: raw-text-on-parse-fail + defenses-annotate-but-don't-block)
+  const buildBlockedTriage = ({ code, reason, extraFlags = [] }) => ({
+    triage: 'see_doctor_now',
+    differential: [],
+    summary: 'We could not safely interpret the assistant response. Please consult a doctor.',
+    redFlags: [],
+    provider: PROVIDER,
+    model: MODEL,
+    disclaimer: CLINICAL_DISCLAIMER,
+    blocked: true,
+    safetyFlags: [{ severity: 'high', code, message: reason }, ...extraFlags],
+  });
+
   const rawText = PROVIDER === 'openai'
     ? await _callOpenAICompatible({ userMessage, history })
     : await _callAnthropic({ userMessage, history });
@@ -222,25 +239,25 @@ export async function triageSymptoms({
   try {
     parsed = JSON.parse(_extractJson(rawText));
   } catch {
-    logger.warn('Triage response not valid JSON, returning raw text');
-    // Still run defenses on the raw text so PHI leaks are flagged even on
-    // malformed outputs.
-    const safetyFlags = runOutputDefenses({
+    // FAIL-CLOSED: unparseable model output must NOT be echoed back to the
+    // patient — it is unvalidated and may carry hallucinated PHI, unsafe advice,
+    // or injected instructions. Run defenses for server-side detection/logging,
+    // then return a safe canned response that escalates to a clinician.
+    const detectionFlags = runOutputDefenses({
       draft: rawText,
       context: patientContext || {},
       citations: [],
     });
-    return {
-      triage: 'see_doctor_now',
-      differential: [],
-      summary: rawText,
-      redFlags: [],
-      raw: rawText,
+    logger.warn('Triage response not valid JSON — blocking raw text, returning safe fallback', {
       provider: PROVIDER,
       model: MODEL,
-      disclaimer: CLINICAL_DISCLAIMER,
-      safetyFlags,
-    };
+      detectionFlagCodes: detectionFlags.map((f) => f.code),
+    });
+    return buildBlockedTriage({
+      code: 'TRIAGE_UNPARSEABLE_OUTPUT_BLOCKED',
+      reason: 'The assistant response could not be safely interpreted.',
+      extraFlags: detectionFlags,
+    });
   }
 
   // --- Output defenses ---
@@ -254,10 +271,18 @@ export async function triageSymptoms({
   });
 
   if (safetyFlags.some((f) => f.severity === 'critical')) {
-    logger.error('Triage: critical safety flag on output — response may contain hallucinated PHI', {
+    // FAIL-CLOSED: a critical defense flag means the output likely contains
+    // hallucinated PHI or a dangerous mismatch. Do NOT return the flagged
+    // content to the patient — escalate to a clinician and surface the flags.
+    logger.error('Triage: critical safety flag — blocking output, returning safe fallback', {
       provider: PROVIDER,
       model: MODEL,
       flagCount: safetyFlags.length,
+    });
+    return buildBlockedTriage({
+      code: 'TRIAGE_OUTPUT_BLOCKED_CRITICAL',
+      reason: 'The assistant response failed an automated safety check.',
+      extraFlags: safetyFlags,
     });
   } else if (safetyFlags.length > 0) {
     logger.warn('Triage: output defense flags raised', {
