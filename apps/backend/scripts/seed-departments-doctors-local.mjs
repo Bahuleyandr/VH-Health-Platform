@@ -41,7 +41,7 @@ try {
   for (const name of DEPARTMENTS) {
     await client.query(
       `INSERT INTO departments (name, updated_at) VALUES ($1, NOW())
-       ON CONFLICT (name) DO NOTHING`,
+       ON CONFLICT (tenant_id, name) DO NOTHING`,
       [name]
     );
   }
@@ -51,7 +51,7 @@ try {
     const u = await client.query(
       `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
        VALUES ($1, $2, $3, 'DOCTOR', true, 'active', NOW())
-       ON CONFLICT (phone) DO UPDATE SET
+       ON CONFLICT (tenant_id, phone) DO UPDATE SET
          name = EXCLUDED.name,
          role = 'DOCTOR',
          is_active = true,

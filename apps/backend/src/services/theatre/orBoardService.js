@@ -56,7 +56,7 @@ export async function upsertOrRoom({
         laminar_flow, c_arm_available, microscope,
         prime_time_start, prime_time_end, status, notes)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::time, $9::time, $10, $11)
-     ON CONFLICT (code) DO UPDATE SET
+     ON CONFLICT (tenant_id, code) DO UPDATE SET
        display_name = EXCLUDED.display_name,
        block = EXCLUDED.block,
        specialty_focus = EXCLUDED.specialty_focus,

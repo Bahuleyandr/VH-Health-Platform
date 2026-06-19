@@ -1172,7 +1172,7 @@ async function saveRosterBoardRecord(tx, {
          (department, roster_date, shift_id, shift_label, shift_start, shift_end,
           status, notes, created_by, created_by_uid, updated_at)
        VALUES ($1,$2::date,$3::int,$4,$5::time,$6::time,'draft',$7,$8::int,$9::uuid,NOW())
-       ON CONFLICT (department, roster_date, shift_label)
+       ON CONFLICT (tenant_id, department, roster_date, shift_label)
        DO UPDATE SET
          shift_id = EXCLUDED.shift_id,
          shift_start = EXCLUDED.shift_start,

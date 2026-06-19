@@ -890,7 +890,7 @@ if (process.env.NODE_ENV !== 'test') {
     const run = await prisma.$queryRawUnsafe(
       `INSERT INTO payroll_runs (month, year, status)
        VALUES ($1, $2, 'processing')
-       ON CONFLICT (month, year) DO UPDATE SET status='processing'
+       ON CONFLICT (tenant_id, month, year) DO UPDATE SET status='processing'
        RETURNING id, month, year, status, total_staff, total_gross, total_net, total_deductions, created_at`,
       month, year
     );
