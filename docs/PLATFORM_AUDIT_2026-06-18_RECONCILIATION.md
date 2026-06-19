@@ -10,7 +10,7 @@
 
 | Tier | ✅ | ⏸️ | 🔧 | ❌ |
 |---|---|---|---|---|
-| Critical (C-1…C-9) | 26 | 0 | 0 | 2 (+1 latent-broken) |
+| Critical (C-1…C-9) | 27 | 0 | 0 | 2 |
 | High (§3) | ~22 | 3 | 4 | ~11 |
 | Medium (§4) | 21 | 13 | 3 | 6 |
 | Low (§5) | 16 | 7 | 0 | 6 |
@@ -35,7 +35,7 @@ T2/T3 real recipient delivery; ack→`completeWorkflowSla`; lab-key unified (`la
 
 ### C-4 ABDM/HL7 cross-tenant inbound
 - ✅ ABDM inbound tenant scoping + multi-tenant-ABHA rejection — `abdmService.js:302,416,708,822` (`d7fd0211`)
-- 🟡 **ABDM consent-artifact verification — latent-broken.** Verifier + config-driven CM id exist (`abdmService.js:327`), but the route never extracts `consentArtefact`/`signature` (`abdmRoutes.js:89`) → if `ABDM_VERIFY_CONSENT_ARTEFACT` is enabled it would reject **every** consent. Flag off today.
+- ✅ **ABDM consent-artifact verification — route gap fixed (`8fc850f5`, 2026-06-19).** The route now extracts `consentArtefact` (consentDetail/consentArtefact, flat or nested under `consent.*`) + `signature` and threads them into `_verifyConsentArtefact` (`abdmRoutes.js:99`); covered by `abdmConsentArtefactVerification.test.js` (5 tests: route extraction + verifier valid/tampered/missing/disabled). Still operator-gated (flag off + ABDM disabled). *[was 🟡 latent-broken — verifier existed but the route never passed it the inputs.]*
 - ✅ HL7 `/receive` tenant binding (no default fallback) — `hl7Routes.js:73` (`d7fd0211`)
 - ❌ **Per-tenant inbound secrets — not done.** Both paths still use one global secret. (Audit scoped this as a multi-tenant-SaaS blocker; single-tenant-safe today.)
 
@@ -135,7 +135,7 @@ offline queue AES-256-GCM; staff_id-scoped (no cross-user drain); Windows `WDA_E
 2. **Audit writers lossy** (auditLog drop-on-full, hipaaAudit fire-and-forget, accessDecision swallow) — contradicts "audit never lost."
 3. **Admin appointment CSV formula-injection** (live) — route bypasses the `escapeCsvField` helper.
 4. **ABDM callback HMAC replay** still process-local (HL7 fixed, ABDM not).
-5. **C-4b ABDM consent-verify** route never passes the artifact (would reject all consents if the flag is enabled).
+5. ~~**C-4b ABDM consent-verify** route never passes the artifact~~ — **FIXED (`8fc850f5`)**: route now threads the artefact + signature into the verifier; unit-tested (route extraction + valid/tampered/missing signature).
 6. **Token aud/iss enforcement** (claims emitted, never validated); **SUPER_ADMIN** un-scoped bypass.
 7. **C-1 `billingService.updateClaimStatus`** from-state guard (legacy path).
 
