@@ -333,9 +333,12 @@ model admin_activity_logs {
   affected_user_id String?  @db.Uuid
   ip_address       String?  @db.VarChar(45)
   created_at       DateTime @default(now()) @db.Timestamp(6)
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admin_activity_logs_tenant")
 
   @@index([admin_uid])
   @@index([created_at])
+  @@index([tenant_id], map: "idx_admin_activity_logs_tenant_id")
 }
 
 model admins {
@@ -909,11 +912,14 @@ model audit_log {
   subject_uid         String?   @db.Uuid
   acting_as_dependent Boolean   @default(false)
   device_type         String?
+  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_audit_log_tenant")
 
   @@index([path])
   @@index([status_code])
   @@index([user_id])
   @@index([device_type, created_at(sort: Desc)], map: "idx_audit_log_device_type_created", where: raw("(device_type IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_audit_log_tenant_id")
 }
 
 model audit_logs {
@@ -930,12 +936,15 @@ model audit_logs {
   actor_uid           String?  @db.Uuid
   subject_uid         String?  @db.Uuid
   acting_as_dependent Boolean  @default(false)
+  tenant_id           String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_audit_logs_tenant")
 
   @@index([action])
   @@index([created_at])
   @@index([resource])
   @@index([uid])
   @@index([actor_uid, created_at(sort: Desc)], map: "idx_audit_logs_acting_as", where: raw("(acting_as_dependent = true)"))
+  @@index([tenant_id], map: "idx_audit_logs_tenant_id")
 }
 
 model auth_logs {
@@ -5004,9 +5013,12 @@ model file_access_logs {
   user_agent  String?
   accessed_at DateTime @default(now()) @db.Timestamp(6)
   notes       String?
+  tenant_id   String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_file_access_logs_tenant")
 
   @@index([file_id])
   @@index([user_id])
+  @@index([tenant_id], map: "idx_file_access_logs_tenant_id")
 }
 
 model file_deletion_log {
@@ -5041,11 +5053,14 @@ model file_metadata {
   is_active     Boolean  @default(true)
   uploaded_at   DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @db.Timestamp(6)
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_file_metadata_tenant")
 
   @@index([privacy_level])
   @@index([scan_status])
   @@index([uploaded_at])
   @@index([uploaded_by])
+  @@index([tenant_id], map: "idx_file_metadata_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -5359,10 +5374,13 @@ model hr_activity_logs {
   staff_id     Int?
   description  String?
   created_at   DateTime @default(now()) @db.Timestamp(6)
+  tenant_id    String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants      tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hr_activity_logs_tenant")
   users        users?   @relation(fields: [staff_id], references: [id], onUpdate: NoAction)
 
   @@index([hr_staff_uid])
   @@index([staff_id], map: "idx_hr_activity_logs_staff_id_fk")
+  @@index([tenant_id], map: "idx_hr_activity_logs_tenant_id")
 }
 
 model icd10_codes {
@@ -6068,9 +6086,12 @@ model medical_activity_logs {
   investigation_id Int?
   urgent_flag      Boolean? @default(false)
   created_at       DateTime @default(now()) @db.Timestamp(6)
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medical_activity_logs_tenant")
 
   @@index([created_at])
   @@index([staff_uid])
+  @@index([tenant_id], map: "idx_medical_activity_logs_tenant_id")
 }
 
 model medical_records {
@@ -6430,10 +6451,13 @@ model notification_outbox {
   last_attempt_at DateTime?
   sent_at         DateTime?
   created_at      DateTime  @default(now())
+  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
 
   @@index([created_at])
   @@index([status, retry_count])
   @@index([status, last_attempt_at], map: "notification_outbox_drain_idx", where: raw("(status = ANY (ARRAY['PENDING'::text, 'FAILED'::text]))"))
+  @@index([tenant_id], map: "idx_notification_outbox_tenant_id")
 }
 
 model notification_templates {
@@ -7226,8 +7250,11 @@ model pharmacy_activity_logs {
   new_status    String?  @db.VarChar(50)
   notes         String?
   created_at    DateTime @default(now()) @db.Timestamp(6)
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_activity_logs_tenant")
 
   @@index([staff_uid])
+  @@index([tenant_id], map: "idx_pharmacy_activity_logs_tenant_id")
 }
 
 model pharmacy_catalog {
@@ -9134,6 +9161,7 @@ model tenants {
   abdm_practitioner_mappings                 abdm_practitioner_mappings[]
   abdm_webhook_events                        abdm_webhook_events[]
   abha_profiles                              abha_profiles[]
+  admin_activity_logs                        admin_activity_logs[]
   admins                                     admins[]
   admissions                                 admissions[]
   advance_deductions                         advance_deductions[]
@@ -9149,6 +9177,8 @@ model tenants {
   appointment_waitlist                       appointment_waitlist[]
   appointments                               appointments[]
   approvals                                  approvals[]
+  audit_log                                  audit_log[]
+  audit_logs                                 audit_logs[]
   automation_rules                           automation_rules[]
   bed_transfers                              bed_transfers[]
   beds                                       beds[]
@@ -9292,6 +9322,8 @@ model tenants {
   facility_rooms                             facility_rooms[]
   fall_risk_assessments                      fall_risk_assessments[]
   family_members                             family_members[]
+  file_access_logs                           file_access_logs[]
+  file_metadata                              file_metadata[]
   follow_up_plans                            follow_up_plans[]
   full_final_settlements                     full_final_settlements[]
   growth_charts                              growth_charts[]
@@ -9299,6 +9331,7 @@ model tenants {
   hipaa_access_log                           hipaa_access_log[]
   hl7_feed_subscriptions                     hl7_feed_subscriptions[]
   hl7_outbound_messages                      hl7_outbound_messages[]
+  hr_activity_logs                           hr_activity_logs[]
   idempotency_keys                           idempotency_keys[]
   incident_reports                           incident_reports[]
   india_compliance_evidence                  india_compliance_evidence[]
@@ -9326,6 +9359,7 @@ model tenants {
   lab_specimen_status_history                lab_specimen_status_history[]
   lab_specimens                              lab_specimens[]
   leave_encashments                          leave_encashments[]
+  medical_activity_logs                      medical_activity_logs[]
   medical_records                            medical_records[]
   medication_administrations                 medication_administrations[]
   medication_reconciliation_items            medication_reconciliation_items[]
@@ -9339,6 +9373,7 @@ model tenants {
   news2_scores                               news2_scores[]
   note_drafts                                note_drafts[]
   notification_events                        notification_events[]
+  notification_outbox                        notification_outbox[]
   notifications                              notifications[]
   numbering_series                           numbering_series[]
   nurse_handovers                            nurse_handovers[]
@@ -9370,6 +9405,7 @@ model tenants {
   payment_transactions                       payment_transactions[]
   payroll_runs                               payroll_runs[]
   payslips                                   payslips[]
+  pharmacy_activity_logs                     pharmacy_activity_logs[]
   pharmacy_expiry_alerts                     pharmacy_expiry_alerts[]
   pharmacy_goods_receipt_items               pharmacy_goods_receipt_items[]
   pharmacy_goods_receipts                    pharmacy_goods_receipts[]
