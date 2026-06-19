@@ -6096,6 +6096,7 @@ model medication_administrations {
   medication_scanned_at DateTime? @db.Timestamptz(6)
   tenants               tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_administrations_tenant")
 
+  @@unique([patient_uid, medication_name, scheduled_time], map: "uniq_mar_administered_dose", where: raw("(((status)::text = 'administered'::text) AND (scheduled_time IS NOT NULL))"))
   @@index([patient_uid, administered_at(sort: Desc)], map: "idx_med_admin_patient_time")
   @@index([tenant_id], map: "idx_medication_administrations_tenant_id")
 }

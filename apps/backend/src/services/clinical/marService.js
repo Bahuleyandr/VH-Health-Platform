@@ -380,21 +380,36 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
   const tid = options.tenantId || existing[0].tenant_id || DEFAULT_TENANT_ID;
 
   const record = await setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(
-      `UPDATE medication_administrations
-       SET status = 'administered',
-           administered_at = NOW(),
-           administered_by = $2::uuid,
-           notes = COALESCE($3, notes),
-           witness_uid = $4::uuid,
-           override_reason = COALESCE($5, override_reason)
-       WHERE id = $1 AND tenant_id = $6::uuid
-       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-                 administered_at, status, administered_by, notes, witness_uid,
-                 override_reason, tenant_id, created_at, updated_at,
-                 patient_scanned_at, medication_scanned_at`,
-      id, administeredBy, notes, witnessUid, noScanOverrideReason, tid
-    );
+    let rows;
+    try {
+      rows = await tx.$queryRawUnsafe(
+        `UPDATE medication_administrations
+         SET status = 'administered',
+             administered_at = NOW(),
+             administered_by = $2::uuid,
+             notes = COALESCE($3, notes),
+             witness_uid = $4::uuid,
+             override_reason = COALESCE($5, override_reason)
+         WHERE id = $1 AND tenant_id = $6::uuid
+         RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+                   administered_at, status, administered_by, notes, witness_uid,
+                   override_reason, tenant_id, created_at, updated_at,
+                   patient_scanned_at, medication_scanned_at`,
+        id, administeredBy, notes, witnessUid, noScanOverrideReason, tid
+      );
+    } catch (err) {
+      // uniq_mar_administered_dose (migration 327) rejects a second administered
+      // row for the same patient + medication + scheduled_time — the concurrent
+      // double-charting race the lock-free pre-check above cannot catch. Surface
+      // it as the same clean conflict instead of a generic 500.
+      if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
+        throw AppError.conflict(
+          'This dose has already been administered (another MAR row for the same medication and scheduled time)',
+          'MAR_DUPLICATE_ADMINISTRATION',
+        );
+      }
+      throw err;
+    }
 
     await recordCanonicalMarEvent({
       record: rows[0],
