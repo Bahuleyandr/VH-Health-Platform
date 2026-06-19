@@ -20,35 +20,43 @@ function tenantOr(value) {
 // accumulator UPDATE were two separate, untransacted statements, a partial
 // failure (entry persisted, accumulator not — or vice versa) left the totals
 // permanently out of step with the chart, and a re-applied/retried entry could
-// double-count. Re-deriving every total with SUM()/aggregation over the chart
-// rows makes the rollup a pure function of the chart: it cannot drift, is
-// idempotent, and stays correct under concurrent entries (each commits its own
-// recompute over the then-current rows). Finalized records are never touched.
-async function syncCaseAnesthesiaRecord(tx, { tenantId, otScheduleId }) {
+// double-count. The recompute-from-SUM design that replaced it fixed the
+// untransacted drift but introduced a CONCURRENCY lost-update: under READ
+// COMMITTED each concurrent recordEntry's SUM() could not see the others'
+// still-uncommitted entries, and `DO UPDATE SET total = EXCLUDED.total` then
+// overwrote the rollup with that stale sum (last-writer-wins), so concurrent
+// inserts silently undercounted the totals.
+//
+// The correct synthesis is an ATOMIC INCREMENT keyed on the single just-inserted
+// entry (entryId), run in the SAME transaction as that entry's INSERT:
+//   - Atomicity (insert + increment commit or roll back together) fixes the
+//     original untransacted drift.
+//   - `DO UPDATE SET total = anesthesia_records.total + EXCLUDED.delta` re-reads
+//     the CURRENT committed rollup under the ON CONFLICT row lock — re-evaluated
+//     when a concurrent writer commits — and adds only THIS entry's delta, so
+//     concurrent inserts can never lose each other's contribution.
+//   - It touches ONE row (no serialized SUM over the whole chart), so it stays
+//     well inside the Prisma interactive-transaction budget under heavy
+//     concurrency (a blocking serialize-the-recompute approach times out).
+//   - Each entry increments exactly once; a retry inserts a NEW entry → a new,
+//     correct delta, so there is no double-count. Finalized records are untouched.
+async function syncCaseAnesthesiaRecord(tx, { tenantId, otScheduleId, entryId }) {
   await tx.$queryRawUnsafe(
-    `WITH agg AS (
+    `WITH entry AS (
        SELECT
-         COALESCE(SUM(iv_fluids_ml), 0)::int       AS fluids_in_ml,
-         COALESCE(SUM(blood_loss_ml), 0)::int      AS blood_loss_ml,
-         COALESCE(SUM(urine_output_ml), 0)::int    AS urine_output_ml,
-         COALESCE(
-           jsonb_agg(elem ORDER BY ord)
-             FILTER (WHERE elem IS NOT NULL),
-           '[]'::jsonb)                            AS agents_used,
-         COALESCE(
-           jsonb_agg(
-             jsonb_build_object(
-               'note', event_note,
-               'recorded_at', recorded_at,
-               'recorded_by', recorded_by
-             ) ORDER BY recorded_at, id)
-             FILTER (WHERE event_note IS NOT NULL AND TRIM(event_note) <> ''),
-           '[]'::jsonb)                            AS events
+         COALESCE(e.iv_fluids_ml, 0)::int    AS fluids_in_ml,
+         COALESCE(e.blood_loss_ml, 0)::int   AS blood_loss_ml,
+         COALESCE(e.urine_output_ml, 0)::int AS urine_output_ml,
+         CASE WHEN jsonb_typeof(e.drugs_given) = 'array'
+              THEN e.drugs_given ELSE '[]'::jsonb END AS agents_used,
+         CASE WHEN e.event_note IS NOT NULL AND TRIM(e.event_note) <> ''
+              THEN jsonb_build_array(jsonb_build_object(
+                     'note', e.event_note,
+                     'recorded_at', e.recorded_at,
+                     'recorded_by', e.recorded_by))
+              ELSE '[]'::jsonb END AS events
        FROM anesthesia_chart_entries e
-       LEFT JOIN LATERAL jsonb_array_elements(
-         CASE WHEN jsonb_typeof(e.drugs_given) = 'array' THEN e.drugs_given ELSE '[]'::jsonb END
-       ) WITH ORDINALITY AS d(elem, ord) ON TRUE
-       WHERE e.tenant_id = $1::uuid AND e.ot_schedule_id = $2::int
+       WHERE e.id = $3::int AND e.tenant_id = $1::uuid AND e.ot_schedule_id = $2::int
      )
      INSERT INTO anesthesia_records
        (tenant_id, ot_schedule_id, patient_uid, anesthetist,
@@ -56,22 +64,23 @@ async function syncCaseAnesthesiaRecord(tx, { tenantId, otScheduleId }) {
         events, status, created_at, updated_at)
      SELECT
        $1::uuid, s.id, s.patient_uid, s.anesthetist,
-       agg.agents_used, agg.fluids_in_ml, agg.blood_loss_ml, agg.urine_output_ml,
-       agg.events, 'draft', NOW(), NOW()
-     FROM ot_schedules s, agg
+       entry.agents_used, entry.fluids_in_ml, entry.blood_loss_ml, entry.urine_output_ml,
+       entry.events, 'draft', NOW(), NOW()
+     FROM ot_schedules s, entry
      WHERE s.id = $2::int
      ON CONFLICT (tenant_id, ot_schedule_id) DO UPDATE SET
        patient_uid = COALESCE(anesthesia_records.patient_uid, EXCLUDED.patient_uid),
        anesthetist = COALESCE(anesthesia_records.anesthetist, EXCLUDED.anesthetist),
-       agents_used = EXCLUDED.agents_used,
-       fluids_in_ml = EXCLUDED.fluids_in_ml,
-       blood_loss_ml = EXCLUDED.blood_loss_ml,
-       urine_output_ml = EXCLUDED.urine_output_ml,
-       events = EXCLUDED.events,
+       agents_used = anesthesia_records.agents_used || EXCLUDED.agents_used,
+       fluids_in_ml = anesthesia_records.fluids_in_ml + EXCLUDED.fluids_in_ml,
+       blood_loss_ml = anesthesia_records.blood_loss_ml + EXCLUDED.blood_loss_ml,
+       urine_output_ml = anesthesia_records.urine_output_ml + EXCLUDED.urine_output_ml,
+       events = anesthesia_records.events || EXCLUDED.events,
        updated_at = NOW()
      WHERE anesthesia_records.status <> 'finalized'`,
     tenantId,
     Number(otScheduleId),
+    Number(entryId),
   );
 }
 
@@ -142,7 +151,7 @@ export async function recordEntry({
       recorded_by ? String(recorded_by) : null,
       tid,
     );
-    await syncCaseAnesthesiaRecord(tx, { tenantId: tid, otScheduleId: ot_schedule_id });
+    await syncCaseAnesthesiaRecord(tx, { tenantId: tid, otScheduleId: ot_schedule_id, entryId: rows[0].id });
     return rows[0];
   });
 }
