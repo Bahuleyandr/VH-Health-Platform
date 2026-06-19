@@ -29,7 +29,7 @@
  */
 
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { retrieveFromKnowledgeBases } from './knowledgeRetrievalService.js';
 
 // Conservative per-kb_type top-K so a single module call does not pull a
@@ -152,7 +152,7 @@ export async function groundWithKnowledgeBases({
   const text = String(queryText || '').trim();
   if (!text) return empty;
 
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const groundingRole = role ? String(role).toUpperCase() : DEFAULT_GROUNDING_ROLE;
 
   const chunks = [];

@@ -12,7 +12,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { extractTextFromDocumentUpload } from './documentOcrAdapter.js';
 import {
@@ -39,7 +39,7 @@ const PROCEDURE_RE = /\b(?:procedure|operation|surgery|intervention|biopsy|endos
 const FOLLOW_UP_RE = /\b(?:follow[-\s]?up|review after|return if|next visit|appointment|warning signs)\b/i;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

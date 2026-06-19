@@ -1,8 +1,8 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { requireTenantId } from '../services/tenant/tenantService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const toUuidOrNull = (value) => {
   if (value === null || value === undefined) return null;
@@ -57,7 +57,7 @@ export function logPhiAccess({
       const accessedBy = toUuidOrNull(userId);
       const actorUidNorm = toUuidOrNull(actorUid) ?? accessedBy;
       const subjectUidNorm = toUuidOrNull(subjectUid);
-      const tenantIdNorm = toUuidOrNull(tenantId) ?? DEFAULT_TENANT_ID;
+      const tenantIdNorm = requireTenantId(toUuidOrNull(tenantId));
       const actingFlag = actingAsDependent === true;
       // patient_id stored as text — accept either uuid or int form
       // (callers across the app use both depending on which surface

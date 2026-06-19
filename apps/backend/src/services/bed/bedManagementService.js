@@ -6,7 +6,7 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
@@ -107,7 +107,7 @@ class BedManagementService {
     // prisma.$transaction runs the callback inside BEGIN/COMMIT — thrown
     // errors (including AppError) trigger automatic ROLLBACK before
     // propagating to the caller.
-    const result = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const result = await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, status, bed_number, bed_type FROM beds
           WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -181,7 +181,7 @@ class BedManagementService {
   // =========================================================================
   async dischargePatient(bedId, dischargedBy, options = {}) {
     const tenantId = tenantOf(options);
-    const { updated, patientUid, admissionId } = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const { updated, patientUid, admissionId } = await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, status, patient_uid, bed_number FROM beds
           WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -302,7 +302,7 @@ class BedManagementService {
       // so start the bed-cleaning-turnaround clock in THIS tx — not post-commit
       // best-effort inside createBedCleaningRequest below.
       await startBedCleaningSlaInTx(tx, {
-        tenantId: tenantId || DEFAULT_TENANT_ID,
+        tenantId: requireTenantId(tenantId),
         bedId,
         patientUid: dischargePatientUid,
         trigger: 'final_discharge',
@@ -387,7 +387,7 @@ class BedManagementService {
   async transferPatient(patientUid, toBedId, reason, transferredBy, actorRole = null, options = {}) {
     const { acknowledgeClassChange = false } = options;
     const tenantId = tenantOf(options);
-    const result = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const result = await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const currentBedRows = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, bed_number, bed_type, ward_id
            FROM beds
@@ -579,7 +579,7 @@ class BedManagementService {
       // to 'cleaning', so start its turnaround clock in THIS tx rather than
       // relying on the post-commit best-effort createBedCleaningRequest below.
       await startBedCleaningSlaInTx(tx, {
-        tenantId: tenantId || DEFAULT_TENANT_ID,
+        tenantId: requireTenantId(tenantId),
         bedId: fromBedId,
         patientUid,
         trigger: 'bed_transfer',
@@ -732,7 +732,7 @@ class BedManagementService {
 
     // Atomic: the bed flip + audit row commit together (synchronous, no
     // setImmediate). RLS-scoped under the beds tenant_isolation policy.
-    const rows = await setTenantTx(effectiveTenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const rows = await setTenantTx(requireTenantId(effectiveTenantId), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
          SET status = 'available', updated_at = NOW()
@@ -783,7 +783,7 @@ class BedManagementService {
       // matching instance exists (e.g. a bed seeded directly into 'cleaning'),
       // so it is safe regardless of how the bed entered cleaning.
       await completeWorkflowSla({
-        tenantId: effectiveTenantId || DEFAULT_TENANT_ID,
+        tenantId: requireTenantId(effectiveTenantId),
         ruleCode: 'bed_cleaning_turnaround',
         sourceTable: 'beds',
         sourceId: String(bedId),

@@ -18,13 +18,13 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { retrieveRelevant } from './ragService.js';
 import { detectPhiLeaks } from './hallucinationDefenses.js';
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function truncate(text, n = 280) {

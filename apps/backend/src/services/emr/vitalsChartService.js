@@ -8,6 +8,7 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { computeGrowthSnapshot } from '../clinical/growthPercentileService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import * as news2Service from '../clinical/news2Service.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 
 const VALID_VITAL_TYPES = [
@@ -22,7 +23,6 @@ const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', '
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 const VITAL_CORRECTION_WINDOW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VITAL_CORRECTION_FIELDS = [
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
@@ -461,7 +461,7 @@ export async function recordVitals(data) {
   if (requestedTenantId && patientTenantId && requestedTenantId !== patientTenantId) {
     throw AppError.notFound('Patient not found');
   }
-  const resolvedTenantId = patientTenantId || requestedTenantId || DEFAULT_TENANT_ID;
+  const resolvedTenantId = requireTenantId(patientTenantId || requestedTenantId);
 
   // Wave-4B-1 (migration 208) — split encounter input across int + uuid.
   // Caller can pass either `encounter_id` (legacy int / numeric / UUID),
@@ -533,7 +533,7 @@ export async function recordVitals(data) {
   // or rolls back WITH the vitals row. Captured here so the post-commit
   // escalation (alert + CDS surfacing) can run after the tx closes.
   let news2Persisted = null;
-  const record = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const record = await setTenantTx(requireTenantId(resolvedTenantId), async (tx) => {
     const row = await tx.vitals_chart.create({
       data: {
         patient_uid: resolvedPatientUid,
@@ -874,7 +874,7 @@ export async function correctVitals(vitalsId, data) {
     throw AppError.badRequest('At least one vitals field is required for correction');
   }
 
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
     const existing = await tx.vitals_chart.findUnique({
       where: { id },
       select: { ...VITAL_SELECT, created_at: true },
@@ -954,7 +954,7 @@ export async function recordIntakeOutput(data) {
   if (requestedTenantId && patientTenantId && requestedTenantId !== patientTenantId) {
     throw AppError.notFound('Patient not found');
   }
-  const resolvedTenantId = patientTenantId || requestedTenantId || DEFAULT_TENANT_ID;
+  const resolvedTenantId = requireTenantId(patientTenantId || requestedTenantId);
 
   // Wave-4B-2 (migration 223) — admission encounter_id is a UUID; the
   // pre-admission HL7 visit_no path is int. Split the input across both
@@ -966,7 +966,7 @@ export async function recordIntakeOutput(data) {
 
   // Atomic clinical write (canonical timeline invariant): the I/O detail row
   // + its canonical timeline/audit events persist together or not at all.
-  const created = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const created = await setTenantTx(requireTenantId(resolvedTenantId), async (tx) => {
     const row = await tx.intake_output.create({
       data: {
         patient_uid,

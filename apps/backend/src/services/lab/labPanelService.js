@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_RESULT_STATUS = new Set(['preliminary', 'final', 'corrected', 'cancelled']);
 const VALID_PANEL_CODES = new Set([
@@ -36,7 +37,7 @@ const VALID_PANEL_CODES = new Set([
  */
 export async function lookupReferenceRange({ tenantId, testCode, sex = null, ageYears = null }) {
   if (!testCode) return null;
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const candidates = await prisma.lab_reference_ranges.findMany({
     where: {
       tenant_id: tid,
@@ -131,7 +132,7 @@ export async function recordLabPanel({
   }
 
   // Pull patient sex + age once; both feed into reference-range lookup.
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const patient = await prisma.users.findFirst({
     where: { uid: patientUid, tenant_id: tid },
     select: { name: true, gender: true, birthday: true },
@@ -256,7 +257,7 @@ function renderReferenceRangeText(range) {
  */
 export async function getLabPanel(panelId, { tenantId } = {}) {
   if (!panelId) throw AppError.badRequest('panelId is required');
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const rows = await prisma.lab_results.findMany({
     where: { panel_id: panelId, tenant_id: tid },
     orderBy: { id: 'asc' },
@@ -279,7 +280,7 @@ export async function getLabPanel(panelId, { tenantId } = {}) {
  * view.
  */
 export async function listPatientPanels(patientUid, { tenantId, panelCode = null, limit = 50 } = {}) {
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   const rows = await prisma.lab_results.findMany({
     where: {
@@ -318,7 +319,7 @@ export async function listPatientPanels(patientUid, { tenantId, panelCode = null
 export async function getAnalyteTrend(patientUid, testCode, { tenantId, fromDate = null, toDate = null, limit = 100 } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
   if (!testCode) throw AppError.badRequest('testCode is required');
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
   return prisma.lab_results.findMany({
     where: {
@@ -354,7 +355,7 @@ export async function getAnalyteTrend(patientUid, testCode, { tenantId, fromDate
  * Admin: list reference ranges with optional filters.
  */
 export async function listReferenceRanges({ tenantId, testCode = null, includeInactive = false } = {}) {
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   return prisma.lab_reference_ranges.findMany({
     where: {
       tenant_id: tid,
@@ -369,7 +370,7 @@ export async function listReferenceRanges({ tenantId, testCode = null, includeIn
  * Admin: upsert a reference range (manual config flow).
  */
 export async function upsertReferenceRange(data, { tenantId }) {
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   if (!data.test_code || !data.test_name || !data.unit) {
     throw AppError.badRequest('test_code, test_name, and unit are required');
   }

@@ -100,6 +100,8 @@ const resolveTenantForRequestMock = jest.fn();
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID,
   resolveTenantForRequest: resolveTenantForRequestMock,
+  resolveTenantOrThrow: (req) => req?.tenantId || DEFAULT_TENANT_ID,
+  requireTenantId: (tenantId) => tenantId || DEFAULT_TENANT_ID,
 }));
 
 const {

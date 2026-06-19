@@ -18,6 +18,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export function releaseDelayHours() {
   const n = Number(process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS);
@@ -294,7 +295,7 @@ export async function getLabTrend({ tenantId, patientUid, testCode = null, loinc
        AND COALESCE(performed_at, received_at) >= NOW() - make_interval(months => $4::int)
        AND ${releaseVisibilitySql('$5')}
      ORDER BY COALESCE(performed_at, received_at) ASC`,
-    tenantId || '00000000-0000-4000-8000-000000000001',
+    requireTenantId(tenantId),
     String(patientUid),
     byLoinc ? String(loincCode) : String(testCode),
     span,

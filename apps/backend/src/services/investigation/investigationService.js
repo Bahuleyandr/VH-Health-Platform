@@ -7,7 +7,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination } from '../../utils/listQuery.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 // enqueueCriticalResultTask itself (re)starts the mig-269 critical_result_ack
 // SLA AND creates the assigned, ack-tracked task in one idempotent, never-throws
@@ -736,7 +736,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
   // Snapshot prior state into previous_results before overwriting.
   // Use a transaction so a partial fail leaves the row intact.
   try {
-    return await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    return await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const existing = await tx.investigations.findUnique({
         where: { id: investId },
         select: {
@@ -899,7 +899,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
       const critical = hasCriticalResultSignal(updated.results);
       await bestEffortInvestigationCanonical('investigation result', async () => {
         await recordCanonicalClinicalEvent({
-          tenantId: tenantId || DEFAULT_TENANT_ID,
+          tenantId: requireTenantId(tenantId),
           patientUid: updated.patient_uid,
           eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
           eventSubtype: updated.test_type,
@@ -940,7 +940,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
           // startWorkflowSla and adds the missing task. resourceType is
           // 'investigations' (the SLA/ack key); source is the human label.
           await enqueueCriticalResultTask({
-            tenantId: tenantId || DEFAULT_TENANT_ID,
+            tenantId: requireTenantId(tenantId),
             patientUid: updated.patient_uid,
             source: 'investigation',
             resourceType: 'investigations',

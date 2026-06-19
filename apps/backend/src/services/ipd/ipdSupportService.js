@@ -10,6 +10,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 
 // Wave-4B-1 — 'deferred' is the IRDAI/MCI emergency-care payment mode for
@@ -51,10 +52,9 @@ const VALID_INDENT_TRANSITIONS = {
 };
 const CLINICAL_ORDER_REF_RE = /clinical_order_id:(\d+)/g;
 const PHARMACY_WARD_INDENT_ROLES = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'];
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(value) {
-  return value || DEFAULT_TENANT_ID;
+  return requireTenantId(value);
 }
 
 async function findAdmissionForTenant(client, admissionId, tenantId) {
@@ -847,7 +847,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
   const searchTerms = catalogSearchTerms(medicationName, details);
   const wildcardTerms = searchTerms.map((term) => `%${term}%`);
 
-  const result = await setTenantTx(order.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+  const result = await setTenantTx(requireTenantId(order.tenant_id), async (tx) => {
     const existing = await tx.$queryRawUnsafe(
       `SELECT wi.id
          FROM ward_indents wi
@@ -958,7 +958,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
         status: 'requested',
         requested_by: order.ordered_by,
         notes: `Generated from inpatient medication order ${order.order_number}`,
-        tenant_id: admission.tenant_id || order.tenant_id || DEFAULT_TENANT_ID,
+        tenant_id: requireTenantId(admission.tenant_id || order.tenant_id),
         items: {
           create: [{
             pharmacy_catalog_id: catalog?.id ?? null,

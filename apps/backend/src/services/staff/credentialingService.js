@@ -9,12 +9,12 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const TYPES = ['registration', 'qualification', 'privilege', 'training', 'immunization'];
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(value) {
-  return value || DEFAULT_TENANT_ID;
+  return requireTenantId(value);
 }
 
 export async function addCredential({

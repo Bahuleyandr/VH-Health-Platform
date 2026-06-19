@@ -38,7 +38,7 @@ import prisma, { setTenant } from '../../lib/prisma.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { antibiogram90d } from '../lab/microbiologyService.js';
 import { getKnowledgeBase } from './knowledgeBaseService.js';
 import { createInlineDocument, findDocumentByHash } from './knowledgeDocumentService.js';
@@ -55,7 +55,7 @@ const KB_TYPE_FOR_SOURCE = {
 };
 
 function resolveTenantId(tenantId) {
-  return tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(tenantId);
 }
 
 function isMissingSchemaError(err) {

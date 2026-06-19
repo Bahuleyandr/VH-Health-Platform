@@ -4,10 +4,10 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Shared `select` shape for create + update return values — callers see a
 // stable object regardless of which method produced it.
@@ -38,7 +38,7 @@ const toTextArray = (value) => {
 };
 
 function tenantOr(value) {
-  return String(value || '').trim() || DEFAULT_TENANT_ID;
+  return requireTenantId(String(value || '').trim() || null);
 }
 
 async function assertPatientInTenant(tenantId, patientUid) {

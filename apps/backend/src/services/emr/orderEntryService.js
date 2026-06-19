@@ -31,7 +31,7 @@ import {
   recordCanonicalClinicalEvent,
   recordMedicationSafetyReviews,
 } from '../clinical/canonicalClinicalPlatformService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 
 // ===================================================================
@@ -663,7 +663,7 @@ export async function createOrder(data) {
   // `details` is a Json column — pass the object directly (Prisma serialises).
   // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it
   // explicitly, so we preserve that for clarity.
-  const order = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const order = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const row = await tx.clinical_orders.create({
       data: {
         order_number: orderNumber,
@@ -702,7 +702,7 @@ export async function createOrder(data) {
   // Idempotent + self-contained: swallows every error internally and MUST NEVER
   // block or fail the order write.
   await populateAuthorshipCareTeam({
-    tenantId: order.tenant_id || tenantId || DEFAULT_TENANT_ID,
+    tenantId: requireTenantId(order.tenant_id || tenantId),
     patientUid: order.patient_uid,
     authorUid: order.ordered_by,
     source: 'clinical_order',
@@ -787,7 +787,7 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
   // app.current_tenant_id is set for every clinical_orders + canonical
   // timeline/audit write. tenantId is threaded from the caller's
   // req.tenantId; default keeps single-tenant / test callers green.
-  const createdRows = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const createdRows = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const rows = [];
     for (let i = 0; i < prepared.length; i += 1) {
       const n = prepared[i].normalized;
@@ -844,7 +844,7 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
   // calling once per row is a fast no-op after the first. Never throws.
   for (let i = 0; i < createdRows.length; i += 1) {
     await populateAuthorshipCareTeam({
-      tenantId: createdRows[i].tenant_id || tenantId || DEFAULT_TENANT_ID,
+      tenantId: requireTenantId(createdRows[i].tenant_id || tenantId),
       patientUid: createdRows[i].patient_uid,
       authorUid: createdRows[i].ordered_by,
       source: 'clinical_order',
@@ -1083,7 +1083,7 @@ export async function verifyOrder(orderId, verifiedBy) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1140,7 +1140,7 @@ export async function completeOrder(orderId, completedBy) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1197,7 +1197,7 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1256,7 +1256,7 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1608,7 +1608,7 @@ export async function createOrderSet(data) {
   // tenant_isolation policy, so the insert must run with app.current_tenant_id
   // set. tenantId is threaded from the caller's req.tenantId; default keeps
   // single-tenant / test callers green.
-  const created = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const created = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const set = await tx.clinical_order_sets.create({
       data: {
         code: code.slice(0, 60),

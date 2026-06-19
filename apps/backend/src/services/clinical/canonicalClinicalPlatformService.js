@@ -10,7 +10,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getPatientTimeline as getLegacyPatientTimeline } from '../emr/clinicalTimelineService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -233,7 +233,7 @@ function normalizedLimit(value, fallback = 100, max = 500) {
 }
 
 function normalizeTenantId(value) {
-  return cleanUuid(value) || DEFAULT_TENANT_ID;
+  return requireTenantId(cleanUuid(value));
 }
 
 function safeJson(value, fallback = {}) {

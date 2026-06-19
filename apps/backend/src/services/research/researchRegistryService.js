@@ -18,6 +18,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'select'];
 const BINDING_SOURCES = ['vitals_latest', 'lab_latest', 'demographics'];
@@ -33,7 +34,7 @@ const VITALS_BINDABLE = new Set([
 const DEMOGRAPHIC_BINDABLE = new Set(['gender', 'age_years']);
 
 function normalizeTenantId(tenantId) {
-  return tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(tenantId);
 }
 
 // ─────────────────────────────── registries ───────────────────────────────

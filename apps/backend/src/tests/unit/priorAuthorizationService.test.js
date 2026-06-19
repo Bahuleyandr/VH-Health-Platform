@@ -39,6 +39,8 @@ jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => (
 // Stub collaborators the service imports but we don't test here.
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: 'default-tenant-id',
+  resolveTenantOrThrow: (req) => req?.tenantId || 'default-tenant-id',
+  requireTenantId: (tenantId) => tenantId || 'default-tenant-id',
 }));
 jest.unstable_mockModule('../../services/emr/clinicalTimelineService.js', () => ({
   collectAdmissionClinicalContext: jest.fn().mockResolvedValue({

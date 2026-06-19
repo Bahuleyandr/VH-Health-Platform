@@ -27,7 +27,7 @@ import crypto from 'crypto';
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { embedText } from './ragService.js';
 
 const DEFAULT_TOP_K = 5;
@@ -35,7 +35,7 @@ const MAX_TOP_K = 50;
 const DEFAULT_MIN_SCORE = 0.55;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

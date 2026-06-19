@@ -18,11 +18,11 @@ import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export { istDateString };
 
-const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
-const tenantOr = (tenantId) => tenantId || TENANT_FALLBACK;
+const tenantOr = (tenantId) => requireTenantId(tenantId);
 
 // ── Pregnancy episode ────────────────────────────────────────────────
 

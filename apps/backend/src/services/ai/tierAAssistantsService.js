@@ -28,6 +28,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { runExplainerPipeline } from './patientExplainersService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const TEXT_INPUT_MAX = 12_000;
 
@@ -253,7 +254,7 @@ export async function generatePatientFaqAnswer({
   generatedBy = null,
   req = null,
 } = {}) {
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const cleanQuery = requireText(query, 'query', { min: 5, max: 500 });
   const passages = await retrieveKnowledgePassages({
     tenantId: tid, knowledgeBaseId, query: cleanQuery, limit: 6,
@@ -359,7 +360,7 @@ export async function generateFrontDeskResponse({
   generatedBy = null,
   req = null,
 } = {}) {
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const cleanQuery = requireText(query, 'query', { min: 3, max: 500 });
   const passages = await retrieveKnowledgePassages({
     tenantId: tid, knowledgeBaseId, query: cleanQuery, limit: 6,
@@ -405,7 +406,7 @@ export async function generateAuditLogSummary({
   generatedBy = null,
   req = null,
 } = {}) {
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const days = normalizeInt(windowDays, 'window_days', { min: 1, max: 90, fallback: 7 });
 
   const rows = await safeQuery(
@@ -598,7 +599,7 @@ export async function generatePendingReportTracker({
   generatedBy = null,
   req = null,
 } = {}) {
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const days = normalizeInt(staleDays, 'stale_days', { min: 1, max: 30, fallback: 3 });
   const cleanScope = ['all', 'investigations', 'radiology'].includes(scope) ? scope : 'all';
 

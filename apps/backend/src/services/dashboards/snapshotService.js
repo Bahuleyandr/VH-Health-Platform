@@ -5,11 +5,10 @@
 // expose tenant_id for request-time isolation.
 
 import prisma from '../../lib/prisma.js';
-
-const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 function tenant(tenantId) {
-  return tenantId || DEFAULT_TENANT;
+  return requireTenantId(tenantId);
 }
 
 export async function getDailyOpsSnapshot({ tenantId } = {}) {

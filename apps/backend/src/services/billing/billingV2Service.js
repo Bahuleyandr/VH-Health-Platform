@@ -15,6 +15,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
 const VALID_PAYMENT_MODES = [
@@ -23,7 +24,6 @@ const VALID_PAYMENT_MODES = [
 const VALID_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'VOID'];
 const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
 const HIGH_VALUE_DISCOUNT_APPROVER_ROLES = ['FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN'];
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Mirrors VALID_CATEGORIES in claimCapsService — the bucket set TPA caps
 // match against. addInvoiceItem rejects unknown categories so ad-hoc
@@ -449,7 +449,7 @@ export async function createDraftInvoice({
   }
   // B-1: enforce billing close before creating against a closed admission.
   await assertAdmissionBillingOpen(admission_id);
-  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_invoices
@@ -886,7 +886,7 @@ async function maybeEmitTpaCapAlerts({ admissionId, patientUid, tenantId, totalA
  */
 export async function resolveAdmissionTpaCap(admissionId, tenantId) {
   if (!admissionId) return null;
-  const tenant = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tenant = requireTenantId(tenantId);
   // Stage-4-C — also expose the root preauth's status, denial_reason,
   // sanctioned_amount, and policy_id so the cashier screen can show
   // "TPA: denied" / "approved ₹50,000" / "pending insurer response"
@@ -1176,7 +1176,7 @@ async function collectPaymentTx(tx, {
       collected_by ? String(collected_by) : null,
       shift || null,
       notes || null,
-      normalizeTenantId(tenantId) || DEFAULT_TENANT_ID,
+      requireTenantId(normalizeTenantId(tenantId)),
     );
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -1235,12 +1235,12 @@ export async function collectPayment({
   // never nest setTenantTx — Postgres cannot nest transactions. Otherwise open
   // our own tenant-scoped atomic transaction.
   if (tx) return collectPaymentTx(tx, args);
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, (innerTx) => collectPaymentTx(innerTx, args));
+  return setTenantTx(requireTenantId(tenantId), (innerTx) => collectPaymentTx(innerTx, args));
 }
 
 export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required');
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Flip the reversal flag first (guarded by reversed = false so a double
     // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
     // lock so a concurrent collectPayment can't interleave with the recompute.
@@ -1279,7 +1279,7 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
-  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_advances
@@ -1309,7 +1309,7 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Lock the advance row FOR UPDATE before reading its balance — without the
     // lock two concurrent settlements both read the same balance and both
     // succeed (the classic lost update that overdraws the advance).
@@ -1424,9 +1424,9 @@ export async function raiseRefund({
   if ((!invoice_id && !advance_id) || (invoice_id && advance_id)) {
     throw AppError.badRequest('Refund must reference exactly one of invoice_id or advance_id');
   }
-  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
   const refundAmount = toFixed2(amount);
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
     let resolvedPatientUid = patient_uid;
     if (invoice_id) {
       // Lock the invoice + sum prior refunds so the bound check below can't be
@@ -1528,7 +1528,7 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
 }
 
 export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
     // double "mark paid" affects zero rows on the second call (already PAID),
     // so the ledger-reducing writes below run exactly once.

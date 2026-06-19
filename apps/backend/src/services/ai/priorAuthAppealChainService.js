@@ -25,7 +25,7 @@ import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { publishEvent } from '../events/eventOutboxService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { classifyDenialReason, generateAppealLetter } from './appealLetterGeneratorService.js';
 import { WorkflowGraph, runWorkflow, pauseRun } from './workflowGraphRunner.js';
@@ -285,7 +285,7 @@ export async function composePriorAuthAppeal(priorAuthId, { startedBy = null, re
 
   // Explicit tenantId wins, then req.tenantId, then DEFAULT_TENANT_ID.
   // This lets the scheduler sweep pass each PA's own tenant without a req.
-  const resolvedTenantId = tenantId ?? req?.tenantId ?? DEFAULT_TENANT_ID;
+  const resolvedTenantId = requireTenantId(tenantId ?? req?.tenantId);
 
   const outcome = await runWorkflow({
     graph: getPriorAuthAppealGraph(),

@@ -2,7 +2,7 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -19,7 +19,7 @@ import { normalizeClinicalJustification } from '../insurance/clinicalJustificati
 // are constrained to the resolved tenant — both the USING filter on the row
 // lock/lookup and WITH CHECK on the update.
 function scopedTx(tenantId, fn) {
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, fn);
+  return setTenantTx(requireTenantId(tenantId), fn);
 }
 
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];

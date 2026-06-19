@@ -28,7 +28,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField } from '../../utils/fieldEncryption.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const TEXT_MAX = 8000;
 const SHORT_MAX = 255;
@@ -95,7 +95,7 @@ export function resolveScopes(requested, allowed) {
 }
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

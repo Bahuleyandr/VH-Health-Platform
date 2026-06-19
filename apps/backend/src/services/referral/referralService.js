@@ -4,7 +4,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { DEFAULT_TENANT_ID, requireTenantId } from '../tenant/tenantService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import {
   completeWorkflowSla,
@@ -46,7 +46,7 @@ function normalizeRole(value) {
 }
 
 function normalizeTenantId(value) {
-  return cleanText(value) || DEFAULT_TENANT_ID;
+  return requireTenantId(cleanText(value));
 }
 
 function priorityForUrgency(urgency) {

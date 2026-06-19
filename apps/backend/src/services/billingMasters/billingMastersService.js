@@ -16,7 +16,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -37,7 +37,7 @@ export const PACKAGE_STATUSES = ['draft', 'active', 'paused', 'archived'];
 export const LINK_STATUSES = ['active', 'paused', 'archived'];
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

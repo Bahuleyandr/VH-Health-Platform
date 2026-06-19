@@ -17,7 +17,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { publishEvent } from '../events/eventOutboxService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
@@ -54,7 +54,7 @@ const IMPRESSION_ABNORMAL_TERMS = [
 const FOLLOWUP_WARRANT_TERMS = ['nodule', 'mass', 'lesion', 'indeterminate'];
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

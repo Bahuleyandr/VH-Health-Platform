@@ -10,7 +10,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // Section keys we recognise as "discharge medications" for the
 // materialise-to-e_prescriptions handoff. Templates use slightly
@@ -253,7 +253,7 @@ async function emitDischargeCanonicalEvent({
 }) {
   if (!patientUid) return null;
   return recordCanonicalClinicalEvent({
-    tenantId: tenantId || DEFAULT_TENANT_ID,
+    tenantId: requireTenantId(tenantId),
     patientUid,
     eventType,
     eventStatus,
@@ -787,7 +787,7 @@ export async function markReadyForSignoff({ tenantId, id, marked_by = null }) {
   // Atomic: status flip + legacy audit + canonical timeline/audit events commit
   // together (canonical timeline invariant). setTenantTx also scopes the writes
   // under the discharge_summaries RLS policy (migration 304).
-  await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries
           SET status = 'ready_for_signoff', updated_at = NOW()
@@ -853,7 +853,7 @@ export async function sign({
   // admissions RLS policies. The e_prescriptions med materialisation stays
   // POST-COMMIT best-effort (idempotent, patient-app convenience) — an
   // e_prescriptions hiccup must not roll back a legally-signed discharge.
-  const signed = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const signed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries
           SET status = 'signed', signed_by = $1::uuid,
@@ -1099,7 +1099,7 @@ export async function markDelivered({
   // Atomic: status flip + legacy audit + canonical timeline/audit events commit
   // together (canonical timeline invariant), scoped under the discharge_summaries
   // RLS policy. The SMS-intent queue stays POST-COMMIT best-effort below.
-  const rows = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const rows = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const updated = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries
           SET status = 'delivered', delivered_at = NOW(),

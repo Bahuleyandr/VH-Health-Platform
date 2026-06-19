@@ -18,10 +18,10 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 function resolveTenantId(tenantId) {
-  return tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(tenantId);
 }
 
 /** Active isolation board: who needs isolation and where they are lying. */

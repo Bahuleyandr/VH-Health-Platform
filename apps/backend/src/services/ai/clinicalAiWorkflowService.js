@@ -6,7 +6,7 @@ import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.
 import { publishEvent } from '../events/eventOutboxService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { retrieveRelevant } from './ragService.js';
 import { groundWithKnowledgeBases } from './knowledgeGroundingService.js';
@@ -28,7 +28,7 @@ import { getDefaultCheckpointStore } from './workflowCheckpointStore.js';
 // allowed for SUPER_ADMIN callers (enforced at the route boundary, not here).
 function resolveTenantId(options = {}) {
   if (options.tenantId === null) return null;
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 const MODULE_PROMPT_FALLBACK = {

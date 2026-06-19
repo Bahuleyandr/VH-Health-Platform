@@ -7,7 +7,7 @@ import {
   readCanonicalPatientTimeline,
   recordCanonicalClinicalEvent,
 } from './canonicalClinicalPlatformService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 
@@ -79,7 +79,7 @@ async function saveHandoverAiGeneration(patientUid, draft, requestedBy, tenantId
              'draft', $7, '[]'::jsonb, $8::jsonb, $9::jsonb, $10::uuid,
              $11, $12, $13, $14, $15, $16, $17, $18::jsonb, NOW(), NOW())
      RETURNING id`,
-    tenantId || '00000000-0000-4000-8000-000000000001',
+    requireTenantId(tenantId),
     patientUid,
     draft.ai_metadata?.module_key || 'handover_summary',
     draft.ai_metadata?.provider || 'template',
@@ -210,7 +210,7 @@ export async function createHandover(data) {
     tenant_id,
     tenantId: tenantIdInput,
   } = data;
-  const tenantId = tenant_id || tenantIdInput || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(tenant_id || tenantIdInput);
 
   if (!patient_uid || !outgoing_nurse || !shift || !patient_summary) {
     throw AppError.badRequest('patient_uid, outgoing_nurse, shift, and patient_summary are required');
@@ -324,7 +324,7 @@ export async function acknowledgeHandover(id, nurseUid) {
     throw AppError.conflict('Handover has already been acknowledged');
   }
 
-  const tenantId = existing[0].tenant_id || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(existing[0].tenant_id);
 
   // Canonical timeline invariant + Phase 0/1 rule: the acknowledgement state
   // flip and its canonical handover.acknowledged timeline + audit event are ONE

@@ -10,6 +10,7 @@ import logger from '../../logging/logger.js';
 import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { collectPayment } from './billingV2Service.js';
 
 const DEFAULT_EXPIRY_HOURS = 48;
@@ -237,7 +238,7 @@ export async function markPaymentLinkPaid({
   // additionally backstopped by migration 317's unique (tenant_id, reference,
   // mode) index, so even two links re-presenting the same gateway reference
   // collapse to one payment row.
-  const payment = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const payment = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const linkRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, patient_uid, amount, upi_transaction_ref, status
          FROM billing_payment_links

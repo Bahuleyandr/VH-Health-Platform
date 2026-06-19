@@ -21,7 +21,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export const SIGNING_ALGORITHMS = ['hmac-sha256', 'hmac-sha512', 'none'];
 
@@ -32,7 +32,7 @@ const EVENT_TYPE_MAX = 120;
 const SECRET_MAX = 8_000;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

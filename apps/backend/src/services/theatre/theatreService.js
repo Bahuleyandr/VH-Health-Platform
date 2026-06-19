@@ -4,6 +4,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // Postgres exclusion_violation — raised by migration 319's
 // excl_ot_schedules_room_no_overlap when an insert/update would create a
@@ -41,7 +42,7 @@ function requireIntId(id) {
 }
 
 function tenantOr(value) {
-  return String(value || '').trim() || DEFAULT_TENANT_ID;
+  return requireTenantId(String(value || '').trim());
 }
 
 async function assertPatientInTenant(tenantId, patientUid) {
@@ -152,7 +153,7 @@ async function createStructuredPreopFromOtReady(schedule, checklist, { completed
     return null;
   }
 
-  const tid = tenantId || schedule.tenant_id || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId || schedule.tenant_id);
   const bloodGlucose = asNumberOrNull(firstDefined(
     checklist.blood_glucose_mg_dl,
     checklist.blood_glucose_value,

@@ -16,11 +16,10 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import theatreService from './theatreService.js';
-
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 function tenantOr(value) {
-  return String(value || '').trim() || DEFAULT_TENANT_ID;
+  return requireTenantId(String(value || '').trim());
 }
 
 // ── OR room master ───────────────────────────────────────────────────

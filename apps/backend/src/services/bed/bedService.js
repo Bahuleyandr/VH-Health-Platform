@@ -1,7 +1,7 @@
 // src/services/bed/bedService.js
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
-import { DEFAULT_TENANT_ID as TENANT_FALLBACK_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import {
   MINIMIZED_INPATIENT_PAYLOAD_ROLES,
   resolveInpatientLocationScope,
@@ -855,7 +855,7 @@ class BedService {
     resolvedPatientUid = String(patient.uid);
     resolvedPatientId = patient.id;
     resolvedPatientName = resolvedPatientName ?? patient.name ?? null;
-    const resolvedTenantId = tenantId || normalizeTenantId(patient.tenant_id) || TENANT_FALLBACK_ID;
+    const resolvedTenantId = requireTenantId(tenantId || normalizeTenantId(patient.tenant_id));
 
     const expectedDischarge = parseExpectedDischarge(expected_discharge);
 

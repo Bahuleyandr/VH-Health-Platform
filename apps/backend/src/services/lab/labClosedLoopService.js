@@ -28,6 +28,7 @@ import {
   buildAutoverificationDecision,
   lookupReferenceRange,
 } from '../ai/labAutoverificationService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 
@@ -157,7 +158,7 @@ export async function scanReceiveSpecimen({ barcode, actorUid = null, actorRole 
     await tx.$executeRawUnsafe(
       `INSERT INTO lab_specimen_status_history (tenant_id, specimen_id, from_status, to_status, reason, changed_by)
        VALUES ($1::uuid, $2, $3, 'received', 'barcode scan on receipt', $4::uuid)`,
-      specimen.tenant_id || DEFAULT_TENANT, specimen.id, specimen.status, actorUid,
+      requireTenantId(specimen.tenant_id), specimen.id, specimen.status, actorUid,
     );
     await recordCanonicalClinicalEvent({
       tenantId: specimen.tenant_id,

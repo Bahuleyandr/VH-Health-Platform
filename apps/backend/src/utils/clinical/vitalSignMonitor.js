@@ -11,7 +11,7 @@ import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js'
 // tenant from users.tenant_id and create the task under THAT tenant (design
 // §4.6), falling back to DEFAULT_TENANT_ID only when it can't be resolved.
 import { enqueueCriticalResultTask } from '../../services/results/resultsInboxService.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 
 /**
  * Adult clinical reference ranges (default).
@@ -293,7 +293,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         criticalPatientUid = pregnancyCdsPatientUid;
       }
     }
-    const persistTenantId = criticalPatientTenantId || DEFAULT_TENANT_ID;
+    const persistTenantId = requireTenantId(criticalPatientTenantId);
 
     // ---- Phase 1: atomic persistence of the clinical_alerts fan-out ----
     // Only the load-bearing safety rows live in the transaction so it stays
@@ -425,7 +425,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
               // Land the task under the PATIENT's tenant (resolved from
               // users.tenant_id above); fall back to the default tenant only
               // when the lookup failed / the user row had no tenant.
-              tenantId: criticalPatientTenantId || DEFAULT_TENANT_ID,
+              tenantId: requireTenantId(criticalPatientTenantId),
               patientUid: criticalPatientUid,
               source: 'vital_alert',
               resourceType: 'clinical_alert',

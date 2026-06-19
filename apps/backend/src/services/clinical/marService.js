@@ -4,7 +4,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import { BCMA_CONFIG } from '../../config/pharmacyConfig.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // ===================================================================
 // Medication Administration Record (MAR) Service
@@ -245,7 +245,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
   // literal default, so an insert that omits it lands on the default tenant.
   // setTenantTx(tenantId) makes the per-row detail write + canonical MAR event
   // atomic and tenant-scoped.
-  const tenantId = context.tenantId || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(context.tenantId);
 
   for (const med of expandedMeds) {
     if (!med.medication_name || !med.dose || !med.route || !med.scheduled_time) {
@@ -405,7 +405,7 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
   // barcode scan occurred), so patient_scanned_at / medication_scanned_at stay
   // NULL — which is exactly what distinguishes a documented no-scan override from
   // a real two-scan administration in the audit trail.
-  const tid = options.tenantId || existing[0].tenant_id || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(options.tenantId || existing[0].tenant_id);
 
   const record = await setTenantTx(tid, async (tx) => {
     let rows;
@@ -478,7 +478,7 @@ export async function recordMissed(id, reason, missedBy = null) {
     throw AppError.invalidTransition(existing[0].status, 'missed', ['scheduled']);
   }
 
-  const tenantId = existing[0].tenant_id || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(existing[0].tenant_id);
 
   // Phase 1 — atomic: the missed-dose state flip + its canonical mar.missed
   // timeline + audit event commit together. A missed dose is a safety event;
@@ -534,7 +534,7 @@ export async function holdMedication(id, reason, heldBy) {
     throw AppError.invalidTransition(existing[0].status, 'held', ['scheduled']);
   }
 
-  const tenantId = existing[0].tenant_id || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(existing[0].tenant_id);
 
   // Phase 1 — atomic: the hold state flip + its canonical mar.held timeline +
   // audit event commit together. Emitting on `tx` (was swallowed outside the tx)

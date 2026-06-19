@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { sendToUser } from '../../utils/websocket/wsServer.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const MAX_RECIPIENTS = 500;
@@ -22,7 +23,7 @@ function compact(value) {
 }
 
 function normalizeTenant(tenantId) {
-  return compact(tenantId) || DEFAULT_TENANT_ID;
+  return requireTenantId(compact(tenantId));
 }
 
 function normalizeRole(role) {

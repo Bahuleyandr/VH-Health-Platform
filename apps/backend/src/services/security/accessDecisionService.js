@@ -7,7 +7,7 @@ import {
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import {
   ACCESS_POLICY_CODES,
   getAccessPolicy,
@@ -86,11 +86,12 @@ const OPERATIONAL_ROLE_POLICIES = new Set([
 export { ACCESS_POLICY_CODES, SAFE_PATIENT_ACCESS_DENIAL_MESSAGE };
 
 export function deriveTenantIdFromRequest(req) {
-  return req.tenantId
+  return requireTenantId(
+    req.tenantId
     || req.user?.tenant_id
     || req.user?.tenantId
-    || req.tenant?.id
-    || DEFAULT_TENANT_ID;
+    || req.tenant?.id,
+  );
 }
 
 export function deriveActionFromRequest(req, policy = null) {

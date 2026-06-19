@@ -28,7 +28,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField } from '../../utils/fieldEncryption.js';
 import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { writeIntegrationLog } from './integrationService.js';
 import {
   recordSubscriptionFailure,
@@ -49,7 +49,7 @@ const REQUEST_TIMEOUT_MS = 8_000;
 const RESPONSE_EXCERPT_MAX = 2_000;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

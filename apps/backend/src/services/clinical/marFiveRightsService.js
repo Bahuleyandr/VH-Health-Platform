@@ -27,7 +27,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_WINDOW_MINUTES = 60;
 
@@ -208,7 +208,7 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
   // tenant_isolation policy (migrations 239/304, FORCE) applies to both — a bare
   // prisma.$queryRawUnsafe leaves the GUC unset and falls through to the policy's
   // permissive branch (i.e. not provably tenant-scoped).
-  const tid = tenantId || evaluation.ma?.tenant_id || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId || evaluation.ma?.tenant_id);
 
   const record = await setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(

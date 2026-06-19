@@ -2,7 +2,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
 
 
@@ -922,7 +922,7 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
     throw AppError.badRequest('Alert ID and acknowledgedBy are required');
   }
 
-  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const existing = await tx.cds_alerts.findUnique({
       where: { id: Number(alertId) },
       select: { id: true, acknowledged: true, source_data: true },

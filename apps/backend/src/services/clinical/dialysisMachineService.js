@@ -25,8 +25,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logObservation } from './dialysisService.js';
-
-const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // Numeric fields a machine may report — anything else is dropped.
 const MACHINE_FIELDS = [
@@ -56,7 +55,7 @@ export async function ingestMachineObservations({ payload, machineCode = null, t
        (tenant_id, analyzer_code, direction, protocol, message_type, raw_message, status)
      VALUES ($1::uuid, $2, 'inbound', 'other', 'OBX^DIALYSIS', $3, 'received')
      RETURNING id`,
-    tenantId || TENANT_FALLBACK,
+    requireTenantId(tenantId),
     machineNo || 'unknown-machine',
     JSON.stringify(payload),
   );

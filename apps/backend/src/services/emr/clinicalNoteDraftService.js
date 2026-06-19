@@ -15,7 +15,7 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 
 function normContent(content) {
@@ -54,7 +54,7 @@ export async function upsertNoteDraft({
   content,
 }) {
   requireContext({ authorUid, patientUid, noteType });
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const apptId = normAppointmentId(appointmentId);
   const json = JSON.stringify(normContent(content));
   return setTenantTx(tid, async (tx) => {
@@ -88,7 +88,7 @@ export async function getNoteDraft({
   noteType,
 }) {
   requireContext({ authorUid, patientUid, noteType });
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const apptId = normAppointmentId(appointmentId);
   return setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
@@ -119,7 +119,7 @@ export async function deleteNoteDraft({
   noteType,
 }) {
   requireContext({ authorUid, patientUid, noteType });
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const apptId = normAppointmentId(appointmentId);
   return setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(

@@ -30,7 +30,7 @@
 // resolver that (impossibly) threw could not block a request.
 
 import logger from '../../logging/logger.js';
-import { getTenantById, DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { getTenantById, requireTenantId } from '../tenant/tenantService.js';
 
 export const CARE_TEAM_ENFORCEMENT_MODES = Object.freeze({
   OFF: 'off',
@@ -75,7 +75,7 @@ export function envEnforcementMode() {
  */
 export async function resolveEnforcementModeForTenant(tenantId) {
   const fallback = envEnforcementMode() || DEFAULT_ENFORCEMENT_MODE;
-  const id = tenantId || DEFAULT_TENANT_ID;
+  const id = requireTenantId(tenantId);
   try {
     const tenant = await getTenantById(id);
     const settings = tenant?.settings;
@@ -115,11 +115,12 @@ export async function resolveEnforcementModeForTenant(tenantId) {
  * @returns {Promise<'off'|'shadow'|'enforce'>}
  */
 export function resolveEnforcementModeForRequest(req) {
-  const tenantId = req?.tenantId
+  const tenantId = requireTenantId(
+    req?.tenantId
     || req?.user?.tenant_id
     || req?.user?.tenantId
-    || req?.tenant?.id
-    || DEFAULT_TENANT_ID;
+    || req?.tenant?.id,
+  );
   return resolveEnforcementModeForTenant(tenantId);
 }
 

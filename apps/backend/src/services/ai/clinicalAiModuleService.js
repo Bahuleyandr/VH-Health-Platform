@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export const CLINICAL_AI_MODULES = [
   {
@@ -2177,7 +2177,7 @@ function changeRequiresEval(current, next, changedFields) {
 function moduleChangePayload({ scope, tenantId, moduleKey, actorUid, changedFields, current, next, reasons, evalGate }) {
   const payload = {
     scope,
-    tenant_id: tenantId || DEFAULT_TENANT_ID,
+    tenant_id: requireTenantId(tenantId),
     module_key: moduleKey,
     changed_fields: changedFields,
     current: Object.fromEntries(RISKY_MODULE_FIELDS.map((field) => [field, current?.[field] ?? null])),
@@ -2205,7 +2205,7 @@ async function readApprovedModuleChangeApproval({ tenantId, approvalId, moduleKe
          AND module_key = $3
        LIMIT 1`,
       Number.parseInt(approvalId, 10),
-      tenantId || DEFAULT_TENANT_ID,
+      requireTenantId(tenantId),
       moduleKey
     );
     const approval = rows[0] || null;
@@ -2240,7 +2240,7 @@ async function createPendingModuleChangeApproval({ tenantId, moduleKey, requeste
          (tenant_id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
        VALUES ($1::uuid, $2, $3, 'pending', $4::uuid, $5, $6::jsonb, NOW() + INTERVAL '7 days', NOW(), NOW())
        RETURNING id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at`,
-      tenantId || DEFAULT_TENANT_ID,
+      requireTenantId(tenantId),
       MODULE_APPROVAL_TYPE,
       moduleKey,
       requestedBy || null,
@@ -2281,7 +2281,7 @@ async function assertAcceptedEvalGate({ tenantId, moduleKey, module, guardrails 
          AND COALESCE(metadata->>'model', version, '') = $5
        ORDER BY created_at DESC
        LIMIT 1`,
-      tenantId || DEFAULT_TENANT_ID,
+      requireTenantId(tenantId),
       maxAgeDays,
       moduleKey,
       provider,
@@ -2601,7 +2601,7 @@ export async function listClinicalAiModules({ refresh = false, tenantId = null }
 }
 
 export async function listClinicalAiTenantModules({ tenantId = null, refresh = false } = {}) {
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   try {
     const [modules, overrides] = await Promise.all([
       listClinicalAiModules({ refresh }),
@@ -2636,14 +2636,14 @@ export async function getClinicalAiModule(moduleKey, { tenantId = null, refresh 
 }
 
 export async function getClinicalAiTenantModule(moduleKey, { tenantId = null, refresh = false } = {}) {
-  return getClinicalAiModule(moduleKey, { tenantId: tenantId || DEFAULT_TENANT_ID, refresh });
+  return getClinicalAiModule(moduleKey, { tenantId: requireTenantId(tenantId), refresh });
 }
 
 export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = null) {
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
 
-  const tid = data.tenantId || data.tenant_id || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(data.tenantId || data.tenant_id);
   const current = (await readModulesFromDb().catch((err) => {
     throw schemaUnavailableError(err, 'global_module_read');
   })).find((module) => module.module_key === key) || normalizeModule(defaultModuleFor(key));
@@ -2760,7 +2760,7 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
 export async function updateClinicalAiTenantModule(moduleKey, data = {}, updatedBy = null, { tenantId = null } = {}) {
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const globalModules = await readModulesFromDb().catch((err) => {
     throw schemaUnavailableError(err, 'tenant_module_global_read');
   });
@@ -2928,7 +2928,7 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
 export async function deleteClinicalAiTenantModule(moduleKey, { tenantId = null } = {}) {
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   await prisma.$queryRawUnsafe(
     `DELETE FROM clinical_ai_tenant_modules
      WHERE tenant_id = $1::uuid
@@ -3005,7 +3005,7 @@ export async function updateClinicalAiGuardrails(data = {}, updatedBy = null) {
 
 export async function getClinicalAiUsageSummary({ days = 7, tenantId = null } = {}) {
   const windowDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const [overall, byModule, byProvider, recentFailures, moduleReviews] = await Promise.all([
     prisma.$queryRawUnsafe(
       `SELECT
@@ -3141,7 +3141,7 @@ export async function getClinicalAiUsageSummary({ days = 7, tenantId = null } = 
 
 export async function getClinicalAiSafetyReviewSummary({ days = 7, tenantId = null } = {}) {
   const windowDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
 
   try {
     const [overallRows, byModule, recentFindings] = await Promise.all([

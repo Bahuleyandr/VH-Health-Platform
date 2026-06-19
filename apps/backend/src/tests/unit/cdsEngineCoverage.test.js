@@ -60,6 +60,8 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
 // acknowledge tx — keep the real value shape.
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
+  resolveTenantOrThrow: (req) => req?.tenantId || '00000000-0000-4000-8000-000000000001',
+  requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
 }));
 
 const cds = await import('../../services/emr/cdsEngine.js');

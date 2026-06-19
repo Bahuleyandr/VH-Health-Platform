@@ -19,7 +19,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { publishEvent } from '../events/eventOutboxService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import {
   getClinicalAiModule,
@@ -44,7 +44,7 @@ const ALLOWED_MIMES = new Set([
 ]);
 
 function resolveTenantId(req) {
-  return req?.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(req?.tenantId);
 }
 
 function sourceHash(text) {
@@ -438,7 +438,7 @@ export async function listVoiceNotes({ tenantId, recordedBy = null, limit = 50 }
        AND ($2::uuid IS NULL OR recorded_by = $2::uuid)
      ORDER BY created_at DESC
      LIMIT $3`,
-    tenantId || DEFAULT_TENANT_ID,
+    requireTenantId(tenantId),
     recordedBy,
     safeLimit
   );

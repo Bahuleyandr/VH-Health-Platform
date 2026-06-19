@@ -42,7 +42,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -211,7 +211,7 @@ async function addCareTeamMember({
 export async function populateAdmissionCareTeam(admission, options = {}) {
   const result = { careTeamId: null, membersAttempted: 0 };
   try {
-    const tenantId = admission?.tenant_id || options.tenantId || DEFAULT_TENANT_ID;
+    const tenantId = requireTenantId(admission?.tenant_id || options.tenantId);
     const patientUid = cleanUuid(admission?.patient_uid);
     const admissionId = cleanInt(admission?.id);
     const createdBy = options.createdBy ?? admission?.created_by ?? admission?.admitting_doctor ?? null;
@@ -329,7 +329,7 @@ export async function populateAdmissionCareTeam(admission, options = {}) {
 export async function populateAppointmentCareTeam(params = {}) {
   const result = { careTeamId: null, membersAttempted: 0 };
   try {
-    const tenantId = params.tenantId || params.appointment?.tenant_id || DEFAULT_TENANT_ID;
+    const tenantId = requireTenantId(params.tenantId || params.appointment?.tenant_id);
     const patientUid = cleanUuid(params.patientUid || params.appointment?.patient_uid);
     const appointmentId = cleanInt(params.appointmentId ?? params.appointment?.id);
     const doctorUid = cleanUuid(params.doctorUid);
@@ -410,7 +410,7 @@ export async function populateAppointmentCareTeam(params = {}) {
 export async function populateAuthorshipCareTeam(params = {}) {
   const result = { careTeamId: null, membersAttempted: 0 };
   try {
-    const tenantId = params.tenantId || DEFAULT_TENANT_ID;
+    const tenantId = requireTenantId(params.tenantId);
     const patientUid = cleanUuid(params.patientUid);
     const authorUid = cleanUuid(params.authorUid);
 

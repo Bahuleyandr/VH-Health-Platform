@@ -9,7 +9,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
 import { normalizeRole } from '../../utils/roles.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import {
   getStaffAccessPolicy,
   SAFE_STAFF_ACCESS_DENIAL_MESSAGE,
@@ -21,11 +21,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i
 export { SAFE_STAFF_ACCESS_DENIAL_MESSAGE, STAFF_ACCESS_POLICY_CODES };
 
 export function deriveTenantIdFromStaffRequest(req) {
-  return req.tenantId
+  return requireTenantId(
+    req.tenantId
     || req.user?.tenant_id
     || req.user?.tenantId
-    || req.tenant?.id
-    || DEFAULT_TENANT_ID;
+    || req.tenant?.id,
+  );
 }
 
 export function deriveStaffActionFromRequest(req, policy = null) {

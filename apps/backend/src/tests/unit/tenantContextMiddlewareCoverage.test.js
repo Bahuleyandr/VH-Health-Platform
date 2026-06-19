@@ -31,6 +31,8 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID,
   getTenantById: mockGetTenantById,
   resolveTenantForUser: mockResolveTenantForUser,
+  resolveTenantOrThrow: (req) => req?.tenantId || DEFAULT_TENANT_ID,
+  requireTenantId: (tenantId) => tenantId || DEFAULT_TENANT_ID,
 }));
 jest.unstable_mockModule('../../config/tenantRlsConfig.js', () => ({
   // W1: tenantContextMiddleware now keys resolution policy on

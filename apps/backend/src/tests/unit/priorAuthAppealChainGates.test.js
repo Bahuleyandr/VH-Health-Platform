@@ -42,6 +42,8 @@ jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => (
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: 'default-tenant',
+  resolveTenantOrThrow: (req) => req?.tenantId || 'default-tenant',
+  requireTenantId: (tenantId) => tenantId || 'default-tenant',
 }));
 // Stub the checkpoint store so the scheduler import doesn't fail
 jest.unstable_mockModule('../../services/ai/workflowCheckpointStore.js', () => ({

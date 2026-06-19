@@ -10,14 +10,14 @@
 
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const TERMINAL_APPEAL_STATUSES = new Set(['approved', 'denied', 'withdrawn']);
 const RESOLVED_PA_STATUSES = new Set(['approved', 'withdrawn']);
 const LIMIT_CAP = 500;
 
 function resolveTenantId(t) {
-  return t || DEFAULT_TENANT_ID;
+  return requireTenantId(t);
 }
 
 /**

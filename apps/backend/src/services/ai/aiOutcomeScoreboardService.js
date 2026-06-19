@@ -23,7 +23,7 @@
 
 import { prismaReadOnly } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // Reviewer-decision buckets (inlined in the SQL below) follow exactly how
 // updateReview() treats them (REVIEW_STATUS_BY_DECISION in
@@ -43,7 +43,7 @@ function isMissingSchemaError(err) {
 }
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function clampDays(value, { min = 1, max = 365, fallback = 90 } = {}) {
