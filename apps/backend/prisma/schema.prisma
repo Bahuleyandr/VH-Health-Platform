@@ -4227,10 +4227,13 @@ model consultations {
   consulted_at       DateTime @default(now()) @db.Timestamp(6)
   created_at         DateTime @default(now()) @db.Timestamp(6)
   updated_at         DateTime @db.Timestamp(6)
+  tenant_id          String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants            tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_consultations_tenant")
 
   @@index([consulted_at])
   @@index([phone])
   @@index([uid])
+  @@index([tenant_id], map: "idx_consultations_tenant_id")
 }
 
 model data_breaches {
@@ -5222,11 +5225,14 @@ model health_records {
   created_by    String?  @db.Uuid
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @db.Timestamp(6)
+  tenant_id     String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_health_records_tenant")
 
   @@index([phone])
   @@index([privacy_level])
   @@index([record_type])
   @@index([uid])
+  @@index([tenant_id], map: "idx_health_records_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -8324,6 +8330,8 @@ model sos_alerts {
   resolved_at   DateTime? @db.Timestamp(6)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
   updated_at    DateTime  @db.Timestamp(6)
+  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sos_alerts_tenant")
 
   @@index([alert_type])
   @@index([phone])
@@ -8331,6 +8339,7 @@ model sos_alerts {
   @@index([severity])
   @@index([status])
   @@index([uid])
+  @@index([tenant_id], map: "idx_sos_alerts_tenant_id")
 }
 
 model staff {
@@ -9234,6 +9243,7 @@ model tenants {
   clinical_trial_match_results               clinical_trial_match_results[]
   clinical_trials_catalog                    clinical_trials_catalog[]
   clinical_voice_notes                       clinical_voice_notes[]
+  consultations                              consultations[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
   dental_procedures                          dental_procedures[]
@@ -9258,6 +9268,7 @@ model tenants {
   follow_up_plans                            follow_up_plans[]
   full_final_settlements                     full_final_settlements[]
   growth_charts                              growth_charts[]
+  health_records                             health_records[]
   hipaa_access_log                           hipaa_access_log[]
   hl7_feed_subscriptions                     hl7_feed_subscriptions[]
   hl7_outbound_messages                      hl7_outbound_messages[]
@@ -9370,6 +9381,7 @@ model tenants {
   smart_access_tokens                        smart_access_tokens[]
   smart_apps                                 smart_apps[]
   smart_authz_codes                          smart_authz_codes[]
+  sos_alerts                                 sos_alerts[]
   staff_access_audit_log                     staff_access_audit_log[]
   staff_commute_profile_audit                staff_commute_profile_audit[]
   staff_commute_profiles                     staff_commute_profiles[]
