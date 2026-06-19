@@ -45,6 +45,17 @@ Pooled multi-tenancy, completed and made fail-closed end to end:
 - **Shared infra is tenant/replica-safe**: Redis-backed rate-limit with optional per-tenant quotas; tenant onboarding is a single orchestrated flow.
 - **Pooled is the default; silo (separate cluster) is the documented exception** for data-residency/hard-isolation tenants — not built now (YAGNI), but the path is noted.
 
+### 2.1 Deployment topology (decided 2026-06-19)
+
+**Per-tenant client builds + one shared pooled backend.** Each hospital gets its **own** patient app, staff app, and admin dashboard, each **hardwired to its tenant** — so end users never pick a hospital; the tenant is implicit:
+
+- **Mobile (patient + staff):** a per-tenant build with a build-time `VH_TENANT_SLUG`/`VH_TENANT_ID` constant, a per-tenant API base URL/subdomain, and per-tenant branding. Because each tenant's app is a **separate installed artifact**, its on-device storage is already sandboxed per tenant — the cross-tenant cache-bleed risk drops to defense-in-depth (still tenant-tag keys, but no shared-device exposure).
+- **Admin dashboard:** served per-tenant via a **per-tenant subdomain** (`tenant-a.admin.vhhealth.app`) off one Next.js deployment behind a wildcard host; the subdomain fixes the tenant. A regular `ADMIN` only ever sees their own tenant.
+- **SUPER_ADMIN** is the only cross-tenant surface — a dedicated super-admin console/view (not every tenant's dashboard) that can act into any tenant via the audited acting-tenant path.
+- **Backend stays shared + pooled (RLS).** All per-tenant clients hit the same backend; the tenant arrives via the per-tenant subdomain (edge injects `x-tenant-slug`) and the JWT `tenant_id` claim, validated against each other. *(If a future tenant ever needs a fully isolated backend, the silo path in §2 applies — not now.)*
+
+This **removes the hospital-picker** from every wave and makes **per-tenant subdomains the primary routing mechanism** (W4). It does not change the backend isolation model (W1–W3): the shared backend still resolves one tenant per request, RLS still isolates, patient identity is still per-tenant.
+
 ---
 
 ## 3. Guiding principles
@@ -92,17 +103,16 @@ Severity = impact once a 2nd tenant exists. `B`=blocker, `H`=high, `M`=medium, `
 - **Already correct:** idempotency (tenant+replica safe), `assertSharedReplayOnce` (Redis→DB fail-closed), `withDbAdvisoryLock` crons, token-blacklist DB fallback.
 
 ### 4.4 Admin portal (`apps/admin`)
-- **B** No SUPER_ADMIN tenant switcher / acting-tenant context (no `TenantContext`); the only cross-tenant path is the audited "override" (logs every request).
-- **B** No end-to-end tenant identity on the client (admin JWT has no tenant claim; `AdminUser` schema has no tenant field).
-- **H** Tenant-admin screen `/dashboard/tenants` is orphaned from nav (both nav arrays omit it; backend CRUD is SUPER_ADMIN-gated + works).
+- **B** No end-to-end tenant identity on the client (admin JWT has no tenant claim; `AdminUser` schema has no tenant field). **Target:** each tenant's dashboard is subdomain-fixed to its tenant (§2.1); a regular `ADMIN` is hard-scoped, no switcher.
+- **B** No cross-tenant SUPER_ADMIN surface. **Target:** a dedicated SUPER_ADMIN console (acting-tenant via the audited path) — the only place that crosses tenants.
+- **H** Tenant-admin screen `/dashboard/tenants` is orphaned from nav (both nav arrays omit it; backend CRUD is SUPER_ADMIN-gated + works) — move it into the super-admin console.
 - **H** Proxy (`api/proxy/[...path]/route.ts`) blanket-forwards client headers — own/whitelist `x-tenant-id` before a switcher introduces it.
 - **M** Hardcoded single-hospital branding (header/sidebar/login/footer); no tenant-aware routing; dead `AdminNav.tsx`.
 
 ### 4.5 Flutter apps (`apps/patient`, `apps/staff`, `packages/vhhealth_core`)
-- **B** No tenant context in client auth or requests (login bodies, all headers, WebSocket); the app can't disambiguate a phone/employeeId that exists in >1 tenant. Add a `tenantProvider` seam on `VHHttpClient._headers` (mirrors `deviceTypeProvider`).
-- **B** No hospital/tenant selection (needs a backend "which tenants can this credential reach" endpoint + a login-time picker).
-- **B (decision)** Single shared Firebase project for both apps (one identity pool) — confirm shared-Firebase-with-backend-disambiguation vs per-tenant Firebase.
-- **H** Caches not tenant-keyed → cross-tenant PHI bleed on any tenant switch (patient API/record/mutation caches, staff recent-patients, core `pending_writes` queue). **Client-only fix; do early** (the patient `as_{uid}__` namespacing is the template).
+- **B** Apps aren't tenant-parameterized: no build-time tenant constant, single base URL/`x-api-key`, no tenant on any header/WebSocket. **Target (§2.1):** per-tenant builds with a build-time `VH_TENANT_SLUG`/`VH_TENANT_ID` + per-tenant base URL, fed to a `tenantProvider` seam on `VHHttpClient._headers` (mirrors `deviceTypeProvider`). **No picker** (the build is the hospital).
+- **B (decided §8.3)** Firebase = one shared project now; per-tenant config shipped per build later (trivial, since builds are already per-tenant).
+- **H→DiD** Caches not tenant-keyed (patient API/record/mutation, staff recent-patients, core `pending_writes`): with per-tenant builds each app is a **separate device sandbox**, so this is now defense-in-depth, not a live cross-tenant bleed vector. Still tenant-tag keys; lower priority.
 - **M** Single base URL / `x-api-key`; hardcoded Venkataeswara branding/contacts/geo/theme; patient `mutation_queue` is a single global blob.
 - **L** iOS bundle id `com.example.vhhealth` placeholder.
 
@@ -147,7 +157,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 4 — Edge routing & token tenant claim
 - **Objective:** the tenant is identified at the edge and carried in every token; backend trusts edge/token, not raw client headers.
-- **Scope:** issue `tenant_id` claim on **every** token path (admin/staff/patient/refresh/dev); **tenant-aware login** (decision §8.1) — resolve the hospital/tenant before issuing the session because a phone/employeeId is ambiguous across tenants; Firebase token exchange maps `(firebase_uid, selected_tenant) → per-tenant patient`; a "reachable tenants for this credential" contract feeds the client hospital picker (W6); wildcard subdomain → `x-tenant-slug` injection at ingress (Cloudflare wildcard DNS + tunnel + wildcard TLS); backend trusts edge tenant at the authenticated boundary; pre-auth tenant hint via existing `resolveTenantForRequest` (`x-tenant-slug`/`x-tenant-id`).
+- **Scope:** issue `tenant_id` claim on **every** token path (admin/staff/patient/refresh/dev); **tenant from the per-tenant build/subdomain, no picker** (§2.1, §8.1) — the per-tenant client supplies its tenant (subdomain → edge-injected `x-tenant-slug`, or a baked build-tenant validated against it), and the Firebase exchange maps `(firebase_uid, build-tenant) → that tenant's patient`; **per-tenant subdomains are the primary routing**: wildcard subdomain → `x-tenant-slug` injection at ingress (Cloudflare wildcard DNS + tunnel + wildcard TLS); backend trusts the edge tenant at the authenticated boundary and cross-checks the token's `tenant_id`; pre-auth tenant via existing `resolveTenantForRequest` (`x-tenant-slug`).
 - **Code/Infra:** Code + Infra.
 - **Risk:** Edge↔backend trust composition (never trust a raw client header without edge authority); login flows that pre-date a known tenant.
 - **Gate/done:** a request to `tenant-a.<host>` resolves tenant A end-to-end; token minted at login carries the right `tenant_id`; isolation tests pass with edge routing.
@@ -155,7 +165,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 5 — Admin portal multi-tenancy
 - **Objective:** admins operate with explicit tenant identity; SUPER_ADMINs can switch tenants.
-- **Scope:** tenant claim on admin token + `AdminUser.tenant_id`; regular `ADMIN` is **hard-scoped to its own tenant (no switcher)**; **SUPER_ADMIN-only** `TenantContext` + tenant switcher (decision §8.2; acting-tenant via the audited path); un-orphan `/dashboard/tenants` (nav entry + a "Platform" section, SUPER_ADMIN-only); proxy `x-tenant-id` whitelist; tenant-driven branding.
+- **Scope:** tenant claim on admin token + `AdminUser.tenant_id`; each tenant's admin dashboard is **served per-tenant via its subdomain** (§2.1) and a regular `ADMIN` is hard-scoped to that tenant (no switcher); cross-tenant lives in a **dedicated SUPER_ADMIN console** (the acting-tenant surface, audited path) — un-orphan `/dashboard/tenants` into that console; proxy `x-tenant-id` whitelist; tenant-driven branding from `tenants.settings`. *(Decide: one admin deployment behind a wildcard subdomain resolving tenant from host, vs the super-admin console as a separate route — lean: one deployment, host-derived tenant.)*
 - **Code/Infra:** Code (admin) + small backend contract (token tenant claim, acting-tenant semantics).
 - **Risk:** override-vs-routine semantics (don't log every legitimate action as an override).
 - **Gate/done:** admin jest + a switcher e2e; super-admin can view tenant A then B; branding renders from tenant settings.
@@ -163,7 +173,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 6 — Flutter apps multi-tenancy
 - **Objective:** clients are tenant-aware and cannot bleed PHI across tenants.
-- **Scope:** **tenant-key all offline caches/queues first** (patient API/record/mutation, staff recent-patients, core `pending_writes`); `tenantProvider` → `X-Tenant-Id` on `VHHttpClient` (+ Chopper + WebSocket); **mandatory hospital picker at login** + tenant hint (needs the W4 "reachable tenants" contract); Firebase = one shared project + picker now, per-tenant projects later on demand (decision §8.3); per-tenant branding/base-URL.
+- **Scope:** **per-tenant builds** (§2.1) — a build-time `VH_TENANT_SLUG`/`VH_TENANT_ID` + per-tenant API base URL/subdomain + per-tenant branding/theme; `tenantProvider` → `X-Tenant-Id` on `VHHttpClient` (+ Chopper + WebSocket) sourced from the build constant; **no hospital picker** (the build is the hospital); Firebase one shared project now (per-tenant config per build later, §8.3). Tenant-key the offline caches/queues as **defense-in-depth** (each per-tenant build is already a separate device sandbox, so cross-tenant bleed is no longer a live vector — lower priority than originally scoped).
 - **Code/Infra:** Code (client) + backend endpoint; infra/product for Firebase decision.
 - **Risk:** Firebase identity model (shared vs per-tenant) is a product decision that gates the picker.
 - **Gate/done:** `melos analyze`+tests; a tenant-switch (or re-login) clears/segregates caches; requests carry tenant.
@@ -171,7 +181,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 7 — Infra & tenant onboarding
 - **Objective:** stand up and operate additional tenants repeatably.
-- **Scope (first tenant):** verify `REDIS_URL` wired; wildcard ingress/DNS/TLS (shared with W4); per-tenant secret store delivery; tenant-onboarding orchestrator; per-tenant CORS/branding; GO_LIVE Phase E runtime RLS verification. **(scale):** per-tenant metrics/quotas/alert-routing; per-tenant logical backup/export/erase; connection-budget; residency silo; per-tenant R2 isolation; activate Vault/Kyverno-Enforce/Longhorn.
+- **Scope (first tenant):** verify `REDIS_URL` wired; wildcard ingress/DNS/TLS (shared with W4); per-tenant secret store delivery; **tenant-onboarding orchestrator** = wrap `createTenant` + seed settings/reference-data/bootstrap-admin/R2-prefix + run `check-clinical-ai-tenant-preflight` + **provision the per-tenant subdomains** (api/admin) + **produce & release the per-tenant client builds** (patient app, staff app; per-tenant branding/base-URL/Firebase config) + register the tenant's admin-dashboard host; per-tenant CORS/branding; GO_LIVE Phase E runtime RLS verification. **(scale):** per-tenant metrics/quotas/alert-routing; per-tenant logical backup/export/erase; connection-budget; residency silo; per-tenant R2 isolation; activate Vault/Kyverno-Enforce/Longhorn; a per-tenant mobile-build/release pipeline.
 - **Code/Infra:** Infra-led.
 - **Risk:** Operator/cluster access required; some items (Vault, residency silo) are larger sub-projects.
 - **Gate/done:** a documented, repeatable onboarding that produces a working isolated tenant on the shared cluster; Phase E green.
@@ -190,7 +200,7 @@ W2 (schema completeness) ────┘                           ├─> W6 (f
 
 - **W1 first** (foundation; everything assumes a reliable resolved tenant). **W2 in parallel** (independent migrations; W1 makes the new columns enforced).
 - Then **W3** and **W4** (W4 unblocks the clients). **W5 + W6 in parallel** after W4. **W7** lands the routing/secrets infra (overlaps W4/W3) and the onboarding flow.
-- **Safety pull-forward:** W6's cache-keying is the only silent PHI-bleed vector and is client-only — it can be done any time independent of the rest.
+- **Note:** per-tenant client builds (§2.1) mean each tenant's mobile app is a separate device sandbox, so W6's cache-keying drops from "the silent PHI-bleed vector" to defense-in-depth — no longer an urgent pull-forward.
 
 ---
 
@@ -206,20 +216,20 @@ W2 (schema completeness) ────┘                           ├─> W6 (f
 
 All six forks were decided by the product owner. They are binding for the waves noted.
 
-1. **Patient identity = PER-TENANT.** A person who is a patient at two hospitals has **two separate, isolated patient records** — hospitals must not see that a patient also exists elsewhere, and no data crosses between them. Implications: `users` (and patient identity tables) become unique **per tenant** (`(tenant_id, phone)`, `(tenant_id, firebase_uid)`, …), the surrogate `uid` stays a global UUID PK; the global-auth tables keyed by `phone` (`otp_sessions`, `otp_logs`, `password_reset_otps`, `user_sessions`/`user_active_sessions`) become tenant-scoped; **login must resolve the tenant** (hospital selection) because a phone alone is ambiguous. *(W2 schema/uniqueness, W4 tenant-aware login, W6 picker/caches/Firebase.)*
-2. **Cross-tenant access = SUPER_ADMIN only.** A tenant `ADMIN` is bound to their own tenant and is never an admin of another; only the platform `SUPER_ADMIN` role crosses tenants (via the audited acting-tenant path). Implications: `admins`/admin identity carries `tenant_id` for `ADMIN` (tenant-bound) and is tenant-null for `SUPER_ADMIN` (platform); the admin tenant switcher is **SUPER_ADMIN-only**; regular admins have no switcher and are hard-scoped. *(W2 admins model, W4 admin token tenant claim, W5 switcher.)*
-3. **Firebase = one shared project now → per-tenant projects later (recommended path below).** Near-term: **one** Firebase project + **mandatory hospital (tenant) selection at login** + a backend `(firebase_uid, tenant) → patient` mapping (consistent with decision 1: the same phone yields a distinct per-tenant patient). Long-term: migrate to **per-tenant Firebase projects** only for hospitals that contractually require auth-pool isolation, via per-tenant app builds or dynamic Firebase init. Rationale + trade-off in §8.1. *(W4 token exchange, W6 picker/init.)*
+1. **Patient identity = PER-TENANT.** A person who is a patient at two hospitals has **two separate, isolated patient records** — hospitals must not see that a patient also exists elsewhere, and no data crosses between them. Implications: `users` (and patient identity tables) become unique **per tenant** (`(tenant_id, phone)`, `(tenant_id, firebase_uid)`, …), the surrogate `uid` stays a global UUID PK; the global-auth tables keyed by `phone` (`otp_sessions`, `otp_logs`, `password_reset_otps`, `user_sessions`/`user_active_sessions`) become tenant-scoped. **No hospital picker** (per §2.1): the per-tenant app build / subdomain supplies the tenant, so login maps `(firebase_uid, build-tenant) → that tenant's patient` directly. *(W2 schema/uniqueness, W4 tenant-aware login, W6 per-tenant build/caches/Firebase.)*
+2. **Cross-tenant access = SUPER_ADMIN only.** A tenant `ADMIN` is bound to their own tenant and is never an admin of another; only the platform `SUPER_ADMIN` role crosses tenants (via the audited acting-tenant path). Implications: `admins`/admin identity carries `tenant_id` for `ADMIN` (tenant-bound) and is tenant-null for `SUPER_ADMIN` (platform); a regular `ADMIN` uses their **own tenant's dashboard** (subdomain-fixed, §2.1) with no switcher; cross-tenant lives only in a **dedicated SUPER_ADMIN console/view**. *(W2 admins model, W4 admin token tenant claim, W5 per-tenant dashboard + super-admin console.)*
+3. **Firebase = one shared project now → per-tenant projects later.** Near-term: **one** Firebase project; the per-tenant app **build** supplies the tenant (no picker, §2.1), so login maps `(firebase_uid, build-tenant) → patient`. Long-term: per-tenant Firebase becomes a natural, low-cost step *because each app is already a separate per-tenant build* — just ship per-tenant Firebase config in each build (no dynamic init needed); do it when a hospital requires auth-pool isolation. Rationale + trade-off below. *(W4 token exchange, W6 per-tenant build config.)*
 4. **Audit/activity logs = tenant-scoped.** The PHI-access + activity-log tables (`medical_activity_logs`, `pharmacy_activity_logs`, `file_access_logs`, `file_metadata`, generic `audit_logs`/`audit_log`, `*_activity_logs`, `notification_outbox`) get `tenant_id`; SUPER_ADMIN cross-tenant audit queries use the audited bypass. Append-only guards (mig 324) preserved. *(W2.)*
 5. **Field-encryption KEK = per-tenant key, wrapped by the master KEK, enabling crypto-shred (recommended).** Each tenant gets a random per-tenant KEK stored **wrapped by the master KEK** in a `tenant_encryption_keys` table, routed through the existing pluggable `getKekProvider()`; per-record DEK → per-tenant KEK → master KEK. Deleting a tenant's KEK row crypto-shreds that tenant's PHI even though the master persists (satisfies DPDP/GDPR tenant erasure). Migrate the master to a KMS/Vault transit backend when Vault is live; no per-tenant-record re-encryption needed for that later move. (Chosen over HKDF-from-master, which cannot crypto-shred since a derived key is always re-derivable.) *(W3.)*
 6. **Data residency = all-India (pooled), now.** No silo needed near-term; `data-residency: "in"` cluster-wide stands. The separate-cluster silo path remains documented for a future non-India/hard-isolation tenant but is out of scope. *(W7 — documented only.)*
 
-### 8.1 Firebase — recommendation & trade-off
+### Firebase note — recommendation & trade-off
 
-**Recommendation: stay on one shared Firebase project for now**, gated by mandatory hospital selection at login, and move to per-tenant projects only on demand.
+**Recommendation: one shared Firebase project now; per-tenant projects later, on demand.** Since each hospital gets its own app **build** (§2.1), the build supplies the tenant — there is **no picker**.
 
-- **One shared project (now):** a phone → one Firebase UID globally; the patient picks their hospital at login and the backend maps `(firebase_uid, selected_tenant) → per-tenant patient`. Pros: one project to operate; one app binary; works today. Con: the shared auth pool *technically* knows a phone is registered (not which hospitals) — acceptable since Firebase holds **no PHI**, only proves phone possession; tenant isolation of all clinical data is unaffected (it's enforced by RLS + per-tenant patient records).
-- **Per-tenant project (later):** hard isolation of the auth identity pool per hospital. Cons: the app must know its Firebase project **before** login, so it needs per-tenant builds (one APK per hospital) or dynamic Firebase initialization (FlutterFire supports secondary apps but it's non-trivial and atypical for the *default* auth instance). Heavier mobile + release ops.
-- **Why this ordering is safe:** decision 1 already forces a hospital-selection step and a per-tenant patient record regardless of the Firebase model, so the *backend* contract (`(firebase_uid, tenant) → patient`) is identical either way. Switching to per-tenant Firebase later changes only *which project mints the token* and the app-init/build story — it does not require re-modeling patient identity. So one-shared-now costs nothing we'd have to undo.
+- **One shared project (now):** a phone → one Firebase UID; each per-tenant build tells the backend its `build-tenant`, which maps `(firebase_uid, build-tenant) → that tenant's patient`. Pros: one project to operate; works today. Con: the shared pool *technically* knows a phone is registered (not which hospitals) — acceptable since Firebase holds **no PHI** (it only proves phone possession); all clinical isolation is RLS + per-tenant patient records.
+- **Per-tenant project (later):** hard isolation of the auth pool per hospital — and **low-cost here** precisely because the app is already a per-tenant build: ship that tenant's Firebase config in its build (no dynamic init, no extra UX). Do it when a hospital contractually requires auth-pool isolation.
+- **Why deferring is safe:** the backend contract `(firebase_uid, tenant) → patient` is identical either way; switching later changes only *which project mints the token* + the per-build config — no patient-identity re-modeling, nothing to undo.
 
 ---
 
