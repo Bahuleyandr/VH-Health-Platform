@@ -357,6 +357,61 @@ export async function authenticateByApiKey({
   }
 }
 
+/**
+ * GLOBAL plaintext-key lookup, keyed on the UNIQUE api_keys.key_hash with NO
+ * tenant filter. For the validateApiKey middleware, which runs pre-auth with no
+ * tenant resolved yet — the key itself identifies the client + tenant. Runs as
+ * plain prisma; api_keys RLS is permissive when the GUC is unset (early
+ * middleware) so the unique key_hash returns the single matching row across
+ * tenants. Returns the row (with tenant_id) on success, else null. Mirrors the
+ * status/expiry/allowed-ip checks of the tenant-scoped authenticateByApiKey.
+ */
+export async function authenticateByApiKeyGlobal({ plaintext, ipAddress = null } = {}) {
+  if (!plaintext) return null;
+  const keyHash = hashApiKey(String(plaintext).trim());
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT k.id AS key_id, k.api_client_id, k.status AS key_status, k.expires_at, k.tenant_id,
+              c.client_code, c.display_name, c.client_kind, c.status AS client_status,
+              c.scopes, c.allowed_ips, c.rate_limit_profile
+       FROM api_keys k
+       JOIN api_clients c ON c.id = k.api_client_id AND c.tenant_id = k.tenant_id
+       WHERE k.key_hash = $1
+       LIMIT 1`,
+      keyHash,
+    );
+    const row = rows[0];
+    if (!row) return null;
+    if (row.key_status !== 'active' || row.client_status !== 'active') return null;
+    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
+    if (Array.isArray(row.allowed_ips) && row.allowed_ips.length > 0 && ipAddress) {
+      if (!row.allowed_ips.some((allowed) => timingSafeEqualString(allowed, ipAddress))) {
+        return null;
+      }
+    }
+    await prisma.$queryRawUnsafe(
+      `UPDATE api_keys
+       SET last_used_at = NOW(), last_used_ip = $1, updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid`,
+      safeText(ipAddress, 64), row.key_id, row.tenant_id,
+    );
+    return {
+      api_client_id: row.api_client_id,
+      tenant_id: row.tenant_id,
+      client_code: row.client_code,
+      display_name: row.display_name,
+      client_kind: row.client_kind,
+      scopes: row.scopes,
+      allowed_ips: row.allowed_ips,
+      rate_limit_profile: row.rate_limit_profile,
+      key_id: row.key_id,
+    };
+  } catch (err) {
+    if (isMissingSchemaError(err)) return null;
+    throw err;
+  }
+}
+
 export const __testing__ = {
   hashApiKey, KEY_BYTE_LENGTH, KEY_PREFIX_LEN,
 };
@@ -368,4 +423,5 @@ export default {
   revokeApiKey,
   listApiKeys,
   authenticateByApiKey,
+  authenticateByApiKeyGlobal,
 };

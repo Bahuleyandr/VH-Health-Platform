@@ -1,6 +1,7 @@
 // src/middleware/validateApiKey.js
 import crypto from 'crypto';
 import logger from '../logging/logger.js';
+import apiClientService from '../services/auth/apiClientService.js';
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -42,19 +43,42 @@ const keyRegistry = buildKeyRegistry();
 
 /**
  * Middleware to validate the API Key sent in request headers.
- * Supports per-client keys for fine-grained revocation and audit trail.
- * Sets req.apiClient to the matched client name ('patient', 'staff', 'admin', 'shared').
+ *
+ * W3 (multi-tenancy): a DB-backed per-tenant key (api_keys table) is tried
+ * FIRST — the key itself identifies the api_client + tenant, so a hit also
+ * stamps req.tenantId. Falls back to the env-var registry (shared / per-client
+ * keys) so the existing single-tenant deployment is unchanged. Sets req.apiClient
+ * to the matched client_code (DB) or registry client name ('patient'/'staff'/
+ * 'admin'/'shared').
  */
-export default function validateApiKey(req, res, next) {
+export default async function validateApiKey(req, res, next) {
   const clientApiKey = req.headers['x-api-key'];
-
-  if (keyRegistry.length === 0) {
-    logger.error('Server misconfiguration: no API keys configured');
-    return res.status(500).json({ error: 'Server configuration error' });
-  }
 
   if (!clientApiKey) {
     return res.status(401).json({ error: 'Missing API Key in request headers' });
+  }
+
+  // 1) DB-backed per-tenant key (global lookup on the unique key_hash). A DB
+  //    error must never block auth — fall through to the env registry.
+  try {
+    const dbClient = await apiClientService.authenticateByApiKeyGlobal({
+      plaintext: clientApiKey,
+      ipAddress: req.ip,
+    });
+    if (dbClient) {
+      req.apiClient = dbClient.client_code;
+      req.apiClientId = dbClient.api_client_id;
+      req.tenantId = dbClient.tenant_id;
+      return next();
+    }
+  } catch (err) {
+    logger.error('validateApiKey DB lookup failed; falling back to env registry', { error: err.message });
+  }
+
+  // 2) Env-var registry fallback (shared / default-tenant keys).
+  if (keyRegistry.length === 0) {
+    logger.error('Server misconfiguration: no API keys configured');
+    return res.status(500).json({ error: 'Server configuration error' });
   }
 
   // Check against all registered keys (timing-safe comparison for each)
