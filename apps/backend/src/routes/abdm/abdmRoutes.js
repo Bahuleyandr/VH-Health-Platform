@@ -95,6 +95,24 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
       requester: notification.requester || {},
       dateRange: notification.permission?.dateRange || notification.dateRange || {},
       expiry: notification.permission?.dataEraseAt || notification.expiry,
+      // Thread the CM-signed consent artefact + its detached signature so
+      // handleConsentRequest -> _verifyConsentArtefact can verify the CM RSA
+      // signature (audit C-4b). Without these the verifier always saw undefined
+      // and, once ABDM_VERIFY_CONSENT_ARTEFACT is enabled, rejected EVERY consent
+      // as ABDM_CONSENT_UNSIGNED. Field names cover the common ABDM shapes (flat
+      // consentDetail/consentArtefact and the nested consent.* form); confirm the
+      // exact production gateway contract before flipping verification on.
+      consentArtefact:
+        notification.consentDetail
+        || notification.consentArtefact
+        || notification.consent?.consentDetail
+        || notification.consent?.consentArtefact
+        || null,
+      signature:
+        notification.signature
+        || notification.consent?.signature
+        || req.body?.signature
+        || null,
     };
 
     const consent = await abdmService.handleConsentRequest(consentRequest);
