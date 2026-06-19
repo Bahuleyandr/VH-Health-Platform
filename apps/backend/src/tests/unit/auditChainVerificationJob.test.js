@@ -38,6 +38,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   runWithSuperAdmin: async (fn) => fn(),
   runInTenantContext: async (_t, fn) => fn(),
+  getCurrentTenantId: () => null,
+  getCurrentTenantContext: () => null,
+  isSuperAdminContext: () => false,
 }));
 
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
