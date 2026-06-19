@@ -37,7 +37,9 @@ Pooled multi-tenancy, completed and made fail-closed end to end:
 
 - **One tenant resolved per request, fail-closed.** A single `resolveTenantOrThrow(req)` helper returns the token/edge-derived tenant or throws `403 TENANT_CONTEXT_REQUIRED`. The literal default is permitted **only** when `ALLOW_DEFAULT_TENANT=true` (single-tenant deployments). RLS is the enforcement backstop; resolution is the gate.
 - **Every tenant-owned row carries `tenant_id` + RLS**; every human-facing identifier is unique **per tenant**.
-- **Per-tenant secrets** for anything that varies by hospital identity (ABDM/HL7 inbound, API keys, optionally field-encryption KEK, JWT signing) via an encrypted `tenant_secrets`/`tenant_interop_secrets` store, reusing the existing `fieldEncryption` + `teleconsult_provider_configs`/`api_keys` patterns. Non-secret per-tenant config via the existing `tenants.settings jsonb`.
+- **Patient identity is per-tenant** (decision §8.1): the same person at two hospitals = two isolated patient records; `users`/patient identity is unique per `(tenant_id, …)` with a global surrogate `uid`; the phone-keyed global-auth tables are tenant-scoped; login resolves the hospital/tenant first.
+- **Role model:** `SUPER_ADMIN` is a platform role (tenant-null, the only cross-tenant actor, audited); tenant `ADMIN` and all clinical/staff roles are bound to their own `tenant_id`.
+- **Per-tenant secrets** for anything that varies by hospital identity (ABDM/HL7 inbound, API keys, field-encryption KEK [per-tenant key wrapped by master → crypto-shred], optionally JWT signing) via an encrypted `tenant_secrets`/`tenant_interop_secrets`/`tenant_encryption_keys` store, reusing the existing `fieldEncryption` + `teleconsult_provider_configs`/`api_keys` patterns. Non-secret per-tenant config via the existing `tenants.settings jsonb`. Audit/activity logs are tenant-scoped.
 - **Edge identifies the tenant** (subdomain → `x-tenant-slug` injected by ingress) and the token carries a `tenant_id` claim on every issue path; the backend trusts the edge/token, never a raw client header (except the audited SUPER_ADMIN override).
 - **Clients are tenant-aware**: tokens carry tenant; the admin portal has a tenant switcher + tenant-driven branding; Flutter caches/queues are tenant-keyed.
 - **Shared infra is tenant/replica-safe**: Redis-backed rate-limit with optional per-tenant quotas; tenant onboarding is a single orchestrated flow.
@@ -64,9 +66,12 @@ Severity = impact once a 2nd tenant exists. `B`=blocker, `H`=high, `M`=medium, `
 - **B** Global unique → per-tenant: `invoices.invoice_number`, `billing_invoices.invoice_number`, `appointments.visit_no` (`217:18`) — throw `23505` on tenant #2.
 - **H** No `tenant_id`: payroll/salary cluster (`payslips`, `payroll_runs`, `staff_salary`, `salary_*`, `full_final_settlements`, `annual_tax_summaries`, `investment_declarations`, `billing_invoice_items`, `billing_advance_settlements`); top-level PHI `consultations` (`:7422`), `health_records` (`:9502`), `sos_alerts` (`:16225`); `staff` (`:16268`), `doctors` (`:8287`), `departments` (`:7704`), `wards` (`:18188`).
 - **H** ~34 more document-number global uniques → `(tenant_id, …)`: `*.claim_number`, `case_number`, `preauth_number`, `referral_number`, `booking_number`, `order_number`, `indent_number`, `report_number`, `incident_number`, `grievance_number`, `receipt_number`, barcodes, per-tenant config `code`s; `departments.name`, `payroll_runs(month,year)`. Add a real unique on `staff.employee_id`.
+- **H (decision §8.1) Per-tenant patient identity uniqueness.** `users`/patient identity uniques become per-tenant: `(tenant_id, phone)`, `(tenant_id, firebase_uid)`, `(tenant_id, email)` where applicable (today `phone`/`firebase_uid` are globally unique). Keep `uid` as a global surrogate PK. Same person at 2 hospitals → 2 rows, 2 uids, same phone, different tenant.
+- **H (decision §8.1) Tenant-scope the phone-keyed global-auth tables:** `otp_sessions`, `otp_logs`, `password_reset_otps`, `user_sessions`/`user_active_sessions` — add `tenant_id` so an OTP/session belongs to one tenant's patient. (`totp_challenges`, `invalidated_tokens` [jti] stay global — admin/platform + opaque.)
+- **H (decision §8.2) `admins` tenant-binding.** Add `tenant_id` to admin identity: `ADMIN` rows are tenant-bound (and identity uniques become per-tenant); `SUPER_ADMIN` rows stay tenant-null (platform). Admin login resolves the admin's tenant.
 - **M** HR/staff-ops cluster (attendance/shifts/roster/leave/overtime/geofence), housekeeping cluster, config (`investigation_templates`, `pharmacy_catalog`, `notification_templates`), `staff_devices`/`staff_auth_sessions`, child tables reaching tenant only via parent FK (Group C; `chemo_protocol_drugs` RLS explicitly skipped).
-- **M (decision)** Audit/activity-log tables with no `tenant_id` (`medical_activity_logs`, `pharmacy_activity_logs`, `file_access_logs`, `file_metadata`, `notification_outbox` [holds `recipient_phone`+payload]) — tenant-scope the PHI-access ones or document as a deliberate global sink.
-- **Legitimately global (do not scope):** `tenants`, terminology/ICD catalogs, drug KB, `clinical_ai_modules` catalog, global auth (`admins`, `totp_challenges`, `invalidated_tokens`, OTP/session), `_migrations`, `interop_replay_guard`, `feature_flags`.
+- **H (decided §8.4: tenant-scope)** Audit/activity-log tables with no `tenant_id` (`medical_activity_logs`, `pharmacy_activity_logs`, `file_access_logs`, `file_metadata`, generic `audit_logs`/`audit_log`, `*_activity_logs`, `notification_outbox` [holds `recipient_phone`+payload]) — add `tenant_id`, preserve append-only guards (mig 324); SUPER_ADMIN cross-tenant audit via the audited bypass.
+- **Legitimately global (do not scope):** `tenants`, terminology/ICD catalogs, drug KB, `clinical_ai_modules` catalog, `totp_challenges` + `invalidated_tokens` (platform/opaque), `_migrations`, `interop_replay_guard`, `feature_flags`. *(Note: `admins` and the OTP/session tables move OUT of "global" per decisions §8.1/§8.2 above.)*
 
 ### 4.2 Tenant resolution & query scoping (backend)
 - **B** Invert resolution to **fail-closed** behind `ALLOW_DEFAULT_TENANT`; today `tenantContextMiddleware.js:184` floors to `DEFAULT_TENANT_ID`, and the only fail-closed gate (`:175-182`) fires solely when `AUTH_ENFORCE_TENANT_RLS` is true.
@@ -126,7 +131,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 2 — DB schema completeness
 - **Objective:** every tenant-owned row carries `tenant_id`+RLS; every human-facing identifier is unique per tenant.
-- **Scope:** migrations adding `tenant_id`+RLS+FORCE+GUC-default to `payment_transactions`, payroll/salary cluster, `consultations`/`health_records`/`sos_alerts`, `staff`/`doctors`/`departments`/`wards`, then the HR/housekeeping/config clusters; convert ~37 global uniques to `(tenant_id, …)`; backfill from linked `users.tenant_id`/parent; audit-log-table scoping decision. `prisma db pull` + `check-schema-drift` per migration.
+- **Scope:** migrations adding `tenant_id`+RLS+FORCE+GUC-default to `payment_transactions`, payroll/salary cluster, `consultations`/`health_records`/`sos_alerts`, `staff`/`doctors`/`departments`/`wards`, then the HR/housekeeping/config clusters and the audit/activity-log tables (decision §8.4, append-only preserved); **per-tenant patient identity** — convert `users`/identity uniques to `(tenant_id, phone/firebase_uid/email)` and tenant-scope the OTP/session tables (decision §8.1); **`admins` tenant-binding** (`tenant_id` for ADMIN, null for SUPER_ADMIN — decision §8.2); convert ~37 document-number global uniques to `(tenant_id, …)`; backfill from linked `users.tenant_id`/parent. `prisma db pull` + `check-schema-drift` per migration.
 - **Code/Infra:** Code (raw SQL migrations).
 - **Risk:** Backfill correctness on existing data; FORCE-RLS on tables joined by parent; unique-constraint swaps must be online-safe.
 - **Gate/done:** drift clean; `check-phi-tenant-id` allowlist stays empty; 2-tenant deep tests prove isolation + that tenant #2 can create an invoice/visit/claim (no `23505`).
@@ -134,7 +139,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 3 — Per-tenant secrets & shared state
 - **Objective:** anything that varies by hospital identity is per-tenant; shared state is tenant/replica-safe.
-- **Scope:** `tenant_interop_secrets` (ABDM/HL7) + resolve-tenant-before-HMAC; wire `api_keys` into `validateApiKey`; per-tenant field-encryption KEK via `getKekProvider()`; Redis-backed rate-limit (+ optional per-tenant quota); tenant-key `cacheMiddleware` + uid caches; fan out the 5 default-tenant crons; per-tenant branding/keys via `tenants.settings`.
+- **Scope:** `tenant_interop_secrets` (ABDM/HL7) + resolve-tenant-before-HMAC; wire `api_keys` into `validateApiKey`; **per-tenant field-encryption KEK** — random per-tenant KEK wrapped by the master KEK in `tenant_encryption_keys`, routed via `getKekProvider()`, enabling per-tenant crypto-shred (decision §8.5); Redis-backed rate-limit (+ optional per-tenant quota); tenant-key `cacheMiddleware` + uid caches; fan out the 5 default-tenant crons; per-tenant branding/keys via `tenants.settings`.
 - **Code/Infra:** Code + Infra (Redis wired; secret store; KEK provider).
 - **Risk:** KEK migration (re-wrap), backward-compat for existing global secrets (grandfather), Redis availability.
 - **Gate/done:** per-tenant secret resolution tested (tenant A's ABDM secret cannot verify tenant B's callback); rate-limit shared-store test; KEK rotation/rewrap test; cron fan-out deep tests.
@@ -142,7 +147,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 4 — Edge routing & token tenant claim
 - **Objective:** the tenant is identified at the edge and carried in every token; backend trusts edge/token, not raw client headers.
-- **Scope:** issue `tenant_id` claim on **every** token path (admin/staff/patient/refresh/dev); wildcard subdomain → `x-tenant-slug` injection at ingress (Cloudflare wildcard DNS + tunnel + wildcard TLS); backend trusts edge tenant at the authenticated boundary; pre-auth tenant hint via existing `resolveTenantForRequest` (`x-tenant-slug`/`x-tenant-id`).
+- **Scope:** issue `tenant_id` claim on **every** token path (admin/staff/patient/refresh/dev); **tenant-aware login** (decision §8.1) — resolve the hospital/tenant before issuing the session because a phone/employeeId is ambiguous across tenants; Firebase token exchange maps `(firebase_uid, selected_tenant) → per-tenant patient`; a "reachable tenants for this credential" contract feeds the client hospital picker (W6); wildcard subdomain → `x-tenant-slug` injection at ingress (Cloudflare wildcard DNS + tunnel + wildcard TLS); backend trusts edge tenant at the authenticated boundary; pre-auth tenant hint via existing `resolveTenantForRequest` (`x-tenant-slug`/`x-tenant-id`).
 - **Code/Infra:** Code + Infra.
 - **Risk:** Edge↔backend trust composition (never trust a raw client header without edge authority); login flows that pre-date a known tenant.
 - **Gate/done:** a request to `tenant-a.<host>` resolves tenant A end-to-end; token minted at login carries the right `tenant_id`; isolation tests pass with edge routing.
@@ -150,7 +155,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 5 — Admin portal multi-tenancy
 - **Objective:** admins operate with explicit tenant identity; SUPER_ADMINs can switch tenants.
-- **Scope:** tenant claim on admin token + `AdminUser.tenant_id`; `TenantContext` + header-based tenant switcher (decision: routine acting-tenant vs audited override); un-orphan `/dashboard/tenants` (nav entry + a "Platform" section); proxy `x-tenant-id` whitelist; tenant-driven branding.
+- **Scope:** tenant claim on admin token + `AdminUser.tenant_id`; regular `ADMIN` is **hard-scoped to its own tenant (no switcher)**; **SUPER_ADMIN-only** `TenantContext` + tenant switcher (decision §8.2; acting-tenant via the audited path); un-orphan `/dashboard/tenants` (nav entry + a "Platform" section, SUPER_ADMIN-only); proxy `x-tenant-id` whitelist; tenant-driven branding.
 - **Code/Infra:** Code (admin) + small backend contract (token tenant claim, acting-tenant semantics).
 - **Risk:** override-vs-routine semantics (don't log every legitimate action as an override).
 - **Gate/done:** admin jest + a switcher e2e; super-admin can view tenant A then B; branding renders from tenant settings.
@@ -158,7 +163,7 @@ Each wave: **objective · scope · approach · code/infra · risk · gate & done
 
 ### Wave 6 — Flutter apps multi-tenancy
 - **Objective:** clients are tenant-aware and cannot bleed PHI across tenants.
-- **Scope:** **tenant-key all offline caches/queues first** (patient API/record/mutation, staff recent-patients, core `pending_writes`); `tenantProvider` → `X-Tenant-Id` on `VHHttpClient` (+ Chopper + WebSocket); login tenant hint + hospital picker (needs backend "reachable tenants" endpoint); per-tenant branding/base-URL/Firebase decision.
+- **Scope:** **tenant-key all offline caches/queues first** (patient API/record/mutation, staff recent-patients, core `pending_writes`); `tenantProvider` → `X-Tenant-Id` on `VHHttpClient` (+ Chopper + WebSocket); **mandatory hospital picker at login** + tenant hint (needs the W4 "reachable tenants" contract); Firebase = one shared project + picker now, per-tenant projects later on demand (decision §8.3); per-tenant branding/base-URL.
 - **Code/Infra:** Code (client) + backend endpoint; infra/product for Firebase decision.
 - **Risk:** Firebase identity model (shared vs per-tenant) is a product decision that gates the picker.
 - **Gate/done:** `melos analyze`+tests; a tenant-switch (or re-login) clears/segregates caches; requests carry tenant.
@@ -197,16 +202,24 @@ W2 (schema completeness) ────┘                           ├─> W6 (f
 
 ---
 
-## 8. Open product / architecture decisions
+## 8. Resolved product / architecture decisions (2026-06-19)
 
-These are genuine forks surfaced by the audit; each is resolved at the start of the wave that needs it (flagged), not now:
+All six forks were decided by the product owner. They are binding for the waves noted.
 
-1. **Patient identity namespace** — one global patient (`users.uid` globally unique, shared across tenants) vs per-tenant patients. Affects unique constraints, Firebase, caches. *(W2/W6)*
-2. **Routine multi-tenant admin** — reuse the audited "override" path (every action logged as override) vs a first-class "acting tenant" mechanism. *(W5)*
-3. **Firebase model** — one shared project + backend disambiguation vs per-tenant project. *(W6)*
-4. **Audit/activity-log tables** — tenant-scope the PHI-access logs vs keep a deliberate global immutable sink. *(W2)*
-5. **Field-encryption KEK** — external KMS vs HKDF-per-tenant from a master KEK. *(W3)*
-6. **Data residency** — pooled-only (India) now; silo (separate cluster) for EU/isolation-exception tenants later. *(W7)*
+1. **Patient identity = PER-TENANT.** A person who is a patient at two hospitals has **two separate, isolated patient records** — hospitals must not see that a patient also exists elsewhere, and no data crosses between them. Implications: `users` (and patient identity tables) become unique **per tenant** (`(tenant_id, phone)`, `(tenant_id, firebase_uid)`, …), the surrogate `uid` stays a global UUID PK; the global-auth tables keyed by `phone` (`otp_sessions`, `otp_logs`, `password_reset_otps`, `user_sessions`/`user_active_sessions`) become tenant-scoped; **login must resolve the tenant** (hospital selection) because a phone alone is ambiguous. *(W2 schema/uniqueness, W4 tenant-aware login, W6 picker/caches/Firebase.)*
+2. **Cross-tenant access = SUPER_ADMIN only.** A tenant `ADMIN` is bound to their own tenant and is never an admin of another; only the platform `SUPER_ADMIN` role crosses tenants (via the audited acting-tenant path). Implications: `admins`/admin identity carries `tenant_id` for `ADMIN` (tenant-bound) and is tenant-null for `SUPER_ADMIN` (platform); the admin tenant switcher is **SUPER_ADMIN-only**; regular admins have no switcher and are hard-scoped. *(W2 admins model, W4 admin token tenant claim, W5 switcher.)*
+3. **Firebase = one shared project now → per-tenant projects later (recommended path below).** Near-term: **one** Firebase project + **mandatory hospital (tenant) selection at login** + a backend `(firebase_uid, tenant) → patient` mapping (consistent with decision 1: the same phone yields a distinct per-tenant patient). Long-term: migrate to **per-tenant Firebase projects** only for hospitals that contractually require auth-pool isolation, via per-tenant app builds or dynamic Firebase init. Rationale + trade-off in §8.1. *(W4 token exchange, W6 picker/init.)*
+4. **Audit/activity logs = tenant-scoped.** The PHI-access + activity-log tables (`medical_activity_logs`, `pharmacy_activity_logs`, `file_access_logs`, `file_metadata`, generic `audit_logs`/`audit_log`, `*_activity_logs`, `notification_outbox`) get `tenant_id`; SUPER_ADMIN cross-tenant audit queries use the audited bypass. Append-only guards (mig 324) preserved. *(W2.)*
+5. **Field-encryption KEK = per-tenant key, wrapped by the master KEK, enabling crypto-shred (recommended).** Each tenant gets a random per-tenant KEK stored **wrapped by the master KEK** in a `tenant_encryption_keys` table, routed through the existing pluggable `getKekProvider()`; per-record DEK → per-tenant KEK → master KEK. Deleting a tenant's KEK row crypto-shreds that tenant's PHI even though the master persists (satisfies DPDP/GDPR tenant erasure). Migrate the master to a KMS/Vault transit backend when Vault is live; no per-tenant-record re-encryption needed for that later move. (Chosen over HKDF-from-master, which cannot crypto-shred since a derived key is always re-derivable.) *(W3.)*
+6. **Data residency = all-India (pooled), now.** No silo needed near-term; `data-residency: "in"` cluster-wide stands. The separate-cluster silo path remains documented for a future non-India/hard-isolation tenant but is out of scope. *(W7 — documented only.)*
+
+### 8.1 Firebase — recommendation & trade-off
+
+**Recommendation: stay on one shared Firebase project for now**, gated by mandatory hospital selection at login, and move to per-tenant projects only on demand.
+
+- **One shared project (now):** a phone → one Firebase UID globally; the patient picks their hospital at login and the backend maps `(firebase_uid, selected_tenant) → per-tenant patient`. Pros: one project to operate; one app binary; works today. Con: the shared auth pool *technically* knows a phone is registered (not which hospitals) — acceptable since Firebase holds **no PHI**, only proves phone possession; tenant isolation of all clinical data is unaffected (it's enforced by RLS + per-tenant patient records).
+- **Per-tenant project (later):** hard isolation of the auth identity pool per hospital. Cons: the app must know its Firebase project **before** login, so it needs per-tenant builds (one APK per hospital) or dynamic Firebase initialization (FlutterFire supports secondary apps but it's non-trivial and atypical for the *default* auth instance). Heavier mobile + release ops.
+- **Why this ordering is safe:** decision 1 already forces a hospital-selection step and a per-tenant patient record regardless of the Firebase model, so the *backend* contract (`(firebase_uid, tenant) → patient`) is identical either way. Switching to per-tenant Firebase later changes only *which project mints the token* and the app-init/build story — it does not require re-modeling patient identity. So one-shared-now costs nothing we'd have to undo.
 
 ---
 
@@ -215,7 +228,7 @@ These are genuine forks surfaced by the audit; each is resolved at the start of 
 - `ALLOW_DEFAULT_TENANT` (new) — when `true`, resolution may fall back to `DEFAULT_TENANT_ID` (single-tenant installs). Default flips to **false** (fail-closed) as W1 lands; current prod sets it `true` until cutover.
 - `AUTH_ENFORCE_TENANT_RLS` (exists) — keep `true` in prod; it gates DB-level RLS enforcement (needs the non-superuser role).
 - `REDIS_URL` (exists) — must be wired for W3's shared rate-limit/anomaly store.
-- Per-tenant config/secrets via `tenants.settings jsonb` + `tenant_secrets`/`tenant_interop_secrets` (new) + `api_keys` (exists, to be wired).
+- Per-tenant config/secrets via `tenants.settings jsonb` (non-secret config/branding) + `tenant_interop_secrets` + `tenant_encryption_keys` (new — per-tenant KEK wrapped by master, crypto-shred) + `api_keys` (exists, to be wired).
 
 ---
 
