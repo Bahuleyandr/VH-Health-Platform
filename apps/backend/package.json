@@ -115,6 +115,7 @@
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
     "qrcode": "^1.5.4",
+    "rate-limit-redis": "^4.3.1",
     "sanitize-html": "^2.17.5",
     "sharp": "^0.34.5",
     "source-map-support": "^0.5.21",
@@ -201,29 +202,144 @@
       "/src/scripts/"
     ],
     "coverageThreshold": {
-      "src/services/auth/adminOtpService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/auth/apiClientService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/auth/authService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/auth/firebaseAuthService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/auth/loginSessionHelper.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 75 },
-      "src/services/auth/mfaService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 60 },
-      "src/services/auth/otpService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/auth/staffAuthService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/auth/userActiveSession.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/lib/prisma.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/lib/tenantContext.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/middleware/jwtMiddleware.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/middleware/tenantContextMiddleware.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/middleware/tenantRlsMiddleware.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 50 },
-      "src/utils/clinical/prescriptionSafetyCheck.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/billing/billingService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/billing/billingV2Service.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/billing/cashDrawerService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/billing/ediGenerator.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 55 },
-      "src/services/billing/paymentLinkService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/emr/cdsEngine.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/cds/cdsHooksAdapter.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
-      "src/services/cds/encounterCdsHelper.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 55 }
+      "src/services/auth/adminOtpService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/auth/apiClientService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/auth/authService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/auth/firebaseAuthService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/auth/loginSessionHelper.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 75
+      },
+      "src/services/auth/mfaService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 60
+      },
+      "src/services/auth/otpService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/auth/staffAuthService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/auth/userActiveSession.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/lib/prisma.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/lib/tenantContext.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/middleware/jwtMiddleware.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/middleware/tenantContextMiddleware.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/middleware/tenantRlsMiddleware.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 50
+      },
+      "src/utils/clinical/prescriptionSafetyCheck.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/billing/billingService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/billing/billingV2Service.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/billing/cashDrawerService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/billing/ediGenerator.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 55
+      },
+      "src/services/billing/paymentLinkService.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/emr/cdsEngine.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/cds/cdsHooksAdapter.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 80
+      },
+      "src/services/cds/encounterCdsHelper.js": {
+        "statements": 80,
+        "lines": 80,
+        "functions": 80,
+        "branches": 55
+      }
     }
   },
   "overrides": {

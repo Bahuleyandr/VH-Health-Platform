@@ -1,7 +1,10 @@
 // src/middleware/rateLimitMiddleware.js
 import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
+import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
+import { getRedisClient } from '../lib/redis.js';
+import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
 
 /**
  * Prefer keying by authenticated UID, then per-account identity for login-
@@ -15,7 +18,7 @@ import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
  * surfaced during the ER reassessment role-switch in finding
  * 2026-05-10-emergency-walk-in-doctor-staff-login-global-rate-limit.
  *
- * Uses ipKeyGenerator(req) to satisfy express-rate-limit's IPv6 validation.
+ * Uses ipKeyGenerator(req.ip) to satisfy express-rate-limit's IPv6 validation.
  */
 const defaultKeyGenerator = (req) => {
   const apiKey =
@@ -34,7 +37,7 @@ const defaultKeyGenerator = (req) => {
     req.body?.employee_id ||
     req.body?.username ||
     req.body?.email;
-  if (account) return `acct:${ipKeyGenerator(req)}:${String(account).toLowerCase()}`;
+  if (account) return `acct:${ipKeyGenerator(req.ip)}:${String(account).toLowerCase()}`;
 
   const authorization =
     req.headers?.authorization ||
@@ -55,11 +58,35 @@ const defaultKeyGenerator = (req) => {
   if (apiKey) return `k:${String(apiKey)}`;
 
   // Fallback MUST use ipKeyGenerator for IPv6 safety
-  return ipKeyGenerator(req);
+  return ipKeyGenerator(req.ip);
+};
+
+// W3 (multi-tenancy): every rate-limit bucket is tenant-scoped so one hospital's
+// traffic can never exhaust another's quota. Wraps the rich key precedence above
+// with a `t:<tenantId>:` prefix; pre-auth / no-resolved-tenant requests bucket
+// under `t:default:` (behaviour-identical for the single existing tenant).
+const tenantPrefix = (req) => `t:${req?.tenantId || 'default'}:`;
+export const tenantKeyGenerator = (req) => `${tenantPrefix(req)}${defaultKeyGenerator(req)}`;
+
+// W3: replica-safe counters via a shared Redis store. Returns undefined (the
+// express-rate-limit default per-process MemoryStore) when REDIS_URL is unset,
+// preserving single-node correctness + the local-test path. sendCommand resolves
+// the client lazily per request, so a limiter built at import time (before
+// initRedis()) still works once Redis connects.
+export const selectStore = (prefix = 'rl:') => {
+  if (!process.env.REDIS_URL) return undefined;
+  return new RedisStore({
+    prefix,
+    sendCommand: (...args) => {
+      const client = getRedisClient();
+      if (!client) throw new Error('rate-limit: redis client unavailable');
+      return client.call(...args);
+    },
+  });
 };
 
 const authKeyGenerator = (req) => {
-  const ip = ipKeyGenerator(req);
+  const ip = ipKeyGenerator(req.ip);
   // Extract account identifier from request body (login endpoints).
   const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';
   if (account) return `auth:${ip}:${String(account).toLowerCase()}`;
@@ -110,10 +137,11 @@ const defaultHandler = (req, res, _next, options) => {
 export const getRateLimiter = (profileName = 'default') => {
   const profile = RATE_LIMIT_PROFILES[profileName] || RATE_LIMIT_PROFILES.default;
 
-  const keyGen =
+  const baseKeyGen =
     typeof profile.keyGenerator === 'function'
       ? profile.keyGenerator
       : defaultKeyGenerator;
+  const keyGen = (req) => `${tenantPrefix(req)}${baseKeyGen(req)}`;
 
   const handlerFn = typeof profile.handler === 'function'
     ? profile.handler
@@ -136,13 +164,23 @@ export const getRateLimiter = (profileName = 'default') => {
 
   return expressRateLimit({
     windowMs: profile.windowMs,
-    max: profile.max,
+    // W3: per-tenant quota override from tenants.settings.rateLimits[profile],
+    // falling back to the hardcoded profile max. Reads the 60s tenant cache;
+    // when no tenant is resolved yet, the override is null → profile default.
+    max: async (req) => {
+      const override = await getRateLimitOverride(req?.tenantId, profileName).catch(() => null);
+      const max = override?.max;
+      return Number.isFinite(max) && max > 0 ? max : profile.max;
+    },
     message: profile.message,
     standardHeaders: true,
     legacyHeaders: false,
 
-    // IMPORTANT: IPv6-safe config
+    // IMPORTANT: IPv6-safe config + W3 tenant-scoped bucket
     keyGenerator: keyGen,
+
+    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when REDIS_URL unset
+    store: selectStore(`rl:${profileName}:`),
 
     handler: handlerFn,
     skip: skipFn
@@ -168,6 +206,7 @@ const authRateLimiterConfig = {
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: authKeyGenerator,
+  store: selectStore('rl:auth:'), // W3: replica-safe brute-force counter
   handler: defaultHandler,
   // Count failed credential attempts, not normal successful re-auth. The
   // lockout service still tracks failed attempts per staff account in
@@ -196,8 +235,9 @@ export const otpRateLimiter = expressRateLimit({
     const phone = req.body?.phone || req.body?.phoneNumber || '';
     if (phone) return `otp:phone:${String(phone)}`;
     // Fallback to IP if no phone
-    return `otp:${ipKeyGenerator(req)}`;
+    return `otp:${ipKeyGenerator(req.ip)}`;
   },
+  store: selectStore('rl:otp:'), // W3: replica-safe OTP counter
   handler: defaultHandler,
   skip: isRateLimitingDisabled
 });
@@ -215,8 +255,9 @@ export const sosRateLimiter = expressRateLimit({
   keyGenerator: (req) => {
     const uid = req.user?.uid || req.user?.id;
     if (uid) return `sos:u:${String(uid)}`;
-    return `sos:${ipKeyGenerator(req)}`;
+    return `sos:${ipKeyGenerator(req.ip)}`;
   },
+  store: selectStore('rl:sos:'), // W3: replica-safe SOS counter
   handler: defaultHandler,
   skip: isRateLimitingDisabled
 });
