@@ -263,6 +263,7 @@ import { sendSMS } from '../services/smsService.js';
 import { verifyAuditChain } from '../services/clinical/documentIntegrityService.js';
 import { sendSecurityWebhook } from './securityWebhook.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { runForEachTenant } from './tenantFanout.js';
 
 /**
  * Verify the per-tenant audit hash chain for every active tenant (plus the
@@ -493,17 +494,17 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🕗 Daily at 08:00 - Send appointment reminders (existing daily push-only)
-  registerCron('0 8 * * *', withJobLock('send-appointment-reminders', sendAppointmentReminders));
+  registerCron('0 8 * * *', withJobLock('send-appointment-reminders', () => runForEachTenant('send-appointment-reminders', () => sendAppointmentReminders())));
 
   // ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
-  registerCron('0 * * * *', withJobLock('timed-reminders', sendTimedReminders));
+  registerCron('0 * * * *', withJobLock('timed-reminders', () => runForEachTenant('timed-reminders', () => sendTimedReminders())));
 
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
-  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', processPendingScheduledNotifications));
+  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => runForEachTenant('process-scheduled-notifications', () => processPendingScheduledNotifications())));
 
   // 💊 Every 5 minutes - Alert if an active ward/ICU admission still has no drug chart after 1 hour.
   registerCron('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
-    await runMissingDrugChartSweep();
+    await runForEachTenant('drug-chart-missing-sla', () => runMissingDrugChartSweep());
   }));
 
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
@@ -521,18 +522,18 @@ if (process.env.NODE_ENV !== 'test') {
   // 🚨 Every 10 minutes - escalate unread critical notifications so safety
   // alerts cannot remain invisible without an auditable event.
   registerCron('*/10 * * * *', withJobLock('unread-critical-notification-escalation', async () => {
-    await runUnreadCriticalEscalation();
+    await runForEachTenant('unread-critical-notification-escalation', () => runUnreadCriticalEscalation());
   }));
 
   // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
-  registerCron('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
+  registerCron('*/30 * * * *', withJobLock('escalate-stuck-orders', () => runForEachTenant('escalate-stuck-orders', () => escalateStuckOrders())));
 
   // Operational forecast alert sweep — advisory, flag-gated. Mirrors the
   // every-30-min cadence of escalate-stuck-orders. Default tenant today; wrap
   // in runWithSuperAdmin for cross-tenant fan-out when multi-tenant.
   if (String(process.env.CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED || '').toLowerCase() === 'true') {
     registerCron('*/30 * * * *', withJobLock('operational-alert-sweep', async () => {
-      const r = await runSweep({});
+      const r = await runForEachTenant('operational-alert-sweep', () => runSweep({}));
       logger.info('operational-alert-sweep complete', r);
     }));
   }
@@ -584,7 +585,7 @@ if (process.env.NODE_ENV !== 'test') {
   // admin_override=true rows. Default grace is 60 min; tune via the
   // service entrypoint.
   registerCron('*/15 * * * *', withJobLock('reap-stale-visits', async () => {
-    await reapStaleScheduledVisits();
+    await runForEachTenant('reap-stale-visits', () => reapStaleScheduledVisits());
   }));
 
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
@@ -628,7 +629,7 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
-  registerCron('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
+  registerCron('0 9 * * *', withJobLock('investigation-notifications', () => runForEachTenant('investigation-notifications', () => sendInvestigationNotifications())));
 
   // 🗓️ Friday 17:00 by default — next week's roster deadline.
   // Override with ROSTER_NEXT_WEEK_DEADLINE_CRON plus the weekday/hour envs used
@@ -636,7 +637,7 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron(
     process.env.ROSTER_NEXT_WEEK_DEADLINE_CRON || '0 17 * * 5',
     withJobLock('roster-deadline-escalation', async () => {
-      await runRosterDeadlineEscalation({ force: true });
+      await runForEachTenant('roster-deadline-escalation', () => runRosterDeadlineEscalation({ force: true }));
     }),
     { timezone: process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata' }
   );
