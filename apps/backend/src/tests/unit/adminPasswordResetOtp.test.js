@@ -31,6 +31,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: jest.fn(),
   generateRefreshToken: jest.fn(),
+  resolveTenantIdForUid: jest.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
 }));
 
 // firebaseAuthService (not exercised here, just needs to resolve)

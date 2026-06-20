@@ -38,7 +38,7 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const tenantCache = new Map();
 const TENANT_CACHE_MAX = 50000;
 
-async function resolveTenantIdForUid(uid) {
+export async function resolveTenantIdForUid(uid) {
   if (!uid) return DEFAULT_TENANT_ID;
   if (tenantCache.has(uid)) return tenantCache.get(uid);
   let tenantId = DEFAULT_TENANT_ID;
@@ -49,6 +49,21 @@ async function resolveTenantIdForUid(uid) {
     );
     if (rows.length > 0 && rows[0].tenant_id) {
       tenantId = String(rows[0].tenant_id);
+    } else {
+      // Admins are a separate identity realm — they are NOT in `users` (staff,
+      // patients, and Firebase users are). Fall back to the admins table
+      // (tenant_id added in mig 334; NULL for platform SUPER_ADMINs, who stay
+      // on DEFAULT and override per-request via x-tenant-id). Without this,
+      // adminLogin / refresh / MFA-verify minted a token defaulted to the
+      // default tenant, and tenantContextMiddleware then scoped a tenant-A
+      // admin to the wrong tenant. (W4 C5)
+      const adminRows = await prisma.$queryRawUnsafe(
+        'SELECT tenant_id FROM admins WHERE uid = $1::uuid LIMIT 1',
+        String(uid),
+      );
+      if (adminRows.length > 0 && adminRows[0].tenant_id) {
+        tenantId = String(adminRows[0].tenant_id);
+      }
     }
   } catch (err) {
     logger.warn(`tenant resolution fell back to default for uid=${uid}: ${err.message}`);

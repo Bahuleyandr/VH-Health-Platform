@@ -547,7 +547,7 @@ export const mfaSetupConfirm = async (req, res) => {
 
     const admin = await prisma.admins.findUnique({
       where: { uid: String(adminId) },
-      select: { uid: true, username: true, email: true, role: true },
+      select: { uid: true, username: true, email: true, role: true, tenant_id: true },
     });
     if (!admin) return error(res, 'Admin not found after enrollment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
 
@@ -558,6 +558,9 @@ export const mfaSetupConfirm = async (req, res) => {
       sub: admin.uid,
       iss: 'vh-health-backend',
       aud: 'vh-health-admin',
+      // W4 C5: stamp the admin's tenant (mig 334; NULL for platform SUPER_ADMINs
+      // → omitted, tenantContextMiddleware then resolves + they override per-req).
+      tenant_id: admin.tenant_id ?? undefined,
       // 2FA step-up claim — minted only after the admin proves possession of their
       // TOTP factor (first-time enrollment confirm or login challenge-verify), so
       // these are the only paths entitled to mark the session as 2FA-verified.
@@ -615,6 +618,7 @@ export const mfaVerifyChallenge = async (req, res) => {
         username: true,
         email: true,
         role: true,
+        tenant_id: true,
         totp_enabled: true,
         totp_secret_encrypted: true,
         totp_backup_codes: true,
@@ -668,6 +672,9 @@ export const mfaVerifyChallenge = async (req, res) => {
       sub: admin.uid,
       iss: 'vh-health-backend',
       aud: 'vh-health-admin',
+      // W4 C5: stamp the admin's tenant (mig 334; NULL for platform SUPER_ADMINs
+      // → omitted, tenantContextMiddleware then resolves + they override per-req).
+      tenant_id: admin.tenant_id ?? undefined,
       // 2FA step-up claim — minted only after the admin proves possession of their
       // TOTP factor (first-time enrollment confirm or login challenge-verify), so
       // these are the only paths entitled to mark the session as 2FA-verified.

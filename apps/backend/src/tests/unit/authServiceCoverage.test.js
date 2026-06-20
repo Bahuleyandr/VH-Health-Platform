@@ -109,6 +109,8 @@ const mockGenerateRefreshToken = jest.fn((payload) => mockGenerateToken({ ...pay
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: mockIssueSession,
   generateRefreshToken: mockGenerateRefreshToken,
+  // W4 C5: authService's OTP/staff/register mints now stamp tenant_id via this.
+  resolveTenantIdForUid: jest.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
 }));
 
 // tokenBlacklist (redis fast-path + DB fallback)

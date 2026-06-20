@@ -33,6 +33,11 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantForUser: mockResolveTenantForUser,
   resolveTenantOrThrow: (req) => req?.tenantId || DEFAULT_TENANT_ID,
   requireTenantId: (tenantId) => tenantId || DEFAULT_TENANT_ID,
+  // W4 C1/C4: the middleware imports these for the Host↔token cross-check. These
+  // coverage cases use bare hosts (no subdomain) → parseTenantSlug returns null
+  // → the cross-check is skipped (the dedicated C4 deep test covers the path).
+  parseTenantSlug: () => null,
+  tenantFromHost: jest.fn().mockResolvedValue(null),
 }));
 jest.unstable_mockModule('../../config/tenantRlsConfig.js', () => ({
   // W1: tenantContextMiddleware now keys resolution policy on

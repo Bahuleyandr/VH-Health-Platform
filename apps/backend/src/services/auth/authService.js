@@ -17,7 +17,7 @@ import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
-import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
+import { issueAccessTokenAndClaimSession, generateRefreshToken, resolveTenantIdForUid } from './loginSessionHelper.js';
 import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
@@ -139,6 +139,10 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the bearer's tenant so the token self-describes it
+        // (matches the helper-minted Firebase/staff/admin paths). Cached +
+        // default-tenant fallback, so it never blocks a login.
+        tenant_id: await resolveTenantIdForUid(user.uid),
       });
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token so the
@@ -183,6 +187,9 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the bearer's tenant (see verifyOtp). Cached +
+        // default-tenant fallback, so it never blocks a login.
+        tenant_id: await resolveTenantIdForUid(user.uid),
       });
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token.
@@ -592,6 +599,9 @@ export class AuthService {
         phone: staff.phone,
         role: String(staff.role).toUpperCase(),
         sub: String(staff.uid),
+        // W4 C5: stamp the staff member's tenant (staff live in `users`, so
+        // resolveTenantIdForUid resolves it directly). Cached + default fallback.
+        tenant_id: await resolveTenantIdForUid(String(staff.uid)),
       });
 
       await prisma.staff.update({
@@ -1071,6 +1081,9 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the newly-registered patient's tenant (just-created
+        // users row). Cached + default-tenant fallback.
+        tenant_id: await resolveTenantIdForUid(user.uid),
       });
 
       return {
@@ -1273,6 +1286,9 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the bearer's tenant (see verifyOtp). Cached +
+        // default-tenant fallback, so it never blocks a login.
+        tenant_id: await resolveTenantIdForUid(user.uid),
       });
 
       // C-9 (audit 2026-06-18): issue a SEPARATE refresh token. Patients

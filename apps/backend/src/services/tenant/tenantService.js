@@ -201,7 +201,17 @@ export async function resolveTenantForUser(userUid, { failClosed = false } = {})
       `SELECT tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
       userUid
     );
-    return rows[0]?.tenant_id || onMiss;
+    if (rows[0]?.tenant_id) return rows[0].tenant_id;
+    // Admins are a separate identity realm (not in `users`). A bare admin token
+    // (the MFA-enroll / challenge-verify mints in adminAuthController carry no
+    // tenant_id claim) lands here — resolve their tenant from the admins table
+    // (mig 334; NULL for platform SUPER_ADMINs → onMiss, overridden per-request).
+    // Symmetric with resolveTenantIdForUid's admin fallback. (W4 C5)
+    const adminRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id FROM admins WHERE uid = $1::uuid LIMIT 1`,
+      userUid
+    );
+    return adminRows[0]?.tenant_id || onMiss;
   } catch (err) {
     if (failClosed) {
       throw AppError.internal('Tenant context lookup failed', 'TENANT_CONTEXT_LOOKUP_FAILED');
