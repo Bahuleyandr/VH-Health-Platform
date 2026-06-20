@@ -5,6 +5,8 @@ import {
   DEFAULT_TENANT_ID,
   getTenantById,
   resolveTenantForUser,
+  parseTenantSlug,
+  tenantFromHost,
 } from '../services/tenant/tenantService.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -212,6 +214,30 @@ export default async function tenantContextMiddleware(req, _res, next) {
       req.user.tenantId = tenantId;
       req.user.tenantRegion = req.tenant.region;
       req.user.complianceProfile = req.tenant.compliance_profile;
+    }
+
+    // W4 C4: a token minted for tenant X must not be used on tenant Y's subdomain.
+    // The Host subdomain is the unspoofable tenant signal (trust-by-topology); if
+    // it names a real tenant that differs from the bearer's resolved tenant,
+    // reject. SUPER_ADMIN (platform) + an active x-tenant-id override legitimately
+    // cross tenants and are exempt; a bare host (no subdomain — single-tenant +
+    // non-subdomained internal calls) skips the check, so no extra DB lookup runs
+    // unless a real subdomain is present.
+    if (req.user && tenantId && !overrideUsed && !isSuperAdmin(req)) {
+      const hostSlug = parseTenantSlug(req.hostname || req.headers?.host);
+      if (hostSlug) {
+        let hostTenantId = null;
+        try {
+          hostTenantId = await tenantFromHost(req);
+        } catch {
+          hostTenantId = null; // unknown subdomain → don't block here (login already rejects it)
+        }
+        if (hostTenantId && String(hostTenantId) !== String(tenantId)) {
+          return next(
+            AppError.forbidden('Tenant host/token mismatch', 'TENANT_HOST_TOKEN_MISMATCH'),
+          );
+        }
+      }
     }
 
     return next();
