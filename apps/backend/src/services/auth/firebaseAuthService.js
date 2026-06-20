@@ -66,12 +66,12 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   const phone = normalizePhone(firebasePhone);
   const firebaseUid = decodedToken.uid;
 
-  // SEC-5: resolve the tenant from the REQUEST before we look up identity.
-  // This runs before tenantContextMiddleware (no req.user yet), so we derive
-  // the tenant from request-level signals (x-tenant-id / x-tenant-slug),
-  // falling back to the single-tenant default. Scoping the lookup by tenant
-  // prevents a phone that exists in two tenants from resolving arbitrarily
-  // and minting a JWT bound to the wrong tenant.
+  // SEC-5 / W4: resolve the tenant from the REQUEST before we look up identity.
+  // This runs before tenantContextMiddleware (no req.user yet), so we derive the
+  // tenant from the request HOST subdomain (trust-by-topology — client x-tenant-*
+  // headers are not trusted), falling back to the single-tenant default for the
+  // bare host. Scoping the lookup by tenant prevents a phone that exists in two
+  // tenants from resolving arbitrarily and minting a JWT bound to the wrong tenant.
   const tenantId = await resolveTenantForRequest(req);
 
   // Check if user exists in our database — scoped to the resolved tenant.
