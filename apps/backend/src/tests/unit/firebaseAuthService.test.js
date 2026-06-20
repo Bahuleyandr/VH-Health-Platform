@@ -209,18 +209,20 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     expect(insertParams[0]).toBe(DEFAULT_TENANT);
   });
 
-  it('SEC-5: honours an explicit x-tenant-id header (SaaS path)', async () => {
+  it('SEC-5/W4: honours the per-tenant subdomain (SaaS path)', async () => {
     const SAAS_TENANT = '55555555-5555-4555-8555-555555555555';
     const req = {
-      headers: { 'user-agent': 'jest', 'x-tenant-id': SAAS_TENANT },
+      // W4: the tenant comes from the Host subdomain, not a client header.
+      hostname: 'saas.localhost',
+      headers: { 'user-agent': 'jest' },
       connection: { remoteAddress: '127.0.0.1' },
     };
 
-    // resolveTenantForRequest validates the header tenant against the tenants
-    // table (getTenantById → prisma.$queryRawUnsafe). Return an active tenant,
-    // then the user-lookup SELECT (empty), then the INSERT RETURNING row.
+    // resolveTenantForRequest → tenantFromHost resolves the 'saas' subdomain via
+    // getTenantBySlug → prisma.$queryRawUnsafe. Return an active tenant, then the
+    // user-lookup SELECT (empty), then the INSERT RETURNING row.
     prismaMock.$queryRawUnsafe
-      .mockResolvedValueOnce([{ id: SAAS_TENANT, status: 'active' }]) // getTenantById
+      .mockResolvedValueOnce([{ id: SAAS_TENANT, status: 'active' }]) // getTenantBySlug
       .mockResolvedValueOnce([]) // user SELECT (scoped)
       .mockResolvedValueOnce([{
         id: 1, uid: '66666666-6666-4666-8666-666666666666', tenant_id: SAAS_TENANT,
