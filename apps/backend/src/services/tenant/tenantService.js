@@ -301,6 +301,60 @@ export async function resolveTenantForRequest(req) {
   return DEFAULT_TENANT_ID;
 }
 
+// W4 (edge routing): the per-tenant subdomain is the authoritative tenant signal.
+// The base host(s) the subdomains sit under (TENANT_BASE_HOST, comma list for
+// prod/staging/dev/localhost). Default 'localhost' keeps tests + local dev working.
+function tenantBaseHosts() {
+  return String(process.env.TENANT_BASE_HOST || 'localhost')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Pure: extract the tenant slug (leftmost subdomain label) from a Host string,
+ * or null for the bare base host / a host not under any base host (→ default
+ * tenant). Case-insensitive; strips the port. No DB access.
+ *
+ * @param {string} host
+ * @param {string[]} [baseHosts]
+ * @returns {string|null}
+ */
+export function parseTenantSlug(host, baseHosts = tenantBaseHosts()) {
+  const h = String(host || '').toLowerCase().split(':')[0].trim();
+  if (!h) return null;
+  for (const base of baseHosts) {
+    if (h === base) return null;                       // bare base host → default
+    if (h.endsWith('.' + base)) {
+      const prefix = h.slice(0, -(base.length + 1));   // labels left of the base
+      return prefix.split('.')[0] || null;             // leftmost label = the tenant
+    }
+  }
+  return null;                                         // not our domain → default
+}
+
+/**
+ * Resolve the tenant a request belongs to from its Host subdomain (W4 trust-by-
+ * topology). Bare base host / unknown domain → default tenant. A configured
+ * subdomain → that tenant; an unknown or inactive subdomain is rejected (mirrors
+ * the resolveTenantForRequest contract). Always returns a valid tenant id (or throws).
+ *
+ * @param {import('express').Request} req
+ * @returns {Promise<string>}
+ */
+export async function tenantFromHost(req) {
+  const host = (typeof req?.hostname === 'string' && req.hostname)
+    || req?.headers?.host
+    || '';
+  const slug = parseTenantSlug(host);
+  if (!slug) return DEFAULT_TENANT_ID;
+  const tenant = await getTenantBySlug(slug);
+  if (!tenant || tenant.status !== 'active') {
+    throw AppError.badRequest('Unknown or inactive tenant', 'TENANT_NOT_RESOLVED');
+  }
+  return tenant.id;
+}
+
 export default {
   createTenant,
   getTenantById,
@@ -310,6 +364,8 @@ export default {
   resolveTenantForUser,
   resolveTenantOrThrow,
   requireTenantId,
+  parseTenantSlug,
+  tenantFromHost,
   updateTenant,
   DEFAULT_TENANT_ID,
 };

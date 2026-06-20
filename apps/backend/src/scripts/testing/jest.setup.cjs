@@ -39,6 +39,10 @@ if (!process.env.FIELD_ENCRYPTION_KEY || process.env.FIELD_ENCRYPTION_KEY.length
 if (!process.env.FIELD_ENCRYPTION_MASTER_KEK || process.env.FIELD_ENCRYPTION_MASTER_KEK.length < 32) {
   process.env.FIELD_ENCRYPTION_MASTER_KEK = 'test-field-encryption-master-kek-32c';
 }
+// W4: base host(s) the per-tenant subdomains sit under (Host-derived tenant).
+if (!process.env.TENANT_BASE_HOST) {
+  process.env.TENANT_BASE_HOST = 'localhost,api.vhhealth.app';
+}
 if (!process.env.TOTP_ENCRYPTION_KEY || process.env.TOTP_ENCRYPTION_KEY.length < 32) {
   process.env.TOTP_ENCRYPTION_KEY = 'test-totp-encryption-key-32chars!!!!';
 }
