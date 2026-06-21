@@ -49,6 +49,15 @@ jobs:
       BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
       REQUIRE_MFA_FOR_SUPER_ADMIN: 'false'
       VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+      # Single-tenant smoke: the W1 tenant-context middleware fails CLOSED
+      # (403 TENANT_CONTEXT_REQUIRED) for any authenticated request that
+      # resolves no tenant unless this is set. The backend here runs via
+      # `node src/bin/www.js` — NOT jest — so jest.setup.cjs's
+      # `ALLOW_DEFAULT_TENANT ||= 'true'` does not apply, and the seeded admin
+      # has no tenant binding. Without this every /api/v1/admin/* call 403s and
+      # the admin route-crawl times out. Mirrors the default-tenant production
+      # config (flip to 'false' only after per-tenant subdomain cutover).
+      ALLOW_DEFAULT_TENANT: 'true'
       NODE_ENV: test
       PORT: '5206'
       BACKEND_URL: http://127.0.0.1:5206
