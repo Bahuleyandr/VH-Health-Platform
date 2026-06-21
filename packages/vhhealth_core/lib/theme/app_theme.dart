@@ -13,7 +13,8 @@ class AppTheme {
   /// build falls back to the brand [primaryColor] (NO-OP). Only the SEED is
   /// tenant-driven — the colour scheme (app bar, buttons via colorScheme.primary)
   /// follows it; the legacy const accents stay on the brand colour.
-  static Color get seedColor => parseHexColor(TenantConfig.primaryColorHex) ?? primaryColor;
+  static Color get seedColor =>
+      parseHexColor(TenantConfig.primaryColorHex) ?? primaryColor;
 
   /// Parse `#RRGGBB` / `RRGGBB` / `#AARRGGBB` into a [Color]; null if empty/invalid.
   @visibleForTesting

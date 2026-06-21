@@ -36,14 +36,17 @@ void main() {
       expect(AppTheme.seedColor, AppTheme.primaryColor);
     });
 
-    test('parseHexColor handles #RRGGBB, RRGGBB, #AARRGGBB; null on empty/invalid', () {
-      expect(AppTheme.parseHexColor('#FF0000'), const Color(0xFFFF0000));
-      expect(AppTheme.parseHexColor('00FF00'), const Color(0xFF00FF00));
-      expect(AppTheme.parseHexColor('#CC1565C0'), const Color(0xCC1565C0));
-      expect(AppTheme.parseHexColor(''), isNull);
-      expect(AppTheme.parseHexColor('   '), isNull);
-      expect(AppTheme.parseHexColor('nothex'), isNull);
-      expect(AppTheme.parseHexColor('#12345'), isNull); // wrong length
-    });
+    test(
+      'parseHexColor handles #RRGGBB, RRGGBB, #AARRGGBB; null on empty/invalid',
+      () {
+        expect(AppTheme.parseHexColor('#FF0000'), const Color(0xFFFF0000));
+        expect(AppTheme.parseHexColor('00FF00'), const Color(0xFF00FF00));
+        expect(AppTheme.parseHexColor('#CC1565C0'), const Color(0xCC1565C0));
+        expect(AppTheme.parseHexColor(''), isNull);
+        expect(AppTheme.parseHexColor('   '), isNull);
+        expect(AppTheme.parseHexColor('nothex'), isNull);
+        expect(AppTheme.parseHexColor('#12345'), isNull); // wrong length
+      },
+    );
   });
 }

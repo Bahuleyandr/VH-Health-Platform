@@ -181,7 +181,8 @@ class VoiceDictationService {
     // file) is used so the shared client can re-read the audio on a 401-retry —
     // a MultipartFile stream is single-use.
     final fields = <String, String>{
-      if (patientUid != null && patientUid.isNotEmpty) 'patient_uid': patientUid,
+      if (patientUid != null && patientUid.isNotEmpty)
+        'patient_uid': patientUid,
       if (admissionId != null) 'admission_id': admissionId.toString(),
       if (language != null && language.isNotEmpty) 'language': language,
     };

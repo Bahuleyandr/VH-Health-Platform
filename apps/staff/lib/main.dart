@@ -325,8 +325,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
           fatal: false,
         );
       }
-    } else if (!kIsWeb &&
-        (Platform.isLinux || Platform.isMacOS)) {
+    } else if (!kIsWeb && (Platform.isLinux || Platform.isMacOS)) {
       // Known, accepted gap: no native capture exclusion implemented for
       // Linux/macOS desktop yet. Surface it rather than failing silently.
       debugPrint(

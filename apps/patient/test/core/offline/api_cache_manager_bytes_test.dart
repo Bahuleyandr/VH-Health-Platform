@@ -93,16 +93,18 @@ void main() {
       expect(found, isFalse, reason: 'plaintext leaked into ciphertext');
     });
 
-    test('uses a fresh random IV each time (same input → different output)',
-        () async {
-      final plain = Uint8List.fromList(List<int>.filled(256, 42));
-      final a = await ApiCacheManager.encryptBytes(plain);
-      final b = await ApiCacheManager.encryptBytes(plain);
-      expect(a, isNot(equals(b)));
-      // But both still decrypt back to the same plaintext.
-      expect(await ApiCacheManager.decryptBytes(a), equals(plain));
-      expect(await ApiCacheManager.decryptBytes(b), equals(plain));
-    });
+    test(
+      'uses a fresh random IV each time (same input → different output)',
+      () async {
+        final plain = Uint8List.fromList(List<int>.filled(256, 42));
+        final a = await ApiCacheManager.encryptBytes(plain);
+        final b = await ApiCacheManager.encryptBytes(plain);
+        expect(a, isNot(equals(b)));
+        // But both still decrypt back to the same plaintext.
+        expect(await ApiCacheManager.decryptBytes(a), equals(plain));
+        expect(await ApiCacheManager.decryptBytes(b), equals(plain));
+      },
+    );
 
     test('tampered ciphertext fails GCM authentication', () async {
       final plain = Uint8List.fromList(List<int>.generate(128, (i) => i));
@@ -112,10 +114,7 @@ void main() {
       final tampered = Uint8List.fromList(encrypted);
       tampered[tampered.length - 1] = tampered[tampered.length - 1] ^ 0x01;
 
-      expect(
-        () => ApiCacheManager.decryptBytes(tampered),
-        throwsA(anything),
-      );
+      expect(() => ApiCacheManager.decryptBytes(tampered), throwsA(anything));
     });
 
     test('truncated payload (no room for IV) is rejected', () async {

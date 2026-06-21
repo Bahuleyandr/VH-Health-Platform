@@ -43,7 +43,10 @@ void main() {
   tearDown(() {
     // Detach the mock handler and restore production defaults.
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(DeviceIntegrityService.integrityChannel, null);
+        .setMockMethodCallHandler(
+          DeviceIntegrityService.integrityChannel,
+          null,
+        );
     DeviceIntegrityService.resetForTesting();
   });
 
