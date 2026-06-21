@@ -1,9 +1,16 @@
 // src/app/api/proxy/[...path]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { API_BASE_URL } from "@/lib/api-config";
+import { getVerifiedTokenRole, isSuperAdminRole } from "@/lib/serverTokenRole";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+// W5 S4: a tenant override may only ever come from the server-set acting_tenant
+// cookie of a verified SUPER_ADMIN — never a raw client header.
+const TENANT_OVERRIDE_HEADERS = new Set(["x-tenant-id", "x-tenant-override-reason"]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MIN_OVERRIDE_REASON_LEN = 8;
 
 // Allowed API path prefixes — all other paths are rejected.
 // This prevents the proxy from being used to reach arbitrary backend endpoints.
@@ -98,6 +105,9 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
     if (k === "host") return;
     // The proxy may normalize or omit the body, so let fetch compute this.
     if (k === "content-length") return;
+    // W5 S4: never forward a client-supplied tenant override. These are
+    // re-attached server-side (below) ONLY for a verified SUPER_ADMIN acting-as.
+    if (TENANT_OVERRIDE_HEADERS.has(k)) return;
     out[key] = value;
   });
   return out;
@@ -226,6 +236,29 @@ async function handleProxy(req: NextRequest) {
   // another (Cloudflare Tunnel in prod, Tailscale serve in dev), so it's
   // safe + correct to assert this for all server-to-server calls.
   headers["x-forwarded-proto"] = "https";
+
+  // W5 S4: SUPER_ADMIN acting-as-tenant. If the server-set acting_tenant cookie
+  // is present AND the bearer is a signature-verified SUPER_ADMIN, translate it
+  // into the backend's audited x-tenant-id override. The role check is the trust
+  // boundary: a non-super (or forged) token never gets a tenant header attached,
+  // and the client could not have set one itself (stripped above). The backend
+  // independently re-gates the override on SUPER_ADMIN + reason and audits it.
+  const actingRaw = req.cookies.get("acting_tenant")?.value;
+  if (actingRaw) {
+    const role = await getVerifiedTokenRole(token);
+    if (isSuperAdminRole(role)) {
+      try {
+        const acting = JSON.parse(actingRaw) as { id?: string; reason?: string };
+        const reason = typeof acting.reason === "string" ? acting.reason : "";
+        if (acting.id && UUID_RE.test(acting.id) && reason.length >= MIN_OVERRIDE_REASON_LEN) {
+          headers["x-tenant-id"] = acting.id;
+          headers["x-tenant-override-reason"] = reason;
+        }
+      } catch {
+        /* malformed acting_tenant cookie → no override */
+      }
+    }
+  }
 
   const init: RequestInit = { method, headers };
 

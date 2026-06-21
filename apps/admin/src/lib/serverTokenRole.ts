@@ -5,8 +5,10 @@
 // client claim. Fails closed (null) when JWT_SECRET is unset in production.
 //
 // Mirrors middleware.ts's verifyToken, but returns the role for authorization
-// decisions in node-runtime route handlers.
-import { jwtVerify } from "jose/jwt/verify";
+// decisions in node-runtime route handlers. jose ships ESM-only; it is imported
+// DYNAMICALLY inside the verify path so this module loads cleanly under jest
+// (which doesn't transform jose) — jose is only pulled in when a token is
+// actually verified at runtime (Next's node runtime handles ESM fine).
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const secretKey = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
@@ -18,6 +20,7 @@ export async function getVerifiedTokenRole(
 
   if (secretKey) {
     try {
+      const { jwtVerify } = await import("jose/jwt/verify");
       const { payload } = await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
         clockTolerance: 30,
