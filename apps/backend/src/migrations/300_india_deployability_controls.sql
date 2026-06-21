@@ -49,7 +49,7 @@ WITH activity_rows (
       3650,
       'Hospital medico-legal retention schedule; counsel to approve per facility.',
       'Tenant RLS, audit logging, access controls, encrypted backup, least-privilege roles',
-      'medical_care',
+      'legitimate_interests',
       true,
       '{"baseline":"india_deployability_2026_06_12"}'::jsonb
     ),
@@ -117,7 +117,7 @@ WITH activity_rows (
       3650,
       'Drugs and Cosmetics/pharmacy audit schedule; pharmacist/counsel to approve.',
       'Tenant RLS, batch/expiry tracking, supplier license fields, audit logs',
-      'medical_care',
+      'legitimate_interests',
       true,
       '{"baseline":"india_deployability_2026_06_12"}'::jsonb
     ),
@@ -134,7 +134,7 @@ WITH activity_rows (
       365,
       'At least 180 days security log retention for CERT-In readiness; hospital may require longer.',
       'Hash chain, PHI redaction, SIEM archive, privileged access review',
-      'security',
+      'legitimate_interests',
       true,
       '{"baseline":"india_deployability_2026_06_12","minimum_security_log_days":180}'::jsonb
     )
