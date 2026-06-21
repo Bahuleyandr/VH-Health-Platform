@@ -1,9 +1,18 @@
 name: Dependency Review
 
-# Phase-3 hardening (2026-06-10 remediation plan): blocks PRs that introduce
-# dependencies with known HIGH/CRITICAL vulnerabilities. Complements the
-# blocking `npm audit` in the Forgejo security sweep — this gate runs on the
-# GitHub merge path itself.
+# Phase-3 hardening (2026-06-10 remediation plan): reviews PRs for dependencies
+# with known HIGH/CRITICAL vulnerabilities. Complements the blocking `npm audit`
+# in the Forgejo security sweep.
+#
+# ADVISORY (2026-06-21): actions/dependency-review-action needs GitHub's
+# Dependency Graph, which is currently DISABLED on this repo, so the action
+# hard-errors ("Dependency review is not supported on this repository") on every
+# PR — it has failed on every PR since this workflow was added. `main` has no
+# required-status-check protection, so this gate blocks nothing today regardless.
+# The step is marked continue-on-error so it still runs + comments but does not
+# turn every PR red. To restore the real blocking gate: enable the Dependency
+# Graph (Settings -> Code security and analysis -> Dependency graph) and delete
+# the `continue-on-error` line below.
 
 on:
   pull_request:
@@ -20,8 +29,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Dependency review (blocking on high severity)
+      - name: Dependency review (advisory until Dependency Graph is enabled)
         uses: actions/dependency-review-action@v4
+        continue-on-error: true
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
