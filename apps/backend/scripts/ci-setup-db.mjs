@@ -235,5 +235,30 @@ if (skipSeeds) {
   }
 }
 
+// Provision the non-owner RLS test roles the *-deep RLS-posture suites
+// SET LOCAL ROLE into (audit-append-only, tenant-rls-phase-2, tenant-rls-phi-
+// routes, the cross-tenant journey). Needs superuser (CREATE ROLE / ALTER
+// DEFAULT PRIVILEGES) so skip gracefully where the connection lacks it —
+// qa-cluster-up runs ci-setup-db as the non-superuser qa_writer and provisions
+// these roles itself beforehand. Without this, every CI setup that runs
+// ci-setup-db directly as a superuser (the ci-backend.yml Postgres-service job,
+// smoke-e2e, the docker guardrails) would leave the roles absent/ungranted and
+// the RLS-posture suites fail with `42501 permission denied for table
+// clinical_audit_events`.
+try {
+  const { rows: su } = await client.query(
+    'SELECT rolsuper FROM pg_roles WHERE rolname = current_user'
+  );
+  if (su[0]?.rolsuper) {
+    const { provisionRlsTestRoles } = await import('./provision-rls-test-roles.mjs');
+    await provisionRlsTestRoles({ connectionString: DATABASE_URL });
+    logger.info('→ RLS test roles provisioned.\n');
+  } else {
+    logger.info('→ RLS test-role provisioning skipped (connection is not a superuser).\n');
+  }
+} catch (err) {
+  logger.info(`  ! RLS test-role provisioning failed (non-fatal): ${err.message}\n`);
+}
+
 await client.end();
 logger.info('CI DB setup complete.');
