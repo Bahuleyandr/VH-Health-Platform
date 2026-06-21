@@ -23,13 +23,14 @@
 
 > Lower priority (spec): each per-tenant build is already a separate app sandbox, so cross-tenant bleed is not a live vector. It touches PERSISTED on-device data, so the NO-OP (default tenant keeps today's exact keys — must not orphan users' queued data) needs device verification. Recommended approach:
 
-- [ ] In `services/offline_queue.dart` (+ any non-secret cache in `VHSecureStorage`), derive the storage key via `TenantConfig.isDefaultTenant ? key : 't:${TenantConfig.cacheNamespace}:$key'` — default tenant ⇒ bare key (NO-OP, no orphaning); a stamped build is a fresh sandbox ⇒ namespaced from first run.
-- [ ] Do NOT tenant-key the auth/JWT keys (a per-tenant build holds one tenant's user; re-keying risks logging users out on upgrade).
-- [ ] `dart test` for the keying (default key unchanged; stamped key namespaced) + a manual device check that an existing install's queued items still load after upgrade.
+- [x] `services/offline_queue.dart` namespaces the SQLite file (`offline_queue_<slug>.db`) + the AES key name by `TenantConfig` — default tenant ⇒ original names (NO-OP, no orphaning); a stamped build is a fresh sandbox. (Commit `42269348`.)
+- [x] Did NOT tenant-key the auth/JWT keys (a per-tenant build holds one tenant's user).
+- [x] `dart test` green (default DB filename unchanged). **Still recommended before shipping a 2nd tenant: a manual device check that an existing install's queued items load after upgrade** (the default-tenant path is NO-OP so this should hold, but verify on a device).
+- Note: the patient app's `ApiCacheManager` (apps/patient) mirrors this queue and is a parallel namespacing candidate — app-specific, follow-up.
 
-## T3 — Per-tenant theme seed (minimal) — DEFERRED (optional)
+## T3 — Per-tenant theme seed (minimal) — ✅ DONE (commit `42269348`)
 
-- [ ] `app_theme.dart`: accept an optional seed colour from `TenantConfig.primaryColorHex` (default ⇒ current palette). Wire into the Material 3 `ColorScheme.fromSeed`. Optional; ship the hook even if not every screen consumes it.
+- [x] `app_theme.dart`: `seedColor` derives the Material 3 `ColorScheme.fromSeed` seed from `VH_TENANT_PRIMARY` (testable `parseHexColor`); default ⇒ brand colour (NO-OP). App bar/buttons follow the tenant seed.
 
 ## T4 — Per-tenant build/release + Firebase — DEFERRED (operator / product; needs the user)
 
