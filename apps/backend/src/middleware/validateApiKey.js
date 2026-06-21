@@ -1,7 +1,7 @@
 // src/middleware/validateApiKey.js
 import crypto from 'crypto';
 import logger from '../logging/logger.js';
-import apiClientService from '../services/auth/apiClientService.js';
+import { authenticateByApiKeyGlobal } from '../services/auth/apiClientService.js';
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -61,7 +61,7 @@ export default async function validateApiKey(req, res, next) {
   // 1) DB-backed per-tenant key (global lookup on the unique key_hash). A DB
   //    error must never block auth — fall through to the env registry.
   try {
-    const dbClient = await apiClientService.authenticateByApiKeyGlobal({
+    const dbClient = await authenticateByApiKeyGlobal({
       plaintext: clientApiKey,
       ipAddress: req.ip,
     });

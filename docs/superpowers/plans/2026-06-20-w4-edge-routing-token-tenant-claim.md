@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-20-w4-edge-routing-token-tenant-claim-design.md`
 
+**Status:** ✅ COMPLETE (2026-06-21). All tasks C1–C5 implemented + committed (`f2e8875a`, `626989d9`, `87b4189a`, `20bbfbd8`, `577aa5ad`, fix `6b7778d4`); full chunked-as-postgres gate GREEN ("All chunks passed", 87 chunks). HOLD (not pushed). Residual: `npx prisma generate` to refresh the local `admins` client (`tenant_id` is in schema.prisma but the generated client was stale; W4 code uses raw-SQL resolvers so it's unaffected; CI regenerates on install).
+
 ---
 
 ## Conventions (apply to every task)

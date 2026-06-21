@@ -254,8 +254,6 @@ export function requireTenantId(tenantId) {
   throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
 }
 
-const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /**
  * Resolve the tenant a *pre-auth* request belongs to, BEFORE any user
  * identity is looked up.

@@ -5,7 +5,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma.js';
-import AuthService from '../services/auth/authService.js';
+import { AuthService } from '../services/auth/authService.js';
 
 const TENANT_A = 'a5c5a5c5-a5c5-4a5a-8a5a-a5c5a5c5a501';
 const SFX = String(Date.now() % 100000).padStart(5, '0');

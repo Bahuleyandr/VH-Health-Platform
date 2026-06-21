@@ -1,7 +1,7 @@
 # W4 — Edge routing & token tenant claim (design)
 
 - **Date:** 2026-06-20 · **Wave:** 4 of the [multi-tenancy program](2026-06-19-multi-tenancy-program-design.md).
-- **Status:** Design — approved shape (Host-derived trust; client `x-tenant-*` untrusted; token cross-check; backend-now / wildcard-infra-HELD). Ready for an implementation plan.
+- **Status:** ✅ IMPLEMENTED + GATED (2026-06-21). C1–C5 done; full chunked-as-postgres gate GREEN on the QA DB ("All chunks passed", 691 files / 87 chunks, 0 fail). Host-derived trust; client `x-tenant-*` untrusted; Host↔token cross-check (`TENANT_HOST_TOKEN_MISMATCH`); every login path mints the right `tenant_id` (incl. the admins-realm resolver fix). Wildcard subdomain DNS/TLS = operator/HELD (W7). Branch `feat/multi-tenancy-program`, HOLD (not pushed).
 - **Branch:** `feat/multi-tenancy-program` (HOLD — not pushed). Builds on W1 (fail-closed resolution), W2 (schema), W3 (per-tenant secrets/state).
 - **Depends on:** W1 (a reliable resolved tenant). Coordinates with W7 (the wildcard subdomain DNS/TLS + Cloudflare routing is operator/HELD, spec'd here, flipped on at onboarding).
 
