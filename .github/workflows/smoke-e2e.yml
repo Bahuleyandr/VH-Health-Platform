@@ -49,6 +49,15 @@ jobs:
       BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
       REQUIRE_MFA_FOR_SUPER_ADMIN: 'false'
       VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+      # Single-tenant smoke: the W1 tenant-context middleware fails CLOSED
+      # (403 TENANT_CONTEXT_REQUIRED) for any authenticated request that
+      # resolves no tenant unless this is set. The backend here runs via
+      # `node src/bin/www.js` — NOT jest — so jest.setup.cjs's
+      # `ALLOW_DEFAULT_TENANT ||= 'true'` does not apply, and the seeded admin
+      # has no tenant binding. Without this every /api/v1/admin/* call 403s and
+      # the admin route-crawl times out. Mirrors the default-tenant production
+      # config (flip to 'false' only after per-tenant subdomain cutover).
+      ALLOW_DEFAULT_TENANT: 'true'
       NODE_ENV: test
       PORT: '5206'
       BACKEND_URL: http://127.0.0.1:5206
@@ -110,6 +119,21 @@ jobs:
           node scripts/ci-setup-db.mjs
           node scripts/check-schema-drift.mjs
           npm run ci:db-guardrails
+
+      - name: Enroll SUPER_ADMIN TOTP for the route-crawl (real 2FA)
+        working-directory: apps/backend
+        # The admin route-crawl (e2e/route-crawl.spec.ts) visits SUPER_ADMIN-only
+        # pages (/dashboard/admin-management → /auth/admin/list), so it must auth
+        # as SUPER_ADMIN — but the 2026-06-18 audit's requireSuperAdminStepUp gate
+        # 403s a SUPER_ADMIN without a 2FA-verified (mfa:true) session on sensitive
+        # namespaces (incl. the admin dashboard loaded on every page). Enroll a
+        # known TOTP secret on the seeded `admin` so auth.setup.ts can complete the
+        # REAL 2FA challenge and obtain an mfa:true session that satisfies BOTH the
+        # step-up gate and the super-admin-only RBAC. The plaintext secret is
+        # exported (run-scoped) for the Playwright step to generate codes. Smoke DB.
+        run: |
+          SECRET="$(node scripts/seed-smoke-admin-totp.mjs)"
+          echo "PLAYWRIGHT_ADMIN_TOTP_SECRET=$SECRET" >> "$GITHUB_ENV"
 
       - name: Start backend
         working-directory: apps/backend

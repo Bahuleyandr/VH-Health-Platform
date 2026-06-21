@@ -353,6 +353,12 @@ class ABDMService {
       const verifier = crypto.createVerify('RSA-SHA256');
       verifier.update(payload);
       verifier.end();
+      // This is a Node crypto `Verify` object — the algorithm is already pinned
+      // at createVerify('RSA-SHA256') above, and the arg order here is the crypto
+      // Verify.verify(publicKey, signature) shape, NOT jwt.verify(token, secret).
+      // There is no algorithm-confusion surface and crypto Verify has no
+      // `algorithms` option, so the jwt allowlist rule is a false positive here.
+      // nosemgrep: vh-jwt-no-alg-allowlist
       verified = verifier.verify(publicKey, Buffer.from(String(signature), 'base64'));
     } catch (err) {
       logger.error('ABDM consent-artefact signature verification error', {
