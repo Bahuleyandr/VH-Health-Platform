@@ -224,10 +224,10 @@ describe('AuthService.adminLogin', () => {
 describe('AuthService.verifyOtp', () => {
   it('creates a new user on first login (upsert) and sets isNewUser true', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    // First findUnique — no existing user
-    mockPrisma.users.findUnique.mockResolvedValue(null);
-    // upsert returns the newly created user
-    mockPrisma.users.upsert.mockResolvedValue({
+    // No existing user (findFirst — phone is unique per-tenant now, mig 333)
+    mockPrisma.users.findFirst.mockResolvedValue(null);
+    // create returns the newly created user
+    mockPrisma.users.create.mockResolvedValue({
       uid: 'new-uid',
       id: 1,
       name: null,
@@ -237,10 +237,9 @@ describe('AuthService.verifyOtp', () => {
 
     const result = await AuthService.verifyOtp('9876543210', '123456', {});
 
-    expect(mockPrisma.users.upsert).toHaveBeenCalledWith(
+    expect(mockPrisma.users.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { phone: '+919876543210' },
-        create: expect.objectContaining({ phone: '+919876543210', role: 'PATIENT' }),
+        data: expect.objectContaining({ phone: '+919876543210', role: 'PATIENT' }),
       })
     );
     expect(result.user.isNewUser).toBe(true);
@@ -249,8 +248,8 @@ describe('AuthService.verifyOtp', () => {
 
   it('returns isNewUser false for existing user', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    mockPrisma.users.findUnique.mockResolvedValue({ uid: 'existing-uid' });
-    mockPrisma.users.upsert.mockResolvedValue({
+    mockPrisma.users.findFirst.mockResolvedValue({ uid: 'existing-uid' });
+    mockPrisma.users.update.mockResolvedValue({
       uid: 'existing-uid',
       id: 2,
       name: 'Bob',

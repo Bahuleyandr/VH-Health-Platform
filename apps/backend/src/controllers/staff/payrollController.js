@@ -269,29 +269,37 @@ export const runPayroll = async (req, res) => {
     // collapses the prior SELECT+INSERT-or-UPDATE dance into one atomic
     // call, which also closes a tiny race where two admins hitting
     // runPayroll simultaneously could have both inserted.
-    const existing = await prisma.payroll_runs.findUnique({
-      where: { month_year: { month, year } },
+    // (month, year) is unique per-tenant now (mig 330: @@unique([tenant_id,
+    // month, year])), so findUnique/upsert keyed on (month, year) alone are
+    // invalid. findFirst to locate, then update-by-id or create. The DB's
+    // per-tenant unique still guards against a concurrent double-insert.
+    const existing = await prisma.payroll_runs.findFirst({
+      where: { month, year },
       select: { id: true, status: true },
     });
     if (existing?.status === 'locked') {
       return error(res, 'Payroll for this month is locked and cannot be rerun', HTTP_STATUS.FORBIDDEN);
     }
-    const run = await prisma.payroll_runs.upsert({
-      where: { month_year: { month, year } },
-      create: {
-        month,
-        year,
-        status: 'processing',
-        generated_by: adminUid,
-        generated_at: new Date(),
-      },
-      update: {
-        status: 'processing',
-        generated_by: adminUid,
-        generated_at: new Date(),
-      },
-      select: { id: true },
-    });
+    const run = existing
+      ? await prisma.payroll_runs.update({
+          where: { id: existing.id },
+          data: {
+            status: 'processing',
+            generated_by: adminUid,
+            generated_at: new Date(),
+          },
+          select: { id: true },
+        })
+      : await prisma.payroll_runs.create({
+          data: {
+            month,
+            year,
+            status: 'processing',
+            generated_by: adminUid,
+            generated_at: new Date(),
+          },
+          select: { id: true },
+        });
     const runId = run.id;
 
     // Get all staff with salary config
@@ -494,11 +502,13 @@ export const issuePayslips = async (req, res) => {
       data: { status: 'issued', issued_at: new Date() },
     });
 
-    // Lock the run
-    await prisma.payroll_runs.update({
-      where: { month_year: { month, year } },
+    // Lock the run. (month, year) is unique per-tenant now (mig 330), so the
+    // singular update keyed on (month, year) is invalid; updateMany accepts the
+    // non-unique filter and is naturally tenant-scoped under RLS. The returned
+    // row isn't used here.
+    await prisma.payroll_runs.updateMany({
+      where: { month, year },
       data: { status: 'locked' },
-      select: { id: true },
     });
 
     // ─── FEATURE 8: Send notifications to staff ──────────────────────────

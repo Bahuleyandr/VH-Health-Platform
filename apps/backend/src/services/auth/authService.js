@@ -76,7 +76,9 @@ export class AuthService {
     try {
       const normalizedPhone = normalizePhone(phone);
 
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333: @@unique([tenant_id, phone])),
+      // so findUnique on phone alone is invalid — use findFirst.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true, name: true, role: true },
       });
@@ -110,25 +112,31 @@ export class AuthService {
       }
 
       // Check if user already exists to determine isNewUser
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333: @@unique([tenant_id, phone])),
+      // so findUnique/upsert keyed on phone alone are invalid. Look up with
+      // findFirst, then update-by-uid (atomic) or create a new patient.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true },
       });
       const isNewUser = !existingUser;
       const now = new Date();
 
-      // Upsert: create if new, update last_login if existing
-      const user = await prisma.users.upsert({
-        where: { phone: normalizedPhone },
-        create: {
-          phone: normalizedPhone,
-          role: 'PATIENT',
-          registered_at: now,
-          updated_at: now,
-        },
-        update: { updated_at: now },
-        select: { uid: true, id: true, name: true, phone: true, role: true },
-      });
+      const user = existingUser
+        ? await prisma.users.update({
+            where: { uid: existingUser.uid },
+            data: { updated_at: now },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          })
+        : await prisma.users.create({
+            data: {
+              phone: normalizedPhone,
+              role: 'PATIENT',
+              registered_at: now,
+              updated_at: now,
+            },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          });
 
       if (isNewUser) {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
@@ -576,9 +584,13 @@ export class AuthService {
   /* ========================= Staff Auth (PIN) ========================= */
   static async staffLogin(employeeId, pin) {
     try {
-      const staff = await prisma.staff.findUnique({
+      // employee_id is unique per-tenant now (mig 330: @@unique([tenant_id,
+      // employee_id])); findUnique on it alone is invalid — use findFirst and
+      // update by the unique id below.
+      const staff = await prisma.staff.findFirst({
         where: { employee_id: employeeId },
         select: {
+          id: true,
           uid: true,
           employee_id: true,
           pin_hash: true,
@@ -605,7 +617,7 @@ export class AuthService {
       });
 
       await prisma.staff.update({
-        where: { employee_id: employeeId },
+        where: { id: staff.id },
         data: { last_login: new Date() },
       });
 
@@ -649,7 +661,8 @@ export class AuthService {
 
   static async resetStaffPin(employeeId, newPin, adminId) {
     try {
-      const staff = await prisma.staff.findUnique({
+      // employee_id is unique per-tenant now (mig 330); use findFirst.
+      const staff = await prisma.staff.findFirst({
         where: { employee_id: employeeId },
         select: { id: true },
       });
@@ -1015,7 +1028,9 @@ export class AuthService {
   static async getUserByPhone(phone) {
     try {
       const normalizedPhone = normalizePhone(phone);
-      const user = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333); findUnique on phone alone is
+      // invalid — use findFirst.
+      const user = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true, id: true, phone: true, name: true, role: true },
       });
@@ -1054,7 +1069,8 @@ export class AuthService {
       this._assertLegacyPhoneAuthAllowed('registration');
       const normalizedPhone = normalizePhone(phone);
 
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333); use findFirst.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true },
       });
@@ -1258,24 +1274,30 @@ export class AuthService {
         throw err;
       }
 
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333); see verifyOtp. findFirst +
+      // update-by-uid / create instead of the now-invalid phone-keyed upsert.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true },
       });
       const isNewUser = !existingUser;
       const now = new Date();
 
-      const user = await prisma.users.upsert({
-        where: { phone: normalizedPhone },
-        create: {
-          phone: normalizedPhone,
-          role: 'PATIENT',
-          registered_at: now,
-          updated_at: now,
-        },
-        update: { updated_at: now },
-        select: { uid: true, id: true, name: true, phone: true, role: true },
-      });
+      const user = existingUser
+        ? await prisma.users.update({
+            where: { uid: existingUser.uid },
+            data: { updated_at: now },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          })
+        : await prisma.users.create({
+            data: {
+              phone: normalizedPhone,
+              role: 'PATIENT',
+              registered_at: now,
+              updated_at: now,
+            },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          });
 
       if (isNewUser) {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
