@@ -7,7 +7,15 @@
 'use client';
 
 import { PageErrorBoundary } from '@/components/PageErrorBoundary';
+import { TenantProvider } from '@/contexts/TenantContext';
 
 export default function WithAuthLayout({ children }: { children: React.ReactNode }) {
-  return <PageErrorBoundary>{children}</PageErrorBoundary>;
+  // TenantProvider fetches the caller's tenant branding once, post-auth, so the
+  // dashboard chrome can brand itself (W5 S2). Scoped here (not in the root
+  // <Providers>) so the login page never fires the authenticated request.
+  return (
+    <PageErrorBoundary>
+      <TenantProvider>{children}</TenantProvider>
+    </PageErrorBoundary>
+  );
 }

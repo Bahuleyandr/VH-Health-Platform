@@ -13,6 +13,7 @@ import { MenuIcon } from '@/components/icons';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useIdleTimeout } from '@/hooks/useIdleTimeout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTenant } from '@/contexts/TenantContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
 import { ROLE_RANK } from '@/lib/routePolicy';
 import styles from './Dashboard.module.css';
@@ -75,6 +76,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
   const { logout } = useAuth();
+
+  // W5 S2: brand the chrome from the tenant's settings.branding; fall back to
+  // the product name when unbranded / still loading (NO-OP for the default tenant).
+  const { tenant } = useTenant();
+  const brandName = tenant?.branding?.name || 'VH Admin Portal';
+  const brandLogo = tenant?.branding?.logoUrl || null;
 
   // Auto-logout after 30 minutes of inactivity
   useIdleTimeout(30 * 60 * 1000);
@@ -154,7 +161,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           className={styles.sidebar}
         >
           <div key="sidebar-header" className={styles.sidebarHeader}>
-            <h1 className={styles.sidebarTitle}>VH Admin Portal</h1>
+            <h1 className={styles.sidebarTitle}>
+              {brandLogo && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={brandLogo}
+                  alt=""
+                  style={{ maxHeight: 24, marginRight: 8, verticalAlign: 'middle', display: 'inline-block' }}
+                />
+              )}
+              {brandName}
+            </h1>
           </div>
           <nav key="desktop-nav" className={styles.nav}>
             {visibleNav.map((item) => {
@@ -191,7 +208,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               className={styles.mobileDrawer}
             >
               <div key="mobile-header" className={styles.mobileHeader}>
-                <span key="mobile-title" className={styles.sidebarTitle}>VH Admin Portal</span>
+                <span key="mobile-title" className={styles.sidebarTitle}>{brandName}</span>
                 <button
                   key="mobile-close"
                   type="button"
