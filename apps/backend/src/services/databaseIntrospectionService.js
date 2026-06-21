@@ -157,7 +157,12 @@ export async function getTableDetail(tableName) {
       tableName
     ),
     prisma.$queryRawUnsafe(
-      `SELECT conname AS name, contype AS type, pg_get_constraintdef(oid) AS definition
+      // contype is Postgres's internal "char" type (oid 18); Prisma's raw-query
+      // deserializer cannot map it and throws "Failed to deserialize column of
+      // type 'char'", which 500'd the admin DB browser on EVERY table. Cast to
+      // text so a supported type comes back. (confupdtype/confdeltype/etc. are
+      // also "char" but are not selected here.)
+      `SELECT conname AS name, contype::text AS type, pg_get_constraintdef(oid) AS definition
          FROM pg_constraint
         WHERE connamespace = 'public'::regnamespace
           AND conrelid = $1::regclass
