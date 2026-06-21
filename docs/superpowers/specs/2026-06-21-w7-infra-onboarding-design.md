@@ -1,7 +1,7 @@
 # W7 — Infra & tenant onboarding (design)
 
 - **Date:** 2026-06-21 · **Wave:** 7 of the [multi-tenancy program](2026-06-19-multi-tenancy-program-design.md).
-- **Status:** Design — the operator/infra wave. Grounds the W4 "wildcard DNS/TLS = operator/HELD" piece + a repeatable onboarding. **Execution is operator-led** (cluster + Cloudflare access + signing/Firebase). Code-side deps (W1–W6) are done.
+- **Status:** 🛠 DESIGNED + SCAFFOLDED (2026-06-21). The code/manifest artifacts are written + locally verified; only operator EXECUTION (apply to cluster + Cloudflare DNS/ACM + signing/Firebase) remains. Done: **Part-A** wildcard manifests (`cloudflared.yaml` + backend/admin `ingress.yaml`, `17ac5868`, kubectl-kustomize-validated, INERT until DNS/ACM) · **Part-B** `apps/backend/scripts/onboard-tenant.mjs` orchestrator (`3fe156d8`, idempotent, verified against the QA DB) · build helper `scripts/build-tenant-client.sh` (`8176854f`). Firebase decision RESOLVED by the user: **one shared project now → per-tenant per-build later.**
 - **Branch:** `feat/multi-tenancy-program` (HOLD). **Depends on:** W3 (secrets), W4 (Host-derived routing), W5 (admin tenant CRUD), W6 (per-tenant client stamp).
 - **Companion runbook:** [`docs/TENANT_ONBOARDING_RUNBOOK.md`](../../TENANT_ONBOARDING_RUNBOOK.md) (the step-by-step).
 
