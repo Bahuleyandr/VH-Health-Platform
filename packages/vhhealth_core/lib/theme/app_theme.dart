@@ -1,10 +1,31 @@
 import 'package:flutter/material.dart';
 
+import '../config/tenant_config.dart';
+
 class AppTheme {
   static const Color primaryColor = Color(0xFF007A64);
   static const Color backgroundColor = Color(0xFFE0F5F6);
   static const Color onPrimaryColor = Colors.white;
   static const Color errorColor = Colors.redAccent;
+
+  /// W6 T3 — per-tenant seed colour for the Material 3 ColorScheme. A stamped
+  /// build sets `--dart-define=VH_TENANT_PRIMARY=#RRGGBB`; an unstamped (default)
+  /// build falls back to the brand [primaryColor] (NO-OP). Only the SEED is
+  /// tenant-driven — the colour scheme (app bar, buttons via colorScheme.primary)
+  /// follows it; the legacy const accents stay on the brand colour.
+  static Color get seedColor => parseHexColor(TenantConfig.primaryColorHex) ?? primaryColor;
+
+  /// Parse `#RRGGBB` / `RRGGBB` / `#AARRGGBB` into a [Color]; null if empty/invalid.
+  @visibleForTesting
+  static Color? parseHexColor(String hex) {
+    var h = hex.trim();
+    if (h.isEmpty) return null;
+    if (h.startsWith('#')) h = h.substring(1);
+    if (h.length == 6) h = 'FF$h';
+    if (h.length != 8) return null;
+    final value = int.tryParse(h, radix: 16);
+    return value == null ? null : Color(value);
+  }
 
   static const Color surfaceColor = Colors.white;
   static const Color onSurfaceColor = Colors.black87;
@@ -16,7 +37,7 @@ class AppTheme {
   static ThemeData getLightTheme(double baseFontSize) {
     final colorScheme =
         ColorScheme.fromSeed(
-          seedColor: primaryColor,
+          seedColor: seedColor,
           brightness: Brightness.light,
         ).copyWith(
           surface: surfaceColor,
@@ -184,7 +205,7 @@ class AppTheme {
   static ThemeData getDarkTheme(double baseFontSize) {
     final colorScheme =
         ColorScheme.fromSeed(
-          seedColor: primaryColor,
+          seedColor: seedColor,
           brightness: Brightness.dark,
         ).copyWith(
           surface: darkSurfaceColor,

@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../config/tenant_config.dart';
 import 'auth_service.dart';
 import 'idempotency_key.dart';
 import 'secure_storage.dart';
@@ -34,7 +34,22 @@ class OfflineQueue {
   // ── At-rest encryption (AES-256-GCM) ──────────────────────────────────
   // Mirrors apps/patient ApiCacheManager: a 256-bit key minted once and kept
   // in the shared secure store, ciphertext serialised as `iv:ciphertext`.
-  static const String _keyName = 'offline_queue_aes_key';
+  //
+  // W6 T2 (defense-in-depth): the DB file + the AES key name are namespaced by
+  // the build's tenant. Each per-tenant build is already a separate app sandbox,
+  // so this is belt-and-suspenders, not the primary isolation. The DEFAULT
+  // (unstamped) build keeps the original names verbatim — a strict NO-OP so an
+  // existing install never orphans its queued (encrypted) PHI.
+  static String get _keyName => TenantConfig.isDefaultTenant
+      ? 'offline_queue_aes_key'
+      : 'offline_queue_aes_key_${TenantConfig.cacheNamespace}';
+
+  /// SQLite filename, tenant-namespaced for stamped builds (default ⇒ unchanged).
+  @visibleForTesting
+  static String get dbFileName => TenantConfig.isDefaultTenant
+      ? 'offline_queue.db'
+      : 'offline_queue_${TenantConfig.cacheNamespace}.db';
+
   static encrypt.Key? _aesKey;
 
   /// Retrieve or generate the 256-bit AES key from secure storage.
@@ -105,7 +120,7 @@ class OfflineQueue {
   static Future<Database> _initDb() async {
     final dbPath = await getDatabasesPath();
     return openDatabase(
-      join(dbPath, 'offline_queue.db'),
+      join(dbPath, dbFileName),
       version: 4,
       onCreate: (db, version) async {
         await db.execute('''
