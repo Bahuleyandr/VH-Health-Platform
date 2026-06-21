@@ -212,8 +212,8 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
   it('SEC-5/W4: honours the per-tenant subdomain (SaaS path)', async () => {
     const SAAS_TENANT = '55555555-5555-4555-8555-555555555555';
     const req = {
-      // W4: the tenant comes from the Host subdomain, not a client header.
-      hostname: 'saas.localhost',
+      // W4: the tenant comes from the Host subdomain (flat <slug>-api), not a header.
+      hostname: 'saas-api.localhost',
       headers: { 'user-agent': 'jest' },
       connection: { remoteAddress: '127.0.0.1' },
     };

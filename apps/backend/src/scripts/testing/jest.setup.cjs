@@ -41,7 +41,9 @@ if (!process.env.FIELD_ENCRYPTION_MASTER_KEK || process.env.FIELD_ENCRYPTION_MAS
 }
 // W4: base host(s) the per-tenant subdomains sit under (Host-derived tenant).
 if (!process.env.TENANT_BASE_HOST) {
-  process.env.TENANT_BASE_HOST = 'localhost,api.vhhealth.app';
+  // Flat per-tenant host model: tenant API hosts are <slug>-api.<base>, so the
+  // base host is the apex (vhhealth.app), NOT api.vhhealth.app.
+  process.env.TENANT_BASE_HOST = 'localhost,vhhealth.app';
 }
 if (!process.env.TOTP_ENCRYPTION_KEY || process.env.TOTP_ENCRYPTION_KEY.length < 32) {
   process.env.TOTP_ENCRYPTION_KEY = 'test-totp-encryption-key-32chars!!!!';

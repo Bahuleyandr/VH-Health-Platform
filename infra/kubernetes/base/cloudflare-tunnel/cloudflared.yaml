@@ -81,23 +81,16 @@ data:
           httpHostHeader: admin.vhhealth.app
           connectTimeout: 30s
           keepAliveTimeout: 90s
-      # ── Per-tenant subdomains (multi-tenancy W7) ────────────────────────────
-      # Wildcard rules for `<slug>.api` / `<slug>.admin`. These come AFTER the
-      # apex rules (most-specific first), so the default tenant is unchanged.
-      # CRITICAL: do NOT set httpHostHeader here — the original `<slug>.api...`
-      # Host MUST reach the backend so W4's parseTenantSlug derives the tenant
-      # (the apex rules above rewrite the Host, which would erase the slug).
-      # INERT until the wildcard DNS + edge TLS exist (runbook Part A); harmless
-      # to ship early. Requires a `*.api.vhhealth.app` / `*.admin.vhhealth.app`
-      # edge cert — Cloudflare Universal SSL does NOT cover 2nd-level wildcards,
-      # so this needs Advanced Certificate Manager (ACM). See
-      # docs/TENANT_ONBOARDING_RUNBOOK.md.
-      - hostname: "*.api.vhhealth.app"
-        service: http://ingress-nginx-controller.vhhealth-ingress.svc.cluster.local:80
-        originRequest:
-          connectTimeout: 30s
-          keepAliveTimeout: 90s
-      - hostname: "*.admin.vhhealth.app"
+      # ── Per-tenant subdomains (multi-tenancy W7, FLAT 1st-level model) ───────
+      # ONE wildcard for every 1st-level host (the per-tenant API host is
+      # `<slug>-api.vhhealth.app`). It comes AFTER the apex rules (most-specific
+      # first), so api/admin.vhhealth.app are unchanged. CRITICAL: do NOT set
+      # httpHostHeader — the original `<slug>-api...` Host MUST reach the backend
+      # so W4's parseTenantSlug derives the tenant (the apex rules rewrite the
+      # Host, which would erase the slug). 1st-level → Cloudflare Universal SSL
+      # `*.vhhealth.app` covers it for FREE (no ACM). INERT until the wildcard
+      # DNS exists (runbook Part A). See docs/TENANT_ONBOARDING_RUNBOOK.md.
+      - hostname: "*.vhhealth.app"
         service: http://ingress-nginx-controller.vhhealth-ingress.svc.cluster.local:80
         originRequest:
           connectTimeout: 30s

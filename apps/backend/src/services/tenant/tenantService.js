@@ -301,9 +301,17 @@ function tenantBaseHosts() {
 }
 
 /**
- * Pure: extract the tenant slug (leftmost subdomain label) from a Host string,
- * or null for the bare base host / a host not under any base host (→ default
- * tenant). Case-insensitive; strips the port. No DB access.
+ * Pure: extract the tenant slug from a Host string, or null for the bare base
+ * host / apex / a host not under any base host (→ default tenant).
+ *
+ * Flat 1st-level model (no Cloudflare ACM): the per-tenant API host is
+ * `<slug>-api.<base>` (e.g. `acme-api.vhhealth.app`), a SINGLE label under the
+ * apex so Cloudflare Universal SSL `*.<base>` covers it for free. ONLY a
+ * leftmost label ending in `-api` marks a tenant host — its `-api` suffix is
+ * stripped to yield the slug. The apex hosts (`api`, `admin`), `www`, and any
+ * other label resolve to the default tenant. The admin app stays single-host
+ * (`admin.<base>`, tenant driven by the token), so no `-admin` form is needed.
+ * Case-insensitive; strips the port. No DB access.
  *
  * @param {string} host
  * @param {string[]} [baseHosts]
@@ -315,8 +323,11 @@ export function parseTenantSlug(host, baseHosts = tenantBaseHosts()) {
   for (const base of baseHosts) {
     if (h === base) return null;                       // bare base host → default
     if (h.endsWith('.' + base)) {
-      const prefix = h.slice(0, -(base.length + 1));   // labels left of the base
-      return prefix.split('.')[0] || null;             // leftmost label = the tenant
+      const label = h.slice(0, -(base.length + 1)).split('.')[0] || '';
+      if (label.endsWith('-api') && label.length > 4) {
+        return label.slice(0, -4);                     // <slug>-api → <slug>
+      }
+      return null;                                     // apex/other label → default
     }
   }
   return null;                                         // not our domain → default

@@ -40,12 +40,12 @@ describe('W4 C4 — Host↔token cross-check', () => {
   }, 30000);
 
   it('tenant-A token on tenant-B subdomain → 403 TENANT_HOST_TOKEN_MISMATCH', async () => {
-    const r = await run({ user: { uid: 'u1', tenant_id: TENANT_A, role: 'PATIENT' }, hostname: `${SLUG_B}.localhost`, headers: {} });
+    const r = await run({ user: { uid: 'u1', tenant_id: TENANT_A, role: 'PATIENT' }, hostname: `${SLUG_B}-api.localhost`, headers: {} });
     expect(r.errCode).toBe('TENANT_HOST_TOKEN_MISMATCH');
   });
 
   it('tenant-A token on tenant-A subdomain → allowed', async () => {
-    const r = await run({ user: { uid: 'u1', tenant_id: TENANT_A, role: 'PATIENT' }, hostname: `${SLUG_A}.localhost`, headers: {} });
+    const r = await run({ user: { uid: 'u1', tenant_id: TENANT_A, role: 'PATIENT' }, hostname: `${SLUG_A}-api.localhost`, headers: {} });
     expect(r.errCode).toBeNull();
     expect(r.tenantId).toBe(TENANT_A);
   });
@@ -57,7 +57,7 @@ describe('W4 C4 — Host↔token cross-check', () => {
   });
 
   it('SUPER_ADMIN on another tenant subdomain → exempt (allowed)', async () => {
-    const r = await run({ user: { uid: 'sa', tenant_id: TENANT_A, role: 'ADMIN', rawRole: 'SUPER_ADMIN' }, hostname: `${SLUG_B}.localhost`, headers: {} });
+    const r = await run({ user: { uid: 'sa', tenant_id: TENANT_A, role: 'ADMIN', rawRole: 'SUPER_ADMIN' }, hostname: `${SLUG_B}-api.localhost`, headers: {} });
     expect(r.errCode).toBeNull();
   });
 });

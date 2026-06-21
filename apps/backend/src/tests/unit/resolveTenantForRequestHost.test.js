@@ -17,7 +17,7 @@ const { resolveTenantForRequest, DEFAULT_TENANT_ID } = await import('../../servi
 
 describe('resolveTenantForRequest is Host-first (W4 C2)', () => {
   it('resolves the tenant from the Host subdomain', async () => {
-    expect(await resolveTenantForRequest({ hostname: 'apollo.localhost', headers: {} })).toBe(APOLLO_ID);
+    expect(await resolveTenantForRequest({ hostname: 'apollo-api.localhost', headers: {} })).toBe(APOLLO_ID);
   });
 
   it('IGNORES a client x-tenant-id / x-tenant-slug (not trusted)', async () => {
@@ -29,7 +29,7 @@ describe('resolveTenantForRequest is Host-first (W4 C2)', () => {
   });
 
   it('a spoofed x-tenant-slug on a tenant subdomain cannot override the Host', async () => {
-    const req = { hostname: 'apollo.localhost', headers: { 'x-tenant-slug': 'evil', 'x-tenant-id': 'cccccccc-cccc-4ccc-8ccc-cccccccccc03' } };
+    const req = { hostname: 'apollo-api.localhost', headers: { 'x-tenant-slug': 'evil', 'x-tenant-id': 'cccccccc-cccc-4ccc-8ccc-cccccccccc03' } };
     expect(await resolveTenantForRequest(req)).toBe(APOLLO_ID); // Host wins
   });
 

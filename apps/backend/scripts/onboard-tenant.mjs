@@ -24,7 +24,10 @@ import { getTenantBySlug, createTenant, updateTenant } from '../src/services/ten
 import { provisionTenantKek } from '../src/services/security/tenantKekProvider.js';
 
 function parseArgs(argv) {
-  const out = { region: 'IN', compliance: 'DPDP', baseHost: process.env.TENANT_BASE_HOST?.split(',')[0]?.trim() || 'api.vhhealth.app', dryRun: false };
+  // Flat model: base host is the apex (vhhealth.app); the per-tenant API host is
+  // <slug>-api.<base>. Pick the first non-localhost TENANT_BASE_HOST, else apex.
+  const baseFromEnv = String(process.env.TENANT_BASE_HOST || '').split(',').map((s) => s.trim()).filter((b) => b && b !== 'localhost')[0];
+  const out = { region: 'IN', compliance: 'DPDP', baseHost: baseFromEnv || 'vhhealth.app', dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -119,8 +122,8 @@ async function main() {
   }
 
   // ── Summary + next steps ─────────────────────────────────────────────────
-  const apiHost = `${args.slug}.${args.baseHost}`;
-  const adminHost = `${args.slug}.${args.baseHost.replace(/^api\./, 'admin.')}`;
+  const apiHost = `${args.slug}-api.${args.baseHost}`;        // flat: <slug>-api.<base>
+  const adminHost = `admin.${args.baseHost}`;                 // single admin host (token-driven)
   console.log('\n  ✔ Onboarding steps complete.\n');
   console.log('  Tenant:');
   console.log(`    id            ${tenantId || '(dry-run)'}`);

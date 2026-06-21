@@ -57,16 +57,17 @@ spec:
                 name: vhhealth-backend
                 port:
                   number: 80
-    # ── Per-tenant subdomains (multi-tenancy W7) ────────────────────────────
-    # Route every `<slug>.api.vhhealth.app` to the same backend; W4 derives the
-    # tenant from the (preserved) Host. cloudflared reaches ingress over HTTP, so
-    # the browser-facing wildcard TLS is at the Cloudflare edge (Advanced Cert
-    # Manager — Universal SSL doesn't cover 2nd-level wildcards). The wildcard is
-    # deliberately NOT added to the cert-manager `tls.hosts` above: a Let's
-    # Encrypt wildcard needs a DNS-01 issuer, and the in-cluster hop is HTTP.
-    # INERT until the wildcard DNS exists (runbook Part A). See
+    # ── Per-tenant subdomains (multi-tenancy W7, FLAT 1st-level model) ───────
+    # Route every 1st-level host to the backend (the per-tenant API host is
+    # `<slug>-api.vhhealth.app`); W4 derives the tenant from the preserved Host.
+    # `admin.vhhealth.app` keeps its own more-specific Ingress (→ admin), so
+    # nginx routes it correctly; `api.vhhealth.app` keeps the apex rule above.
+    # Browser-facing TLS is the Cloudflare edge's FREE Universal SSL cert for
+    # `*.vhhealth.app` (1st-level — no ACM). The wildcard is deliberately NOT in
+    # the cert-manager `tls.hosts` (the cloudflared→ingress hop is HTTP). INERT
+    # until the wildcard DNS exists (runbook Part A). See
     # docs/TENANT_ONBOARDING_RUNBOOK.md.
-    - host: "*.api.vhhealth.app"
+    - host: "*.vhhealth.app"
       http:
         paths:
           - path: /

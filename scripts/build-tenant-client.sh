@@ -17,7 +17,7 @@
 #     [--apps patient,staff] [--target apk|appbundle|ios] [--dry-run]
 set -euo pipefail
 
-SLUG=""; TENANT_ID=""; API_KEY=""; BASE_HOST="api.vhhealth.app"; PRIMARY=""
+SLUG=""; TENANT_ID=""; API_KEY=""; BASE_HOST="vhhealth.app"; PRIMARY=""
 APPS="patient,staff"; TARGET="apk"; DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
@@ -39,7 +39,7 @@ done
 [[ -z "$TENANT_ID" ]] && { echo "✗ --tenant-id (uuid) is required" >&2; exit 2; }
 [[ -z "$API_KEY" && "$DRY_RUN" -eq 0 ]] && { echo "✗ --api-key is required (or use --dry-run)" >&2; exit 2; }
 
-BASE_URL="https://${SLUG}.${BASE_HOST}/api/v1"
+BASE_URL="https://${SLUG}-api.${BASE_HOST}/api/v1"   # flat: <slug>-api.<base>
 
 # Map the Flutter build target to the per-app package dir + flutter sub-command.
 declare -A APP_DIR=( [patient]="apps/patient" [staff]="apps/staff" )

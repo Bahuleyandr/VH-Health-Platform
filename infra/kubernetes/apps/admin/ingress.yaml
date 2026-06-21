@@ -53,19 +53,9 @@ spec:
                 name: vhhealth-admin
                 port:
                   number: 80
-    # ── Per-tenant admin subdomains (multi-tenancy W5/W7) ────────────────────
-    # The SAME admin app instance serves every `<slug>.admin.vhhealth.app`; the
-    # tenant is driven by the admin's token (W5), and branding by the host. As
-    # with the backend, the wildcard's browser TLS is at the Cloudflare edge
-    # (ACM), not cert-manager. INERT until the wildcard DNS exists (runbook Part
-    # A). See docs/TENANT_ONBOARDING_RUNBOOK.md.
-    - host: "*.admin.vhhealth.app"
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: vhhealth-admin
-                port:
-                  number: 80
+    # Multi-tenancy W5/W7 (FLAT model): the admin portal stays SINGLE-HOST at
+    # admin.vhhealth.app. The admin's tenant + branding are driven by the JWT
+    # (W5 — token tenant_id + /admin/tenant-context), so per-tenant admin
+    # subdomains aren't needed (and a K8s Ingress can't wildcard-route `*-admin`
+    # anyway). This more-specific `admin.vhhealth.app` rule wins over the
+    # backend's `*.vhhealth.app` wildcard.
