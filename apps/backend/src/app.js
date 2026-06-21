@@ -27,6 +27,7 @@ import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
 import tenantRoutes from './routes/admin/tenantRoutes.js';
+import tenantContextRoutes from './routes/admin/tenantContextRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
@@ -1033,6 +1034,16 @@ app.use(
   adminIpAllowlist,
   adminRateLimiter,
   tenantRoutes
+);
+// W5 S1: the ADMIN-level read of the caller's OWN tenant identity + branding
+// (NOT the SUPER_ADMIN-only tenant CRUD above). Any authenticated admin needs
+// this to render its tenant chrome.
+app.use(
+  '/api/v1/admin/tenant-context',
+  requireRole('ADMIN', 'SUPER_ADMIN'),
+  adminIpAllowlist,
+  adminRateLimiter,
+  tenantContextRoutes
 );
 // Legacy /api/v1/admin/ed paths — 308 redirect to the parallel clinical
 // mount at /api/v1/ed (declared further above) so nurses using old URLs
