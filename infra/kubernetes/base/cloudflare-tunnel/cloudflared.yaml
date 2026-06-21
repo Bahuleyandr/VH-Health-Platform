@@ -81,6 +81,27 @@ data:
           httpHostHeader: admin.vhhealth.app
           connectTimeout: 30s
           keepAliveTimeout: 90s
+      # ── Per-tenant subdomains (multi-tenancy W7) ────────────────────────────
+      # Wildcard rules for `<slug>.api` / `<slug>.admin`. These come AFTER the
+      # apex rules (most-specific first), so the default tenant is unchanged.
+      # CRITICAL: do NOT set httpHostHeader here — the original `<slug>.api...`
+      # Host MUST reach the backend so W4's parseTenantSlug derives the tenant
+      # (the apex rules above rewrite the Host, which would erase the slug).
+      # INERT until the wildcard DNS + edge TLS exist (runbook Part A); harmless
+      # to ship early. Requires a `*.api.vhhealth.app` / `*.admin.vhhealth.app`
+      # edge cert — Cloudflare Universal SSL does NOT cover 2nd-level wildcards,
+      # so this needs Advanced Certificate Manager (ACM). See
+      # docs/TENANT_ONBOARDING_RUNBOOK.md.
+      - hostname: "*.api.vhhealth.app"
+        service: http://ingress-nginx-controller.vhhealth-ingress.svc.cluster.local:80
+        originRequest:
+          connectTimeout: 30s
+          keepAliveTimeout: 90s
+      - hostname: "*.admin.vhhealth.app"
+        service: http://ingress-nginx-controller.vhhealth-ingress.svc.cluster.local:80
+        originRequest:
+          connectTimeout: 30s
+          keepAliveTimeout: 90s
       # Catch-all (required; cloudflared refuses to start without one)
       - service: http_status:404
 ---

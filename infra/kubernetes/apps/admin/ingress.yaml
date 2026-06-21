@@ -53,3 +53,19 @@ spec:
                 name: vhhealth-admin
                 port:
                   number: 80
+    # ── Per-tenant admin subdomains (multi-tenancy W5/W7) ────────────────────
+    # The SAME admin app instance serves every `<slug>.admin.vhhealth.app`; the
+    # tenant is driven by the admin's token (W5), and branding by the host. As
+    # with the backend, the wildcard's browser TLS is at the Cloudflare edge
+    # (ACM), not cert-manager. INERT until the wildcard DNS exists (runbook Part
+    # A). See docs/TENANT_ONBOARDING_RUNBOOK.md.
+    - host: "*.admin.vhhealth.app"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-admin
+                port:
+                  number: 80
