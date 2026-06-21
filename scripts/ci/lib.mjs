@@ -12,6 +12,10 @@ export const ciEnv = {
   NEXT_PUBLIC_API_KEY: 'test-api-key',
   NEXT_PUBLIC_APP_NAME: 'VHHealth Admin',
   NEXT_PUBLIC_APP_ORIGIN: 'http://localhost:3000',
+  // admin's proxy refuses to build in production without an explicit allowed
+  // origin (CSRF guard, W5). Provide a build-time placeholder; the real value
+  // is injected at deploy time.
+  NEXT_PUBLIC_ALLOWED_ORIGIN: 'http://localhost:3000',
   NEXT_PUBLIC_WS_URL: 'ws://localhost:5000',
   NEXT_PUBLIC_X_API_KEY: 'test-api-key',
 };
