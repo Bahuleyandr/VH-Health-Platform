@@ -1,5 +1,6 @@
 export 'config/api_config.dart';
 export 'config/security_config.dart';
+export 'config/tenant_config.dart';
 export 'exceptions/app_exception.dart';
 export 'models/api_models.dart';
 export 'models/api_response.dart';
