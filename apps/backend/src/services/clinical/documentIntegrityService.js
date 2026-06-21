@@ -18,7 +18,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // Signable documents. Fixed identifiers only — never user input.
 //   idType: 'int' | 'uuid' — how the table is keyed.
@@ -119,7 +119,7 @@ export async function signDocument({
   // exactly as the INSERT's COALESCE below and the canonical service's
   // normalizeTenantId do, so the GUC matches every row written in this tx
   // (a bare prisma.$transaction leaves the GUC unset → permissive policy).
-  const tenantId = row.tenant_id || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(row.tenant_id);
 
   const signature = await setTenantTx(tenantId, async (tx) => {
     const inserted = await tx.$queryRawUnsafe(

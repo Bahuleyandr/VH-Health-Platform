@@ -4,74 +4,83 @@
 // anesthesia_records (which is one row per case); this is the every-5-min
 // chart entries the anaesthetist fills during surgery.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-function hasJsonArrayItems(value) {
-  return Array.isArray(value) && value.length > 0;
+function tenantOr(value) {
+  return requireTenantId(String(value || '').trim());
 }
 
-async function syncCaseAnesthesiaRecord({
-  tenantId,
-  otScheduleId,
-  recordedBy,
-  recordedAt,
-  drugsGiven,
-  ivFluidsMl,
-  bloodLossMl,
-  urineOutputMl,
-  eventNote,
-}) {
-  const eventItems = eventNote
-    ? [{ note: String(eventNote), recorded_at: recordedAt || new Date().toISOString(), recorded_by: recordedBy || null }]
-    : [];
-
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO anesthesia_records
+// Recompute the case-level anaesthesia_records rollup DETERMINISTICALLY from
+// the full set of anesthesia_chart_entries for the case, inside the caller's
+// transaction (audit §3 fix #5). The previous implementation incrementally
+// added each new entry's fluids/blood-loss/urine onto the accumulator and
+// appended drug/event arrays with `||`; because the chart-entry INSERT and the
+// accumulator UPDATE were two separate, untransacted statements, a partial
+// failure (entry persisted, accumulator not — or vice versa) left the totals
+// permanently out of step with the chart, and a re-applied/retried entry could
+// double-count. The recompute-from-SUM design that replaced it fixed the
+// untransacted drift but introduced a CONCURRENCY lost-update: under READ
+// COMMITTED each concurrent recordEntry's SUM() could not see the others'
+// still-uncommitted entries, and `DO UPDATE SET total = EXCLUDED.total` then
+// overwrote the rollup with that stale sum (last-writer-wins), so concurrent
+// inserts silently undercounted the totals.
+//
+// The correct synthesis is an ATOMIC INCREMENT keyed on the single just-inserted
+// entry (entryId), run in the SAME transaction as that entry's INSERT:
+//   - Atomicity (insert + increment commit or roll back together) fixes the
+//     original untransacted drift.
+//   - `DO UPDATE SET total = anesthesia_records.total + EXCLUDED.delta` re-reads
+//     the CURRENT committed rollup under the ON CONFLICT row lock — re-evaluated
+//     when a concurrent writer commits — and adds only THIS entry's delta, so
+//     concurrent inserts can never lose each other's contribution.
+//   - It touches ONE row (no serialized SUM over the whole chart), so it stays
+//     well inside the Prisma interactive-transaction budget under heavy
+//     concurrency (a blocking serialize-the-recompute approach times out).
+//   - Each entry increments exactly once; a retry inserts a NEW entry → a new,
+//     correct delta, so there is no double-count. Finalized records are untouched.
+async function syncCaseAnesthesiaRecord(tx, { tenantId, otScheduleId, entryId }) {
+  await tx.$queryRawUnsafe(
+    `WITH entry AS (
+       SELECT
+         COALESCE(e.iv_fluids_ml, 0)::int    AS fluids_in_ml,
+         COALESCE(e.blood_loss_ml, 0)::int   AS blood_loss_ml,
+         COALESCE(e.urine_output_ml, 0)::int AS urine_output_ml,
+         CASE WHEN jsonb_typeof(e.drugs_given) = 'array'
+              THEN e.drugs_given ELSE '[]'::jsonb END AS agents_used,
+         CASE WHEN e.event_note IS NOT NULL AND TRIM(e.event_note) <> ''
+              THEN jsonb_build_array(jsonb_build_object(
+                     'note', e.event_note,
+                     'recorded_at', e.recorded_at,
+                     'recorded_by', e.recorded_by))
+              ELSE '[]'::jsonb END AS events
+       FROM anesthesia_chart_entries e
+       WHERE e.id = $3::int AND e.tenant_id = $1::uuid AND e.ot_schedule_id = $2::int
+     )
+     INSERT INTO anesthesia_records
        (tenant_id, ot_schedule_id, patient_uid, anesthetist,
         agents_used, fluids_in_ml, blood_loss_ml, urine_output_ml,
         events, status, created_at, updated_at)
      SELECT
-       $1::uuid,
-       s.id,
-       s.patient_uid,
-       COALESCE(s.anesthetist, $3::uuid),
-       $4::jsonb,
-       COALESCE($5::int, 0),
-       COALESCE($6::int, 0),
-       COALESCE($7::int, 0),
-       $8::jsonb,
-       'draft',
-       NOW(),
-       NOW()
-     FROM ot_schedules s
+       $1::uuid, s.id, s.patient_uid, s.anesthetist,
+       entry.agents_used, entry.fluids_in_ml, entry.blood_loss_ml, entry.urine_output_ml,
+       entry.events, 'draft', NOW(), NOW()
+     FROM ot_schedules s, entry
      WHERE s.id = $2::int
      ON CONFLICT (tenant_id, ot_schedule_id) DO UPDATE SET
        patient_uid = COALESCE(anesthesia_records.patient_uid, EXCLUDED.patient_uid),
        anesthetist = COALESCE(anesthesia_records.anesthetist, EXCLUDED.anesthetist),
-       agents_used = CASE
-         WHEN jsonb_array_length(EXCLUDED.agents_used) > 0
-           THEN COALESCE(anesthesia_records.agents_used, '[]'::jsonb) || EXCLUDED.agents_used
-         ELSE anesthesia_records.agents_used
-       END,
-       fluids_in_ml = COALESCE(anesthesia_records.fluids_in_ml, 0) + COALESCE(EXCLUDED.fluids_in_ml, 0),
-       blood_loss_ml = COALESCE(anesthesia_records.blood_loss_ml, 0) + COALESCE(EXCLUDED.blood_loss_ml, 0),
-       urine_output_ml = COALESCE(anesthesia_records.urine_output_ml, 0) + COALESCE(EXCLUDED.urine_output_ml, 0),
-       events = CASE
-         WHEN jsonb_array_length(EXCLUDED.events) > 0
-           THEN COALESCE(anesthesia_records.events, '[]'::jsonb) || EXCLUDED.events
-         ELSE anesthesia_records.events
-       END,
+       agents_used = anesthesia_records.agents_used || EXCLUDED.agents_used,
+       fluids_in_ml = anesthesia_records.fluids_in_ml + EXCLUDED.fluids_in_ml,
+       blood_loss_ml = anesthesia_records.blood_loss_ml + EXCLUDED.blood_loss_ml,
+       urine_output_ml = anesthesia_records.urine_output_ml + EXCLUDED.urine_output_ml,
+       events = anesthesia_records.events || EXCLUDED.events,
        updated_at = NOW()
      WHERE anesthesia_records.status <> 'finalized'`,
     tenantId,
     Number(otScheduleId),
-    recordedBy ? String(recordedBy) : null,
-    JSON.stringify(hasJsonArrayItems(drugsGiven) ? drugsGiven : []),
-    ivFluidsMl ?? null,
-    bloodLossMl ?? null,
-    urineOutputMl ?? null,
-    JSON.stringify(eventItems),
+    Number(entryId),
   );
 }
 
@@ -111,42 +120,40 @@ export async function recordEntry({
     });
   }
   const entryRecordedAt = recorded_at || new Date().toISOString();
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO anesthesia_chart_entries
-       (ot_schedule_id, recorded_at, hr, sbp, dbp, map, spo2, etco2, rr, temp_c,
-        vent_mode, fio2_pct, tidal_volume_ml, peep_cmh2o, airway_pressure,
-        drugs_given, iv_fluids_ml, blood_loss_ml, urine_output_ml,
-        event_note, recorded_by, tenant_id)
-     VALUES ($1::int, $2::timestamptz, $3::int, $4::int, $5::int, $6::int,
-             $7::int, $8::int, $9::int, $10::numeric,
-             $11, $12::int, $13::int, $14::numeric, $15::int,
-             $16::jsonb, $17::int, $18::int, $19::int,
-             $20, $21::uuid, $22::uuid)
-     RETURNING *`,
-    Number(ot_schedule_id),
-    entryRecordedAt,
-    hr ?? null, sbp ?? null, dbp ?? null, computedMap ?? null,
-    spo2 ?? null, etco2 ?? null, rr ?? null, temp_c ?? null,
-    vent_mode || null, fio2_pct ?? null, tidal_volume_ml ?? null,
-    peep_cmh2o ?? null, airway_pressure ?? null,
-    JSON.stringify(drugsArr),
-    iv_fluids_ml ?? null, blood_loss_ml ?? null, urine_output_ml ?? null,
-    event_note || null,
-    recorded_by ? String(recorded_by) : null,
-    tenantId,
-  );
-  await syncCaseAnesthesiaRecord({
-    tenantId,
-    otScheduleId: ot_schedule_id,
-    recordedBy: recorded_by,
-    recordedAt: entryRecordedAt,
-    drugsGiven: drugsArr,
-    ivFluidsMl: iv_fluids_ml,
-    bloodLossMl: blood_loss_ml,
-    urineOutputMl: urine_output_ml,
-    eventNote: event_note,
+  // Atomic (audit §3 fix #5): the chart-entry INSERT and the case-record
+  // rollup recompute run in ONE tenant-scoped transaction. Either both land or
+  // neither does, so the anaesthesia_records totals can never drift from the
+  // chart entries (e.g. blood-loss/fluid totals undercounting because the
+  // accumulator update failed after the entry committed).
+  const tid = tenantOr(tenantId);
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO anesthesia_chart_entries
+         (ot_schedule_id, recorded_at, hr, sbp, dbp, map, spo2, etco2, rr, temp_c,
+          vent_mode, fio2_pct, tidal_volume_ml, peep_cmh2o, airway_pressure,
+          drugs_given, iv_fluids_ml, blood_loss_ml, urine_output_ml,
+          event_note, recorded_by, tenant_id)
+       VALUES ($1::int, $2::timestamptz, $3::int, $4::int, $5::int, $6::int,
+               $7::int, $8::int, $9::int, $10::numeric,
+               $11, $12::int, $13::int, $14::numeric, $15::int,
+               $16::jsonb, $17::int, $18::int, $19::int,
+               $20, $21::uuid, $22::uuid)
+       RETURNING *`,
+      Number(ot_schedule_id),
+      entryRecordedAt,
+      hr ?? null, sbp ?? null, dbp ?? null, computedMap ?? null,
+      spo2 ?? null, etco2 ?? null, rr ?? null, temp_c ?? null,
+      vent_mode || null, fio2_pct ?? null, tidal_volume_ml ?? null,
+      peep_cmh2o ?? null, airway_pressure ?? null,
+      JSON.stringify(drugsArr),
+      iv_fluids_ml ?? null, blood_loss_ml ?? null, urine_output_ml ?? null,
+      event_note || null,
+      recorded_by ? String(recorded_by) : null,
+      tid,
+    );
+    await syncCaseAnesthesiaRecord(tx, { tenantId: tid, otScheduleId: ot_schedule_id, entryId: rows[0].id });
+    return rows[0];
   });
-  return rows[0];
 }
 
 export async function listForCase({ tenantId, ot_schedule_id }) {

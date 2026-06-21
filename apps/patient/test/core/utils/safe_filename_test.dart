@@ -28,11 +28,14 @@ void main() {
       expect(out, isNotEmpty);
     });
 
-    test('bare ".." collapses to the fallback (never names the parent dir)', () {
-      expect(safeFileName('..'), 'file');
-      expect(safeFileName('.'), 'file');
-      expect(safeFileName('...'), 'file');
-    });
+    test(
+      'bare ".." collapses to the fallback (never names the parent dir)',
+      () {
+        expect(safeFileName('..'), 'file');
+        expect(safeFileName('.'), 'file');
+        expect(safeFileName('...'), 'file');
+      },
+    );
 
     test('drops null bytes and control characters', () {
       expect(safeFileName('report$nul.pdf'), 'report.pdf');
@@ -66,10 +69,21 @@ void main() {
       ];
       for (final input in hostile) {
         final out = safeFileName(input);
-        expect(out.contains('/'), isFalse, reason: 'separator leaked from "$input"');
-        expect(out.contains('\\'), isFalse, reason: 'backslash leaked from "$input"');
-        expect(out == '.' || out == '..' || out.isEmpty, isFalse,
-            reason: 'dot/empty segment from "$input"');
+        expect(
+          out.contains('/'),
+          isFalse,
+          reason: 'separator leaked from "$input"',
+        );
+        expect(
+          out.contains('\\'),
+          isFalse,
+          reason: 'backslash leaked from "$input"',
+        );
+        expect(
+          out == '.' || out == '..' || out.isEmpty,
+          isFalse,
+          reason: 'dot/empty segment from "$input"',
+        );
       }
     });
   });
@@ -80,15 +94,21 @@ void main() {
     });
 
     test('an app-built lab report name is unchanged', () {
-      expect(safeFileName('LabReport_4821_2026-06-18.pdf'), 'LabReport_4821_2026-06-18.pdf');
+      expect(
+        safeFileName('LabReport_4821_2026-06-18.pdf'),
+        'LabReport_4821_2026-06-18.pdf',
+      );
     });
 
-    test('distinct keys sharing a basename stay distinct (no cache collision)', () {
-      final a = safeFileName('2026/06/report.pdf');
-      final b = safeFileName('2026/05/report.pdf');
-      expect(a, isNot(equals(b)));
-      expect(a.endsWith('report.pdf'), isTrue);
-    });
+    test(
+      'distinct keys sharing a basename stay distinct (no cache collision)',
+      () {
+        final a = safeFileName('2026/06/report.pdf');
+        final b = safeFileName('2026/05/report.pdf');
+        expect(a, isNot(equals(b)));
+        expect(a.endsWith('report.pdf'), isTrue);
+      },
+    );
 
     test('a long name is bounded but keeps its extension', () {
       final out = safeFileName('${'x' * 400}.pdf');

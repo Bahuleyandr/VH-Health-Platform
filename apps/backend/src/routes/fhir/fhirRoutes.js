@@ -20,6 +20,8 @@ import {
   toFhirServiceRequest,
 } from '../../services/fhir/fhirAdapter.js';
 import { validatedFhirJson, validateResource } from '../../services/fhir/fhirValidator.js';
+import { requireConsent } from '../../middleware/consentMiddleware.js';
+import { fhirPatientUidFromRequest } from '../../middleware/fhirPatientContext.js';
 import { fhirObservationToVitals } from '../../services/fhir/observationVitalsMapper.js';
 import { recordVitals } from '../../services/emr/vitalsChartService.js';
 import { createProblem } from '../../services/clinical/problemListService.js';
@@ -27,15 +29,44 @@ import {
   attachResourceCodings,
   normalizeClinicalCodings,
 } from '../../services/terminology/clinicalCodeBindingService.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import {
+  authorizePatientAccessRequest,
+  patientAccessErrorPayload,
+} from '../../services/security/accessDecisionService.js';
 import { AppError } from '../../utils/AppError.js';
-import { ROLES, isAdmin, isDoctor } from '../../utils/roleHelpers.js';
+import { ROLES, isAdmin, isDoctor, isMedicalRecords } from '../../utils/roleHelpers.js';
+import { verifyAccessToken as verifySmartAccessToken, scopesAllow as smartScopesAllow } from '../../services/smartFhir/smartOAuthService.js';
 
 const router = express.Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// Audit §3 finding #3 — consent gate on the one true EXPORT surface in this
+// router: GET /Patient/:id/$everything ships a patient's entire longitudinal
+// record in a single bundle to an (often third-party / interop) consumer. That
+// is a disclosure-export, so it requires an active `data_sharing` consent — the
+// same gate the C-CDA / FHIR-bundle exports in documentRoutes.js carry (those
+// app.js mounts are reported separately). The single-resource reads/searches are
+// care-team-governed and intentionally NOT consent-gated. We feed the gate FHIR's
+// own /Patient/<uuid> addressing via fhirPatientUidFromRequest, and render denials
+// as a FHIR OperationOutcome so the router's error contract stays consistent.
+const requireFhirExportConsent = requireConsent('data_sharing', {
+  resolvePatientUid: fhirPatientUidFromRequest,
+  errorResponder: (res, { status, code, message }) => {
+    res.status(status).json({
+      resourceType: 'OperationOutcome',
+      issue: [{
+        severity: 'error',
+        code: status === 403 ? 'forbidden' : status === 400 ? 'invalid' : 'exception',
+        diagnostics: message,
+        details: code ? { text: code } : undefined,
+      }],
+    });
+  },
+});
+
 function tenantOf(req) {
-  const tenantId = req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id || DEFAULT_TENANT_ID;
+  const tenantId = resolveTenantOrThrow(req);
   const normalized = String(tenantId || '').trim().toLowerCase();
   if (!UUID_RE.test(normalized)) {
     throw AppError.forbidden('FHIR tenant context is required', 'FHIR_TENANT_REQUIRED');
@@ -87,6 +118,58 @@ async function assertPatientInTenant(patientUid, tenantId) {
     throw AppError.notFound('Patient not found');
   }
   return rows[0];
+}
+
+// Audit §3 finding #1 (enumeration oracle). A FHIR Patient read/$everything for
+// an UNRESOLVABLE ref (no such patient, or a uid that belongs to a non-PATIENT
+// row) previously fell through to the route's own `SELECT … LIMIT 1` and threw
+// 404, while a RESOLVED-but-no-relationship patient is denied 403 by the
+// care-team guard (on the enforce flip). That 404-vs-403 split is a
+// patient-existence oracle. This collapses it to "403-both" by reusing the same
+// access-decision primitive the CDS/documents/research export guards use
+// (requireResolvedPatient). We run it in shadowMode so it does NOT prematurely
+// enforce care-team relationships here — a resolved patient still passes today
+// (the app.js mount's shadow patientAccessGuard governs the relationship check,
+// and the GO_LIVE flip enforces it uniformly). Only the unresolvable case (an
+// early deny that ignores shadowMode) is converted to 403. audit:false avoids
+// double-auditing the request the mount guard already shadow-audited.
+async function assertFhirPatientResolvable(req, patientUid) {
+  const decision = await authorizePatientAccessRequest(req, {
+    recordType: 'FHIR_RESOURCE',
+    patient: { uid: patientUid },
+    requireResolvedPatient: true,
+    shadowMode: true,
+    audit: false,
+  });
+  if (!decision.allowed) {
+    const payload = patientAccessErrorPayload(decision);
+    throw AppError.forbidden(payload.message, payload.code);
+  }
+}
+
+// Audit §3 finding #2. GET /Patient is a demographics directory (search by
+// name/phone). The mount RBAC (FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES) is the broad
+// clinical-read set, which is wrong for an unscoped directory: a bedside nurse or
+// ward doctor has no business enumerating every patient's name/phone/DOB/address
+// with no relationship. Restrict the directory to the front-office / medical-
+// records roles whose job is patient lookup, plus admins. Clinical staff still
+// reach a specific patient's data through the relationship-scoped resource reads.
+function requireFhirDirectoryRole(req) {
+  const role = req.user?.role;
+  if (
+    isAdmin(role)
+    || role === 'SUPER_ADMIN'
+    || isMedicalRecords(role)
+    || role === ROLES.RECEPTIONIST
+    || role === ROLES.RECEPTION_INCHARGE
+    || role === ROLES.ADMISSION_OFFICER
+  ) {
+    return;
+  }
+  throw AppError.forbidden(
+    'The FHIR Patient directory search is limited to medical-records and front-office roles',
+    'FHIR_DIRECTORY_FORBIDDEN',
+  );
 }
 
 // Roadmap C3 — write interactions are tighter than the read mount: doctors,
@@ -143,6 +226,183 @@ router.use((req, res, next) => {
   res.setHeader('Content-Type', 'application/fhir+json; charset=utf-8');
   next();
 });
+
+// ---------------------------------------------------------------------------
+// SMART-on-FHIR scope enforcement (audit §3 deferred MEDIUM).
+//
+// The platform JWT (staff) path is gated by the app.js mount
+// (requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES)) and is the all-or-nothing
+// clinical-read grant. A *registered SMART app* authenticates with a SMART
+// access token (smart_access_tokens), not a platform JWT, and carries a narrower
+// granted-scope set (e.g. `patient/Observation.read`). Those scopes were never
+// enforced at the resource boundary.
+//
+// This middleware closes that gap WITHOUT touching the staff path:
+//   - `/metadata` is open (no PHI; the SMART discovery surface).
+//   - If a platform JWT already authenticated the request (req.user is set by
+//     the global jwtAuth), this is the staff path — pass straight through.
+//   - Otherwise, if the Authorization bearer is a recognised SMART access token
+//     (smartOAuthService.verifyAccessToken), enforce that the token's granted
+//     scopes permit the addressed resourceType + interaction (scopesAllow) and,
+//     for a patient-context token, that token.patient_uid matches the addressed
+//     patient. Deny → 403 OperationOutcome.
+//   - A bearer that is neither a platform JWT (req.user unset ⇒ jwtAuth rejected
+//     it upstream, or this router is mounted standalone) nor a SMART token →
+//     401 OperationOutcome.
+//
+// NOTE on the mount: today the app.js global jwtAuth + the FHIR-mount
+// requireRole reject any non-platform-JWT bearer BEFORE this router runs, so a
+// SMART token cannot currently reach here end-to-end. Wiring a mount-level SMART
+// pre-auth (run only when the platform JWT is absent) is the one app.js change
+// this needs and is REPORTED separately — the enforcement itself is fully
+// contained in this file and is exercised by the router tests.
+// ---------------------------------------------------------------------------
+
+// FHIR resource types this router exposes, keyed by the first path segment.
+const FHIR_RESOURCE_TYPES = new Set([
+  'Patient', 'Appointment', 'Observation', 'MedicationRequest', 'Condition',
+  'Procedure', 'DiagnosticReport', 'AllergyIntolerance', 'Encounter',
+  'DocumentReference', 'ServiceRequest',
+]);
+
+// Map an HTTP method to the SMART interaction it represents for scope checking.
+// SMART scopes only distinguish read vs write; GET reads, everything else (POST
+// create, PUT/PATCH update, DELETE) is a write.
+function smartInteractionForMethod(method) {
+  return String(method || '').toUpperCase() === 'GET' ? 'read' : 'write';
+}
+
+// Pull the FHIR resourceType being addressed from the request path. The router
+// is mounted under /api/v1/fhir, so req.path is e.g. `/Observation`,
+// `/Patient/<id>`, `/Patient/<id>/$everything`. Returns null for non-resource
+// paths (e.g. /metadata) so the caller can leave them open.
+function resourceTypeFromPath(path) {
+  const seg = String(path || '').replace(/^\/+/, '').split('/')[0] || '';
+  return FHIR_RESOURCE_TYPES.has(seg) ? seg : null;
+}
+
+// Resolve the patient UID a request addresses, for patient-context confinement.
+// Reuses the same addressing the rest of the router (and fhirPatientContext)
+// understands: a /Patient/<uuid> path id, a ?patient= query param, or a
+// subject/patient reference in a write body. Returns null when no patient is
+// addressed (e.g. an unfiltered search) — a patient-context SMART token is then
+// denied by the caller, since it must never run an unscoped query.
+function addressedPatientUid(req, resourceType) {
+  // Path id: /Patient/<uuid> (and /Patient/<uuid>/$everything). Parse it from
+  // the raw path — router-level middleware runs before route params are bound,
+  // so req.params is empty here.
+  if (resourceType === 'Patient') {
+    const seg = String(req.path || '').replace(/^\/+/, '').split('/');
+    const text = String(seg[1] || '').trim().toLowerCase();
+    if (UUID_RE.test(text)) return text;
+  }
+  // ?patient=<uuid> | ?patient=Patient/<uuid>
+  const q = req.query?.patient;
+  if (q !== undefined && q !== null && q !== '') {
+    const text = String(q).trim();
+    const ref = /^Patient\/([0-9a-f-]{36})$/i.exec(text);
+    const uid = String(ref?.[1] || text).trim().toLowerCase();
+    if (UUID_RE.test(uid)) return uid;
+  }
+  // Write body: subject.reference / patient.reference = Patient/<uuid>
+  const bodyRef = req.body?.subject?.reference || req.body?.patient?.reference;
+  if (bodyRef) {
+    const ref = /^Patient\/([0-9a-f-]{36})$/i.exec(String(bodyRef).trim());
+    const uid = String(ref?.[1] || '').trim().toLowerCase();
+    if (UUID_RE.test(uid)) return uid;
+  }
+  return null;
+}
+
+function smartForbidden(message, code) {
+  return AppError.forbidden(message, code);
+}
+
+async function enforceSmartScopes(req, res, next) {
+  try {
+    // /metadata is the open discovery surface — no PHI, no scope needed.
+    const resourceType = resourceTypeFromPath(req.path);
+    if (!resourceType) return next();
+
+    // Staff path: a platform JWT already authenticated upstream (jwtAuth set
+    // req.user) and the mount's requireRole gated the role. Leave it untouched.
+    if (req.user && req.user.uid) return next();
+
+    // No platform JWT — this must be a SMART app or it is unauthenticated.
+    const authHeader = req.headers?.authorization || req.headers?.Authorization || '';
+    const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!bearer) {
+      throw AppError.unauthorized('Authorization required', 'FHIR_AUTH_REQUIRED');
+    }
+
+    let token = null;
+    try {
+      token = await verifySmartAccessToken({
+        tenantId: tenantOf(req),
+        accessToken: bearer,
+        environment: req.headers['x-smart-environment'] || 'sandbox',
+        ipAddress: req.ip,
+      });
+    } catch (err) {
+      logger.warn('SMART access-token verification failed', { error: err.message });
+      token = null;
+    }
+
+    if (!token) {
+      // Neither a platform JWT (req.user is unset) nor a valid SMART token.
+      throw AppError.unauthorized('Invalid or expired SMART access token', 'FHIR_SMART_TOKEN_INVALID');
+    }
+
+    const grantedScopes = Array.isArray(token.granted_scopes) ? token.granted_scopes : [];
+    const interaction = smartInteractionForMethod(req.method);
+
+    // A patient-context token (token.patient_uid set) may use patient/* scopes;
+    // a user/system-context token (no patient context) may use user/* or
+    // system/* scopes. Check the levels the token is actually entitled to.
+    const isPatientContext = !!token.patient_uid;
+    const levels = isPatientContext ? ['patient'] : ['user', 'system'];
+    const permitted = levels.some((level) => smartScopesAllow(grantedScopes, {
+      level,
+      resource: resourceType,
+      operation: interaction,
+    }));
+    if (!permitted) {
+      throw smartForbidden(
+        `SMART scope does not permit ${interaction} on ${resourceType}`,
+        'FHIR_SMART_SCOPE_FORBIDDEN',
+      );
+    }
+
+    // Patient-context confinement: the token is bound to a single patient, so it
+    // can only ever address that patient. A request that addresses a different
+    // patient — or no patient at all (an unscoped search) — is denied.
+    if (isPatientContext) {
+      const addressed = addressedPatientUid(req, resourceType);
+      if (!addressed) {
+        throw smartForbidden(
+          'A patient-scoped SMART token must address its own patient',
+          'FHIR_SMART_PATIENT_CONTEXT_REQUIRED',
+        );
+      }
+      if (addressed !== String(token.patient_uid).trim().toLowerCase()) {
+        throw smartForbidden(
+          'SMART token is not authorised for this patient',
+          'FHIR_SMART_PATIENT_FORBIDDEN',
+        );
+      }
+    }
+
+    // Expose the SMART principal for downstream handlers + audit. The rest of
+    // the router keys authorisation off tenant + addressed patient, so no
+    // req.user shim is needed; a SMART app simply has no req.user.
+    req.smart = token;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+router.use(enforceSmartScopes);
 
 // ---------------------------------------------------------------------------
 // Helper: wrap a FHIR resource array in a Bundle (searchset)
@@ -366,9 +626,13 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/Patient/:id/$everything',
+  requireFhirExportConsent,
   wrapAsync(async (req, res) => {
     const id = parsePatientSearchParam(req.params.id, 'id');
     const tenantId = tenantOf(req);
+    // Finding #1: unresolvable patient ref → 403 (not 404), closing the
+    // existence oracle before any record is read.
+    await assertFhirPatientResolvable(req, id);
     const { _count } = parsePagination(req.query);
 
     const [
@@ -385,7 +649,7 @@ router.get(
     ] = await Promise.all([
       prisma.$queryRawUnsafe(
         `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-         FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+         FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid AND role = 'PATIENT' LIMIT 1`,
         id, tenantId
       ),
       optionalFhirQuery(
@@ -465,7 +729,9 @@ router.get(
       ),
     ]);
 
-    if (!patientRows.length) throw AppError.notFound('Patient not found');
+    // Resolvable-as-patient but the direct read missed: keep the 403 contract
+    // (the resolvable check above already closed the existence oracle).
+    if (!patientRows.length) throw AppError.forbidden('Patient not found', 'FHIR_PATIENT_FORBIDDEN');
 
     // Longitudinal problem list (roadmap B7) rides along as
     // problem-list-item Conditions.
@@ -503,15 +769,22 @@ router.get(
   wrapAsync(async (req, res) => {
     const id = parsePatientSearchParam(req.params.id, 'id');
     const tenantId = tenantOf(req);
+    // Finding #1: unresolvable patient ref → 403 (not 404), closing the
+    // existence oracle. A non-PATIENT uid is also unresolvable here (the access
+    // resolver filters role='PATIENT'), so this doubles as a guard against the
+    // raw read below leaking a staff/admin demographic row.
+    await assertFhirPatientResolvable(req, id);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-       FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+       FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid AND role = 'PATIENT' LIMIT 1`,
       id, tenantId
     );
 
     if (!rows.length) {
-      throw AppError.notFound('Patient not found');
+      // Resolvable-as-patient but the direct read missed (tenant/role drift):
+      // keep the 403 contract rather than reintroducing the 404 oracle.
+      throw AppError.forbidden('Patient not found', 'FHIR_PATIENT_FORBIDDEN');
     }
 
     // Validate before returning so any adapter drift surfaces as a 500 with an
@@ -526,12 +799,19 @@ router.get(
 router.get(
   '/Patient',
   wrapAsync(async (req, res) => {
+    // Finding #2: the directory search is limited to medical-records / front-
+    // office roles (+ admin), not the full clinical read set.
+    requireFhirDirectoryRole(req);
+
     const { name, phone } = req.query;
     const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
     addTenantFilter(conditions, params, tenantId);
+    // Finding #2: the directory must only ever return PATIENT rows — never
+    // staff/admin demographics that happen to match the name/phone.
+    conditions.push(`role = 'PATIENT'`);
 
     if (name) {
       conditions.push(`name ILIKE ${pushParam(params, `%${name}%`)}`);

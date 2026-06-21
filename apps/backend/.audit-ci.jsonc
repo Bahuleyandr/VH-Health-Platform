@@ -1,0 +1,20 @@
+{
+  // audit-ci config — gates `npm run ci` (backend) on dependency advisories.
+  // Fails the build on HIGH or CRITICAL severity. This replaces the previous
+  // `npm audit --audit-level=high && audit-ci --critical` pair: `npm audit`
+  // has no allowlist, so a single unfixable dev-only advisory could not be
+  // waived without dropping the whole high-severity gate. audit-ci keeps the
+  // HIGH bar AND lets us waive individually-reviewed advisories below.
+  "high": true,
+  "allowlist": [
+    // GHSA-h67p-54hq-rp68 — js-yaml <=4.1.1 quadratic-complexity DoS via YAML
+    // merge keys. DEV-ONLY: the sole path is
+    // @istanbuljs/load-nyc-config → js-yaml@3.14.2 (jest coverage tooling).
+    // It is never bundled into the running service and never parses untrusted
+    // YAML at runtime. No safe fix exists: js-yaml 3.x has no patched release,
+    // and js-yaml 4.2.0 removed `safeLoad` (which load-nyc-config calls), so a
+    // package override breaks coverage collection. Re-evaluate when
+    // babel-plugin-istanbul / load-nyc-config bump to js-yaml >=4.2.
+    "GHSA-h67p-54hq-rp68"
+  ]
+}

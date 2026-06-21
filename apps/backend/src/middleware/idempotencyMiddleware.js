@@ -18,8 +18,14 @@
  *   - On schema-missing (table not migrated), the middleware fails OPEN so
  *     endpoints keep working. A warning is logged.
  *
- * The handler signals failure by setting res.statusCode >= 400 — that
- * response is still cached so retries see the same answer.
+ * Caching policy:
+ *   - 2xx/3xx success      → cached + replayed (the deterministic happy path).
+ *   - 4xx client error     → cached + replayed (deterministic — a retry with
+ *                            the same payload will fail identically).
+ *   - 5xx / transient fail → NOT cached; the in-flight claim is DELETED so the
+ *                            client's retry re-executes and can succeed. A
+ *                            transient 500/503 must never be pinned under the
+ *                            key, which would make recovery impossible.
  */
 
 import {
@@ -27,6 +33,7 @@ import {
   finaliseIdempotencyKey,
   hashRequestBody,
   isValidIdempotencyKey,
+  releaseIdempotencyKey,
 } from '../services/idempotency/idempotencyService.js';
 import { error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
@@ -89,12 +96,21 @@ export function requireIdempotencyKey({ required = true, scope = 'generic' } = {
     res.json = function patchedJson(body) {
       const out = originalJson(body);
       const status = res.statusCode;
-      const persistStatus = status >= 400 ? 'failed' : 'complete';
-      finaliseIdempotencyKey({
-        id: claimId, status: persistStatus, responseStatus: status, responseBody: body,
-      }).catch((err) => {
-        logger.warn('Idempotency finalise failed:', { error: err.message, claimId });
-      });
+      if (status >= 500) {
+        // Transient failure — free the claim so the client's retry re-runs the
+        // handler instead of being pinned to this 5xx forever.
+        releaseIdempotencyKey(claimId).catch((err) => {
+          logger.warn('Idempotency release failed:', { error: err.message, claimId });
+        });
+      } else {
+        // Deterministic outcome (2xx/3xx success or 4xx client error) — cache it.
+        const persistStatus = status >= 400 ? 'failed' : 'complete';
+        finaliseIdempotencyKey({
+          id: claimId, status: persistStatus, responseStatus: status, responseBody: body,
+        }).catch((err) => {
+          logger.warn('Idempotency finalise failed:', { error: err.message, claimId });
+        });
+      }
       return out;
     };
     return next();

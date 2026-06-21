@@ -41,6 +41,7 @@
 import crypto from 'crypto';
 import logger from '../logging/logger.js';
 import { getKekProvider } from './fieldKeyProvider.js';
+import { getCurrentTenantId } from '../lib/tenantContext.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16; // v1 IV length (legacy; v2 uses 12-byte GCM nonces)
@@ -130,22 +131,31 @@ function unpackEnvelope(value) {
  * - undefined is treated like null (legacy returned it untouched; we normalise
  *   to the same passthrough so `encryptField(undefined)` never throws).
  *
+ * W3: the DEK is wrapped under the PER-TENANT KEK when a tenant is resolved
+ * (explicit opts.tenantId, else the ambient setTenant context) AND that tenant's
+ * KEK is loaded in the provider; otherwise under the global KEK (grandfather).
+ * The kid in the payload records which KEK was used, so decrypt needs no tenant
+ * hint. The re-wrap job migrates legacy global-kid rows onto the tenant KEK.
+ *
  * @param {string|null|undefined} plaintext
+ * @param {{tenantId?: string|null}} [opts]
  * @returns {string|null|undefined} enc:v2: payload, or the original null/empty.
  */
-export function encryptField(plaintext) {
+export function encryptField(plaintext, { tenantId = getCurrentTenantId() } = {}) {
   if (plaintext === null || plaintext === undefined || plaintext === '') return plaintext;
 
   let dek;
   try {
     const provider = getKekProvider();
+    const tenantKid = tenantId ? `t:${tenantId}:v1` : null;
+    const keyId = tenantKid && provider.hasKek(tenantKid) ? tenantKid : undefined;
     dek = provider.generateDek();
     const iv = crypto.randomBytes(DEK_IV_LENGTH);
     const cipher = crypto.createCipheriv(ALGORITHM, dek, iv);
     const ct = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
 
-    const wrapped = provider.wrapDek(dek);
+    const wrapped = provider.wrapDek(dek, { keyId });
 
     return packEnvelope({
       v: 2,
@@ -268,9 +278,12 @@ export function decryptField(encryptedValue) {
  * @param {string|null} encryptedValue
  * @param {Object} [opts]
  * @param {Object} [opts.provider]  KEK provider (defaults to the active one).
+ * @param {string} [opts.keyId]     target KEK keyId to wrap under (e.g. a tenant
+ *                                  KEK `t:<tenantId>:v1`); defaults to the
+ *                                  provider's active keyId.
  * @returns {string|null} possibly-rewrapped value.
  */
-export function rewrapField(encryptedValue, { provider } = {}) {
+export function rewrapField(encryptedValue, { provider, keyId } = {}) {
   if (encryptedValue === null || encryptedValue === undefined || encryptedValue === '') {
     return encryptedValue;
   }
@@ -291,7 +304,7 @@ export function rewrapField(encryptedValue, { provider } = {}) {
       wiv: Buffer.from(env.wiv, 'base64'),
       wtag: Buffer.from(env.wtag, 'base64'),
     });
-    const wrapped = kek.wrapDek(dek); // wrap under the active keyId
+    const wrapped = kek.wrapDek(dek, keyId ? { keyId } : undefined); // wrap under target (or active) keyId
     return packEnvelope({
       ...env,
       kid: wrapped.keyId,

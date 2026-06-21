@@ -115,6 +115,65 @@ describe('createStaffProfile onboarding account creation', () => {
     expect(result.onboarding.tasks_created).toBe(6);
   });
 
+  // Security audit (LOW): minimum password length raised 6 -> 8 across all
+  // password-acceptance paths. createStaffProfile -> resolveOrCreateStaffUser
+  // enforces SECURITY_CONFIG.password.minLength (8). A 7-char password (which
+  // previously satisfied the old min:6 floor) must now be rejected, and an
+  // 8-char password must clear the gate and reach bcrypt hashing.
+  it('rejects a 7-character password as WEAK_PASSWORD (below the 8-char floor)', async () => {
+    // Only the employee_id uniqueness check runs before the length gate.
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    await expect(createStaffProfile(
+      {
+        name: 'Short Pass Nurse',
+        phone: '9876543210',
+        role: 'NURSING_STAFF',
+        department: 'Nursing',
+        position: 'Staff Nurse',
+        employee_id: 'EMP-2001',
+        temporary_password: 'test123', // 7 chars
+      },
+      '11111111-1111-4111-8111-111111111111',
+      'Test HR',
+      '127.0.0.1',
+    )).rejects.toThrow('WEAK_PASSWORD');
+
+    expect(bcryptHash).not.toHaveBeenCalled();
+    expect(usersCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts an 8-character password (clears the length floor and hashes it)', async () => {
+    // The length gate sits before bcrypt.hash; reaching the hash proves the
+    // 8-char password cleared it. We let the user INSERT reject so we only have
+    // to model the two pre-hash lookups (employee_id uniqueness, phone lookup)
+    // instead of the whole downstream create/audit flow.
+    queryRawUnsafe
+      .mockResolvedValueOnce([]) // employee_id uniqueness check
+      .mockResolvedValueOnce([]); // phone existence check in resolveOrCreateStaffUser
+    usersCreate.mockRejectedValue(new Error('STOP_AFTER_HASH'));
+
+    await expect(createStaffProfile(
+      {
+        name: 'Boundary Nurse',
+        phone: '9876543210',
+        role: 'NURSING_STAFF',
+        department: 'Nursing',
+        position: 'Staff Nurse',
+        employee_id: 'EMP-2002',
+        shift: 'MORNING',
+        temporary_password: 'eightch8', // exactly 8 chars
+      },
+      '11111111-1111-4111-8111-111111111111',
+      'Test HR',
+      '127.0.0.1',
+    )).rejects.toThrow('STOP_AFTER_HASH');
+
+    // Reaching bcrypt.hash proves the 8-char password passed the length gate
+    // (a sub-8 password would have thrown WEAK_PASSWORD before this point).
+    expect(bcryptHash).toHaveBeenCalledWith('eightch8', 10);
+  });
+
   it('rejects platform admin roles in staff onboarding', async () => {
     queryRawUnsafe
       .mockResolvedValueOnce([{ employee_id: 'EMP-1048' }])

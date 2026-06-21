@@ -6,11 +6,11 @@ import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import billingService from '../../services/billing/billingService.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { requiredUUID, requiredString, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
-
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -21,7 +21,7 @@ const validate = (req, res, next) => {
 const router = Router();
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function ensurePatientSelfAccess(req, patientUid) {
@@ -59,6 +59,14 @@ router.post('/invoice', requireIdempotencyKey({ required: false, scope: 'invoice
     };
 
     const invoice = await billingService.createInvoice(invoiceData);
+
+    // Audit the money-mutation (audit §3 / fix 9 — V1 billing had no audit on
+    // money writes). No PHI/amount values, only ids + structural flags.
+    await logAudit(req, 'BILLING_V1_INVOICE_CREATED', {
+      invoice_id: invoice?.id ?? null,
+      patient_uid: invoiceData.patient_uid,
+      invoice_type: invoiceData.type ?? null,
+    }, { resource: 'invoice', resourceId: invoice?.id ?? null });
 
     return success(res, invoice, 'Invoice created successfully', 201);
   } catch (err) {
@@ -162,6 +170,14 @@ router.post('/invoice/:id/payment', requireIdempotencyKey({ required: false, sco
       tenantOf(req)
     );
 
+    // Audit the payment write (fix 9). Mode + reference-presence only — never
+    // the raw amount or transaction reference.
+    await logAudit(req, 'BILLING_V1_PAYMENT_RECORDED', {
+      invoice_id: invoiceId,
+      mode: method ?? null,
+      reference_present: Boolean(transaction_ref),
+    }, { resource: 'invoice_payment', resourceId: invoiceId });
+
     return success(res, result, 'Payment recorded successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -226,6 +242,13 @@ router.post('/insurance/claim', requireIdempotencyKey({ required: false, scope: 
     };
 
     const claim = await billingService.submitInsuranceClaim(claimData);
+
+    // Audit the claim write (fix 9).
+    await logAudit(req, 'BILLING_V1_INSURANCE_CLAIM_SUBMITTED', {
+      claim_id: claim?.id ?? null,
+      patient_uid: claimData.patient_uid,
+      invoice_id: claimData.invoice_id ?? null,
+    }, { resource: 'insurance_claim', resourceId: claim?.id ?? null });
 
     return success(res, claim, 'Insurance claim submitted successfully', 201);
   } catch (err) {
@@ -330,8 +353,18 @@ router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) =
         non_payable_amount,
         disallowed_reason,
         actor_uid: req.user?.uid ?? null,
+        // Tenant-scope the claim lookup (fix 7) — blocks cross-tenant claim
+        // IDOR on the SERIAL claim id.
+        tenantId: tenantOf(req),
       },
     );
+
+    // Audit the claim status mutation (fix 9). Status + reference-presence only.
+    await logAudit(req, 'BILLING_V1_INSURANCE_CLAIM_STATUS_UPDATED', {
+      claim_id: claimId,
+      status,
+      payment_reference_present: Boolean(payment_reference),
+    }, { resource: 'insurance_claim', resourceId: claimId });
 
     return success(res, claim, 'Insurance claim updated successfully');
   } catch (err) {

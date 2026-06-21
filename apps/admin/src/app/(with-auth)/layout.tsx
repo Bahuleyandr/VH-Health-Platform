@@ -7,7 +7,24 @@
 'use client';
 
 import { PageErrorBoundary } from '@/components/PageErrorBoundary';
+import { TenantProvider } from '@/contexts/TenantContext';
+import { ActingTenantProvider } from '@/contexts/ActingTenantContext';
+import { ActingTenantBanner } from '@/components/ActingTenantBanner';
 
 export default function WithAuthLayout({ children }: { children: React.ReactNode }) {
-  return <PageErrorBoundary>{children}</PageErrorBoundary>;
+  // TenantProvider fetches the caller's tenant branding once, post-auth, so the
+  // dashboard chrome can brand itself (W5 S2). ActingTenantProvider tracks the
+  // SUPER_ADMIN acting-as-tenant state (W5 S3) and renders a persistent banner
+  // above the chrome while active. Both scoped here (not the root <Providers>)
+  // so the login page never fires the authenticated requests.
+  return (
+    <PageErrorBoundary>
+      <TenantProvider>
+        <ActingTenantProvider>
+          <ActingTenantBanner />
+          {children}
+        </ActingTenantProvider>
+      </TenantProvider>
+    </PageErrorBoundary>
+  );
 }

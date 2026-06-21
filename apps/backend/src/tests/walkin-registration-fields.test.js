@@ -265,7 +265,7 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, updated_at)
        VALUES ($1, 'Existing Placeholder Patient', 'PATIENT', true, NOW())
-       ON CONFLICT (phone) DO NOTHING`,
+       ON CONFLICT (tenant_id, phone) DO NOTHING`,
       `+91${UNIDENT_COLLISION_PHONE}`,
     );
 

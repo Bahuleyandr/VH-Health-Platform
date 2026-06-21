@@ -15,7 +15,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { detectPromptInjection } from './documentPromptInjectionDetectorService.js';
 
 const EMBED_DIM = 768;
@@ -28,7 +28,7 @@ function isMissingSchemaError(err) {
 }
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function embedBaseUrl() {

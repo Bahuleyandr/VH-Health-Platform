@@ -11,10 +11,11 @@
 // app never sends a calculated total — it sends the inputs and the
 // service is the source of truth.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
 const VALID_PAYMENT_MODES = [
@@ -23,7 +24,6 @@ const VALID_PAYMENT_MODES = [
 const VALID_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'VOID'];
 const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
 const HIGH_VALUE_DISCOUNT_APPROVER_ROLES = ['FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN'];
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Mirrors VALID_CATEGORIES in claimCapsService — the bucket set TPA caps
 // match against. addInvoiceItem rejects unknown categories so ad-hoc
@@ -81,10 +81,10 @@ function pushTenantWhere(where, params, tenantId, column = 'tenant_id') {
   where.push(`${column} = $${params.length}::uuid`);
 }
 
-async function findBillingInvoice(invoiceId, tenantId, columns = '*') {
+async function findBillingInvoice(invoiceId, tenantId, columns = '*', db = prisma) {
   const params = [Number(invoiceId)];
   const tenantSql = appendTenantPredicate(params, tenantId);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT ${columns}
        FROM billing_invoices
       WHERE id = $1::int${tenantSql}
@@ -94,10 +94,31 @@ async function findBillingInvoice(invoiceId, tenantId, columns = '*') {
   return rows[0] || null;
 }
 
-async function assertPatientInTenant(patientUid, tenantId) {
+/**
+ * Lock + read a billing invoice row FOR UPDATE inside an open transaction.
+ * Used by the money-mutation critical sections (collectPayment, settleAdvance,
+ * raiseRefund) so the balance check + recompute see a row no concurrent tx can
+ * mutate until this tx commits. Must be called with a `tx` client from
+ * setTenantTx — a bare `prisma` would not hold the lock across statements.
+ */
+async function lockBillingInvoice(tx, invoiceId, tenantId, columns = '*') {
+  const params = [Number(invoiceId)];
+  const tenantSql = appendTenantPredicate(params, tenantId);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT ${columns}
+       FROM billing_invoices
+      WHERE id = $1::int${tenantSql}
+      LIMIT 1
+      FOR UPDATE`,
+    ...params,
+  );
+  return rows[0] || null;
+}
+
+async function assertPatientInTenant(patientUid, tenantId, db = prisma) {
   const tenant = normalizeTenantId(tenantId);
   if (!tenant || !patientUid) return;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT uid
        FROM users
       WHERE uid = $1::uuid
@@ -250,9 +271,16 @@ async function recomputeInvoiceTotals(invoiceId) {
   return { subtotal, cgst, sgst, igst, discount, total, paid, due };
 }
 
-async function recomputeInvoicePaymentState(invoiceId) {
+/**
+ * Recompute amount_paid / amount_due / status from the live payment +
+ * advance-settlement rows. MUST run inside an open transaction (`tx`) that has
+ * already `SELECT … FOR UPDATE`-locked the invoice row, so two concurrent
+ * payments can't both read a stale `amount_due` and both succeed → overpayment.
+ * The aggregate sum is computed under the same lock the caller holds.
+ */
+async function recomputeInvoicePaymentStateTx(tx, invoiceId) {
   const normalizedInvoiceId = Number(invoiceId);
-  const aggr = await prisma.$queryRawUnsafe(
+  const aggr = await tx.$queryRawUnsafe(
     `SELECT (
             SELECT COALESCE(SUM(amount), 0)::numeric
               FROM billing_payments
@@ -265,7 +293,7 @@ async function recomputeInvoicePaymentState(invoiceId) {
     normalizedInvoiceId,
   );
   const paid = Number(aggr[0].paid);
-  const inv = await prisma.$queryRawUnsafe(
+  const inv = await tx.$queryRawUnsafe(
     `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
     normalizedInvoiceId,
   );
@@ -275,7 +303,7 @@ async function recomputeInvoicePaymentState(invoiceId) {
   let status = 'PARTIAL';
   if (due <= 0.005) status = 'PAID';
   else if (paid <= 0.005) status = 'ISSUED';
-  await prisma.$executeRawUnsafe(
+  await tx.$executeRawUnsafe(
     `UPDATE billing_invoices
         SET amount_paid = $1::numeric, amount_due = $2::numeric, status = $3, updated_at = NOW()
       WHERE id = $4::int`,
@@ -284,8 +312,8 @@ async function recomputeInvoicePaymentState(invoiceId) {
   return { paid, due, status };
 }
 
-async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState) {
-  const rows = await prisma.$queryRawUnsafe(
+async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState, db = prisma) {
+  const rows = await db.$queryRawUnsafe(
     `SELECT id, admission_id
        FROM billing_invoices
       WHERE id = $1::int
@@ -296,7 +324,7 @@ async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState) {
   if (!invoice?.admission_id) return;
 
   if (paymentState?.status === 'PAID') {
-    await prisma.$executeRawUnsafe(
+    await db.$executeRawUnsafe(
       `UPDATE billing_advances
           SET status = 'REFUND_DUE',
               notes = CONCAT_WS(' | ', NULLIF(notes, ''), $2::text),
@@ -310,7 +338,7 @@ async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState) {
     return;
   }
 
-  await prisma.$executeRawUnsafe(
+  await db.$executeRawUnsafe(
     `UPDATE billing_advances
         SET status = 'ACTIVE',
             updated_at = NOW()
@@ -421,7 +449,7 @@ export async function createDraftInvoice({
   }
   // B-1: enforce billing close before creating against a closed admission.
   await assertAdmissionBillingOpen(admission_id);
-  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_invoices
@@ -858,7 +886,7 @@ async function maybeEmitTpaCapAlerts({ admissionId, patientUid, tenantId, totalA
  */
 export async function resolveAdmissionTpaCap(admissionId, tenantId) {
   if (!admissionId) return null;
-  const tenant = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tenant = requireTenantId(tenantId);
   // Stage-4-C — also expose the root preauth's status, denial_reason,
   // sanctioned_amount, and policy_id so the cashier screen can show
   // "TPA: denied" / "approved ₹50,000" / "pending insurer response"
@@ -1042,7 +1070,7 @@ export async function listInvoices({
 // Payments
 // ───────────────────────────────────────────────────────────────────────
 
-async function assertInsurancePaymentHasClaimAnchor(invoiceId, tenantId = null) {
+async function assertInsurancePaymentHasClaimAnchor(invoiceId, tenantId = null, db = prisma) {
   if (!invoiceId) {
     throw AppError.badRequest(
       'INSURANCE payments must be recorded against an invoice linked to a submitted cashless TPA claim.',
@@ -1052,7 +1080,7 @@ async function assertInsurancePaymentHasClaimAnchor(invoiceId, tenantId = null) 
 
   const params = [Number(invoiceId)];
   const tenantSql = appendTenantPredicate(params, tenantId);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id, claim_number, preauth_id, status
        FROM tpa_claims
       WHERE invoice_id = $1::int
@@ -1082,10 +1110,97 @@ async function assertInsurancePaymentHasClaimAnchor(invoiceId, tenantId = null) 
   }
 }
 
+// SQLSTATE 23505 = unique_violation. Surfaced when migration 317's partial
+// unique index (tenant_id, reference, mode) rejects a duplicate payment row —
+// the durable double-charge backstop for a gateway/webhook replay that re-
+// presents the same reference. Translate to a clean 409 instead of a 500.
+function isUniqueViolation(err) {
+  const code = err?.meta?.code
+    || err?.meta?.driverAdapterError?.cause?.originalCode
+    || err?.code;
+  return code === '23505';
+}
+
+/**
+ * Atomic core of collectPayment. Runs entirely inside the caller's open
+ * transaction (`tx`): when invoice-linked, the invoice row is FOR UPDATE-locked
+ * BEFORE the amount-due check so two concurrent payments can't both read a stale
+ * due and both succeed (overpayment). The payment INSERT + recompute + advance
+ * sync all use `tx`, so they commit or roll back as a unit.
+ */
+async function collectPaymentTx(tx, {
+  invoice_id, patient_uid, amount, mode, reference,
+  denominations, collected_by, shift, notes, tenantId, normalizedMode,
+}) {
+  let resolvedPatientUid = patient_uid;
+  if (invoice_id) {
+    // Lock the invoice row first — the balance check below must see a state no
+    // concurrent payment/settlement can change until this tx commits.
+    const inv = await lockBillingInvoice(
+      tx,
+      invoice_id,
+      tenantId,
+      'patient_uid, status, total_amount, amount_paid, amount_due',
+    );
+    if (!inv) throw AppError.notFound('Invoice not found');
+    if (inv.status === 'VOID' || inv.status === 'DRAFT') {
+      throw AppError.badRequest(`Cannot collect against ${inv.status} invoice`);
+    }
+    resolvedPatientUid = inv.patient_uid;
+    if (Number(amount) > Number(inv.amount_due) + 0.01) {
+      throw AppError.badRequest(
+        `Amount ${amount} exceeds outstanding due ${inv.amount_due}`,
+      );
+    }
+    if (normalizedMode === 'INSURANCE') {
+      await assertInsurancePaymentHasClaimAnchor(invoice_id, tenantId, tx);
+    }
+  }
+  if (!resolvedPatientUid) throw AppError.badRequest('patient_uid is required when invoice_id is omitted');
+  if (!invoice_id) await assertPatientInTenant(resolvedPatientUid, tenantId, tx);
+
+  let rows;
+  try {
+    rows = await tx.$queryRawUnsafe(
+      `INSERT INTO billing_payments
+        (invoice_id, patient_uid, amount, mode, reference, denominations,
+         collected_by, shift, notes, tenant_id)
+       VALUES ($1, $2::uuid, $3::numeric, $4, $5, $6::jsonb, $7::uuid, $8, $9, $10::uuid)
+       RETURNING *`,
+      invoice_id ? Number(invoice_id) : null,
+      String(resolvedPatientUid),
+      Number(amount),
+      mode,
+      reference || null,
+      denominations ? JSON.stringify(denominations) : null,
+      collected_by ? String(collected_by) : null,
+      shift || null,
+      notes || null,
+      requireTenantId(normalizeTenantId(tenantId)),
+    );
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw AppError.conflict(
+        'A payment with this reference and mode already exists for this tenant — '
+          + 'duplicate suppressed to prevent a double charge.',
+        'DUPLICATE_PAYMENT_REFERENCE',
+      );
+    }
+    throw err;
+  }
+
+  if (invoice_id) {
+    const paymentState = await recomputeInvoicePaymentStateTx(tx, invoice_id);
+    await syncUnusedAdmissionAdvancesForInvoice(invoice_id, paymentState, tx);
+  }
+  return rows[0];
+}
+
 export async function collectPayment({
   invoice_id, patient_uid, amount, mode, reference,
   denominations, collected_by, shift, notes, tenantId,
-}) {
+}, { tx = null } = {}) {
+  // ── Phase 0 — preflight (no row mutation; safe outside the tx) ──────────
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
@@ -1112,79 +1227,46 @@ export async function collectPayment({
     await assertInsurancePaymentHasClaimAnchor(null, tenantId);
   }
 
-  // Resolve patient_uid + invoice gating from invoice if invoice_id given.
-  let resolvedPatientUid = patient_uid;
-  if (invoice_id) {
-    const inv = await findBillingInvoice(
-      invoice_id,
-      tenantId,
-      'patient_uid, status, total_amount, amount_paid, amount_due',
-    );
-    if (!inv) throw AppError.notFound('Invoice not found');
-    if (inv.status === 'VOID' || inv.status === 'DRAFT') {
-      throw AppError.badRequest(`Cannot collect against ${inv.status} invoice`);
-    }
-    resolvedPatientUid = inv.patient_uid;
-    if (Number(amount) > Number(inv.amount_due) + 0.01) {
-      throw AppError.badRequest(
-        `Amount ${amount} exceeds outstanding due ${inv.amount_due}`,
-      );
-    }
-    if (normalizedMode === 'INSURANCE') {
-      await assertInsurancePaymentHasClaimAnchor(invoice_id, tenantId);
-    }
-  }
-  if (!resolvedPatientUid) throw AppError.badRequest('patient_uid is required when invoice_id is omitted');
-  if (!invoice_id) await assertPatientInTenant(resolvedPatientUid, tenantId);
-
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO billing_payments
-      (invoice_id, patient_uid, amount, mode, reference, denominations,
-       collected_by, shift, notes, tenant_id)
-     VALUES ($1, $2::uuid, $3::numeric, $4, $5, $6::jsonb, $7::uuid, $8, $9, $10::uuid)
-     RETURNING *`,
-    invoice_id ? Number(invoice_id) : null,
-    String(resolvedPatientUid),
-    Number(amount),
-    mode,
-    reference || null,
-    denominations ? JSON.stringify(denominations) : null,
-    collected_by ? String(collected_by) : null,
-    shift || null,
-    notes || null,
-    normalizeTenantId(tenantId) || DEFAULT_TENANT_ID,
-  );
-
-  if (invoice_id) {
-    const paymentState = await recomputeInvoicePaymentState(invoice_id);
-    await syncUnusedAdmissionAdvancesForInvoice(invoice_id, paymentState);
-  }
-  return rows[0];
+  const args = {
+    invoice_id, patient_uid, amount, mode, reference,
+    denominations, collected_by, shift, notes, tenantId, normalizedMode,
+  };
+  // Reuse the caller's transaction when given (e.g. markPaymentLinkPaid) so we
+  // never nest setTenantTx — Postgres cannot nest transactions. Otherwise open
+  // our own tenant-scoped atomic transaction.
+  if (tx) return collectPaymentTx(tx, args);
+  return setTenantTx(requireTenantId(tenantId), (innerTx) => collectPaymentTx(innerTx, args));
 }
 
 export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required');
-  const params = [
-    reversed_by ? String(reversed_by) : null,
-    reason,
-    Number(paymentId),
-  ];
-  const tenantSql = appendTenantPredicate(params, tenantId);
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE billing_payments
-        SET reversed = true, reversed_at = NOW(),
-            reversed_by = $1::uuid, reversal_reason = $2
-      WHERE id = $3::int AND reversed = false${tenantSql}
-      RETURNING *`,
-    ...params,
-  );
-  if (!rows.length) throw AppError.notFound('Payment not found or already reversed');
-  // Recompute parent invoice if attached.
-  if (rows[0].invoice_id) {
-    const paymentState = await recomputeInvoicePaymentState(rows[0].invoice_id);
-    await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState);
-  }
-  return rows[0];
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+    // Flip the reversal flag first (guarded by reversed = false so a double
+    // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
+    // lock so a concurrent collectPayment can't interleave with the recompute.
+    const params = [
+      reversed_by ? String(reversed_by) : null,
+      reason,
+      Number(paymentId),
+    ];
+    const tenantSql = appendTenantPredicate(params, tenantId);
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE billing_payments
+          SET reversed = true, reversed_at = NOW(),
+              reversed_by = $1::uuid, reversal_reason = $2
+        WHERE id = $3::int AND reversed = false${tenantSql}
+        RETURNING *`,
+      ...params,
+    );
+    if (!rows.length) throw AppError.notFound('Payment not found or already reversed');
+    // Recompute parent invoice if attached.
+    if (rows[0].invoice_id) {
+      await lockBillingInvoice(tx, rows[0].invoice_id, tenantId, 'id');
+      const paymentState = await recomputeInvoicePaymentStateTx(tx, rows[0].invoice_id);
+      await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState, tx);
+    }
+    return rows[0];
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -1197,7 +1279,7 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
-  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_advances
@@ -1226,66 +1308,110 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 }
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
-  const advParams = [Number(advance_id)];
-  const advTenantSql = appendTenantPredicate(advParams, tenantId);
-  const adv = await prisma.$queryRawUnsafe(
-    `SELECT * FROM billing_advances WHERE id = $1::int${advTenantSql}`,
-    ...advParams,
-  );
-  if (!adv.length) throw AppError.notFound('Advance not found');
-  if (adv[0].status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv[0].status}`);
-  if (Number(amount) > Number(adv[0].balance) + 0.01) {
-    throw AppError.badRequest(`Amount exceeds advance balance ${adv[0].balance}`);
-  }
-
-  const inv = await findBillingInvoice(
-    invoice_id,
-    tenantId,
-    'amount_due, patient_uid',
-  );
-  if (!inv) throw AppError.notFound('Invoice not found');
-  if (String(inv.patient_uid).toLowerCase() !== String(adv[0].patient_uid).toLowerCase()) {
-    throw AppError.forbidden(
-      'Advance and invoice must belong to the same patient',
-      'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
+  if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+    // Lock the advance row FOR UPDATE before reading its balance — without the
+    // lock two concurrent settlements both read the same balance and both
+    // succeed (the classic lost update that overdraws the advance).
+    const advParams = [Number(advance_id)];
+    const advTenantSql = appendTenantPredicate(advParams, tenantId);
+    const adv = await tx.$queryRawUnsafe(
+      `SELECT * FROM billing_advances WHERE id = $1::int${advTenantSql} FOR UPDATE`,
+      ...advParams,
     );
-  }
-  if (Number(amount) > Number(inv.amount_due) + 0.01) {
-    throw AppError.badRequest(`Amount exceeds invoice due ${inv.amount_due}`);
-  }
+    if (!adv.length) throw AppError.notFound('Advance not found');
+    if (adv[0].status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv[0].status}`);
+    if (Number(amount) > Number(adv[0].balance) + 0.01) {
+      throw AppError.badRequest(`Amount exceeds advance balance ${adv[0].balance}`);
+    }
 
-  const settlement = await prisma.$queryRawUnsafe(
-    `INSERT INTO billing_advance_settlements (advance_id, invoice_id, amount, settled_by)
-     VALUES ($1::int, $2::int, $3::numeric, $4::uuid)
-     RETURNING *`,
-    Number(advance_id), Number(invoice_id), Number(amount),
-    settled_by ? String(settled_by) : null,
-  );
+    // Lock the invoice too so its amount_due check + bump is consistent against
+    // any concurrent payment on the same invoice.
+    const inv = await lockBillingInvoice(
+      tx,
+      invoice_id,
+      tenantId,
+      'amount_due, patient_uid',
+    );
+    if (!inv) throw AppError.notFound('Invoice not found');
+    if (String(inv.patient_uid).toLowerCase() !== String(adv[0].patient_uid).toLowerCase()) {
+      throw AppError.forbidden(
+        'Advance and invoice must belong to the same patient',
+        'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
+      );
+    }
+    if (Number(amount) > Number(inv.amount_due) + 0.01) {
+      throw AppError.badRequest(`Amount exceeds invoice due ${inv.amount_due}`);
+    }
 
-  // Bump amount_paid on the invoice + reduce balance on advance.
-  const newBalance = toFixed2(Number(adv[0].balance) - Number(amount));
-  const newStatus = newBalance <= 0.005 ? 'EXHAUSTED' : 'ACTIVE';
-  await prisma.$executeRawUnsafe(
-    `UPDATE billing_advances SET balance = $1::numeric, status = $2, updated_at = NOW() WHERE id = $3::int`,
-    newBalance, newStatus, Number(advance_id),
-  );
+    const settlement = await tx.$queryRawUnsafe(
+      `INSERT INTO billing_advance_settlements (advance_id, invoice_id, amount, settled_by)
+       VALUES ($1::int, $2::int, $3::numeric, $4::uuid)
+       RETURNING *`,
+      Number(advance_id), Number(invoice_id), Number(amount),
+      settled_by ? String(settled_by) : null,
+    );
 
-  // Recompute invoice totals (treats advance settlement as paid amount).
-  await prisma.$executeRawUnsafe(
-    `UPDATE billing_invoices
-        SET amount_paid = amount_paid + $1::numeric,
-            amount_due = amount_due - $1::numeric,
-            status = CASE WHEN amount_due - $1::numeric <= 0.005 THEN 'PAID' ELSE 'PARTIAL' END,
-            updated_at = NOW()
-      WHERE id = $2::int`,
-    Number(amount), Number(invoice_id),
-  );
-  return settlement[0];
+    // Atomic balance decrement — `balance = balance - $amt WHERE balance >= $amt`
+    // is the conditional update that makes the debit safe even if the FOR UPDATE
+    // lock were somehow skipped: a settlement that would overdraw affects zero
+    // rows and we reject. Belt-and-braces with the lock above.
+    const dec = await tx.$queryRawUnsafe(
+      `UPDATE billing_advances
+          SET balance = balance - $1::numeric,
+              status = CASE WHEN balance - $1::numeric <= 0.005 THEN 'EXHAUSTED' ELSE 'ACTIVE' END,
+              updated_at = NOW()
+        WHERE id = $2::int
+          AND balance >= $1::numeric - 0.005
+        RETURNING id`,
+      Number(amount), Number(advance_id),
+    );
+    if (!dec.length) {
+      throw AppError.badRequest(
+        `Amount exceeds advance balance ${adv[0].balance}`,
+        'BILLING_ADVANCE_INSUFFICIENT_BALANCE',
+      );
+    }
+
+    // Recompute invoice totals (treats advance settlement as paid amount).
+    await tx.$executeRawUnsafe(
+      `UPDATE billing_invoices
+          SET amount_paid = amount_paid + $1::numeric,
+              amount_due = amount_due - $1::numeric,
+              status = CASE WHEN amount_due - $1::numeric <= 0.005 THEN 'PAID' ELSE 'PARTIAL' END,
+              updated_at = NOW()
+        WHERE id = $2::int`,
+      Number(amount), Number(invoice_id),
+    );
+    return settlement[0];
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────
 // Refunds
 // ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Sum of all refunds already raised against an invoice that are NOT rejected
+ * (PENDING/APPROVED/PAID all consume refundable headroom). Used by raiseRefund
+ * to bound the new refund so total refunds never exceed what was actually paid.
+ */
+async function sumActiveInvoiceRefunds(tx, invoiceId, { excludeRefundId = null } = {}) {
+  const params = [Number(invoiceId)];
+  let exclude = '';
+  if (excludeRefundId != null) {
+    params.push(Number(excludeRefundId));
+    exclude = ` AND id <> $${params.length}::int`;
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(amount), 0)::numeric AS total
+       FROM billing_refunds
+      WHERE invoice_id = $1::int
+        AND approval_status <> 'REJECTED'${exclude}`,
+    ...params,
+  );
+  return Number(rows[0].total || 0);
+}
 
 export async function raiseRefund({
   patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenantId,
@@ -1298,48 +1424,73 @@ export async function raiseRefund({
   if ((!invoice_id && !advance_id) || (invoice_id && advance_id)) {
     throw AppError.badRequest('Refund must reference exactly one of invoice_id or advance_id');
   }
-  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
-  let resolvedPatientUid = patient_uid;
-  if (invoice_id) {
-    const invoice = await findBillingInvoice(invoice_id, tenantId, 'patient_uid');
-    if (!invoice) throw AppError.notFound('Invoice not found');
-    if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(invoice.patient_uid).toLowerCase()) {
-      throw AppError.forbidden(
-        'Refund patient_uid must match the invoice patient',
-        'BILLING_REFUND_PATIENT_MISMATCH',
-      );
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
+  const refundAmount = toFixed2(amount);
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+    let resolvedPatientUid = patient_uid;
+    if (invoice_id) {
+      // Lock the invoice + sum prior refunds so the bound check below can't be
+      // raced by a second concurrent refund on the same invoice.
+      const invoice = await lockBillingInvoice(tx, invoice_id, tenantId, 'patient_uid, amount_paid');
+      if (!invoice) throw AppError.notFound('Invoice not found');
+      if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(invoice.patient_uid).toLowerCase()) {
+        throw AppError.forbidden(
+          'Refund patient_uid must match the invoice patient',
+          'BILLING_REFUND_PATIENT_MISMATCH',
+        );
+      }
+      resolvedPatientUid = invoice.patient_uid;
+      // Bound: total refunds must never exceed what the patient actually paid.
+      // Refundable headroom = amount_paid − (prior non-rejected refunds).
+      const priorRefunds = await sumActiveInvoiceRefunds(tx, invoice_id);
+      const refundable = toFixed2(Number(invoice.amount_paid || 0) - priorRefunds);
+      if (refundAmount > refundable + 0.005) {
+        throw AppError.badRequest(
+          `Refund amount ${refundAmount} exceeds refundable balance ${Math.max(0, refundable)} `
+            + `(paid ${Number(invoice.amount_paid || 0)} less prior refunds ${priorRefunds}).`,
+          'BILLING_REFUND_EXCEEDS_PAID',
+          { amount_paid: Number(invoice.amount_paid || 0), prior_refunds: priorRefunds, refundable: Math.max(0, refundable) },
+        );
+      }
     }
-    resolvedPatientUid = invoice.patient_uid;
-  }
-  if (advance_id) {
-    const advParams = [Number(advance_id)];
-    const advTenantSql = appendTenantPredicate(advParams, tenantId);
-    const advances = await prisma.$queryRawUnsafe(
-      `SELECT patient_uid FROM billing_advances WHERE id = $1::int${advTenantSql}`,
-      ...advParams,
+    if (advance_id) {
+      const advParams = [Number(advance_id)];
+      const advTenantSql = appendTenantPredicate(advParams, tenantId);
+      const advances = await tx.$queryRawUnsafe(
+        `SELECT patient_uid, balance FROM billing_advances WHERE id = $1::int${advTenantSql} FOR UPDATE`,
+        ...advParams,
+      );
+      if (!advances.length) throw AppError.notFound('Advance not found');
+      if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(advances[0].patient_uid).toLowerCase()) {
+        throw AppError.forbidden(
+          'Refund patient_uid must match the advance patient',
+          'BILLING_REFUND_PATIENT_MISMATCH',
+        );
+      }
+      resolvedPatientUid = advances[0].patient_uid;
+      // Bound: an advance refund cannot exceed the advance's remaining balance.
+      if (refundAmount > Number(advances[0].balance || 0) + 0.005) {
+        throw AppError.badRequest(
+          `Refund amount ${refundAmount} exceeds advance balance ${Number(advances[0].balance || 0)}.`,
+          'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
+          { advance_balance: Number(advances[0].balance || 0) },
+        );
+      }
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO billing_refunds
+        (patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenant_id)
+       VALUES ($1::uuid, $2, $3, $4::numeric, $5, $6, $7::uuid, $8::uuid)
+       RETURNING *`,
+      String(resolvedPatientUid),
+      invoice_id ? Number(invoice_id) : null,
+      advance_id ? Number(advance_id) : null,
+      refundAmount, reason, mode,
+      raised_by ? String(raised_by) : null,
+      tenant,
     );
-    if (!advances.length) throw AppError.notFound('Advance not found');
-    if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(advances[0].patient_uid).toLowerCase()) {
-      throw AppError.forbidden(
-        'Refund patient_uid must match the advance patient',
-        'BILLING_REFUND_PATIENT_MISMATCH',
-      );
-    }
-    resolvedPatientUid = advances[0].patient_uid;
-  }
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO billing_refunds
-      (patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenant_id)
-     VALUES ($1::uuid, $2, $3, $4::numeric, $5, $6, $7::uuid, $8::uuid)
-     RETURNING *`,
-    String(resolvedPatientUid),
-    invoice_id ? Number(invoice_id) : null,
-    advance_id ? Number(advance_id) : null,
-    Number(amount), reason, mode,
-    raised_by ? String(raised_by) : null,
-    tenant,
-  );
-  return rows[0];
+    return rows[0];
+  });
 }
 
 export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
@@ -1377,34 +1528,72 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
 }
 
 export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
-  const params = [
-    paid_by ? String(paid_by) : null,
-    reference || null,
-    Number(refundId),
-  ];
-  const tenantSql = appendTenantPredicate(params, tenantId);
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE billing_refunds
-        SET approval_status = 'PAID', paid_by = $1::uuid,
-            paid_at = NOW(), reference = COALESCE($2, reference), updated_at = NOW()
-      WHERE id = $3::int AND approval_status = 'APPROVED'${tenantSql}
-      RETURNING *`,
-    ...params,
-  );
-  if (!rows.length) throw AppError.notFound('Refund not found or not approved');
-
-  // If linked to an advance, reduce the advance balance and mark refunded.
-  if (rows[0].advance_id) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE billing_advances
-          SET balance = GREATEST(balance - $1::numeric, 0),
-              status = CASE WHEN balance - $1::numeric <= 0.005 THEN 'REFUNDED' ELSE status END,
-              updated_at = NOW()
-        WHERE id = $2::int`,
-      Number(rows[0].amount), Number(rows[0].advance_id),
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+    // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
+    // double "mark paid" affects zero rows on the second call (already PAID),
+    // so the ledger-reducing writes below run exactly once.
+    const params = [
+      paid_by ? String(paid_by) : null,
+      reference || null,
+      Number(refundId),
+    ];
+    const tenantSql = appendTenantPredicate(params, tenantId);
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE billing_refunds
+          SET approval_status = 'PAID', paid_by = $1::uuid,
+              paid_at = NOW(), reference = COALESCE($2, reference), updated_at = NOW()
+        WHERE id = $3::int AND approval_status = 'APPROVED'${tenantSql}
+        RETURNING *`,
+      ...params,
     );
-  }
-  return rows[0];
+    if (!rows.length) throw AppError.notFound('Refund not found or not approved');
+    const refund = rows[0];
+
+    // If linked to an advance: atomically reduce the advance balance. The
+    // `balance >= amt` guard prevents the payout from driving the balance
+    // negative if the advance was concurrently consumed.
+    if (refund.advance_id) {
+      const dec = await tx.$queryRawUnsafe(
+        `UPDATE billing_advances
+            SET balance = balance - $1::numeric,
+                status = CASE WHEN balance - $1::numeric <= 0.005 THEN 'REFUNDED' ELSE status END,
+                updated_at = NOW()
+          WHERE id = $2::int
+            AND balance >= $1::numeric - 0.005
+          RETURNING id`,
+        Number(refund.amount), Number(refund.advance_id),
+      );
+      if (!dec.length) {
+        throw AppError.badRequest(
+          'Refund payout exceeds the advance balance available at payout time.',
+          'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
+        );
+      }
+    }
+
+    // If linked to an invoice: reduce the invoice's amount_paid (and bump
+    // amount_due / status) so paying out a refund doesn't leave the invoice
+    // showing money the patient no longer has. Lock the invoice first.
+    if (refund.invoice_id) {
+      const inv = await lockBillingInvoice(tx, refund.invoice_id, tenantId, 'amount_paid, total_amount');
+      if (inv) {
+        await tx.$executeRawUnsafe(
+          `UPDATE billing_invoices
+              SET amount_paid = GREATEST(amount_paid - $1::numeric, 0),
+                  amount_due = total_amount - GREATEST(amount_paid - $1::numeric, 0),
+                  status = CASE
+                             WHEN total_amount - GREATEST(amount_paid - $1::numeric, 0) <= 0.005 THEN 'PAID'
+                             WHEN GREATEST(amount_paid - $1::numeric, 0) <= 0.005 THEN 'ISSUED'
+                             ELSE 'PARTIAL'
+                           END,
+                  updated_at = NOW()
+            WHERE id = $2::int`,
+          Number(refund.amount), Number(refund.invoice_id),
+        );
+      }
+    }
+    return refund;
+  });
 }
 
 export async function listRefunds({ tenantId, approval_status, patient_uid } = {}) {

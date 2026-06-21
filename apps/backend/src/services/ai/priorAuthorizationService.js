@@ -13,7 +13,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
@@ -23,8 +23,15 @@ import { publishEvent } from '../events/eventOutboxService.js';
 
 const MODULE_KEY = 'prior_authorization_generator';
 
+// Payer-decision state machine (audit §C-1). `status` is a bare varchar with no
+// DB CHECK; before this guard a payer decision could be recorded from any state
+// (e.g. flip an already-`approved` PA to `denied`, which re-arms the appeal
+// workflow). A payer decision is only recordable on a SUBMITTED request; the
+// decision IS the target status. Re-recording the SAME decision is idempotent.
+const PRIOR_AUTH_DECISION_FROM_STATES = ['submitted'];
+
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function safeJsonParse(text, fallback) {
@@ -292,6 +299,31 @@ export async function recordPayerDecision({ priorAuthId, decision, reason = null
   if (!['approved', 'denied', 'withdrawn'].includes(normalized)) {
     throw AppError.badRequest('decision must be approved, denied, or withdrawn');
   }
+  const paId = Number.parseInt(priorAuthId, 10);
+
+  // Read current state (tenant-scoped) so the transition can be checked. A
+  // payer decision is only valid on a submitted request; re-recording the same
+  // decision is idempotent (safe retry); any other from→to is rejected so an
+  // already-approved PA can't be silently flipped to denied (which re-arms the
+  // appeal workflow downstream).
+  const currentRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, payer_decided_at, payer_decision_reason, patient_uid
+       FROM clinical_ai_prior_auth_requests
+      WHERE id = $1 AND tenant_id = $2::uuid
+      LIMIT 1`,
+    paId,
+    tid,
+  );
+  if (!currentRows[0]) throw AppError.notFound('Prior auth not found');
+  const current = currentRows[0];
+  if (current.status === normalized) {
+    // Already in the requested decision state — idempotent no-op.
+    return current;
+  }
+  if (!PRIOR_AUTH_DECISION_FROM_STATES.includes(current.status)) {
+    throw AppError.invalidTransition(current.status, normalized, PRIOR_AUTH_DECISION_FROM_STATES);
+  }
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_prior_auth_requests
      SET status = $2,
@@ -300,11 +332,13 @@ export async function recordPayerDecision({ priorAuthId, decision, reason = null
          updated_at = NOW()
      WHERE id = $1
        AND tenant_id = $4::uuid
+       AND status = $5
      RETURNING id, status, payer_decided_at, payer_decision_reason, patient_uid`,
-    Number.parseInt(priorAuthId, 10),
+    paId,
     normalized,
     reason,
-    tid
+    tid,
+    current.status,
   );
   if (!rows[0]) throw AppError.notFound('Prior auth not found');
   const updated = rows[0];

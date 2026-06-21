@@ -224,10 +224,10 @@ describe('AuthService.adminLogin', () => {
 describe('AuthService.verifyOtp', () => {
   it('creates a new user on first login (upsert) and sets isNewUser true', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    // First findUnique — no existing user
-    mockPrisma.users.findUnique.mockResolvedValue(null);
-    // upsert returns the newly created user
-    mockPrisma.users.upsert.mockResolvedValue({
+    // No existing user (findFirst — phone is unique per-tenant now, mig 333)
+    mockPrisma.users.findFirst.mockResolvedValue(null);
+    // create returns the newly created user
+    mockPrisma.users.create.mockResolvedValue({
       uid: 'new-uid',
       id: 1,
       name: null,
@@ -237,10 +237,9 @@ describe('AuthService.verifyOtp', () => {
 
     const result = await AuthService.verifyOtp('9876543210', '123456', {});
 
-    expect(mockPrisma.users.upsert).toHaveBeenCalledWith(
+    expect(mockPrisma.users.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { phone: '+919876543210' },
-        create: expect.objectContaining({ phone: '+919876543210', role: 'PATIENT' }),
+        data: expect.objectContaining({ phone: '+919876543210', role: 'PATIENT' }),
       })
     );
     expect(result.user.isNewUser).toBe(true);
@@ -249,8 +248,8 @@ describe('AuthService.verifyOtp', () => {
 
   it('returns isNewUser false for existing user', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    mockPrisma.users.findUnique.mockResolvedValue({ uid: 'existing-uid' });
-    mockPrisma.users.upsert.mockResolvedValue({
+    mockPrisma.users.findFirst.mockResolvedValue({ uid: 'existing-uid' });
+    mockPrisma.users.update.mockResolvedValue({
       uid: 'existing-uid',
       id: 2,
       name: 'Bob',
@@ -272,8 +271,8 @@ describe('AuthService.verifyOtp', () => {
 
 // ---------- refreshToken ----------
 describe('AuthService.refreshToken', () => {
-  it('returns a new token for a valid token', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919876543210', role: 'PATIENT' });
+  it('returns a new access + refresh token for a valid type:refresh token', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919876543210', role: 'PATIENT', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue({
       uid: 'u1',
       phone: '+919876543210',
@@ -281,23 +280,38 @@ describe('AuthService.refreshToken', () => {
       role: 'PATIENT',
     });
 
-    const result = await AuthService.refreshToken('old-token');
+    const result = await AuthService.refreshToken('old-refresh-token');
 
-    expect(mockVerifyToken).toHaveBeenCalledWith('old-token');
+    expect(mockVerifyToken).toHaveBeenCalledWith('old-refresh-token');
     expect(result.token).toBe('mock-jwt-token');
+    expect(result.refreshToken).toBe('mock-jwt-token');
     expect(result.user.uid).toBe('u1');
   });
 
-  it('throws when token is invalid', async () => {
+  it('C-9: rejects an access token (no type:refresh) at the refresh endpoint', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919876543210', role: 'PATIENT' });
+
+    await expect(AuthService.refreshToken('access-token')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
+  });
+
+  it('throws when token is invalid/expired', async () => {
     mockVerifyToken.mockReturnValue(null);
 
-    await expect(AuthService.refreshToken('bad-token')).rejects.toThrow('Invalid token signature');
+    await expect(AuthService.refreshToken('bad-token')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
   });
 
   it('throws when user no longer exists', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'deleted-uid' });
+    mockVerifyToken.mockReturnValue({ uid: 'deleted-uid', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue(null);
 
-    await expect(AuthService.refreshToken('valid-token-deleted-user')).rejects.toThrow('User not found');
+    await expect(AuthService.refreshToken('valid-token-deleted-user')).rejects.toMatchObject({
+      code: 'TOKEN_INVALID',
+    });
   });
 });

@@ -8,13 +8,13 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const WINDOWS = ['any', 'am', 'pm'];
 const MAX_OVERBOOK_FRACTION = Number(process.env.SCHEDULING_MAX_OVERBOOK_FRACTION || 0.15);
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(value) {
-  return String(value || '').trim() || DEFAULT_TENANT_ID;
+  return requireTenantId(String(value || '').trim());
 }
 
 async function assertDoctorInTenant(tenantId, doctorId) {

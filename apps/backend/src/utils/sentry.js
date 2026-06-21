@@ -1,7 +1,12 @@
 // src/utils/sentry.js
 import * as Sentry from '@sentry/node';
 import dotenv from 'dotenv';
-import { scrubSentryEvent } from './sentryScrubber.js';
+import {
+  normalizeSentryPath,
+  scrubSentryEvent,
+  scrubSentryText,
+  scrubSentryValue,
+} from './sentryScrubber.js';
 
 dotenv.config();
 
@@ -28,6 +33,34 @@ export function clinicalAwareTracesSampler({ name, parentSampled, baseRate = tra
   return baseRate;
 }
 
+// Roadmap / audit 2026-06-18 §4 Observability: beforeSend / beforeSendTransaction
+// scrub the final event, but the default integrations (console capture,
+// outbound HTTP) attach BREADCRUMBS that bypass those hooks — so a
+// console.log / fetch carrying a phone, email, JWT, or sensitive key rode
+// into Sentry unscrubbed. beforeBreadcrumb runs the same scrubbers over each
+// breadcrumb's message + data before it is attached. Pure + exported for unit
+// tests.
+export function scrubBreadcrumb(breadcrumb) {
+  if (!breadcrumb || typeof breadcrumb !== 'object') return breadcrumb;
+  try {
+    if (typeof breadcrumb.message === 'string') {
+      breadcrumb.message = scrubSentryText(breadcrumb.message);
+    }
+    if (breadcrumb.data && typeof breadcrumb.data === 'object') {
+      // Key-aware value scrub (redacts sensitive KEYS regardless of value).
+      breadcrumb.data = scrubSentryValue(breadcrumb.data);
+      // http breadcrumbs put the request target on data.url — path-normalize
+      // it so ids/PHI in the URL don't survive and cardinality stays bounded.
+      if (typeof breadcrumb.data.url === 'string') {
+        breadcrumb.data.url = normalizeSentryPath(breadcrumb.data.url);
+      }
+    }
+  } catch (_) {
+    // Never let scrubbing drop a breadcrumb — return it as-is on error.
+  }
+  return breadcrumb;
+}
+
 Sentry.init({
   dsn,
   enabled: Boolean(dsn) && env !== 'test',
@@ -41,6 +74,7 @@ Sentry.init({
   sendDefaultPii: false,
   beforeSend: scrubSentryEvent,
   beforeSendTransaction: scrubSentryEvent,
+  beforeBreadcrumb: scrubBreadcrumb,
   initialScope: {
     tags: {
       service: 'vh-health-backend',

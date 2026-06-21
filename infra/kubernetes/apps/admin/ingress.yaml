@@ -53,3 +53,9 @@ spec:
                 name: vhhealth-admin
                 port:
                   number: 80
+    # Multi-tenancy W5/W7 (FLAT model): the admin portal stays SINGLE-HOST at
+    # admin.vhhealth.app. The admin's tenant + branding are driven by the JWT
+    # (W5 — token tenant_id + /admin/tenant-context), so per-tenant admin
+    # subdomains aren't needed (and a K8s Ingress can't wildcard-route `*-admin`
+    # anyway). This more-specific `admin.vhhealth.app` rule wins over the
+    # backend's `*.vhhealth.app` wildcard.

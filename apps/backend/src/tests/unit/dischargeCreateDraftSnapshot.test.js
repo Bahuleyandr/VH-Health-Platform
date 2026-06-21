@@ -188,6 +188,9 @@ describe('discharge summary audit trail', () => {
         patient_uid: patientUid,
         signed_at: new Date('2026-05-15T10:00:00.000Z'),
       }])
+      // canonical timeline + audit event INSERTs (now emitted inside the sign tx)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
@@ -219,6 +222,9 @@ describe('discharge summary audit trail', () => {
         patient_uid: patientUid,
         primary_diagnosis: 'ACS',
       }])
+      // canonical timeline + audit event INSERTs (now emitted inside the deliver tx)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
 
@@ -341,6 +347,8 @@ describe('discharge sign-completeness gate', () => {
         id: 11, admission_id: 30, patient_uid: patientUid,
         signed_at: new Date('2026-05-22T09:00:00.000Z'),
       }])
+      .mockResolvedValueOnce([])                  // canonical timeline INSERT (in-tx)
+      .mockResolvedValueOnce([])                  // canonical audit INSERT (in-tx)
       .mockResolvedValueOnce([])                  // materialise meds: sections
       .mockResolvedValueOnce([{ id: 11, patient_uid: patientUid }]) // getOne header
       .mockResolvedValueOnce([]);                 // getOne sections
@@ -370,7 +378,9 @@ describe('discharge sign-completeness gate', () => {
         id: 12, admission_id: 31, patient_uid: patientUid,
         signed_at: new Date('2026-05-22T10:00:00.000Z'),
       }])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                  // canonical timeline INSERT (in-tx)
+      .mockResolvedValueOnce([])                  // canonical audit INSERT (in-tx)
+      .mockResolvedValueOnce([])                  // materialise meds: sections
       .mockResolvedValueOnce([{ id: 12, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
 

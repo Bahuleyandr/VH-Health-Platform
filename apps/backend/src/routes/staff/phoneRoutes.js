@@ -8,14 +8,14 @@ import {
   getRolePolicyVersion,
 } from '../../config/rolePolicyGraph.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = express.Router();
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const localIsoSql = (column) =>
   `to_char(((${column} AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone')), 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function staffUidOf(req) {

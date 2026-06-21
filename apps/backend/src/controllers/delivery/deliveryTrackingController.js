@@ -1,7 +1,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -42,7 +42,7 @@ function normalizeRole(role) {
 }
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function sameId(left, right) {

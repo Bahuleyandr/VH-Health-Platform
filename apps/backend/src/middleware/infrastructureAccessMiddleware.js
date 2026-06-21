@@ -60,11 +60,16 @@ export function hasValidMonitoringToken(req, env = process.env) {
 }
 
 export function requireProductionMonitoringAccess(req, res, next) {
-  if (!isProductionRuntime()) return next();
-
+  // Audit 2026-06-18 §4 Observability: this gate was a no-op whenever
+  // NODE_ENV !== 'production', leaving /health/deep (DB host/port) and
+  // /downtime/static (PHI packs) reachable UNAUTHENTICATED in dev, staging,
+  // QA, and any env where NODE_ENV wasn't literally 'production'. Now it
+  // ALWAYS requires a valid monitoring token and fails CLOSED when no token
+  // is configured (hasValidMonitoringToken returns false on empty config),
+  // regardless of NODE_ENV. (Name kept for call-site stability.)
   if (hasValidMonitoringToken(req)) return next();
 
-  logger.warn('Production monitoring endpoint denied without a valid monitoring token', {
+  logger.warn('Monitoring endpoint denied without a valid monitoring token', {
     path: req.originalUrl || req.url,
     method: req.method,
     ip: req.ip,

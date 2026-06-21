@@ -51,6 +51,37 @@ function fiscalYearOf(d = new Date()) {
   return `${String(start).slice(2)}-${String(start + 1).slice(2)}`;
 }
 
+// ── Claim status state machine (audit §C-1) ──────────────────────────────
+//
+// `tpa_claims.status` is a bare varchar with no DB CHECK, so before this guard
+// `paid → submitted`, `denied → approved`, `approved → denied` were all
+// accepted — and a `denied` flip auto-spawns appeal workflows. These maps make
+// every status change a checked from→to transition (mirrors the pharmacy-order
+// VALID_TRANSITIONS pattern + submitAppealLetter's AppError.invalidTransition).
+//
+// recordClaimDecision moves an in-flight claim to a payer verdict; the verdict
+// itself IS the target status. Re-recording the SAME decision on a claim
+// already in that state is treated as idempotent (no-op) rather than an error,
+// so a duplicate TPA-portal callback doesn't 400 or double-write.
+const CLAIM_DECISION_TRANSITIONS = {
+  submitted: ['approved', 'partially_approved', 'queried', 'denied'],
+  queried: ['approved', 'partially_approved', 'queried', 'denied'],
+  approved: ['partially_approved', 'denied', 'queried'],
+  partially_approved: ['approved', 'denied', 'queried'],
+  denied: ['approved', 'partially_approved'],
+  // Terminal money/lifecycle states accept no further payer decision.
+  paid: [],
+  settled_partial: [],
+  closed: [],
+  cancelled: [],
+};
+
+// recordClaimPayment always targets a paid-class status (paid / settled_partial),
+// only reachable from a positive payer verdict (or directly from submitted for
+// a clean auto-settle). Re-posting the SAME settlement reference is treated as
+// idempotent by recordClaimPayment itself.
+const CLAIM_PAYMENT_FROM_STATES = ['approved', 'partially_approved', 'submitted'];
+
 async function nextSeq(tableCounter, prefix, tenantId) {
   // Atomic increment per (tenant, fiscal_year).
   const fy = fiscalYearOf();
@@ -1843,11 +1874,25 @@ export async function recordClaimDecision({
   insurer, raw_response,
 }) {
   const cl = await getClaim({ tenantId, id });
-  if (!['submitted', 'queried', 'approved', 'partially_approved'].includes(cl.status)) {
+  const allowedDecisions = ['approved', 'partially_approved', 'queried', 'denied'];
+  if (!allowedDecisions.includes(decision)) throw AppError.badRequest('Invalid decision');
+
+  // State-machine guard. Re-recording the SAME decision the claim already
+  // carries is idempotent (a duplicate TPA-portal callback / double-click is a
+  // no-op, not a 400 or a duplicate correspondence row). Any other illegal
+  // from→to (e.g. paid → submitted, denied → approved is allowed for appeal
+  // reversal but paid → denied is not) is rejected as an invalid transition.
+  const allowedTo = CLAIM_DECISION_TRANSITIONS[cl.status] ?? null;
+  if (allowedTo === null) {
     throw AppError.badRequest(`Cannot record decision on ${cl.status} claim`);
   }
-  const allowed = ['approved', 'partially_approved', 'queried', 'denied'];
-  if (!allowed.includes(decision)) throw AppError.badRequest('Invalid decision');
+  if (cl.status === decision) {
+    // Already in the requested decision state — no-op for safe retries.
+    return getClaim({ tenantId, id });
+  }
+  if (!allowedTo.includes(decision)) {
+    throw AppError.invalidTransition(cl.status, decision, allowedTo);
+  }
 
   // Reject a decision whose payer contradicts the claim's policy payer. Two
   // signals: an explicitly-supplied insurer (strong — mirrors
@@ -1913,12 +1958,26 @@ export async function recordClaimPayment({
   tenantId, id, paid_amount, payment_reference, paid_at, recorded_by,
 }) {
   const cl = await getClaim({ tenantId, id });
-  if (!['approved', 'partially_approved', 'submitted'].includes(cl.status)) {
-    throw AppError.badRequest(`Cannot record payment on ${cl.status} claim`);
-  }
   const paidNum = Number(paid_amount);
   if (!paid_amount || paidNum <= 0) {
     throw AppError.badRequest('paid_amount must be > 0');
+  }
+
+  // Idempotency: re-posting the SAME settlement (same payment_reference on an
+  // already-paid claim) is a no-op so a duplicate insurer callback doesn't
+  // double-write the correspondence row. A DIFFERENT settlement on a paid claim
+  // is an illegal transition (paid is terminal here).
+  if (['paid', 'settled_partial'].includes(cl.status)) {
+    const samePayment = payment_reference
+      && cl.payment_reference
+      && String(cl.payment_reference) === String(payment_reference);
+    if (samePayment) return getClaim({ tenantId, id });
+    throw AppError.invalidTransition(cl.status, 'paid', CLAIM_PAYMENT_FROM_STATES);
+  }
+  // State-machine guard: a settlement is only recordable from a positive payer
+  // verdict (or directly from submitted for a clean auto-settle).
+  if (!CLAIM_PAYMENT_FROM_STATES.includes(cl.status)) {
+    throw AppError.invalidTransition(cl.status, 'paid', CLAIM_PAYMENT_FROM_STATES);
   }
   // Reject a settlement whose payer contradicts the claim's policy payer.
   // The only payer signal at settlement is free-text: the settlement

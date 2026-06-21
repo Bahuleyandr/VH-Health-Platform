@@ -18,10 +18,17 @@ beforeEach(() => {
 });
 
 describe('anesthesiaChartService.recordEntry', () => {
-  it('creates the chart row and syncs drug/totals into the case anesthesia record', async () => {
+  // The chart-entry INSERT and the case-record rollup recompute now run in
+  // ONE setTenantTx transaction, and the rollup is recomputed deterministically
+  // from the chart rows via SUM()/jsonb_agg (audit 2026-06-18 §3 fix #5) — no
+  // incremental accumulator params. The numeric correctness of the SUM rollup
+  // under concurrency is proven against the real DB in
+  // theatre-clinical-safety.deep.test.js; here we assert the two statements
+  // run in order inside the tx.
+  it('creates the chart row then atomically increments the case anesthesia record rollup in one tx', async () => {
     queryUnsafeMock
-      .mockResolvedValueOnce([{ id: 11, ot_schedule_id: 42 }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ id: 11, ot_schedule_id: 42 }]) // INSERT chart entry
+      .mockResolvedValueOnce([]); // recompute INSERT INTO anesthesia_records
 
     const row = await recordEntry({
       tenantId: '00000000-0000-4000-8000-000000000001',
@@ -40,10 +47,20 @@ describe('anesthesiaChartService.recordEntry', () => {
     expect(row.id).toBe(11);
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/INSERT INTO anesthesia_chart_entries/);
+    // Rollup is maintained as an ATOMIC per-entry increment keyed on the
+    // just-inserted entry id — race-safe via the ON CONFLICT row-lock re-read of
+    // the current total, NOT a SUM()-recompute over the whole chart (which lost
+    // concurrent inserts under READ COMMITTED).
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(
+      /fluids_in_ml = anesthesia_records\.fluids_in_ml \+ EXCLUDED\.fluids_in_ml/,
+    );
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO anesthesia_records/);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\) DO UPDATE/);
-    expect(JSON.parse(queryUnsafeMock.mock.calls[1][4])).toEqual([
-      { name: 'midazolam', dose: '2 mg', route: 'IV' },
+    // The increment takes tenant + schedule id + the just-inserted entry id.
+    expect(queryUnsafeMock.mock.calls[1].slice(1)).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      42,
+      11,
     ]);
   });
 });

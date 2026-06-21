@@ -83,4 +83,15 @@ regexes = [
   # name after the colon; the real `longhorn-s3-secret` is created out-of-band by
   # the operator (see the comment above the field in longhorn-app.yaml).
   '''longhorn-s3-secret''',
+  # Local-only QA-cluster superuser DSN used verbatim in the run-the-gate command
+  # docs (the superpowers W3/W4 plans) + a few deep tests. `postgres:postgres` is a
+  # universal local-dev convention (loopback trust auth on 127.0.0.1:55432), never
+  # a production credential. Same form as the vhhealth:test@ allowlist above.
+  '''postgresql://postgres:postgres@''',
+  # Local-only dev-cluster DSN (the vhhealth role on :5433, loopback) referenced
+  # in a deep-test comment + the backend CLAUDE.md.
+  '''postgresql://vhhealth:vhhealth@''',
+  # HL7 inbound HMAC test secret — a fixture in
+  # hl7-receive-tenant-binding.deep.test.js (W3 WS6), not a real credential.
+  '''hl7-tenant-binding-test-secret''',
 ]

@@ -8,6 +8,7 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { computeGrowthSnapshot } from '../clinical/growthPercentileService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import * as news2Service from '../clinical/news2Service.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 
 const VALID_VITAL_TYPES = [
@@ -22,7 +23,6 @@ const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', '
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 const VITAL_CORRECTION_WINDOW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VITAL_CORRECTION_FIELDS = [
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
@@ -461,7 +461,7 @@ export async function recordVitals(data) {
   if (requestedTenantId && patientTenantId && requestedTenantId !== patientTenantId) {
     throw AppError.notFound('Patient not found');
   }
-  const resolvedTenantId = patientTenantId || requestedTenantId || DEFAULT_TENANT_ID;
+  const resolvedTenantId = requireTenantId(patientTenantId || requestedTenantId);
 
   // Wave-4B-1 (migration 208) — split encounter input across int + uuid.
   // Caller can pass either `encounter_id` (legacy int / numeric / UUID),
@@ -527,7 +527,13 @@ export async function recordVitals(data) {
   // the recorded vitals. The canonical timeline event therefore carries the
   // vitals row + provenance labelling (the load-bearing clinical record);
   // the enrichment is attached to the service response only.
-  const record = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
+  //
+  // EXCEPTION (audit 2026-06-18 §4): NEWS2 persistence is now part of the atomic
+  // clinical write — persistNews2 runs on `tx` so the news2_scores row commits
+  // or rolls back WITH the vitals row. Captured here so the post-commit
+  // escalation (alert + CDS surfacing) can run after the tx closes.
+  let news2Persisted = null;
+  const record = await setTenantTx(requireTenantId(resolvedTenantId), async (tx) => {
     const row = await tx.vitals_chart.create({
       data: {
         patient_uid: resolvedPatientUid,
@@ -602,8 +608,36 @@ export async function recordVitals(data) {
       tags: row.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
     }, tx);
 
+    // NEWS2 persistence is now ATOMIC with the vitals write (audit 2026-06-18
+    // §4): the news2_scores row is written ON THE SAME tx so it rolls back with
+    // the vitals row instead of being a post-commit best-effort that could be
+    // lost. Partial scoring (persistNews2 → calculateNEWS2) means a partial
+    // vitals set still records a score; pass the ACTUAL values (no fabricated
+    // normal temp/consciousness) so absent params are omitted, not scored as 0.
+    // Escalation (alert + CDS) runs POST-COMMIT below — it touches other
+    // tables / the CDS module and must not be inside the clinical write tx.
+    news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {
+      respiration_rate: respiratory_rate,
+      spo2,
+      temperature: normalizedTemperature,
+      systolic_bp,
+      heart_rate,
+      consciousness,
+      supplemental_o2: supplemental_o2 || false,
+    }, recorded_by, { db: tx });
+
     return row;
   });
+
+  // NEWS2 escalation — POST-COMMIT. A high-NEWS2 (>=5) escalation failure is
+  // LOUD (escalateNews2 throws); a low-score CDS hiccup stays best-effort.
+  let news2Result = null;
+  if (news2Persisted) {
+    news2Result = news2Persisted.record;
+    await news2Service.escalateNews2(
+      resolvedPatientUid, news2Persisted.record, news2Persisted.computed,
+    );
+  }
 
   let triage = null;
   if (normalizedAcuity != null) {
@@ -617,23 +651,6 @@ export async function recordVitals(data) {
   }
 
   let alerts = [];
-  let news2Result = null;
-
-  if (respiratory_rate != null && spo2 != null && systolic_bp != null && heart_rate != null) {
-    try {
-      news2Result = await news2Service.recordNEWS2(resolvedPatientUid, {
-        respiration_rate: respiratory_rate,
-        spo2,
-        temperature: normalizedTemperature ?? 37,
-        systolic_bp,
-        heart_rate,
-        consciousness: consciousness || 'A',
-        supplemental_o2: supplemental_o2 || false,
-      }, recorded_by);
-    } catch (err) {
-      logger.warn(`NEWS2 auto-calculation failed for patient=${resolvedPatientUid}: ${err.message}`);
-    }
-  }
 
   try {
     const vitalsForCheck = {};
@@ -664,7 +681,22 @@ export async function recordVitals(data) {
       }
     }
   } catch (err) {
-    logger.warn(`Vital anomaly check failed for patient=${resolvedPatientUid}: ${err.message}`);
+    // checkVitalAnomalies persists the clinical_alerts fan-out atomically and
+    // re-throws on a persistence failure (it never throws for a benign
+    // no-alert path). A CRITICAL vital sign alert must NEVER be silently lost
+    // behind a warn + 200 — so when the alert persistence fails we escalate to
+    // a high-severity error and PROPAGATE, surfacing the failure to the caller
+    // (and the global error handler / Sentry) instead of swallowing it.
+    // Non-persistence anomaly-check hiccups (e.g. a realtime emit) don't reach
+    // here because the post-commit fan-out is individually best-effort.
+    if (err instanceof AppError) throw err;
+    logger.error(
+      `Vital anomaly alert persistence failed for patient=${resolvedPatientUid}: ${err?.message}`,
+    );
+    throw AppError.internal(
+      'Vitals were recorded but a clinical alert could not be persisted — escalate to the responsible clinician.',
+      'CLINICAL_ALERT_PERSIST_FAILED',
+    );
   }
 
   // Paediatric growth percentile — when weight/height is recorded for a
@@ -842,7 +874,7 @@ export async function correctVitals(vitalsId, data) {
     throw AppError.badRequest('At least one vitals field is required for correction');
   }
 
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tenantId), async (tx) => {
     const existing = await tx.vitals_chart.findUnique({
       where: { id },
       select: { ...VITAL_SELECT, created_at: true },
@@ -922,7 +954,7 @@ export async function recordIntakeOutput(data) {
   if (requestedTenantId && patientTenantId && requestedTenantId !== patientTenantId) {
     throw AppError.notFound('Patient not found');
   }
-  const resolvedTenantId = patientTenantId || requestedTenantId || DEFAULT_TENANT_ID;
+  const resolvedTenantId = requireTenantId(patientTenantId || requestedTenantId);
 
   // Wave-4B-2 (migration 223) — admission encounter_id is a UUID; the
   // pre-admission HL7 visit_no path is int. Split the input across both
@@ -934,7 +966,7 @@ export async function recordIntakeOutput(data) {
 
   // Atomic clinical write (canonical timeline invariant): the I/O detail row
   // + its canonical timeline/audit events persist together or not at all.
-  const created = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const created = await setTenantTx(requireTenantId(resolvedTenantId), async (tx) => {
     const row = await tx.intake_output.create({
       data: {
         patient_uid,

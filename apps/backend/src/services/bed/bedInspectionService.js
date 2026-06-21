@@ -17,11 +17,9 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_DECISIONS = new Set(['pending', 'chosen', 'declined', 'expired']);
-
-const TENANT_DEFAULT = '00000000-0000-4000-8000-000000000001';
 
 /**
  * Begin an inspection — receptionist records which beds the attender
@@ -49,7 +47,7 @@ export async function startInspection({
   if (ids.length !== shownBedIds.length) {
     throw AppError.badRequest('All shownBedIds must be positive integers');
   }
-  const tid = tenantId || TENANT_DEFAULT;
+  const tid = requireTenantId(tenantId);
 
   // Validate bed ids exist (prevents the GIN index getting orphan
   // values; cheap because beds is small).
@@ -65,7 +63,7 @@ export async function startInspection({
 
   const expiresAt = new Date(Date.now() + Math.max(1, Math.min(168, expiresInHours)) * 3600_000);
 
-  const inspection = await setTenantTx(tid || DEFAULT_TENANT_ID, async (tx) => {
+  const inspection = await setTenantTx(requireTenantId(tid), async (tx) => {
     const inserted = await tx.$queryRawUnsafe(
       `INSERT INTO bed_inspections
         (appointment_id, patient_uid, shown_bed_ids, inspected_by_attender,
@@ -133,7 +131,7 @@ export async function recordDecision({
     throw AppError.badRequest(`chosen_bed_id ${chosenBedId} was not in this inspection's shown_bed_ids`);
   }
 
-  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const result = await tx.$queryRawUnsafe(
       `UPDATE bed_inspections
           SET decision = $2,

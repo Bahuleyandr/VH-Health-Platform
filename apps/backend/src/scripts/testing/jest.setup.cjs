@@ -35,6 +35,16 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 if (!process.env.FIELD_ENCRYPTION_KEY || process.env.FIELD_ENCRYPTION_KEY.length < 32) {
   process.env.FIELD_ENCRYPTION_KEY = 'test-field-encryption-key-32chars!!';
 }
+// W3 WS5: master KEK that wraps per-tenant KEKs (envelope: master -> tenant KEK -> DEK).
+if (!process.env.FIELD_ENCRYPTION_MASTER_KEK || process.env.FIELD_ENCRYPTION_MASTER_KEK.length < 32) {
+  process.env.FIELD_ENCRYPTION_MASTER_KEK = 'test-field-encryption-master-kek-32c';
+}
+// W4: base host(s) the per-tenant subdomains sit under (Host-derived tenant).
+if (!process.env.TENANT_BASE_HOST) {
+  // Flat per-tenant host model: tenant API hosts are <slug>-api.<base>, so the
+  // base host is the apex (vhhealth.app), NOT api.vhhealth.app.
+  process.env.TENANT_BASE_HOST = 'localhost,vhhealth.app';
+}
 if (!process.env.TOTP_ENCRYPTION_KEY || process.env.TOTP_ENCRYPTION_KEY.length < 32) {
   process.env.TOTP_ENCRYPTION_KEY = 'test-totp-encryption-key-32chars!!!!';
 }
@@ -46,6 +56,11 @@ if (!process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_ENCRYPTION_KEY.leng
 // test fixtures seed SUPER_ADMIN accounts without TOTP and assert the
 // normal login shape. Pin to 'false' unless a test explicitly overrides.
 process.env.REQUIRE_MFA_FOR_SUPER_ADMIN ||= 'false';
+
+// W1 (multi-tenancy): tenant resolution now fails closed by default. The legacy
+// test fixtures rely on the single-tenant default-tenant floor, so allow it here
+// unless a test (e.g. the fail-closed suite) overrides it.
+process.env.ALLOW_DEFAULT_TENANT ||= 'true';
 
 // Keep Jest output small enough to avoid CI heap blowups from repeated app bootstrap logs.
 console.log = () => {};

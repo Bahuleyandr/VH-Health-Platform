@@ -207,6 +207,13 @@ try {
   ], { env });
   runNodeScript('ensure-pgvector-extension.mjs', [], { env });
   runNodeScript('ci-setup-db.mjs', [], { env });
+  // Provision the non-owner RLS test roles the *-deep RLS-posture suites
+  // SET LOCAL ROLE into (audit-append-only, tenant-rls-phase-2, …). ci-setup-db
+  // does not create them (qa-cluster-up does, for the QA cluster), so without
+  // this the docker path failed those suites with `42501 permission denied`
+  // once the seed stopped aborting first. Runs as the postgres superuser this
+  // script connects with; shared with qa-cluster-up so the two never drift.
+  runNodeScript('provision-rls-test-roles.mjs', [], { env });
   runNodeScript('check-schema-drift.mjs', [], { env });
   runNodeScript('check-db-contracts.mjs', [], { env });
   runNodeScript('seed-comprehensive-test-data.mjs', [], { env });

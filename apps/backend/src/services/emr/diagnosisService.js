@@ -2,7 +2,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import {
   attachResourceCodings,
@@ -148,7 +148,7 @@ export async function addDiagnosis(data) {
     }
   }
 
-  const created = await setTenantTx(tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+  const created = await setTenantTx(requireTenantId(tenant_id), async (tx) => {
     const row = await tx.diagnoses.create({
       data: {
         tenant_id: tenant_id || undefined,

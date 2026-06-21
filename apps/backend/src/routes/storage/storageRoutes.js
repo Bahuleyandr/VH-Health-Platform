@@ -13,6 +13,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import logger from '../../logging/logger.js';
+import { error } from '../../utils/responseHelper.js';
 import { isLocalStorage, resolveLocalKey, verifyLocalToken } from '../../utils/r2Storage.js';
 
 const router = express.Router();
@@ -57,7 +58,10 @@ router.get('/file/*splat', (req, res) => {
   try {
     fullPath = resolveLocalKey(key);
   } catch (e) {
-    return res.status(400).json({ success: false, message: e.message });
+    // Never surface the raw resolver error (it can echo internal path/key
+    // details). Log server-side, return a generic message via the helper.
+    logger.warn(`storage resolveLocalKey failed for key=${key}: ${e.message}`);
+    return error(res, 'Invalid storage key', 400);
   }
 
   if (!fs.existsSync(fullPath)) {

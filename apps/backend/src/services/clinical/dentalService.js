@@ -10,9 +10,9 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
-const tenantOr = (t) => t || TENANT_FALLBACK;
+const tenantOr = (t) => requireTenantId(t);
 
 export const FINDING_TYPES = [
   'caries', 'filling', 'crown', 'bridge_pontic', 'implant', 'missing',

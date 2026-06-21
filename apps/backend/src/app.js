@@ -27,6 +27,7 @@ import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
 import tenantRoutes from './routes/admin/tenantRoutes.js';
+import tenantContextRoutes from './routes/admin/tenantContextRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
@@ -42,7 +43,7 @@ import {
   dataExportRateLimiter,
   dashboardRateLimiter
 } from './middleware/rateLimitMiddleware.js';
-import { requireRole } from './middleware/rbacMiddleware.js';
+import { requireRole, requireSuperAdminStepUp } from './middleware/rbacMiddleware.js';
 import { sanitizeAllBodyStrings } from './middleware/sanitizeMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { sentryScopeMiddleware } from './middleware/sentryScopeMiddleware.js';
@@ -111,7 +112,6 @@ import adminForecastRoutes from './routes/admin/forecastRoutes.js';
 // exposing the rest of the admin tasks/workflow/escalation surface to them.
 import clinicalInboxRoutes from './routes/clinicalInboxRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
-import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
@@ -430,17 +430,25 @@ app.use(compression({ threshold: 1024 })); // Only compress responses > 1KB
 app.use(requestIdMiddleware);
 app.use(sentryScopeMiddleware);
 app.use(apiVersionMiddleware);
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ limit: '1mb', extended: true }));
+// JSON/urlencoded body limit. Driven by HTTP_BODY_LIMIT (the configmap already
+// declared this as an app-read value) with a conservative 1mb default — large
+// JSON parsing is a CPU-bound DoS surface, and the only legitimately large
+// bodies (file uploads) go through multer, NOT express.json. Operators tune
+// this knob explicitly; the ingress proxy-body-size (50m) covers multipart
+// uploads separately. Registered in validateEnv.js.
+const HTTP_BODY_LIMIT = process.env.HTTP_BODY_LIMIT || '1mb';
+app.use(express.json({ limit: HTTP_BODY_LIMIT }));
+app.use(express.urlencoded({ limit: HTTP_BODY_LIMIT, extended: true }));
 app.use(corsMiddleware);
 
 // Logging
 app.use(loggingMiddleware);
 app.use(logger.morganMiddleware);
 
-// User context middleware
-app.use(attachUserContext);
-// NOTE: normalizeIdentityFields runs AFTER JWT auth below
+// User context middleware (Sentry req.user + request context) is mounted
+// AFTER jwtAuth / tenantContextMiddleware below — at this point req.user and
+// req.tenantId do not exist yet, so attaching here made Sentry.setUser a no-op
+// (audit §5 reliability). See the app.use(attachUserContext) past jwtAuth.
 
 // Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
 app.use(auditLogMiddleware);
@@ -579,6 +587,12 @@ app.use(enforceFullScope);
 app.use(tenantContextMiddleware);  // Resolves req.tenantId after JWT auth
 app.use(tenantRlsMiddleware);      // Phase-2: seed AsyncLocalStorage so prisma auto-applies setTenant when AUTH_ENFORCE_TENANT_RLS=true
 app.use(normalizeIdentityFields); // runs AFTER JWT auth
+// Sentry user/request context — mounted HERE (not before jwtAuth) so req.user
+// and req.tenantId are populated; otherwise Sentry.setUser was always a no-op
+// (audit §5 reliability). Authenticated routes are the ones whose errors we
+// most need attributed to a user; public/pre-auth routes still get the
+// per-request tags from sentryScopeMiddleware mounted at the top of the chain.
+app.use(attachUserContext);
 
 // ====================================
 // AUTHENTICATED ROUTES (API key required)
@@ -682,8 +696,9 @@ app.use('/api/v1/gdpr', dataExportRateLimiter, gdprRoutes);
 // Session Management (view/revoke active sessions)
 app.use('/api/v1/sessions', sessionRoutes);
 
-// Admin 2FA (TOTP) — some endpoints public (verify), some require auth
-app.use('/api/v1/auth/admin/totp', totpRoutes);
+// Admin 2FA (TOTP): the live MFA path is adminAuthController (/auth/admin/mfa/*).
+// The legacy /auth/admin/totp router was deleted (audit 2026-06-18 §3 Auth) — it
+// referenced non-existent columns and minted tokens with a malformed identity.
 
 // HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
 app.use('/api/v1/consent', requireRole(...CONSENT_ROUTE_ROLES), consentRoutes);
@@ -1020,6 +1035,16 @@ app.use(
   adminRateLimiter,
   tenantRoutes
 );
+// W5 S1: the ADMIN-level read of the caller's OWN tenant identity + branding
+// (NOT the SUPER_ADMIN-only tenant CRUD above). Any authenticated admin needs
+// this to render its tenant chrome.
+app.use(
+  '/api/v1/admin/tenant-context',
+  requireRole('ADMIN', 'SUPER_ADMIN'),
+  adminIpAllowlist,
+  adminRateLimiter,
+  tenantContextRoutes
+);
 // Legacy /api/v1/admin/ed paths — 308 redirect to the parallel clinical
 // mount at /api/v1/ed (declared further above) so nurses using old URLs
 // are transparently forwarded before the admin-role gate rejects them.
@@ -1044,19 +1069,24 @@ app.use('/api/v1/admin/surgical', (req, res) => {
   const target = req.originalUrl.replace('/api/v1/admin/surgical', '/api/v1/surgical');
   res.redirect(308, target);
 });
-app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
-app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
+// SUPER_ADMIN step-up (audit 2026-06-18 — un-scoped bypass): requireRole grants
+// SUPER_ADMIN an un-scoped bypass, so on these admin-portal control planes the
+// master-key role must additionally present a 2FA-verified session
+// (requireSuperAdminStepUp). Normal ADMINs are unaffected. Pairs with the
+// REQUIRE_MFA_FOR_SUPER_ADMIN login flag — see docs/GO_LIVE_ACTIVATION_CHECKLIST.md.
+app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
+app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 
 // System settings + status — admin-portal surface, so IP-allowlisted like
 // /api/v1/admin (fails closed in production until ADMIN_IP_ALLOWLIST is set;
 // transparent in dev/test). Audit finding #5.
-app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, systemRoutes);
+app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, systemRoutes);
 
 // Audit + system logs — same admin-portal IP allowlist as /api/v1/admin.
 // Previously role-gated + rate-limited but reachable from any IP in
 // production; the audit/system log surface must match admin-dashboard
 // network exposure. Audit finding #5.
-app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, logRoutes);
+app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStepUp, adminIpAllowlist, adminRateLimiter, logRoutes);
 
 // Radiology
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
@@ -1104,7 +1134,7 @@ app.use(
   billingPhiAccessLogger(),
   billingV2Routes,
 );
-app.use('/api/v1/billing', requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'), billingRoutes);
+app.use('/api/v1/billing', requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'), billingPhiAccessLogger(), billingRoutes);
 app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRoutes);
 app.use('/api/v1/billing/revenue-cycle', requireRole(...BILLING_ROUTE_ROLES), revenueCycleTrackerRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for

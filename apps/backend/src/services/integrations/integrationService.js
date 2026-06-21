@@ -17,7 +17,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export const INTEGRATION_STATUSES = ['active', 'paused', 'failed', 'archived'];
 
@@ -35,7 +35,7 @@ const DESC_MAX = 4000;
 const TYPE_MAX = 80;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

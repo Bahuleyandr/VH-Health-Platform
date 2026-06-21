@@ -2,7 +2,7 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -19,7 +19,7 @@ import { normalizeClinicalJustification } from '../insurance/clinicalJustificati
 // are constrained to the resolved tenant — both the USING filter on the row
 // lock/lookup and WITH CHECK on the update.
 function scopedTx(tenantId, fn) {
-  return setTenantTx(tenantId || DEFAULT_TENANT_ID, fn);
+  return setTenantTx(requireTenantId(tenantId), fn);
 }
 
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];
@@ -496,10 +496,22 @@ class BillingService {
     const nonPayableAmount = opts.non_payable_amount ?? null;
     const disallowedReason = opts.disallowed_reason ?? null;
 
-    const existing = await prisma.insurance_claims.findUnique({
-      where: { id: claimId },
-      select: { id: true, documents: true, status: true },
-    });
+    // Tenant-scope the lookup (audit §3 / fix 7). insurance_claims has
+    // tenant_id (migration 239) and a SERIAL id that is NOT globally unique, so
+    // a bare findUnique({ id }) is a cross-tenant IDOR when RLS is off (and
+    // defense-in-depth debt when on). When the caller threads a tenantId we
+    // require the row to belong to it before any write; the read returning
+    // notFound short-circuits the by-id update below.
+    const tenantId = opts.tenantId ?? null;
+    const existing = tenantId
+      ? await prisma.insurance_claims.findFirst({
+        where: { id: claimId, tenant_id: String(tenantId) },
+        select: { id: true, documents: true, status: true },
+      })
+      : await prisma.insurance_claims.findUnique({
+        where: { id: claimId },
+        select: { id: true, documents: true, status: true },
+      });
     if (!existing) throw AppError.notFound('Insurance claim not found');
 
     // Merge partial-approval caps and other structured payload bits into

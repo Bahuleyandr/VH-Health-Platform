@@ -1,6 +1,6 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -33,7 +33,7 @@ const QC_LEVELS = ['low', 'normal', 'high', 'calibration', 'linearity', 'other']
 const QC_RESULT_STATUSES = ['pending', 'passed', 'failed', 'warning'];
 
 function tenantId(value) {
-  return value || DEFAULT_TENANT_ID;
+  return requireTenantId(value);
 }
 
 function missingSchema(err) {
@@ -139,7 +139,7 @@ export async function createCareTeam({
   metadata = null,
   createdBy = null,
 } = {}) {
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const patient = uuid(patientUid, 'patient_uid', { required: true });
   try {
     const rows = await prisma.$queryRawUnsafe(

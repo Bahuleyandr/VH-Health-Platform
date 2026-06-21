@@ -7,39 +7,10 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 
 const API_BASE_URL = getServerBackendUrl();
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
-
-/**
- * CSRF Origin validation.
- * Rejects requests from origins that don't match the allowed origin.
- */
-function validateOrigin(request: Request): NextResponse | null {
-  const origin = request.headers.get('origin');
-  const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
-  // Allow requests with no origin (same-origin, curl, server-side)
-  if (origin && origin !== allowed) {
-    // Also allow any *.vhhealth.app origin in addition to exact match
-    const allowedHosts = allowed.split(',').map((s: string) => s.trim());
-    const originHost = new URL(origin).origin;
-    const isAllowed = allowedHosts.some((h: string) => {
-      if (h === origin) return true;
-      // Wildcard: *.vhhealth.app matches any subdomain
-      if (h.startsWith('https://') && h.endsWith('.vhhealth.app')) {
-        return originHost === h;
-      }
-      return false;
-    });
-    if (!isAllowed) {
-      return NextResponse.json(
-        { message: 'Forbidden: Origin not allowed', success: false },
-        { status: 403 },
-      );
-    }
-  }
-  return null;
-}
 
 /**
  * Login API route — proxies credentials to the backend and sets the
@@ -54,8 +25,8 @@ function validateOrigin(request: Request): NextResponse | null {
  * 2. Staff login:  { employeeId, password }
  */
 export async function POST(request: Request) {
-  // CSRF check
-  const csrfError = validateOrigin(request);
+  // CSRF check (shared strict policy — see lib/csrfOrigin.ts)
+  const csrfError = assertSameOriginOrAllowed(request);
   if (csrfError) return csrfError;
 
   const body = await request.json();

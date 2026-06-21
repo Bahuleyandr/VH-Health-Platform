@@ -1,13 +1,36 @@
 // src/services/abdm/abdmService.js
 // ABDM Business Logic — ABHA registration, consent management, health data exchange
 
+import crypto from 'crypto';
+
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 import { encryptFhirBundle } from './abdmCrypto.js';
 import abdmGateway from './abdmGateway.js';
+
+// ---------------------------------------------------------------------------
+// ABDM consent-artefact verification config (#3). Operator-supplied — never a
+// hardcoded sandbox trust in prod. Read from env so the abdmConfig surface is
+// untouched:
+//   ABDM_VERIFY_CONSENT_ARTEFACT = 'true'  -> enforce CM-signature verification
+//   ABDM_CM_PUBLIC_KEY           = PEM      -> the Consent Manager public key
+//   ABDM_CM_ID                              -> Consent Manager id stamped on the
+//                                              consent artefact (was hardcoded 'sbx')
+// ---------------------------------------------------------------------------
+function consentArtefactVerificationEnabled() {
+  return String(process.env.ABDM_VERIFY_CONSENT_ARTEFACT || '').toLowerCase() === 'true';
+}
+function consentManagerPublicKey() {
+  const pem = process.env.ABDM_CM_PUBLIC_KEY || '';
+  return pem.includes('BEGIN') ? pem.replace(/\\n/g, '\n') : (pem || null);
+}
+function consentManagerId() {
+  // Sandbox 'sbx' is only an explicit dev fallback; prod must set ABDM_CM_ID.
+  return process.env.ABDM_CM_ID || (ABDM_CONFIG.enabled ? null : 'sbx');
+}
 
 function requireTenantId(tenantId) {
   if (!tenantId) {
@@ -258,6 +281,97 @@ class ABDMService {
    * @param {Object} consentRequest - Consent request from ABDM gateway
    * @returns {Object} Created consent record
    */
+  /**
+   * Verify the Consent Manager's signature over the consent artefact BEFORE
+   * trusting the (otherwise unauthenticated) notification body (audit 2026-06-18).
+   * Operator-gated: enable with ABDM_VERIFY_CONSENT_ARTEFACT=true + ABDM_CM_PUBLIC_KEY.
+   * When enabled, a missing/invalid signature is rejected (fail-closed); when not
+   * configured we proceed but log loudly that the artefact chain is unverified.
+   */
+  /**
+   * Resolve a patient AND their tenant from a (national) ABHA number for an
+   * inbound, tenant-less ABDM callback (audit C-4). The same person can be
+   * registered at facilities in more than one tenant, so:
+   *   - exactly one matching tenant  → bind to it
+   *   - more than one tenant         → reject (cannot disambiguate from the
+   *                                     tenant-less notification; never default-pick)
+   *   - none                         → notFound
+   * This replaces the old `WHERE abha_number=$1 LIMIT 1` (no tenant scope) that
+   * let a non-default patient's consent/data-request land in the default tenant.
+   */
+  async _resolvePatientTenantByAbha(abhaNumber) {
+    if (!abhaNumber) {
+      throw AppError.badRequest('ABHA number is required to resolve a patient', 'ABDM_ABHA_REQUIRED');
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT uid, tenant_id FROM users
+       WHERE abha_number = $1 AND is_active = true AND role = 'PATIENT'`,
+      abhaNumber,
+    );
+    if (!rows.length) {
+      throw AppError.notFound('No active patient found for the supplied ABHA number', 'ABDM_PATIENT_NOT_FOUND');
+    }
+    const tenants = [...new Set(rows.map((r) => String(r.tenant_id)))];
+    if (tenants.length > 1) {
+      logger.warn('ABDM callback rejected: ABHA resolves across multiple tenants', {
+        abhaTenantCount: tenants.length,
+      });
+      throw AppError.conflict(
+        'ABHA number resolves to patients in multiple tenants; cannot bind deterministically',
+        'ABDM_ABHA_MULTI_TENANT',
+      );
+    }
+    return { patientUid: rows[0].uid, tenantId: rows[0].tenant_id };
+  }
+
+  _verifyConsentArtefact({ consentRequestId, consentArtefact, signature }) {
+    if (!consentArtefactVerificationEnabled()) {
+      logger.warn(
+        'ABDM consent-artefact signature verification is DISABLED — set ABDM_VERIFY_CONSENT_ARTEFACT=true and ABDM_CM_PUBLIC_KEY before production',
+        { consentRequestId },
+      );
+      return;
+    }
+    const publicKey = consentManagerPublicKey();
+    if (!publicKey) {
+      throw AppError.forbidden(
+        'Consent-artefact verification is enabled but ABDM_CM_PUBLIC_KEY is not configured',
+        'ABDM_CM_KEY_MISSING',
+      );
+    }
+    if (!consentArtefact || !signature) {
+      throw AppError.forbidden(
+        'Consent artefact or signature missing — refusing to trust an unsigned consent notification',
+        'ABDM_CONSENT_UNSIGNED',
+      );
+    }
+    const payload = typeof consentArtefact === 'string'
+      ? consentArtefact
+      : JSON.stringify(consentArtefact);
+    let verified = false;
+    try {
+      const verifier = crypto.createVerify('RSA-SHA256');
+      verifier.update(payload);
+      verifier.end();
+      verified = verifier.verify(publicKey, Buffer.from(String(signature), 'base64'));
+    } catch (err) {
+      logger.error('ABDM consent-artefact signature verification error', {
+        consentRequestId,
+        error: err.message,
+      });
+      throw AppError.forbidden(
+        'Consent artefact signature could not be verified',
+        'ABDM_CONSENT_SIG_INVALID',
+      );
+    }
+    if (!verified) {
+      throw AppError.forbidden(
+        'Consent artefact signature is invalid',
+        'ABDM_CONSENT_SIG_INVALID',
+      );
+    }
+  }
+
   async handleConsentRequest(consentRequest) {
     const {
       consentRequestId,
@@ -268,6 +382,8 @@ class ABDMService {
       requester,
       dateRange,
       expiry,
+      consentArtefact,
+      signature,
     } = consentRequest;
 
     if (!consentRequestId || !purpose || !patient?.id) {
@@ -279,40 +395,44 @@ class ABDMService {
       throw AppError.badRequest(`Invalid consent purpose: ${purpose}`, 'INVALID_PURPOSE');
     }
 
-    // Find patient by ABHA number
-    const patientResult = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE abha_number = $1 AND is_active = true LIMIT 1`,
-      patient.id
-    );
+    // Verify the CM-signed consent artefact BEFORE trusting any of the
+    // notification body (#3). When the operator has supplied the CM public key
+    // + enabled verification, a missing/invalid signature is rejected; when
+    // verification is not configured we proceed but record that the chain is
+    // operator-gated (never hardcode a sandbox trust in prod).
+    this._verifyConsentArtefact({ consentRequestId, consentArtefact, signature });
 
-    if (patientResult.length === 0) {
-      logger.warn('ABDM consent request for unknown patient', { abhaNumber: patient.id });
-      throw AppError.notFound('Patient not registered at this facility', 'PATIENT_NOT_FOUND');
-    }
+    // Resolve the patient AND their tenant from the ABHA. ABHA numbers are a
+    // national id, so the same person can be registered at facilities in more
+    // than one tenant. If the ABHA resolves in exactly one tenant we bind to
+    // it; if it spans MULTIPLE tenants we cannot deterministically pick one
+    // from the (tenant-less) ABDM notification, so we reject rather than
+    // silently leak into the default tenant.
+    const { patientUid, tenantId } = await this._resolvePatientTenantByAbha(patient.id);
 
-    const patientUid = patientResult[0].uid;
+    // Everything below runs scoped to the patient's tenant so the abdm_consents
+    // insert is RLS-checked into THAT tenant (the GUC-reading column default
+    // resolves to it) and the duplicate probe only sees that tenant's rows.
+    return setTenant(tenantId, async (tx) => {
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT id FROM abdm_consents WHERE consent_id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+        consentRequestId, tenantId,
+      );
+      if (existing.length > 0) {
+        throw AppError.conflict('Consent request already exists', 'DUPLICATE_CONSENT');
+      }
 
-    // Check for duplicate consent request
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id FROM abdm_consents WHERE consent_id = $1 LIMIT 1`,
-      consentRequestId
-    );
-    if (existing.length > 0) {
-      throw AppError.conflict('Consent request already exists', 'DUPLICATE_CONSENT');
-    }
+      const expiryDate = expiry ? new Date(expiry) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default 30 days
 
-    // Calculate expiry date
-    const expiryDate = expiry ? new Date(expiry) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default 30 days
-
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO abdm_consents
-        (consent_id, patient_uid, hip_id, hiu_id, purpose, hi_types,
-         date_range_from, date_range_to, expiry_date, status, requester_name, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'REQUESTED', $10, NOW())
-       RETURNING id, consent_id, patient_uid, purpose, hi_types, status, expiry_date, requester_name, created_at`,
-      
+      const result = await tx.$queryRawUnsafe(
+        `INSERT INTO abdm_consents
+          (consent_id, patient_uid, tenant_id, hip_id, hiu_id, purpose, hi_types,
+           date_range_from, date_range_to, expiry_date, status, requester_name, created_at)
+         VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, 'REQUESTED', $11, NOW())
+         RETURNING id, consent_id, patient_uid, purpose, hi_types, status, expiry_date, requester_name, created_at`,
         consentRequestId,
         patientUid,
+        tenantId,
         ABDM_CONFIG.hipId || null,
         hiu?.id || null,
         purpose,
@@ -321,16 +441,16 @@ class ABDMService {
         dateRange?.to ? new Date(dateRange.to) : null,
         expiryDate,
         requester?.name || null,
-      
-    );
+      );
 
-    logger.info('ABDM consent request created', {
-      consentId: consentRequestId,
-      patientUid,
-      purpose,
+      logger.info('ABDM consent request created', {
+        consentId: consentRequestId,
+        patientUid,
+        purpose,
+      });
+
+      return result[0];
     });
-
-    return result[0];
   }
 
   /**
@@ -368,7 +488,7 @@ class ABDMService {
       patient: { id: consent.patient_abha },
       hip: { id: consent.hip_id || ABDM_CONFIG.hipId },
       hiu: { id: consent.hiu_id },
-      consentManager: { id: 'sbx' },
+      consentManager: { id: consentManagerId() },
       hiTypes: consent.hi_types,
       permission: {
         accessMode: 'VIEW',
@@ -510,9 +630,12 @@ class ABDMService {
       });
     }
 
-    // Verify consent exists and is GRANTED
+    // Verify consent exists and is GRANTED. The consent row carries the tenant
+    // this exchange belongs to; we read it (permissively, by consent_id, which
+    // is globally unique) and then scope EVERY subsequent read/write to it.
     const consentResult = await prisma.$queryRawUnsafe(
-      `SELECT consent_id, patient_uid, status, hi_types, date_range_from, date_range_to, expiry_date
+      `SELECT consent_id, patient_uid, tenant_id::text AS tenant_id, status, hi_types,
+              date_range_from, date_range_to, expiry_date
        FROM abdm_consents
        WHERE consent_id = $1
        LIMIT 1`,
@@ -524,6 +647,12 @@ class ABDMService {
     }
 
     const consent = consentResult[0];
+    const tenantId = consent.tenant_id;
+    if (!tenantId) {
+      // A consent with no tenant cannot be safely scoped — refuse rather than
+      // export under the default tenant.
+      throw AppError.forbidden('Consent has no tenant binding', 'ABDM_CONSENT_NO_TENANT');
+    }
 
     if (consent.status !== 'GRANTED') {
       throw AppError.forbidden('Consent is not in GRANTED status', 'CONSENT_NOT_GRANTED');
@@ -531,10 +660,10 @@ class ABDMService {
 
     // Check consent expiry
     if (new Date(consent.expiry_date) < new Date()) {
-      await prisma.$queryRawUnsafe(
-        `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
-        consentId
-      );
+      await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
+        `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1 AND tenant_id = $2::uuid`,
+        consentId, tenantId,
+      ));
       throw AppError.forbidden('Consent has expired', 'CONSENT_EXPIRED');
     }
 
@@ -574,25 +703,25 @@ class ABDMService {
       );
     }
 
-    // Create data request record
-    const requestResult = await prisma.$queryRawUnsafe(
+    // Create data request record — scoped to the consent's tenant so the row
+    // (and its tenant_id default) lands in that tenant under the RLS WITH CHECK.
+    const requestResult = await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
       `INSERT INTO abdm_data_requests
-        (transaction_id, consent_id, patient_uid, hi_types, date_range_from, date_range_to, key_material, data_push_url, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PROCESSING', NOW())
+        (transaction_id, consent_id, patient_uid, tenant_id, hi_types, date_range_from, date_range_to, key_material, data_push_url, status, created_at)
+       VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, $8, $9, 'PROCESSING', NOW())
        RETURNING id, transaction_id, consent_id, patient_uid, status, created_at`,
+      transactionId,
+      consentId,
+      consent.patient_uid,
+      tenantId,
+      effectiveHiTypes,
+      effectiveFrom,
+      effectiveTo,
+      keyMaterial ? JSON.stringify(keyMaterial) : null,
+      safeDataPushUrl,
+    ));
 
-        transactionId,
-        consentId,
-        consent.patient_uid,
-        effectiveHiTypes,
-        effectiveFrom,
-        effectiveTo,
-        keyMaterial ? JSON.stringify(keyMaterial) : null,
-        safeDataPushUrl,
-
-    );
-
-    // Collect and send health data asynchronously
+    // Collect and send health data asynchronously, scoped to the same tenant.
     this._processDataRequest(
       transactionId,
       consentId,
@@ -601,17 +730,18 @@ class ABDMService {
       effectiveFrom,
       effectiveTo,
       keyMaterial,
-      safeDataPushUrl
+      safeDataPushUrl,
+      tenantId,
     ).catch((err) => {
       logger.error('Failed to process ABDM data request', {
         transactionId,
         error: err.message,
       });
-      // Mark as FAILED
-      prisma.$queryRawUnsafe(
-        `UPDATE abdm_data_requests SET status = 'FAILED' WHERE transaction_id = $1`,
-        transactionId
-      ).catch(() => {});
+      // Mark as FAILED (tenant-scoped).
+      setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
+        `UPDATE abdm_data_requests SET status = 'FAILED' WHERE transaction_id = $1 AND tenant_id = $2::uuid`,
+        transactionId, tenantId,
+      )).catch(() => {});
     });
 
     return requestResult[0];
@@ -648,9 +778,28 @@ class ABDMService {
    * @param {string[]} hiTypes - Health information types to collect
    * @param {Date|string|null} dateFrom - Start date
    * @param {Date|string|null} dateTo - End date
+   * @param {Object} [options]
+   * @param {string|null} [options.tenantId] - When set, every read runs under
+   *   setTenant(tenantId) so the export is RLS-scoped to that tenant (PHI for a
+   *   patient_uid is only returned for the consented tenant). When omitted,
+   *   legacy permissive behaviour (single-tenant / non-tenant-aware callers).
    * @returns {Object} FHIR-style bundle
    */
-  async collectHealthData(patientUid, hiTypes, dateFrom, dateTo) {
+  async collectHealthData(patientUid, hiTypes, dateFrom, dateTo, { tenantId = null } = {}) {
+    const runReads = (db) => this._collectHealthDataReads(db, patientUid, hiTypes, dateFrom, dateTo, tenantId);
+    if (tenantId) {
+      return setTenant(tenantId, (tx) => runReads(tx));
+    }
+    return runReads(prisma);
+  }
+
+  /**
+   * Internal: the actual HI-type reads. `db` is either a tenant-scoped tx
+   * (from setTenant) or the plain prisma client. Kept separate so the tenant
+   * scope is applied uniformly to every query in one place.
+   * @private
+   */
+  async _collectHealthDataReads(db, patientUid, hiTypes, dateFrom, dateTo, tenantId = null) {
     const entries = [];
 
     const dateFilter = [];
@@ -670,13 +819,24 @@ class ABDMService {
 
     const dateClause = dateFilter.length > 0 ? ` AND ${dateFilter.join(' AND ')}` : '';
 
+    // Audit C-4: explicit tenant_id filter (defense-in-depth ON TOP OF setTenant)
+    // so a tenant-scoped export never returns another tenant's rows even when the
+    // connecting role bypasses RLS. Tables without a tenant_id column (immunizations)
+    // are scoped by the globally-unique patient_uid alone.
+    let tenantClause = '';
+    if (tenantId) {
+      tenantClause = ` AND tenant_id = $${paramIdx}::uuid`;
+      dateParams.push(tenantId);
+      paramIdx++;
+    }
+
     for (const hiType of hiTypes) {
       switch (hiType) {
         case 'Prescription': {
-          const rxResult = await prisma.$queryRawUnsafe(
+          const rxResult = await db.$queryRawUnsafe(
             `SELECT id, medication_name, dosage, frequency, duration_days, status, issued_at, created_at
              FROM prescriptions
-             WHERE patient_uid = $1${dateClause}
+             WHERE patient_uid = $1${dateClause}${tenantClause}
              ORDER BY created_at DESC
              LIMIT 100`,
             ...dateParams
@@ -699,11 +859,11 @@ class ABDMService {
 
         case 'DiagnosticReport': {
           // lab_results is the canonical signed-off result store (B3).
-          const labResult = await prisma.$queryRawUnsafe(
+          const labResult = await db.$queryRawUnsafe(
             `SELECT id, loinc_code, test_code, test_name, value_text, value_numeric, unit,
                     reference_range, abnormal_flag, status, performed_at, created_at
              FROM lab_results
-             WHERE patient_uid = $1${dateClause}
+             WHERE patient_uid = $1${dateClause}${tenantClause}
              ORDER BY created_at DESC
              LIMIT 100`,
             ...dateParams
@@ -730,11 +890,11 @@ class ABDMService {
         }
 
         case 'DischargeSummary': {
-          const dcResult = await prisma.$queryRawUnsafe(
+          const dcResult = await db.$queryRawUnsafe(
             `SELECT id, admission_id, primary_diagnosis, secondary_diagnoses, icd10_codes,
                     procedures_performed, ward_at_discharge, discharged_at, signed_by_name, status, created_at
              FROM discharge_summaries
-             WHERE patient_uid = $1${dateClause}
+             WHERE patient_uid = $1${dateClause}${tenantClause}
              ORDER BY created_at DESC
              LIMIT 50`,
             ...dateParams
@@ -761,11 +921,11 @@ class ABDMService {
 
         case 'OPConsultation': {
           // appointments keys patients by integer id — resolve from the uid.
-          const opResult = await prisma.$queryRawUnsafe(
+          const opResult = await db.$queryRawUnsafe(
             `SELECT id, doctor_name, reason, notes, status, appointment_date, created_at
              FROM appointments
              WHERE patient_id = (SELECT id FROM users WHERE uid = $1::uuid LIMIT 1)
-               AND status = 'completed'${dateClause}
+               AND status = 'completed'${dateClause}${tenantClause}
              ORDER BY created_at DESC
              LIMIT 100`,
             ...dateParams
@@ -788,7 +948,7 @@ class ABDMService {
         case 'ImmunizationRecord': {
           // Query immunization records if available
           try {
-            const immResult = await prisma.$queryRawUnsafe(
+            const immResult = await db.$queryRawUnsafe(
               `SELECT id, vaccine_name, dose_number, administered_date, administered_by, lot_number, created_at
                FROM immunizations
                WHERE patient_uid = $1${dateClause}
@@ -890,7 +1050,7 @@ class ABDMService {
    * key material fails and is marked FAILED by the caller's catch.
    * @private
    */
-  async _processDataRequest(transactionId, consentId, patientUid, hiTypes, dateFrom, dateTo, keyMaterial, dataPushUrl = null) {
+  async _processDataRequest(transactionId, consentId, patientUid, hiTypes, dateFrom, dateTo, keyMaterial, dataPushUrl = null, tenantId = null) {
     if (dataPushUrl) {
       await assertSafeOutboundUrl(dataPushUrl, {
         label: 'dataPushUrl',
@@ -899,8 +1059,9 @@ class ABDMService {
       });
     }
 
-    // Collect health data
-    const bundle = await this.collectHealthData(patientUid, hiTypes, dateFrom, dateTo);
+    // Collect health data — scoped to the consent's tenant so only that
+    // tenant's PHI for the patient_uid is ever bundled/exported.
+    const bundle = await this.collectHealthData(patientUid, hiTypes, dateFrom, dateTo, { tenantId });
 
     if (!keyMaterial?.dhPublicKey?.keyValue || !keyMaterial?.nonce) {
       throw AppError.badRequest(
@@ -915,13 +1076,16 @@ class ABDMService {
     // transaction-scoped reference when the patient has none registered.
     let careContextReference = `VH-BUNDLE-${transactionId}`;
     try {
-      const ccRows = await prisma.$queryRawUnsafe(
+      const ccLookup = (db) => db.$queryRawUnsafe(
         `SELECT care_context_reference FROM abdm_care_contexts
-         WHERE patient_uid = $1
+         WHERE patient_uid = $1${tenantId ? ' AND tenant_id = $2::uuid' : ''}
          ORDER BY created_at DESC
          LIMIT 1`,
-        patientUid
+        ...(tenantId ? [patientUid, tenantId] : [patientUid]),
       );
+      const ccRows = tenantId
+        ? await setTenant(tenantId, (tx) => ccLookup(tx))
+        : await ccLookup(prisma);
       if (ccRows.length && ccRows[0].care_context_reference) {
         careContextReference = ccRows[0].care_context_reference;
       }
@@ -958,13 +1122,20 @@ class ABDMService {
     }
 
     // Mark as delivered; keep our public key material for traceability.
-    await prisma.$queryRawUnsafe(
+    // Tenant-scoped so the status write is RLS-checked into the right tenant.
+    const markDelivered = (db) => db.$queryRawUnsafe(
       `UPDATE abdm_data_requests
        SET status = 'DELIVERED', delivered_at = NOW(), sender_key_material = $2
-       WHERE transaction_id = $1`,
-      transactionId,
-      JSON.stringify(senderKeyMaterial)
+       WHERE transaction_id = $1${tenantId ? ' AND tenant_id = $3::uuid' : ''}`,
+      ...(tenantId
+        ? [transactionId, JSON.stringify(senderKeyMaterial), tenantId]
+        : [transactionId, JSON.stringify(senderKeyMaterial)])
     );
+    if (tenantId) {
+      await setTenant(tenantId, (tx) => markDelivered(tx));
+    } else {
+      await markDelivered(prisma);
+    }
 
     logger.info('ABDM data request processed (encrypted)', {
       transactionId,

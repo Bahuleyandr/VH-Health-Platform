@@ -24,6 +24,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { hasActivePrivilege } from '../staff/credentialingService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // ── pure helpers (unit-tested) ───────────────────────────────────────────
 
@@ -70,8 +71,7 @@ export function projectCumulativePerM2({ existingPerM2 = 0, dosePerM2Planned = 0
 }
 
 const REQUIRE_ADMIN_PRIVILEGE = () => String(process.env.CHEMO_REQUIRE_ADMIN_PRIVILEGE || 'false') === 'true';
-const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
-const tenantOr = (t) => t || TENANT_FALLBACK;
+const tenantOr = (t) => requireTenantId(t);
 
 async function assertPatientInTenant(tenantId, patientUid) {
   if (!patientUid) throw AppError.badRequest('patient_uid is required', 'CHEMO_PATIENT_REQUIRED');

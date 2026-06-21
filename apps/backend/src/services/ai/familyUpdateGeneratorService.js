@@ -15,7 +15,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
@@ -47,7 +47,7 @@ const LAB_VALUE_RE = /\b(?:hb|hemoglobin|wbc|hba1c|sodium|potassium|na|k|creatin
 const MRN_RE = /\b(?:mrn|patient\s+id|uid)[:\s-]+[\w-]{4,}/gi;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

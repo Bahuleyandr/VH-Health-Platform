@@ -11,10 +11,9 @@ import { scheduleMedications } from './marService.js';
 import {
   gcsTotal, netBalance, camPositive, bundleComplete, bundlePct,
 } from './icuComputations.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
-
-function tenantOr(t) { return t || TENANT_FALLBACK; }
+function tenantOr(t) { return requireTenantId(t); }
 
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
 

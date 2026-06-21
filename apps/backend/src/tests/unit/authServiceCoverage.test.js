@@ -19,13 +19,18 @@
 import { jest } from '@jest/globals';
 
 // ── Local prisma mock (self-contained for this file) ─────────────────
+// phone/firebase_uid are unique per-tenant now (mig 333); code reads via
+// findFirst where it used findUnique. Alias both to one fn so existing
+// findUnique mocks transparently drive findFirst too.
+const usersFind = jest.fn();
+const staffFind = jest.fn();
 const mockPrisma = {
-  users: { findUnique: jest.fn(), upsert: jest.fn(), create: jest.fn(), count: jest.fn() },
+  users: { findFirst: usersFind, findUnique: usersFind, upsert: jest.fn(), update: jest.fn(), create: jest.fn(), count: jest.fn() },
   admins: {
     findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(),
     updateMany: jest.fn(), count: jest.fn(), create: jest.fn(), findMany: jest.fn(),
   },
-  staff: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+  staff: { findFirst: staffFind, findUnique: staffFind, update: jest.fn() },
   otp_sessions: { count: jest.fn() },
   auth_logs: { create: jest.fn(), count: jest.fn(), findMany: jest.fn(), groupBy: jest.fn() },
   password_reset_otps: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
@@ -99,10 +104,18 @@ const mockFb = {
 };
 jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({ ...mockFb }));
 
-// loginSessionHelper — issues access token + claims single active session
+// loginSessionHelper — issues access token + claims single active session.
+// generateRefreshToken is the SHARED refresh-token minter AuthService now
+// delegates to (dedup of the old inline _generateRefreshToken). Mirror the real
+// helper here — stamp type:'refresh' and forward to generateToken — so the C-9
+// assertions below (refresh token minted with type:'refresh') still hold.
 const mockIssueSession = jest.fn().mockResolvedValue({ accessToken: 'session-access-token' });
+const mockGenerateRefreshToken = jest.fn((payload) => mockGenerateToken({ ...payload, type: 'refresh' }, '30d'));
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: mockIssueSession,
+  generateRefreshToken: mockGenerateRefreshToken,
+  // W4 C5: authService's OTP/staff/register mints now stamp tenant_id via this.
+  resolveTenantIdForUid: jest.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
 }));
 
 // tokenBlacklist (redis fast-path + DB fallback)
@@ -338,13 +351,22 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
       expiresAt: expiresAt.toISOString(),
       admin: { uid: 'admin-uid-1', username: 'root' },
     });
-    expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO totp_challenges'),
-      'admin-uid-1', 'chal-1', expiresAt,
+    // expires_at is computed server-side (NOW() + INTERVAL), NOT bound as a JS
+    // Date — a bound Date was reinterpreted across the Node/DB timezone gap and
+    // stored in the past, so every challenge read back as already-expired and
+    // login-time 2FA could never complete. (audit 2026-06-18 follow-up)
+    const insertCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO totp_challenges'),
     );
+    expect(insertCall).toBeTruthy();
+    expect(insertCall[0]).toMatch(/NOW\(\)\s*\+\s*INTERVAL/i);
+    expect(insertCall.slice(1)).toEqual(['admin-uid-1', 'chal-1']);
   });
 
-  it('falls through to issue a challenge even when the totp_challenges insert throws', async () => {
+  it('FAILS CLOSED (503, no JWT) when the totp_challenges insert throws (audit 2026-06-18 §3)', async () => {
+    // A 2FA-enabled admin must NEVER be downgraded to a full JWT because the
+    // challenge could not be persisted. The login must abort with an error and
+    // issue no token of any kind.
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     mockGenerateChallengeToken.mockReturnValue({ challengeToken: 'chal-2', expiresAt });
     mockPrisma.admins.findFirst.mockResolvedValue({ ...baseAdmin, role: 'ADMIN', totp_enabled: true });
@@ -352,10 +374,13 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
     mockPrisma.admins.update.mockResolvedValue({});
     mockPrisma.$queryRawUnsafe.mockRejectedValue(new Error('relation "totp_challenges" does not exist'));
 
-    const res = await AuthService.adminLogin('root', 'pw');
-
-    expect(res.requiresTwoFactor).toBe(true);
-    expect(res.challengeToken).toBe('chal-2');
+    await expect(AuthService.adminLogin('root', 'pw')).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'MFA_UNAVAILABLE',
+    });
+    // Crucially: no full-access JWT was ever minted via the session helper.
+    expect(mockIssueSession).not.toHaveBeenCalled();
+    expect(mockLogSecurityEvent).toHaveBeenCalledWith('MFA_CHALLENGE_STORE_FAILED', expect.any(Object));
   });
 
   it('issues a full admin JWT via the session helper when MFA is off and no TOTP', async () => {
@@ -369,6 +394,12 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
       const res = await AuthService.adminLogin('root', 'pw', { ip: '1.2.3.4' }, { deviceType: 'web' });
 
       expect(res.token).toBe('session-access-token');
+      // C-9: a separate refresh token must accompany the admin access token.
+      expect(res.refreshToken).toBe('mock-jwt-token');
+      expect(mockGenerateToken).toHaveBeenCalledWith(
+        expect.objectContaining({ uid: 'admin-uid-1', role: 'ADMIN', type: 'refresh' }),
+        '30d',
+      );
       expect(res.admin).toMatchObject({ uid: 'admin-uid-1', username: 'root', role: 'ADMIN' });
       expect(mockIssueSession).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -440,21 +471,21 @@ describe('AuthService.adminLogin — deactivated branch', () => {
 describe('AuthService.verifyOtp', () => {
   it('creates a new user on first login and returns isNewUser true', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    mockPrisma.users.findUnique.mockResolvedValue(null);
-    mockPrisma.users.upsert.mockResolvedValue({ uid: 'new', id: 1, name: null, phone: '+919876543210', role: 'PATIENT' });
+    mockPrisma.users.findFirst.mockResolvedValue(null);
+    mockPrisma.users.create.mockResolvedValue({ uid: 'new', id: 1, name: null, phone: '+919876543210', role: 'PATIENT' });
 
     const res = await AuthService.verifyOtp('9876543210', '123456', {});
     expect(res.user.isNewUser).toBe(true);
     expect(res.token).toBe('mock-jwt-token');
-    expect(mockPrisma.users.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { phone: '+919876543210' } }),
+    expect(mockPrisma.users.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ phone: '+919876543210' }) }),
     );
   });
 
   it('returns isNewUser false for an existing user', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    mockPrisma.users.findUnique.mockResolvedValue({ uid: 'existing' });
-    mockPrisma.users.upsert.mockResolvedValue({ uid: 'existing', id: 2, name: 'Bob', phone: '+919876543210', role: 'PATIENT' });
+    mockPrisma.users.findFirst.mockResolvedValue({ uid: 'existing' });
+    mockPrisma.users.update.mockResolvedValue({ uid: 'existing', id: 2, name: 'Bob', phone: '+919876543210', role: 'PATIENT' });
 
     const res = await AuthService.verifyOtp('9876543210', '123456', {});
     expect(res.user.isNewUser).toBe(false);
@@ -596,7 +627,7 @@ describe('AuthService.changeAdminPassword', () => {
 // ====================================================================
 describe('AuthService.staffLogin', () => {
   const staff = {
-    uid: 'staff-uid-1', employee_id: 'EMP1', pin_hash: '$2b$10$pin',
+    id: 7, uid: 'staff-uid-1', employee_id: 'EMP1', pin_hash: '$2b$10$pin',
     name: 'Nurse Joy', role: 'nurse', is_active: true, phone: '+919998887776',
   };
 
@@ -613,7 +644,7 @@ describe('AuthService.staffLogin', () => {
       expect.objectContaining({ uid: 'staff-uid-1', role: 'NURSE', sub: 'staff-uid-1' }),
     );
     expect(mockPrisma.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { employee_id: 'EMP1' }, data: { last_login: expect.any(Date) } }),
+      expect.objectContaining({ where: { id: 7 }, data: { last_login: expect.any(Date) } }),
     );
   });
 
@@ -843,17 +874,37 @@ describe('AuthService.getAdminProfile', () => {
 // ====================================================================
 // Tokens / sessions: refreshToken rotation+blacklist, logout, revokeAllTokens
 // ====================================================================
-describe('AuthService.refreshToken — rotation + blacklist', () => {
-  it('rejects a token whose jti is already blacklisted (replay protection)', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999 });
+describe('AuthService.refreshToken — rotation + blacklist + type guard', () => {
+  it('C-9: rejects an ACCESS token (no type:refresh claim) presented at refresh', async () => {
+    // The whole point of C-9: an access token must NOT be rotatable into a
+    // fresh session. verifyToken returns a valid-but-typeless payload.
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999 });
+
+    await expect(AuthService.refreshToken('access-tok')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
+    // Must reject BEFORE touching the blacklist / DB / session helper.
+    expect(mockIsTokenBlacklisted).not.toHaveBeenCalled();
+    expect(mockIssueSession).not.toHaveBeenCalled();
+  });
+
+  it('C-9: rejects a token explicitly typed as something other than refresh', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'j', exp: 9999999999, type: 'access' });
+    await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+    expect(mockIssueSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a refresh token whose jti is already blacklisted (replay protection)', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, type: 'refresh' });
     mockIsTokenBlacklisted.mockResolvedValue(true);
 
-    await expect(AuthService.refreshToken('tok')).rejects.toThrow('Token has been revoked');
+    await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(mockIsTokenBlacklisted).toHaveBeenCalledWith('jti-1');
   });
 
-  it('blacklists the rotated jti and mints a new token via the session helper', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, deviceType: 'ios' });
+  it('accepts a type:refresh token: blacklists its jti, mints new access + refresh tokens', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, deviceType: 'ios', type: 'refresh' });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
 
@@ -864,26 +915,35 @@ describe('AuthService.refreshToken — rotation + blacklist', () => {
       expect.objectContaining({ userUid: 'u1', deviceType: 'ios', pushRevoked: false }),
     );
     expect(res.token).toBe('session-access-token');
+    // A rotated refresh token (type:'refresh', 30d) is returned to the client.
+    expect(res.refreshToken).toBe('mock-jwt-token');
+    expect(mockGenerateToken).toHaveBeenCalledWith(
+      expect.objectContaining({ uid: 'u1', role: 'PATIENT', type: 'refresh' }),
+      '30d',
+    );
     expect(res.user).toMatchObject({ uid: 'u1', id: 7, role: 'PATIENT' });
   });
 
-  it('does not blacklist when the token has no jti/exp', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'u1' });
+  it('does not blacklist when the refresh token has no jti/exp', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
 
     await AuthService.refreshToken('tok');
     expect(mockBlacklistToken).not.toHaveBeenCalled();
   });
 
-  it('throws on an invalid signature', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue(null);
-    await expect(AuthService.refreshToken('bad')).rejects.toThrow('Invalid token signature');
+  it('throws on an invalid/expired signature (verifyToken returns null)', async () => {
+    mockVerifyToken.mockReturnValue(null);
+    await expect(AuthService.refreshToken('bad')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
   });
 
   it('throws when the user no longer exists', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'gone', jti: 'j', exp: 1 });
+    mockVerifyToken.mockReturnValue({ uid: 'gone', jti: 'j', exp: 9999999999, type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue(null);
-    await expect(AuthService.refreshToken('tok')).rejects.toThrow('User not found');
+    await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
   });
 });
 
@@ -1091,8 +1151,8 @@ describe('AuthService.getPublicStats', () => {
 describe('AuthService.verifyOtpAndAuthenticate', () => {
   it('creates a new user (isNewUser true) and returns a token', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    mockPrisma.users.findUnique.mockResolvedValue(null);
-    mockPrisma.users.upsert.mockResolvedValue({ uid: 'new', id: 1, name: null, phone: '+919876543210', role: 'PATIENT' });
+    mockPrisma.users.findFirst.mockResolvedValue(null);
+    mockPrisma.users.create.mockResolvedValue({ uid: 'new', id: 1, name: null, phone: '+919876543210', role: 'PATIENT' });
 
     const res = await AuthService.verifyOtpAndAuthenticate('9876543210', '123456', {});
     expect(res.user.isNewUser).toBe(true);
@@ -1101,8 +1161,8 @@ describe('AuthService.verifyOtpAndAuthenticate', () => {
 
   it('returns isNewUser false for an existing user', async () => {
     mockOtpVerify.mockResolvedValue({ valid: true });
-    mockPrisma.users.findUnique.mockResolvedValue({ uid: 'existing' });
-    mockPrisma.users.upsert.mockResolvedValue({ uid: 'existing', id: 2, name: 'Bob', phone: '+919876543210', role: 'PATIENT' });
+    mockPrisma.users.findFirst.mockResolvedValue({ uid: 'existing' });
+    mockPrisma.users.update.mockResolvedValue({ uid: 'existing', id: 2, name: 'Bob', phone: '+919876543210', role: 'PATIENT' });
 
     const res = await AuthService.verifyOtpAndAuthenticate('9876543210', '123456', {});
     expect(res.user.isNewUser).toBe(false);

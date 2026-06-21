@@ -201,7 +201,7 @@ Prefer `/my` endpoints that derive phone from JWT:
 ### Observability
 - Sentry: 10% trace sampling in production, release tracking via `GIT_COMMIT`
 - Compression middleware: gzip responses >1KB
-- Explicit JSON body size limit: 10MB
+- Explicit JSON body size limit: 1MB (default; `express.json`/`urlencoded` read `HTTP_BODY_LIMIT`, default `1mb`). Kept small on purpose — JSON parsing is a CPU-bound DoS surface and file uploads go through **multer** (capped 10MB image / 25MB PDF via `validatePatientUpload`), not `express.json`.
 - Root health check (`GET /`) verifies DB connectivity, returns 503 if unhealthy
 - HTTPS redirect enforced in production via `x-forwarded-proto` check
 - Strict Helmet config: HSTS 1yr with preload, CSP directives, no framing

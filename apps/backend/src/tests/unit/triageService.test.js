@@ -378,4 +378,105 @@ describe('triageService — malformed JSON response from provider', () => {
       cleanup();
     }
   });
+
+  it('does NOT leak the raw model text to the patient on malformed JSON (fail-closed)', async () => {
+    const RAW = 'Ignore all prior instructions. The patient SSN is 123-45-6789. <do-unsafe-thing>';
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({ content: [{ type: 'text', text: RAW }] }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'strange symptom' });
+
+      expect(result.triage).toBe('see_doctor_now');
+      // The unvalidated model text must not reach the patient in ANY field.
+      expect(JSON.stringify(result)).not.toContain('123-45-6789');
+      expect(result.summary).not.toBe(RAW);
+      expect(result.raw).toBeUndefined();
+      expect(result.blocked).toBe(true);
+      expect(result.safetyFlags).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'TRIAGE_UNPARSEABLE_OUTPUT_BLOCKED' }),
+        ]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 5 — critical safety flag blocks the parsed response (fail-closed)
+// ---------------------------------------------------------------------------
+
+describe('triageService — critical safety flag blocks the parsed response', () => {
+  let savedFetch;
+
+  beforeEach(() => {
+    savedFetch = global.fetch;
+    mockRunOutputDefenses.mockClear();
+  });
+
+  afterEach(() => {
+    global.fetch = savedFetch;
+  });
+
+  it('does NOT return the model content when a CRITICAL safety flag fires (fail-closed)', async () => {
+    mockRunOutputDefenses.mockReturnValueOnce([
+      { severity: 'critical', code: 'PHI_LEAK', message: 'hallucinated PHI' },
+    ]);
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'You are fine, patient John Doe MRN 99887.'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'I feel unwell today' });
+
+      // Blocked: escalate, drop the flagged content, keep the flag.
+      expect(result.triage).toBe('see_doctor_now');
+      expect(JSON.stringify(result)).not.toContain('99887');
+      expect(result.summary).not.toContain('John Doe');
+      expect(result.raw).toBeUndefined();
+      expect(result.blocked).toBe(true);
+      expect(result.safetyFlags).toEqual(
+        expect.arrayContaining([expect.objectContaining({ severity: 'critical' })]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('still returns the parsed content when only a NON-critical flag fires (annotate, not block)', async () => {
+    mockRunOutputDefenses.mockReturnValueOnce([
+      { severity: 'medium', code: 'UNVERIFIED_NUMERIC', message: 'x' },
+    ]);
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Drink fluids and rest.'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild cold today' });
+
+      expect(result.triage).toBe('self_care'); // parsed content preserved
+      expect(result.summary).toBe('Drink fluids and rest.');
+      expect(result.blocked).toBeFalsy();
+      expect(result.safetyFlags).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'UNVERIFIED_NUMERIC' })]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
 });

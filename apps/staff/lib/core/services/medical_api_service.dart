@@ -1163,7 +1163,9 @@ class MedicalApiService {
     }
     final raw = resp.raw as Map<String, dynamic>;
     if (raw['success'] != true) {
-      throw Exception(raw['message']?.toString() ?? 'Failed to load note draft');
+      throw Exception(
+        raw['message']?.toString() ?? 'Failed to load note draft',
+      );
     }
     final data = raw['data'];
     if (data is Map<String, dynamic>) return data;

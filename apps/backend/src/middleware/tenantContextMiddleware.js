@@ -1,10 +1,12 @@
 import prisma from '../lib/prisma.js';
-import { isTenantRlsEnforcementEnabled } from '../config/tenantRlsConfig.js';
+import { isDefaultTenantAllowed } from '../config/tenantRlsConfig.js';
 import logger from '../logging/logger.js';
 import {
   DEFAULT_TENANT_ID,
   getTenantById,
   resolveTenantForUser,
+  parseTenantSlug,
+  tenantFromHost,
 } from '../services/tenant/tenantService.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -126,7 +128,10 @@ function recordTenantOverride({ actorUid, originalTenant, targetTenant, reason, 
  */
 export default async function tenantContextMiddleware(req, _res, next) {
   try {
-    const enforceTenantRls = isTenantRlsEnforcementEnabled();
+    // Resolution policy (W1): may a request with no resolvable tenant fall back
+    // to the default tenant? Independent of DB-RLS enforcement. Default = no
+    // (fail closed); single-tenant installs set ALLOW_DEFAULT_TENANT=true.
+    const allowDefault = isDefaultTenantAllowed();
     let tenantId = null;
     let overrideUsed = false;
     let originalTenantBeforeOverride = null;
@@ -169,10 +174,13 @@ export default async function tenantContextMiddleware(req, _res, next) {
     }
 
     if (!tenantId && req.user?.uid) {
-      tenantId = await resolveTenantForUser(req.user.uid, { failClosed: enforceTenantRls });
+      tenantId = await resolveTenantForUser(req.user.uid, { failClosed: !allowDefault });
     }
 
-    if (!tenantId && req.user && enforceTenantRls) {
+    // Fail closed: an authenticated request that resolves no tenant must 403
+    // rather than silently act as the default tenant — unless ALLOW_DEFAULT_TENANT
+    // (single-tenant installs).
+    if (!tenantId && req.user && !allowDefault) {
       return next(
         AppError.forbidden(
           'Authenticated request has no tenant context',
@@ -181,27 +189,61 @@ export default async function tenantContextMiddleware(req, _res, next) {
       );
     }
 
-    tenantId = tenantId || DEFAULT_TENANT_ID;
+    // Single-tenant escape (covers authenticated-miss above and public routes).
+    if (!tenantId && allowDefault) {
+      tenantId = DEFAULT_TENANT_ID;
+    }
 
-    const tenant = await getTenantById(tenantId);
-    if (tenant && tenant.status !== 'active' && !isSuperAdmin(req)) {
-      return next(new Error(`Tenant is not active: ${tenant.status}`));
+    // In fail-closed mode a public / pre-auth route (no req.user) may legitimately
+    // have no tenant — it proceeds with req.tenantId = null; any tenant-scoped
+    // access downstream is gated by resolveTenantOrThrow / RLS. Pre-auth
+    // tenant-aware login (per-tenant subdomain) is W4.
+    let tenant = null;
+    if (tenantId) {
+      tenant = await getTenantById(tenantId);
+      if (tenant && tenant.status !== 'active' && !isSuperAdmin(req)) {
+        return next(new Error(`Tenant is not active: ${tenant.status}`));
+      }
     }
 
     req.tenantId = tenantId;
-    req.tenant = buildTenantContext(tenantId, tenant);
+    req.tenant = tenantId ? buildTenantContext(tenantId, tenant) : null;
     req.tenantOverrideUsed = overrideUsed;
 
-    if (req.user) {
+    if (req.user && tenantId) {
       req.user.tenantId = tenantId;
       req.user.tenantRegion = req.tenant.region;
       req.user.complianceProfile = req.tenant.compliance_profile;
     }
 
+    // W4 C4: a token minted for tenant X must not be used on tenant Y's subdomain.
+    // The Host subdomain is the unspoofable tenant signal (trust-by-topology); if
+    // it names a real tenant that differs from the bearer's resolved tenant,
+    // reject. SUPER_ADMIN (platform) + an active x-tenant-id override legitimately
+    // cross tenants and are exempt; a bare host (no subdomain — single-tenant +
+    // non-subdomained internal calls) skips the check, so no extra DB lookup runs
+    // unless a real subdomain is present.
+    if (req.user && tenantId && !overrideUsed && !isSuperAdmin(req)) {
+      const hostSlug = parseTenantSlug(req.hostname || req.headers?.host);
+      if (hostSlug) {
+        let hostTenantId = null;
+        try {
+          hostTenantId = await tenantFromHost(req);
+        } catch {
+          hostTenantId = null; // unknown subdomain → don't block here (login already rejects it)
+        }
+        if (hostTenantId && String(hostTenantId) !== String(tenantId)) {
+          return next(
+            AppError.forbidden('Tenant host/token mismatch', 'TENANT_HOST_TOKEN_MISMATCH'),
+          );
+        }
+      }
+    }
+
     return next();
   } catch (err) {
-    if (isTenantRlsEnforcementEnabled()) {
-      logger.warn('tenantContextMiddleware failed in enforced mode', { error: err.message });
+    if (!isDefaultTenantAllowed()) {
+      logger.warn('tenantContextMiddleware failed in fail-closed mode', { error: err.message });
       return next(
         err instanceof AppError
           ? err

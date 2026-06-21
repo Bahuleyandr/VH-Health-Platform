@@ -39,7 +39,6 @@ const EXEMPT_MOUNTS = {
   '/api/v1/data-export': 'GDPR self-export; strictly self-scoped to req.user + rate-limited',
   '/api/v1/gdpr': 'GDPR self-service; strictly self-scoped to req.user',
   '/api/v1/sessions': 'own-session management; self-scoped to req.user',
-  '/api/v1/auth/admin/totp': 'TOTP enroll/verify with its own scope guards (requireSetupScope)',
   '/api/v1/abdm': 'ABDM patient consent flows; self-scoped + signature-verified callbacks',
   // NOTE: '/api/v1/staff' is NOT exempt — its first mount (app.js:678) is
   // requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES) + staffPhoneRoutes,

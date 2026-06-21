@@ -13,7 +13,7 @@ import {
 } from '../../services/security/accessDecisionService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
-import { success } from '../../utils/responseHelper.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
@@ -199,14 +199,17 @@ router.get(
       const result = await getOrGenerateDischargePdfUrl(admissionId, {
         tenantId: deriveTenantIdFromRequest(req),
       });
-      res.json({ success: true, data: result });
+      return success(res, result, 'Discharge summary PDF ready');
     } catch (err) {
+      // Never leak the raw generator/DB error to the client. Log server-side;
+      // the error() helper scrubs internal detail and generalises 5xx in prod.
       const status = err.statusCode || 500;
-      res.status(status).json({
-        success: false,
+      logger.error('[documents] discharge PDF generation failed', {
+        admissionId,
         message: err.message,
         code: err.code,
       });
+      return error(res, err.message || 'Failed to generate discharge summary PDF', status, err.code ? { code: err.code } : null);
     }
   })
 );

@@ -160,7 +160,8 @@ void main() {
         expect(
           fake.puts,
           isNotEmpty,
-          reason: 'the 15s heartbeat must save even though debounce keeps '
+          reason:
+              'the 15s heartbeat must save even though debounce keeps '
               'resetting',
         );
 

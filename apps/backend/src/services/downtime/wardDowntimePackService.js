@@ -19,15 +19,15 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getUnifiedActiveAllergies } from '../clinical/allergySourceService.js';
 import { getDowntimeMirrorDir } from '../../config/downtimeConfig.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export const WARD_PACK_SCOPE = 'ward_pack';
 const MAR_WINDOW_HOURS = 12;
 const PACK_EXPIRY_HOURS = 24;
 const ACTIVE_ADMISSION_STATUSES = ['admitted', 'transferred', 'discharge_pending'];
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(value) {
-  return value || DEFAULT_TENANT_ID;
+  return requireTenantId(value);
 }
 
 function esc(value) {
@@ -204,10 +204,10 @@ async function collectBedEntry(bed, { tenantId } = {}) {
             AND tenant_id = $2::uuid
             AND COALESCE(status, 'scheduled') IN ('scheduled', 'due', 'held')
             AND scheduled_time BETWEEN NOW() - INTERVAL '1 hour'
-                                   AND NOW() + INTERVAL '${MAR_WINDOW_HOURS} hours'
+                                   AND NOW() + ($3::int * INTERVAL '1 hour')
           ORDER BY scheduled_time ASC
           LIMIT 60`,
-        patientUid, tid,
+        patientUid, tid, MAR_WINDOW_HOURS,
       )
       : Promise.resolve([]),
     patientUid

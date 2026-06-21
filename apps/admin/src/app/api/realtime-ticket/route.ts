@@ -12,28 +12,13 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 
 const API_BASE_URL = getServerBackendUrl();
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 
-function validateOrigin(request: Request): NextResponse | null {
-  const origin = request.headers.get("origin");
-  if (!origin) return null;
-  const allowed =
-    process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || "http://localhost:3000";
-  const allowedHosts = allowed.split(",").map((s) => s.trim());
-  const isAllowed = allowedHosts.some((h) => h === origin);
-  if (!isAllowed) {
-    return NextResponse.json(
-      { message: "Forbidden: Origin not allowed", success: false },
-      { status: 403 },
-    );
-  }
-  return null;
-}
-
 export async function POST(request: Request) {
-  const csrfError = validateOrigin(request);
+  const csrfError = assertSameOriginOrAllowed(request);
   if (csrfError) return csrfError;
 
   const cookieHeader = request.headers.get("cookie") ?? "";

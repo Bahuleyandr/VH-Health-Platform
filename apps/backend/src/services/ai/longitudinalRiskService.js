@@ -30,7 +30,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { scoreAdherenceRisk } from '../gamification/adherenceRiskService.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const CHRONIC_DIAGNOSIS_WEIGHTS = {
   // ICD-10 prefix → contribution points per active diagnosis.
@@ -51,7 +51,7 @@ const WEIGHTS = {
 };
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function band(score) {

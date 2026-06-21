@@ -80,8 +80,10 @@ jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', (
 }));
 
 const issueAccessTokenAndClaimSessionMock = jest.fn();
+const generateRefreshTokenMock = jest.fn();
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: issueAccessTokenAndClaimSessionMock,
+  generateRefreshToken: generateRefreshTokenMock,
 }));
 
 const verifyOTPMock = jest.fn();
@@ -98,6 +100,8 @@ const resolveTenantForRequestMock = jest.fn();
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID,
   resolveTenantForRequest: resolveTenantForRequestMock,
+  resolveTenantOrThrow: (req) => req?.tenantId || DEFAULT_TENANT_ID,
+  requireTenantId: (tenantId) => tenantId || DEFAULT_TENANT_ID,
 }));
 
 const {
@@ -121,6 +125,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   resolveTenantForRequestMock.mockResolvedValue(DEFAULT_TENANT_ID);
   issueAccessTokenAndClaimSessionMock.mockResolvedValue({ accessToken: 'vh-jwt' });
+  generateRefreshTokenMock.mockReturnValue('vh-refresh');
   ensureHospitalNumberMock.mockResolvedValue('VH-000777');
   prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
 });
@@ -187,6 +192,7 @@ describe('authenticateWithFirebase', () => {
 
     expect(result).toMatchObject({
       accessToken: 'vh-jwt',
+      refreshToken: 'vh-refresh',
       isNewUser: true,
       user: {
         uid: 'user-uuid-100',
@@ -542,8 +548,12 @@ describe('linkFirebaseAccount', () => {
     );
     expect(result).toMatchObject({
       accessToken: 'vh-jwt',
+      refreshToken: 'vh-refresh',
       user: { uid: 'user-uuid-21', hospital_number: 'VH-000777', linkedToFirebase: true },
     });
+    expect(generateRefreshTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ uid: 'user-uuid-21', id: 21, role: 'PATIENT' }),
+    );
   });
 
   it('non-PATIENT link returns hospital_number null and works with the default options arg', async () => {
@@ -762,7 +772,11 @@ describe('legacyRegisterUser', () => {
     );
     expect(result).toMatchObject({
       token: 'vh-jwt',
+      refreshToken: 'vh-refresh',
       user: { uid: 'user-uuid-50', id: 50, name: 'New Legacy', role: 'PATIENT' },
     });
+    expect(generateRefreshTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ uid: 'user-uuid-50', id: 50, role: 'PATIENT' }),
+    );
   });
 });

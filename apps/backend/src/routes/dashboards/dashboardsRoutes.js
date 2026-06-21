@@ -15,13 +15,12 @@ import * as snapshot from '../../services/dashboards/snapshotService.js';
 import * as metabase from '../../services/dashboards/metabaseService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const router = Router();
-const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 
 function tenantOf(req) {
-  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
-    DEFAULT_TENANT;
+  return resolveTenantOrThrow(req);
 }
 
 function wrap(handler) {

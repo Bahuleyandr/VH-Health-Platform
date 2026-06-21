@@ -36,6 +36,8 @@ jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   runInTenantContext: (_tenantId, fn) => fn(),
   runWithSuperAdmin: (fn) => fn(),
   getCurrentTenantId: () => null,
+  getCurrentTenantContext: () => null,
+  isSuperAdminContext: () => false,
 }));
 
 jest.unstable_mockModule('../../services/lab/microbiologyService.js', () => ({

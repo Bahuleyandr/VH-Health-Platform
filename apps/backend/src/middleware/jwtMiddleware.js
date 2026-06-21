@@ -206,6 +206,13 @@ export default async function jwtMiddleware(req, res, next) {
   // null; the gate middleware then rejects with a clear "please re-login" 403.
   const deviceType = decoded.deviceType ?? null;
 
+  // 2FA step-up claim — stamped only by the admin MFA challenge-verify path
+  // (mfaVerifyChallenge). Carried through so `requireSuperAdminStepUp` can scope
+  // the SUPER_ADMIN bypass to 2FA-verified sessions on sensitive namespaces
+  // (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass). Strictly boolean: a
+  // missing/odd claim is never treated as verified.
+  const mfa = decoded.mfa === true;
+
   req.user = {
     uid: String(uidRaw),
     role,
@@ -217,6 +224,7 @@ export default async function jwtMiddleware(req, res, next) {
     tenant_id: tenantId,
     scope,
     deviceType,
+    mfa,
     jti: decoded.jti ?? null,
   };
 

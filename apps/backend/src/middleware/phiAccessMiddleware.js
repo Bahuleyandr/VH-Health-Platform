@@ -22,7 +22,7 @@ import {
   CARE_TEAM_ENFORCEMENT_MODES,
   resolveEnforcementModeForRequest,
 } from '../services/security/careTeamEnforcement.js';
-import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
 
 /**
@@ -68,11 +68,7 @@ function deriveAction(method) {
 }
 
 function deriveTenantId(req) {
-  return req.tenantId
-    || req.user?.tenant_id
-    || req.user?.tenantId
-    || req.tenant?.id
-    || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 /**

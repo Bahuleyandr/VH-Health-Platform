@@ -13,74 +13,104 @@ import notificationOutbox from '../../utils/notifications/notificationOutbox.js'
  * @param {Object} vitals
  * @returns {Object} { scores, totalScore, clinicalRisk, escalationAction }
  */
+// The physiological parameters that carry a NEWS2 sub-score (supplemental_o2 is
+// a modifier, scored only when at least one real parameter is present).
+const NEWS2_CORE_PARAMS = [
+  'respiration_rate', 'spo2', 'temperature', 'systolic_bp', 'heart_rate', 'consciousness',
+];
+
+function presentNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function calculateNEWS2(vitals) {
   const {
-    respiration_rate,
-    spo2,
     spo2_scale = 1,
     supplemental_o2 = false,
-    temperature,
-    systolic_bp,
-    heart_rate,
     consciousness,
   } = vitals;
 
+  // Partial scoring (audit 2026-06-18 §4): score a parameter ONLY when a usable
+  // value is present. Previously every parameter ran through a fall-through
+  // if/else, so an ABSENT value (undefined) fell to the final `else` and scored
+  // the worst band (e.g. a missing respiration_rate scored 3) — and the vitals
+  // path compensated by refusing to compute unless RR+SpO2+SBP+HR were ALL
+  // present, silently dropping partial sets. Now: present params score; absent
+  // params are omitted; the total is a genuine partial sum.
   const scores = {};
+  const missingParams = [];
 
-  // Respiration rate (breaths/min)
-  if (respiration_rate <= 8) scores.respiration_rate = 3;
-  else if (respiration_rate <= 11) scores.respiration_rate = 1;
-  else if (respiration_rate <= 20) scores.respiration_rate = 0;
-  else if (respiration_rate <= 24) scores.respiration_rate = 2;
+  const rr = presentNumber(vitals.respiration_rate);
+  if (rr === null) missingParams.push('respiration_rate');
+  else if (rr <= 8) scores.respiration_rate = 3;
+  else if (rr <= 11) scores.respiration_rate = 1;
+  else if (rr <= 20) scores.respiration_rate = 0;
+  else if (rr <= 24) scores.respiration_rate = 2;
   else scores.respiration_rate = 3;
 
-  // SpO2 scoring depends on scale
-  if (spo2_scale === 1) {
+  const spo2Value = presentNumber(vitals.spo2);
+  if (spo2Value === null) missingParams.push('spo2');
+  else if (spo2_scale === 1) {
     // Scale 1 (most patients)
-    if (spo2 <= 91) scores.spo2 = 3;
-    else if (spo2 <= 93) scores.spo2 = 2;
-    else if (spo2 <= 95) scores.spo2 = 1;
+    if (spo2Value <= 91) scores.spo2 = 3;
+    else if (spo2Value <= 93) scores.spo2 = 2;
+    else if (spo2Value <= 95) scores.spo2 = 1;
     else scores.spo2 = 0;
   } else {
     // Scale 2 (patients with hypercapnic respiratory failure, target 88-92%)
-    if (spo2 <= 83) scores.spo2 = 3;
-    else if (spo2 <= 85) scores.spo2 = 2;
-    else if (spo2 <= 87) scores.spo2 = 1;
-    else if (spo2 <= 92) scores.spo2 = 0;
-    else if (spo2 <= 94) scores.spo2 = 1;
-    else if (spo2 <= 96) scores.spo2 = 2;
+    if (spo2Value <= 83) scores.spo2 = 3;
+    else if (spo2Value <= 85) scores.spo2 = 2;
+    else if (spo2Value <= 87) scores.spo2 = 1;
+    else if (spo2Value <= 92) scores.spo2 = 0;
+    else if (spo2Value <= 94) scores.spo2 = 1;
+    else if (spo2Value <= 96) scores.spo2 = 2;
     else scores.spo2 = 3;
   }
 
-  // Supplemental oxygen
-  scores.supplemental_o2 = supplemental_o2 ? 2 : 0;
-
   // Temperature (Celsius)
-  const temp = parseFloat(temperature);
-  if (temp <= 35.0) scores.temperature = 3;
+  const temp = presentNumber(vitals.temperature);
+  if (temp === null) missingParams.push('temperature');
+  else if (temp <= 35.0) scores.temperature = 3;
   else if (temp <= 36.0) scores.temperature = 1;
   else if (temp <= 38.0) scores.temperature = 0;
   else if (temp <= 39.0) scores.temperature = 1;
   else scores.temperature = 2;
 
   // Systolic BP (mmHg)
-  if (systolic_bp <= 90) scores.systolic_bp = 3;
-  else if (systolic_bp <= 100) scores.systolic_bp = 2;
-  else if (systolic_bp <= 110) scores.systolic_bp = 1;
-  else if (systolic_bp <= 219) scores.systolic_bp = 0;
+  const sbp = presentNumber(vitals.systolic_bp);
+  if (sbp === null) missingParams.push('systolic_bp');
+  else if (sbp <= 90) scores.systolic_bp = 3;
+  else if (sbp <= 100) scores.systolic_bp = 2;
+  else if (sbp <= 110) scores.systolic_bp = 1;
+  else if (sbp <= 219) scores.systolic_bp = 0;
   else scores.systolic_bp = 3;
 
   // Heart rate (bpm)
-  if (heart_rate <= 40) scores.heart_rate = 3;
-  else if (heart_rate <= 50) scores.heart_rate = 1;
-  else if (heart_rate <= 90) scores.heart_rate = 0;
-  else if (heart_rate <= 110) scores.heart_rate = 1;
-  else if (heart_rate <= 130) scores.heart_rate = 2;
+  const hr = presentNumber(vitals.heart_rate);
+  if (hr === null) missingParams.push('heart_rate');
+  else if (hr <= 40) scores.heart_rate = 3;
+  else if (hr <= 50) scores.heart_rate = 1;
+  else if (hr <= 90) scores.heart_rate = 0;
+  else if (hr <= 110) scores.heart_rate = 1;
+  else if (hr <= 130) scores.heart_rate = 2;
   else scores.heart_rate = 3;
 
-  // Consciousness (ACVPU scale) — A = alert, all others score 3
-  const level = (consciousness || '').toUpperCase();
-  scores.consciousness = level === 'A' ? 0 : 3;
+  // Consciousness (ACVPU scale) — A = alert, all others score 3. Only scored
+  // when a level was actually supplied (absent ≠ "alert").
+  const level = consciousness == null || consciousness === ''
+    ? null
+    : String(consciousness).toUpperCase();
+  if (level === null) missingParams.push('consciousness');
+  else scores.consciousness = level === 'A' ? 0 : 3;
+
+  // Supplemental oxygen is a modifier — only contribute it when at least one
+  // core parameter is present (a lone "on O2" with no vitals isn't a score).
+  const anyCorePresent = NEWS2_CORE_PARAMS.some((p) => p in scores);
+  if (anyCorePresent) {
+    scores.supplemental_o2 = supplemental_o2 ? 2 : 0;
+  }
 
   const totalScore = Object.values(scores).reduce((sum, v) => sum + v, 0);
   // RCP NEWS2: a score of 3 in ANY single parameter mandates urgent review even
@@ -88,8 +118,20 @@ export function calculateNEWS2(vitals) {
   // surfacing layer can honor that rule.
   const anyParamThree = Object.values(scores).some((v) => v === 3);
   const { clinicalRisk, escalationAction } = getClinicalRisk(totalScore, { anyParamThree });
+  const partial = anyCorePresent && missingParams.length > 0;
 
-  return { scores, totalScore, anyParamThree, clinicalRisk, escalationAction };
+  return {
+    scores,
+    totalScore,
+    anyParamThree,
+    clinicalRisk,
+    escalationAction,
+    // `scorable` = at least one core parameter was present (worth recording);
+    // `partial` = scorable but some core params were absent.
+    scorable: anyCorePresent,
+    partial,
+    missingParams,
+  };
 }
 
 /**
@@ -126,17 +168,34 @@ export function getClinicalRisk(score, { anyParamThree = false } = {}) {
   };
 }
 
+// NEWS2 aggregate at or above which escalation is mandatory (RCP: medium risk).
+const NEWS2_ESCALATION_THRESHOLD = 5;
+
 /**
- * Calculate, persist, and trigger alerts for a NEWS2 assessment.
+ * Persist a NEWS2 assessment row. Runs on the supplied db client (the vitals
+ * transaction when called from vitalsChartService.recordVitals, so the score
+ * commits atomically with the vitals row — audit 2026-06-18 §4) or plain prisma
+ * for the standalone NEWS2 endpoint. Returns the saved record plus the computed
+ * fields the caller needs to escalate, or null when the vitals carry no usable
+ * NEWS2 parameter (nothing to record).
  * @param {string} patientUid
  * @param {Object} vitals
- * @param {string} recordedBy - Staff UID
- * @returns {Object} Saved NEWS2 record
+ * @param {string} recordedBy
+ * @param {{ db?: object }} [options]
  */
-export async function recordNEWS2(patientUid, vitals, recordedBy) {
-  const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = calculateNEWS2(vitals);
+export async function persistNews2(patientUid, vitals, recordedBy, options = {}) {
+  const db = options.db || prisma;
+  const computed = calculateNEWS2(vitals);
+  // Partial scoring: record whenever at least one core parameter is present.
+  // Nothing usable → nothing to persist.
+  if (!computed.scorable) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const { totalScore, clinicalRisk, escalationAction } = computed;
+  const consciousness = vitals.consciousness == null || vitals.consciousness === ''
+    ? null
+    : String(vitals.consciousness).toUpperCase();
+
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO news2_scores
        (patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
         temperature, systolic_bp, heart_rate, consciousness,
@@ -144,27 +203,35 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
      VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid)
      RETURNING id, patient_uid, total_score, clinical_risk, clinical_risk AS risk_level,
                recorded_by, recorded_at, created_at`,
-    
-      patientUid,
-      vitals.respiration_rate,
-      vitals.spo2,
-      vitals.spo2_scale || 1,
-      vitals.supplemental_o2 || false,
-      vitals.temperature,
-      vitals.systolic_bp,
-      vitals.heart_rate,
-      (vitals.consciousness || 'A').toUpperCase(),
-      totalScore,
-      clinicalRisk,
-      escalationAction,
-      recordedBy,
-    
+    patientUid,
+    vitals.respiration_rate ?? null,
+    vitals.spo2 ?? null,
+    vitals.spo2_scale || 1,
+    vitals.supplemental_o2 || false,
+    vitals.temperature ?? null,
+    vitals.systolic_bp ?? null,
+    vitals.heart_rate ?? null,
+    consciousness,
+    totalScore,
+    clinicalRisk,
+    escalationAction,
+    recordedBy,
   );
 
-  const record = rows[0];
+  return { record: rows[0], computed };
+}
 
-  // Trigger alerts for medium and high risk
-  if (totalScore >= 5) {
+/**
+ * Escalate a recorded NEWS2 score: queue the alert (>= threshold) and surface it
+ * onto the CDS card pipeline. Must run POST-COMMIT (it touches other tables /
+ * the CDS module). A HIGH-NEWS2 (>=5) escalation enqueue failure is LOUD — it
+ * throws so the caller / Sentry sees a deteriorating-patient alert that did not
+ * get queued (audit 2026-06-18 §4). The CDS surfacing remains best-effort.
+ */
+export async function escalateNews2(patientUid, record, computed) {
+  const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = computed;
+
+  if (totalScore >= NEWS2_ESCALATION_THRESHOLD) {
     try {
       await notificationOutbox.queue({
         type: 'NEWS2_ALERT',
@@ -172,28 +239,44 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
         body: escalationAction,
         data: {
           patient_uid: patientUid,
-          news2_id: record.id,
+          news2_id: record?.id,
           total_score: totalScore,
           clinical_risk: clinicalRisk,
         },
         priority: totalScore >= 7 ? 'CRITICAL' : 'HIGH',
       });
     } catch (err) {
-      // Fire-and-forget — notification failure must not block clinical recording
-      logger.error('Failed to queue NEWS2 alert notification:', err);
+      // LOUD: a high-NEWS2 escalation that fails to enqueue must NOT be
+      // swallowed — a deteriorating patient's alert would be silently lost.
+      logger.error(`NEWS2 escalation enqueue FAILED for patient ${patientUid} (score=${totalScore}): ${err.message}`);
+      throw err;
     }
   }
 
   // Surface NEWS2 deterioration onto the CDS card pipeline (gated/adult-only
-  // inside the service). Best-effort — must never break the news2_scores write.
+  // inside the service). Best-effort — a CDS-surfacing hiccup must never undo a
+  // recorded score or block the caller.
   try {
     const { surfaceNews2Cds } = await import('../cds/deteriorationEarlyWarningService.js');
     await surfaceNews2Cds({ patientUid, news2: { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } });
   } catch (err) {
     logger.warn(`NEWS2 CDS surfacing failed for patient ${patientUid}: ${err.message}`);
   }
+}
 
-  logger.info(`NEWS2 recorded for patient ${patientUid}: score=${totalScore}, risk=${clinicalRisk}`);
+/**
+ * Calculate, persist, and escalate a NEWS2 assessment (standalone path). Kept
+ * for the dedicated NEWS2 endpoint; vitalsChartService.recordVitals instead
+ * calls persistNews2({ db: tx }) inside its transaction and escalateNews2
+ * post-commit so the score is atomic with the vitals row.
+ * @returns {Object|null} Saved NEWS2 record (null when no usable parameter)
+ */
+export async function recordNEWS2(patientUid, vitals, recordedBy, options = {}) {
+  const persisted = await persistNews2(patientUid, vitals, recordedBy, options);
+  if (!persisted) return null;
+  const { record, computed } = persisted;
+  await escalateNews2(patientUid, record, computed);
+  logger.info(`NEWS2 recorded for patient ${patientUid}: score=${computed.totalScore}, risk=${computed.clinicalRisk}`);
   return record;
 }
 
@@ -231,6 +314,8 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
 export default {
   calculateNEWS2,
   getClinicalRisk,
+  persistNews2,
+  escalateNews2,
   recordNEWS2,
   getPatientNEWS2History,
 };

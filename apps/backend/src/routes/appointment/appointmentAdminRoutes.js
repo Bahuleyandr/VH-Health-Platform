@@ -6,6 +6,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { rowsToCsv } from '../../utils/csv.js';
 
 const router = express.Router();
 
@@ -402,12 +403,24 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `);
 
         if (format === 'csv') {
-          const csv = [
-            'ID,Date,Time,Patient,Phone,Doctor,Department,Status,Duration(min),Reason',
-            ...appointments.map(a => 
-              `${a.id},"${new Date(a.appointment_date).toLocaleDateString()}","${a.appointment_time || ''}","${a.patient_name || ''}","${a.patient_phone || ''}","${a.doctor_name || ''}","${a.department || ''}","${a.status || ''}",${a.consultation_duration_minutes || ''},"${a.reason || ''}"`
-            )
-          ].join('\n');
+          // Build via rowsToCsv so every field is formula-injection-neutralized
+          // + RFC-4180-quoted. PHI text fields (patient/doctor/department/reason)
+          // are attacker-influenceable and were previously interpolated verbatim
+          // (audit §3 Admin — CSV/formula-injection).
+          const headers = ['ID', 'Date', 'Time', 'Patient', 'Phone', 'Doctor', 'Department', 'Status', 'Duration(min)', 'Reason'];
+          const rows = appointments.map((a) => [
+            a.id,
+            a.appointment_date ? new Date(a.appointment_date).toLocaleDateString() : '',
+            a.appointment_time || '',
+            a.patient_name || '',
+            a.patient_phone || '',
+            a.doctor_name || '',
+            a.department || '',
+            a.status || '',
+            a.consultation_duration_minutes ?? '',
+            a.reason || '',
+          ]);
+          const csv = rowsToCsv(headers, rows);
 
           res.setHeader('Content-Type', 'text/csv');
           res.setHeader('Content-Disposition', 'attachment; filename=appointments.csv');

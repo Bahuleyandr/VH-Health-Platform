@@ -19,9 +19,10 @@
  * intraop_note / postop_note via finalizeNote — never auto-published.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -64,7 +65,7 @@ export const COMPLICATION_OUTCOMES = [
 // ---------------------------------------------------------------------------
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {
@@ -175,6 +176,50 @@ async function ensureScheduleVisible(tenantId, otScheduleId) {
   );
   if (!rows[0]) throw AppError.notFound('ot_schedule not found');
   return rows[0];
+}
+
+// Resolve the patient uid for a surgical case. Surgical-doc rows carry an
+// optional patient_uid; when absent (the common case — callers pass only the
+// ot_schedule_id), fall back to the schedule's patient_uid so the canonical
+// timeline/audit event is always patient-attributed. Reads through `db` so it
+// stays inside the caller's transaction.
+async function resolveCasePatientUid(db, tenantId, otScheduleId, patientUid) {
+  if (patientUid) return patientUid;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT patient_uid FROM ot_schedules
+      WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    otScheduleId, tenantId,
+  );
+  return rows[0]?.patient_uid || null;
+}
+
+// Emit the canonical clinical timeline + audit event for a surgical write,
+// inside the caller's transaction (audit §3 fix #1). Every surgical mutation
+// (op-note finalize, anaesthesia record, WHO checklist phase incl. wrong-site
+// override, implant placement for device-recall traceability, complication)
+// must leave a medico-legal trail beyond its own detail row.
+async function emitSurgicalCanonicalEvent(db, {
+  tenantId, otScheduleId, patientUid, eventType, eventStatus, sourceTable,
+  sourceId, actorUid, actorRole, summary, payload, beforeState, afterState,
+}) {
+  const uid = await resolveCasePatientUid(db, tenantId, otScheduleId, patientUid);
+  if (!uid) return; // recordTimelineEvent no-ops without a patient uid anyway
+  await recordCanonicalClinicalEvent({
+    tenantId,
+    patientUid: uid,
+    eventType,
+    eventStatus,
+    sourceTable,
+    sourceId,
+    resourceType: 'ot_schedule',
+    resourceId: String(otScheduleId),
+    actorUid: actorUid || null,
+    actorRole: actorRole || null,
+    summary,
+    payload: { ot_schedule_id: otScheduleId, ...(payload || {}) },
+    beforeState,
+    afterState,
+  }, { db });
 }
 
 async function assertWhoTimeoutComplete(otScheduleId, tenantId) {
@@ -431,58 +476,79 @@ export async function createIntraopNote({
   }
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO intraop_notes
-         (tenant_id, ot_schedule_id, patient_uid,
-          surgeon, primary_assistant, scrub_nurse, circulator,
-          procedure_performed, procedure_codes, incision_type, position,
-          findings, technique, specimens,
-          estimated_blood_loss_ml, fluids_input, fluids_output,
-          complications,
-          sponge_count_correct, sharp_count_correct, instrument_count_correct,
-          count_discrepancy_notes, drains_placed, closure_method,
-          start_time, end_time,
-          status, ai_assist_generation_id, metadata)
-       VALUES ($1::uuid, $2, $3::uuid,
-         $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-         $8, $9::text[], $10, $11,
-         $12, $13, $14::jsonb,
-         $15, $16::jsonb, $17::jsonb,
-         $18,
-         $19, $20, $21,
-         $22, $23::jsonb, $24,
-         $25::timestamptz, $26::timestamptz,
-         $27, $28, $29::jsonb)
-       RETURNING ${INTRAOP_RETURNING}`,
-      tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
-      maybeUuid(surgeon, 'surgeon'),
-      maybeUuid(primaryAssistant, 'primary_assistant'),
-      maybeUuid(scrubNurse, 'scrub_nurse'),
-      maybeUuid(circulator, 'circulator'),
-      safeText(procedurePerformed, 500),
-      codeArray,
-      safeText(incisionType, 160),
-      safeText(position, 120),
-      safeText(findings),
-      safeText(technique),
-      JSON.stringify(specimens ? normalizeJsonArray(specimens, 'specimens') : []),
-      normalizeInt(estimatedBloodLossMl, 'estimated_blood_loss_ml', { min: 0, max: 100000 }),
-      JSON.stringify(normalizeJsonObject(fluidsInput, 'fluids_input')),
-      JSON.stringify(normalizeJsonObject(fluidsOutput, 'fluids_output')),
-      safeText(complications),
-      normalizeBoolean(spongeCountCorrect),
-      normalizeBoolean(sharpCountCorrect),
-      normalizeBoolean(instrumentCountCorrect),
-      safeText(countDiscrepancyNotes),
-      JSON.stringify(drainsPlaced ? normalizeJsonArray(drainsPlaced, 'drains_placed') : []),
-      safeText(closureMethod, SHORT_MAX),
-      normalizeTimestamp(startTime, 'start_time'),
-      normalizeTimestamp(endTime, 'end_time'),
-      cleanStatus,
-      aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO intraop_notes
+           (tenant_id, ot_schedule_id, patient_uid,
+            surgeon, primary_assistant, scrub_nurse, circulator,
+            procedure_performed, procedure_codes, incision_type, position,
+            findings, technique, specimens,
+            estimated_blood_loss_ml, fluids_input, fluids_output,
+            complications,
+            sponge_count_correct, sharp_count_correct, instrument_count_correct,
+            count_discrepancy_notes, drains_placed, closure_method,
+            start_time, end_time,
+            status, ai_assist_generation_id, metadata)
+         VALUES ($1::uuid, $2, $3::uuid,
+           $4::uuid, $5::uuid, $6::uuid, $7::uuid,
+           $8, $9::text[], $10, $11,
+           $12, $13, $14::jsonb,
+           $15, $16::jsonb, $17::jsonb,
+           $18,
+           $19, $20, $21,
+           $22, $23::jsonb, $24,
+           $25::timestamptz, $26::timestamptz,
+           $27, $28, $29::jsonb)
+         RETURNING ${INTRAOP_RETURNING}`,
+        tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
+        maybeUuid(surgeon, 'surgeon'),
+        maybeUuid(primaryAssistant, 'primary_assistant'),
+        maybeUuid(scrubNurse, 'scrub_nurse'),
+        maybeUuid(circulator, 'circulator'),
+        safeText(procedurePerformed, 500),
+        codeArray,
+        safeText(incisionType, 160),
+        safeText(position, 120),
+        safeText(findings),
+        safeText(technique),
+        JSON.stringify(specimens ? normalizeJsonArray(specimens, 'specimens') : []),
+        normalizeInt(estimatedBloodLossMl, 'estimated_blood_loss_ml', { min: 0, max: 100000 }),
+        JSON.stringify(normalizeJsonObject(fluidsInput, 'fluids_input')),
+        JSON.stringify(normalizeJsonObject(fluidsOutput, 'fluids_output')),
+        safeText(complications),
+        normalizeBoolean(spongeCountCorrect),
+        normalizeBoolean(sharpCountCorrect),
+        normalizeBoolean(instrumentCountCorrect),
+        safeText(countDiscrepancyNotes),
+        JSON.stringify(drainsPlaced ? normalizeJsonArray(drainsPlaced, 'drains_placed') : []),
+        safeText(closureMethod, SHORT_MAX),
+        normalizeTimestamp(startTime, 'start_time'),
+        normalizeTimestamp(endTime, 'end_time'),
+        cleanStatus,
+        aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const note = rows[0];
+      await emitSurgicalCanonicalEvent(tx, {
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        patientUid: note.patient_uid,
+        eventType: cleanStatus === 'finalized' ? 'surgery.intraop_note.finalized' : 'surgery.intraop_note.created',
+        eventStatus: cleanStatus,
+        sourceTable: 'intraop_notes',
+        sourceId: note.id,
+        actorUid: note.surgeon || note.finalized_by,
+        summary: `Intra-op note ${cleanStatus === 'finalized' ? 'finalized' : 'created'}: ${safeText(procedurePerformed, 120) || 'procedure'}`,
+        payload: {
+          status: cleanStatus,
+          procedure_performed: safeText(procedurePerformed, 500),
+          sponge_count_correct: note.sponge_count_correct,
+          sharp_count_correct: note.sharp_count_correct,
+          instrument_count_correct: note.instrument_count_correct,
+        },
+      });
+      return note;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -535,17 +601,38 @@ export async function finalizeIntraopNote({
   );
   if (!existing[0]) throw AppError.notFound('Intraop note not found or already finalized');
   await assertWhoTimeoutComplete(existing[0].ot_schedule_id, tid);
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE intraop_notes
-     SET status = 'finalized',
-         finalized_by = $1::uuid,
-         finalized_at = NOW(),
-         updated_at = NOW()
-     WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
-     RETURNING ${INTRAOP_RETURNING}`,
-    maybeUuid(finalizedBy, 'finalized_by'), noteId, tid,
-  );
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE intraop_notes
+       SET status = 'finalized',
+           finalized_by = $1::uuid,
+           finalized_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
+       RETURNING ${INTRAOP_RETURNING}`,
+      maybeUuid(finalizedBy, 'finalized_by'), noteId, tid,
+    );
+    if (!rows[0]) throw AppError.notFound('Intraop note not found or already finalized');
+    const note = rows[0];
+    await emitSurgicalCanonicalEvent(tx, {
+      tenantId: tid,
+      otScheduleId: note.ot_schedule_id,
+      patientUid: note.patient_uid,
+      eventType: 'surgery.intraop_note.finalized',
+      eventStatus: 'finalized',
+      sourceTable: 'intraop_notes',
+      sourceId: note.id,
+      actorUid: note.finalized_by,
+      summary: 'Intra-op note finalized and signed',
+      payload: {
+        finalized_by: note.finalized_by,
+        sponge_count_correct: note.sponge_count_correct,
+        sharp_count_correct: note.sharp_count_correct,
+        instrument_count_correct: note.instrument_count_correct,
+      },
+    });
+    return note;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -607,50 +694,70 @@ export async function createPostopNote({
   }
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO postop_notes
-         (tenant_id, ot_schedule_id, patient_uid,
-          authored_by, pod_number, recovery_phase,
-          vitals, pain_score, pain_management_plan,
-          drain_status, wound_status, diet_advanced_to,
-          ambulation, bowel_function, urine_output_ml,
-          complications_noted, pending_orders, follow_up_actions,
-          disposition, handover_notes, status, finalized_by, finalized_at,
-          ai_assist_generation_id, metadata)
-       VALUES ($1::uuid, $2, $3::uuid,
-         $4::uuid, $5, $6,
-         $7::jsonb, $8, $9,
-         $10::jsonb, $11, $12,
-         $13, $14, $15,
-         $16, $17::jsonb, $18::jsonb,
-         $19, $20, $21::varchar, $22::uuid,
-         CASE WHEN $21::varchar = 'finalized' THEN NOW() ELSE NULL END,
-         $23, $24::jsonb)
-       RETURNING ${POSTOP_RETURNING}`,
-      tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
-      maybeUuid(authoredBy, 'authored_by'),
-      normalizeInt(podNumber, 'pod_number', { min: 0, max: 365 }),
-      normalizeEnum(recoveryPhase, RECOVERY_PHASES, 'recovery_phase'),
-      JSON.stringify(normalizeJsonObject(vitals, 'vitals')),
-      normalizeInt(painScore, 'pain_score', { min: 0, max: 10 }),
-      safeText(painManagementPlan),
-      JSON.stringify(drainStatus ? normalizeJsonArray(drainStatus, 'drain_status') : []),
-      safeText(woundStatus, 160),
-      safeText(dietAdvancedTo, 120),
-      safeText(ambulation, 120),
-      safeText(bowelFunction, 120),
-      normalizeInt(urineOutputMl, 'urine_output_ml', { min: 0, max: 100000 }),
-      safeText(complicationsNoted),
-      JSON.stringify(pendingOrders ? normalizeJsonArray(pendingOrders, 'pending_orders') : []),
-      JSON.stringify(followUpActions ? normalizeJsonArray(followUpActions, 'follow_up_actions') : []),
-      safeText(disposition, 160),
-      safeText(handoverNotes),
-      cleanStatus,
-      finalizerUid,
-      aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO postop_notes
+           (tenant_id, ot_schedule_id, patient_uid,
+            authored_by, pod_number, recovery_phase,
+            vitals, pain_score, pain_management_plan,
+            drain_status, wound_status, diet_advanced_to,
+            ambulation, bowel_function, urine_output_ml,
+            complications_noted, pending_orders, follow_up_actions,
+            disposition, handover_notes, status, finalized_by, finalized_at,
+            ai_assist_generation_id, metadata)
+         VALUES ($1::uuid, $2, $3::uuid,
+           $4::uuid, $5, $6,
+           $7::jsonb, $8, $9,
+           $10::jsonb, $11, $12,
+           $13, $14, $15,
+           $16, $17::jsonb, $18::jsonb,
+           $19, $20, $21::varchar, $22::uuid,
+           CASE WHEN $21::varchar = 'finalized' THEN NOW() ELSE NULL END,
+           $23, $24::jsonb)
+         RETURNING ${POSTOP_RETURNING}`,
+        tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
+        maybeUuid(authoredBy, 'authored_by'),
+        normalizeInt(podNumber, 'pod_number', { min: 0, max: 365 }),
+        normalizeEnum(recoveryPhase, RECOVERY_PHASES, 'recovery_phase'),
+        JSON.stringify(normalizeJsonObject(vitals, 'vitals')),
+        normalizeInt(painScore, 'pain_score', { min: 0, max: 10 }),
+        safeText(painManagementPlan),
+        JSON.stringify(drainStatus ? normalizeJsonArray(drainStatus, 'drain_status') : []),
+        safeText(woundStatus, 160),
+        safeText(dietAdvancedTo, 120),
+        safeText(ambulation, 120),
+        safeText(bowelFunction, 120),
+        normalizeInt(urineOutputMl, 'urine_output_ml', { min: 0, max: 100000 }),
+        safeText(complicationsNoted),
+        JSON.stringify(pendingOrders ? normalizeJsonArray(pendingOrders, 'pending_orders') : []),
+        JSON.stringify(followUpActions ? normalizeJsonArray(followUpActions, 'follow_up_actions') : []),
+        safeText(disposition, 160),
+        safeText(handoverNotes),
+        cleanStatus,
+        finalizerUid,
+        aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const note = rows[0];
+      await emitSurgicalCanonicalEvent(tx, {
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        patientUid: note.patient_uid,
+        eventType: cleanStatus === 'finalized' ? 'surgery.postop_note.finalized' : 'surgery.postop_note.created',
+        eventStatus: cleanStatus,
+        sourceTable: 'postop_notes',
+        sourceId: note.id,
+        actorUid: note.finalized_by || note.authored_by,
+        summary: `Post-op note ${cleanStatus === 'finalized' ? 'finalized' : 'created'}${note.recovery_phase ? ` (${note.recovery_phase})` : ''}`,
+        payload: {
+          status: cleanStatus,
+          recovery_phase: note.recovery_phase,
+          pod_number: note.pod_number,
+          disposition: note.disposition,
+        },
+      });
+      return note;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -700,18 +807,33 @@ export async function finalizePostopNote({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const noteId = normalizeId(id, 'postop_note id');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE postop_notes
-     SET status = 'finalized',
-         finalized_by = $1::uuid,
-         finalized_at = NOW(),
-         updated_at = NOW()
-     WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
-     RETURNING ${POSTOP_RETURNING}`,
-    maybeUuid(finalizedBy, 'finalized_by'), noteId, tid,
-  );
-  if (!rows[0]) throw AppError.notFound('Postop note not found or already finalized');
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE postop_notes
+       SET status = 'finalized',
+           finalized_by = $1::uuid,
+           finalized_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
+       RETURNING ${POSTOP_RETURNING}`,
+      maybeUuid(finalizedBy, 'finalized_by'), noteId, tid,
+    );
+    if (!rows[0]) throw AppError.notFound('Postop note not found or already finalized');
+    const note = rows[0];
+    await emitSurgicalCanonicalEvent(tx, {
+      tenantId: tid,
+      otScheduleId: note.ot_schedule_id,
+      patientUid: note.patient_uid,
+      eventType: 'surgery.postop_note.finalized',
+      eventStatus: 'finalized',
+      sourceTable: 'postop_notes',
+      sourceId: note.id,
+      actorUid: note.finalized_by,
+      summary: 'Post-op note finalized and signed',
+      payload: { finalized_by: note.finalized_by, recovery_phase: note.recovery_phase },
+    });
+    return note;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -774,7 +896,8 @@ export async function upsertAnesthesiaRecord({
   }
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    return await setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
       `INSERT INTO anesthesia_records
          (tenant_id, ot_schedule_id, patient_uid,
           anesthetist, assistant, preop_assessment_complete,
@@ -851,7 +974,26 @@ export async function upsertAnesthesiaRecord({
       aiPrecheckGenerationId ? normalizeId(aiPrecheckGenerationId, 'ai_precheck_generation_id') : null,
       JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
     );
-    return rows[0];
+      const record = rows[0];
+      await emitSurgicalCanonicalEvent(tx, {
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        patientUid: record.patient_uid,
+        eventType: cleanStatus === 'finalized' ? 'surgery.anesthesia_record.finalized' : 'surgery.anesthesia_record.updated',
+        eventStatus: cleanStatus,
+        sourceTable: 'anesthesia_records',
+        sourceId: record.id,
+        actorUid: record.finalized_by || record.anesthetist,
+        summary: `Anaesthesia record ${cleanStatus === 'finalized' ? 'finalized and signed' : 'updated'}${record.technique ? ` (${record.technique})` : ''}`,
+        payload: {
+          status: cleanStatus,
+          technique: record.technique,
+          asa_grade: record.asa_grade,
+          finalized_by: record.finalized_by,
+        },
+      });
+      return record;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -870,18 +1012,33 @@ export async function finalizeAnesthesiaRecord({
       'ANAESTHESIA_FINALIZER_REQUIRED',
     );
   }
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE anesthesia_records
-     SET status = 'finalized',
-         finalized_by = $1::uuid,
-         finalized_at = NOW(),
-         updated_at = NOW()
-     WHERE ot_schedule_id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
-     RETURNING ${ANESTHESIA_RETURNING}`,
-    finalizerUid, scheduleId, tid,
-  );
-  if (!rows[0]) throw AppError.notFound('Anaesthesia record not found or already finalized');
-  return rows[0];
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE anesthesia_records
+       SET status = 'finalized',
+           finalized_by = $1::uuid,
+           finalized_at = NOW(),
+           updated_at = NOW()
+       WHERE ot_schedule_id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
+       RETURNING ${ANESTHESIA_RETURNING}`,
+      finalizerUid, scheduleId, tid,
+    );
+    if (!rows[0]) throw AppError.notFound('Anaesthesia record not found or already finalized');
+    const record = rows[0];
+    await emitSurgicalCanonicalEvent(tx, {
+      tenantId: tid,
+      otScheduleId: scheduleId,
+      patientUid: record.patient_uid,
+      eventType: 'surgery.anesthesia_record.finalized',
+      eventStatus: 'finalized',
+      sourceTable: 'anesthesia_records',
+      sourceId: record.id,
+      actorUid: record.finalized_by,
+      summary: 'Anaesthesia record finalized and signed',
+      payload: { finalized_by: record.finalized_by, technique: record.technique },
+    });
+    return record;
+  });
 }
 
 export async function getAnesthesiaRecord({ tenantId = null, otScheduleId } = {}) {
@@ -943,43 +1100,70 @@ export async function recordImplant({
   if (!cleanType) throw AppError.badRequest('implant_type is required');
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO surgical_implants
-         (tenant_id, ot_schedule_id, patient_uid,
-          implant_type, manufacturer, brand_name, product_name,
-          reference_number, lot_number, serial_number, udi, gudid_di,
-          size, side, expiry_date, sterilization_lot,
-          implanted_by, implanted_at,
-          status, recall_reference, notes, metadata)
-       VALUES ($1::uuid, $2, $3::uuid,
-         $4, $5, $6, $7,
-         $8, $9, $10, $11, $12,
-         $13, $14, $15::date, $16,
-         $17::uuid, $18::timestamptz,
-         $19, $20, $21, $22::jsonb)
-       RETURNING ${IMPLANT_RETURNING}`,
-      tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
-      cleanType,
-      safeText(manufacturer, SHORT_MAX),
-      safeText(brandName, SHORT_MAX),
-      safeText(productName, SHORT_MAX),
-      safeText(referenceNumber, 120),
-      safeText(lotNumber, 120),
-      safeText(serialNumber, 160),
-      safeText(udi, SHORT_MAX),
-      safeText(gudidDi, 120),
-      safeText(size, SMALL_MAX),
-      normalizeEnum(side, IMPLANT_SIDES, 'side'),
-      expiryDate ? String(expiryDate).slice(0, 10) : null,
-      safeText(sterilizationLot, 120),
-      maybeUuid(implantedBy, 'implanted_by'),
-      normalizeTimestamp(implantedAt, 'implanted_at'),
-      normalizeEnum(status, IMPLANT_STATUSES, 'status') || 'in_situ',
-      safeText(recallReference, SHORT_MAX),
-      safeText(notes),
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO surgical_implants
+           (tenant_id, ot_schedule_id, patient_uid,
+            implant_type, manufacturer, brand_name, product_name,
+            reference_number, lot_number, serial_number, udi, gudid_di,
+            size, side, expiry_date, sterilization_lot,
+            implanted_by, implanted_at,
+            status, recall_reference, notes, metadata)
+         VALUES ($1::uuid, $2, $3::uuid,
+           $4, $5, $6, $7,
+           $8, $9, $10, $11, $12,
+           $13, $14, $15::date, $16,
+           $17::uuid, $18::timestamptz,
+           $19, $20, $21, $22::jsonb)
+         RETURNING ${IMPLANT_RETURNING}`,
+        tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
+        cleanType,
+        safeText(manufacturer, SHORT_MAX),
+        safeText(brandName, SHORT_MAX),
+        safeText(productName, SHORT_MAX),
+        safeText(referenceNumber, 120),
+        safeText(lotNumber, 120),
+        safeText(serialNumber, 160),
+        safeText(udi, SHORT_MAX),
+        safeText(gudidDi, 120),
+        safeText(size, SMALL_MAX),
+        normalizeEnum(side, IMPLANT_SIDES, 'side'),
+        expiryDate ? String(expiryDate).slice(0, 10) : null,
+        safeText(sterilizationLot, 120),
+        maybeUuid(implantedBy, 'implanted_by'),
+        normalizeTimestamp(implantedAt, 'implanted_at'),
+        normalizeEnum(status, IMPLANT_STATUSES, 'status') || 'in_situ',
+        safeText(recallReference, SHORT_MAX),
+        safeText(notes),
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const implant = rows[0];
+      // Device-recall traceability: the implant placement MUST be on the
+      // canonical timeline + audit so a later recall can find every patient
+      // who received the affected lot/UDI.
+      await emitSurgicalCanonicalEvent(tx, {
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        patientUid: implant.patient_uid,
+        eventType: 'surgery.implant.recorded',
+        eventStatus: implant.status,
+        sourceTable: 'surgical_implants',
+        sourceId: implant.id,
+        actorUid: implant.implanted_by,
+        summary: `Implant placed: ${implant.implant_type}${implant.manufacturer ? ` (${implant.manufacturer})` : ''}${implant.lot_number ? ` lot ${implant.lot_number}` : ''}`,
+        payload: {
+          implant_type: implant.implant_type,
+          manufacturer: implant.manufacturer,
+          lot_number: implant.lot_number,
+          serial_number: implant.serial_number,
+          udi: implant.udi,
+          gudid_di: implant.gudid_di,
+          side: implant.side,
+          status: implant.status,
+        },
+      });
+      return implant;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -1138,45 +1322,67 @@ export async function upsertSafetyChecklistPhase({
     }
   }
 
+  const overridden = Boolean(safeText(overrideReason)) && Boolean(overrideAuthorizedBy);
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO surgical_safety_checklists
-         (tenant_id, ot_schedule_id, patient_uid,
-          phase, performed_by, performed_at,
-          items, all_items_confirmed, outstanding_items,
-          status, override_reason, override_authorized_by, notes, metadata)
-       VALUES ($1::uuid, $2, $3::uuid,
-         $4, $5::uuid, COALESCE($6::timestamptz, NOW()),
-         $7::jsonb, $8, $9::jsonb,
-         $10, $11, $12::uuid, $13, $14::jsonb)
-       ON CONFLICT (tenant_id, ot_schedule_id, phase) DO UPDATE SET
-         patient_uid = EXCLUDED.patient_uid,
-         performed_by = EXCLUDED.performed_by,
-         performed_at = COALESCE(EXCLUDED.performed_at, surgical_safety_checklists.performed_at, NOW()),
-         items = EXCLUDED.items,
-         all_items_confirmed = EXCLUDED.all_items_confirmed,
-         outstanding_items = EXCLUDED.outstanding_items,
-         status = EXCLUDED.status,
-         override_reason = EXCLUDED.override_reason,
-         override_authorized_by = EXCLUDED.override_authorized_by,
-         notes = EXCLUDED.notes,
-         metadata = EXCLUDED.metadata,
-         updated_at = NOW()
-       RETURNING ${SAFETY_RETURNING}`,
-      tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
-      cleanPhase,
-      maybeUuid(performedBy, 'performed_by'),
-      normalizeTimestamp(performedAt, 'performed_at'),
-      JSON.stringify(itemsArr),
-      allConfirmed,
-      JSON.stringify(outstandingArr),
-      cleanStatus,
-      safeText(overrideReason),
-      maybeUuid(overrideAuthorizedBy, 'override_authorized_by'),
-      safeText(notes),
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO surgical_safety_checklists
+           (tenant_id, ot_schedule_id, patient_uid,
+            phase, performed_by, performed_at,
+            items, all_items_confirmed, outstanding_items,
+            status, override_reason, override_authorized_by, notes, metadata)
+         VALUES ($1::uuid, $2, $3::uuid,
+           $4, $5::uuid, COALESCE($6::timestamptz, NOW()),
+           $7::jsonb, $8, $9::jsonb,
+           $10, $11, $12::uuid, $13, $14::jsonb)
+         ON CONFLICT (tenant_id, ot_schedule_id, phase) DO UPDATE SET
+           patient_uid = EXCLUDED.patient_uid,
+           performed_by = EXCLUDED.performed_by,
+           performed_at = COALESCE(EXCLUDED.performed_at, surgical_safety_checklists.performed_at, NOW()),
+           items = EXCLUDED.items,
+           all_items_confirmed = EXCLUDED.all_items_confirmed,
+           outstanding_items = EXCLUDED.outstanding_items,
+           status = EXCLUDED.status,
+           override_reason = EXCLUDED.override_reason,
+           override_authorized_by = EXCLUDED.override_authorized_by,
+           notes = EXCLUDED.notes,
+           metadata = EXCLUDED.metadata,
+           updated_at = NOW()
+         RETURNING ${SAFETY_RETURNING}`,
+        tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
+        cleanPhase,
+        maybeUuid(performedBy, 'performed_by'),
+        normalizeTimestamp(performedAt, 'performed_at'),
+        JSON.stringify(itemsArr),
+        allConfirmed,
+        JSON.stringify(outstandingArr),
+        cleanStatus,
+        safeText(overrideReason),
+        maybeUuid(overrideAuthorizedBy, 'override_authorized_by'),
+        safeText(notes),
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const checklist = rows[0];
+      await emitSurgicalCanonicalEvent(tx, {
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        patientUid: checklist.patient_uid,
+        eventType: `surgery.who_checklist.${cleanPhase}`,
+        eventStatus: cleanStatus,
+        sourceTable: 'surgical_safety_checklists',
+        sourceId: checklist.id,
+        actorUid: checklist.performed_by,
+        summary: `WHO ${cleanPhase.replace('_', '-')} ${cleanStatus}${overridden ? ' (override)' : ''}`,
+        payload: {
+          phase: cleanPhase,
+          status: cleanStatus,
+          all_items_confirmed: checklist.all_items_confirmed,
+          overridden,
+          override_authorized_by: checklist.override_authorized_by,
+        },
+      });
+      return checklist;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -1233,32 +1439,52 @@ export async function recordComplicationAlert({
   const cleanType = normalizeEnum(complicationType, COMPLICATION_TYPES, 'complication_type', { required: true });
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO postop_complication_alerts
-         (tenant_id, ot_schedule_id, patient_uid,
-          complication_type, severity, detected_at, detected_by, detection_source,
-          description, clavien_dindo_grade, intervention, intervention_at, outcome,
-          ai_alert_generation_id, status, metadata)
-       VALUES ($1::uuid, $2, $3::uuid,
-         $4, $5, COALESCE($6::timestamptz, NOW()), $7::uuid, $8,
-         $9, $10, $11, $12::timestamptz, $13,
-         $14, 'open', $15::jsonb)
-       RETURNING ${COMPLICATION_RETURNING}`,
-      tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
-      cleanType,
-      normalizeEnum(severity, COMPLICATION_SEVERITIES, 'severity') || 'medium',
-      normalizeTimestamp(detectedAt, 'detected_at'),
-      maybeUuid(detectedBy, 'detected_by'),
-      normalizeEnum(detectionSource, DETECTION_SOURCES, 'detection_source'),
-      safeText(description),
-      normalizeEnum(clavienDindoGrade, CLAVIEN_DINDO_GRADES, 'clavien_dindo_grade'),
-      safeText(intervention),
-      normalizeTimestamp(interventionAt, 'intervention_at'),
-      normalizeEnum(outcome, COMPLICATION_OUTCOMES, 'outcome'),
-      aiAlertGenerationId ? normalizeId(aiAlertGenerationId, 'ai_alert_generation_id') : null,
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO postop_complication_alerts
+           (tenant_id, ot_schedule_id, patient_uid,
+            complication_type, severity, detected_at, detected_by, detection_source,
+            description, clavien_dindo_grade, intervention, intervention_at, outcome,
+            ai_alert_generation_id, status, metadata)
+         VALUES ($1::uuid, $2, $3::uuid,
+           $4, $5, COALESCE($6::timestamptz, NOW()), $7::uuid, $8,
+           $9, $10, $11, $12::timestamptz, $13,
+           $14, 'open', $15::jsonb)
+         RETURNING ${COMPLICATION_RETURNING}`,
+        tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
+        cleanType,
+        normalizeEnum(severity, COMPLICATION_SEVERITIES, 'severity') || 'medium',
+        normalizeTimestamp(detectedAt, 'detected_at'),
+        maybeUuid(detectedBy, 'detected_by'),
+        normalizeEnum(detectionSource, DETECTION_SOURCES, 'detection_source'),
+        safeText(description),
+        normalizeEnum(clavienDindoGrade, CLAVIEN_DINDO_GRADES, 'clavien_dindo_grade'),
+        safeText(intervention),
+        normalizeTimestamp(interventionAt, 'intervention_at'),
+        normalizeEnum(outcome, COMPLICATION_OUTCOMES, 'outcome'),
+        aiAlertGenerationId ? normalizeId(aiAlertGenerationId, 'ai_alert_generation_id') : null,
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const alert = rows[0];
+      await emitSurgicalCanonicalEvent(tx, {
+        tenantId: tid,
+        otScheduleId: scheduleId,
+        patientUid: alert.patient_uid,
+        eventType: 'surgery.complication.recorded',
+        eventStatus: alert.severity,
+        sourceTable: 'postop_complication_alerts',
+        sourceId: alert.id,
+        actorUid: alert.detected_by,
+        summary: `Post-op complication: ${alert.complication_type} (${alert.severity})`,
+        payload: {
+          complication_type: alert.complication_type,
+          severity: alert.severity,
+          detection_source: alert.detection_source,
+          clavien_dindo_grade: alert.clavien_dindo_grade,
+        },
+      });
+      return alert;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;

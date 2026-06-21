@@ -13,6 +13,7 @@ import {
   type TenantRegion,
 } from "@/lib/api/tenants";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useActingTenant } from "@/contexts/ActingTenantContext";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -90,6 +91,24 @@ export default function TenantsAdminPage() {
     },
     onError: (err: Error) => toast.error(err.message || "Update failed"),
   });
+
+  // W5 S3 — begin operating inside a tenant (SUPER_ADMIN only; the backend
+  // audits every override). A reason (>= 8 chars) is required and recorded.
+  const { setActAs, actingTenant, isPending: actingPending } = useActingTenant();
+  const handleActAs = async (row: Tenant) => {
+    const reason = typeof window !== "undefined" ? window.prompt(`Reason for acting as "${row.name}" (audited, min 8 chars):`) : null;
+    if (reason == null) return; // cancelled
+    if (reason.trim().length < 8) {
+      toast.error("Reason must be at least 8 characters");
+      return;
+    }
+    try {
+      await setActAs({ tenantId: row.id, slug: row.slug, reason: reason.trim() });
+      toast.success(`Now acting as ${row.name}`);
+    } catch (err) {
+      toast.error((err as Error).message || "Failed to act as tenant");
+    }
+  };
 
   if (permLoading) {
     return <div className="p-6 text-sm text-muted-foreground">Checking permissions…</div>;
@@ -249,6 +268,14 @@ export default function TenantsAdminPage() {
                   <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex gap-1">
+                      <button
+                        onClick={() => void handleActAs(row)}
+                        disabled={actingPending || actingTenant?.id === row.id}
+                        title={actingTenant?.id === row.id ? "Already acting as this tenant" : "Operate inside this tenant (audited)"}
+                        className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+                      >
+                        {actingTenant?.id === row.id ? "Acting" : "Act as"}
+                      </button>
                       {row.status === "active" ? (
                         <button
                           onClick={() => update.mutate({ id: row.id, patch: { status: "suspended" } })}

@@ -17,7 +17,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_LINK_RELATIONSHIPS = new Set([
   'parent', 'mother', 'father', 'legal_guardian', 'grandparent',
@@ -191,7 +191,7 @@ export class DependentsService {
     const params = relationshipNorm
       ? [guardianUserId, dependent.id, relationshipNorm]
       : [guardianUserId, dependent.id];
-    const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const updated = await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const result = await tx.$queryRawUnsafe(
         `UPDATE users
             SET guardian_user_id = $1${setRelationshipClause},
@@ -268,7 +268,7 @@ export class DependentsService {
     }
 
     // Phase 1 — atomic unlink + audit.
-    await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const result = await tx.$queryRawUnsafe(
         `UPDATE users
             SET guardian_user_id = NULL,

@@ -40,6 +40,16 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  // Mirror the real fail-safe ranking the consumer now uses to decide
+  // blocker-vs-warning: canonical-severe and present-but-unparseable rank >= 4
+  // (block); explicit no-claim sentinels (UNKNOWN/null) rank 0 (warn).
+  SEVERE_BLOCK_RANK: 4,
+  rankSeverity: (v) => {
+    if (v == null) return 0;
+    const k = String(v).trim().toUpperCase();
+    if (!k || ['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL'].includes(k)) return 0;
+    return ({ LIFE_THREATENING: 5, ANAPHYLAXIS: 5, CONTRAINDICATED: 4, SEVERE: 4, HIGH: 3, MODERATE: 2, MILD: 1 })[k] ?? 4;
+  },
 }));
 
 jest.unstable_mockModule('../../services/clinical/drugKnowledgeBaseService.js', () => ({

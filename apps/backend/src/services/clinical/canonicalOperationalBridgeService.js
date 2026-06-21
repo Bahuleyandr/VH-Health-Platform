@@ -8,6 +8,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
   completeWorkflowSla,
+  isSchemaMissing as isCanonicalTableMissing,
   recordCanonicalClinicalEvent,
   startWorkflowSla,
 } from './canonicalClinicalPlatformService.js';
@@ -40,11 +41,69 @@ function eventTimestampKey(value) {
   return String(value);
 }
 
-async function safeCanonical(label, task) {
+// Run a CANONICAL side-effect (timeline / audit / SLA emit) with the SAME
+// narrowed swallow as canonicalClinicalPlatformService (audit 2026-06-18 §4):
+//
+//   - SQLSTATE 42P01 for a canonical table → the additive canonical layer is not
+//     migrated onto this DB yet, so emitting the timeline/audit/SLA row is
+//     genuinely impossible. Swallow (warn) so the source detail write still stands.
+//   - ANY OTHER error (42703 column drift, transient / generic fault) is a real
+//     failure that would silently break the atomic-timeline invariant (a detail
+//     row with no timeline+audit row). It is NOT swallowed:
+//       * propagate:true  — the emitter is running INSIDE the caller's tx, so
+//         re-throw to abort that transaction; the detail row rolls back with the
+//         missing canonical row (true atomicity).
+//       * propagate:false — a POST-COMMIT best-effort emitter; the detail row has
+//         already committed and cannot be rolled back, so log at ERROR (the prod
+//         JSON-log alarm channel — vs the old quiet warn) and return null WITHOUT
+//         re-throwing (no spurious post-commit 500 / unhandled rejection).
+//
+// `propagate` is derived per call site from whether a transaction handle was
+// passed (see runsInCallerTx) — the same emitter (emitPharmacyOrderEvent) runs
+// both in-tx (orderService, db:tx) and post-commit (pharmacyService, no db).
+export async function safeCanonical(label, task, { propagate = false } = {}) {
   try {
     return await task();
   } catch (err) {
-    logger.warn(`Canonical operational bridge skipped ${label}`, {
+    if (isCanonicalTableMissing(err)) {
+      logger.warn(`Canonical operational bridge skipped ${label} (canonical table not migrated)`, {
+        error: err?.message || String(err),
+      });
+      return null;
+    }
+    if (propagate) {
+      // In-tx: abort the caller's transaction so the detail row never commits
+      // without its canonical timeline+audit row.
+      throw err;
+    }
+    // Post-commit: cannot roll back the already-committed detail row. Surface the
+    // dropped canonical write LOUDLY so the timeline degradation is alarmable.
+    logger.error(`Canonical operational bridge FAILED ${label} post-commit — clinical timeline degraded`, {
+      error: err?.message || String(err),
+      code: err?.code || err?.meta?.code || null,
+    });
+    return null;
+  }
+}
+
+// A canonical emitter handed a transaction handle (`db`) is running inside the
+// caller's atomic unit, so a genuine fault must abort that tx; an emitter called
+// with no `db` is post-commit best-effort. (Verified across all call sites: no
+// post-commit caller passes a non-tx client — they pass no `db` at all.)
+function runsInCallerTx(db) {
+  return db != null;
+}
+
+// Best-effort wrapper for NON-canonical enrichment / cleanup lookups (users,
+// lab_results, tasks). These never write a canonical table, so their failure
+// cannot break the atomic-timeline invariant — a failed lookup just means less
+// enrichment. Swallow (warn) and return null, NEVER throw, so a transient blip
+// here can't abort an in-tx emit or 500 a post-commit one.
+async function bestEffort(label, task) {
+  try {
+    return await task();
+  } catch (err) {
+    logger.warn(`Canonical operational bridge best-effort ${label} skipped`, {
       error: err?.message || String(err),
     });
     return null;
@@ -54,7 +113,7 @@ async function safeCanonical(label, task) {
 async function resolvePatientUidFromUserId(db, patientId) {
   const id = Number.parseInt(String(patientId || ''), 10);
   if (!Number.isInteger(id) || id <= 0) return null;
-  return safeCanonical('patient uid lookup', async () => {
+  return bestEffort('patient uid lookup', async () => {
     const rows = await db.$queryRawUnsafe(
       'SELECT uid FROM users WHERE id = $1::int LIMIT 1',
       id,
@@ -71,7 +130,7 @@ async function resolvePatientUidForOrder(db, order = {}) {
 async function resolveInvestigationForLabAlert(db, alert = {}) {
   const resultId = Number.parseInt(String(alert.result_id || alert.resultId || ''), 10);
   if (!Number.isInteger(resultId) || resultId <= 0) return null;
-  return safeCanonical('critical result investigation lookup', async () => {
+  return bestEffort('critical result investigation lookup', async () => {
     const rows = await db.$queryRawUnsafe(
       `SELECT lr.investigation_id,
               lr.patient_uid,
@@ -81,6 +140,51 @@ async function resolveInvestigationForLabAlert(db, alert = {}) {
         WHERE lr.id = $1::int
         LIMIT 1`,
       resultId,
+    );
+    return rows[0] || null;
+  });
+}
+
+// Terminate the open results-inbox task for a given result resource on
+// acknowledgement, so the ack closes the accountable task (audit C-3) and the
+// escalation engine's backfill won't re-create one (it skips resources that
+// already have a terminal task). Best-effort + never-throws + idempotent: it
+// only flips a task still in an open/in_progress/blocked/overdue state, stamps
+// the terminal SLA-completion marker, and is a no-op when no such task exists.
+// An explicit tenant_id predicate keeps it correct whether run on the singleton
+// (GUC unset → mig-075 permissive) or a tenant-scoped tx.
+async function completeOpenResultTask({
+  db = null,
+  tenantId = null,
+  resourceType,
+  resourceId,
+  actorUid = null,
+} = {}) {
+  const client = dbClient(db);
+  const tid = cleanUuid(tenantId);
+  const type = cleanText(resourceType);
+  const id = cleanText(resourceId);
+  if (!tid || !type || !id) return null;
+  return bestEffort('results-inbox task completion on ack', async () => {
+    const rows = await client.$queryRawUnsafe(
+      `UPDATE tasks
+          SET status = 'completed',
+              completed_at = NOW(),
+              metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object('completed_via', 'critical_result_ack'::text)
+                || CASE WHEN $4::text IS NOT NULL
+                        THEN jsonb_build_object('acknowledged_by', $4::text)
+                        ELSE '{}'::jsonb END,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = $2
+          AND related_resource_id = $3
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        RETURNING id`,
+      tid,
+      type,
+      id,
+      actorUid ? String(actorUid) : null,
     );
     return rows[0] || null;
   });
@@ -136,7 +240,7 @@ export async function emitPharmacyOrderEvent({
       timelineIdempotencyKey: `pharmacy_orders:${orderId}:${eventType}:${status || 'none'}:${stamp}`,
       auditIdempotencyKey: `pharmacy_orders:${orderId}:audit:${eventType}:${status || 'none'}:${stamp}`,
     }, { db: client });
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitHousekeepingRequestRaised({
@@ -187,7 +291,7 @@ export async function emitHousekeepingRequestRaised({
         trigger,
       },
     }, { db: client });
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitHousekeepingRequestStatus({
@@ -243,7 +347,7 @@ export async function emitHousekeepingRequestStatus({
     }
 
     return event;
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitBedMarkedReady({
@@ -296,7 +400,7 @@ export async function emitBedMarkedReady({
       }, { db: client });
     }
     return null;
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitDischargeWorkflowOpened({
@@ -350,7 +454,7 @@ export async function emitDischargeWorkflowOpened({
       }, { db: client });
     }
     return true;
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitDischargeWorkItemCompleted({
@@ -398,7 +502,7 @@ export async function emitDischargeWorkItemCompleted({
         completed_by: actorUid || null,
       },
     }, { db: client });
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitDischargeDrugsDispensed({
@@ -431,7 +535,7 @@ export async function emitDischargeDrugsDispensed({
       tags: ['discharge', 'pharmacy'],
       timelineIdempotencyKey: `admissions:${admission.id}:discharge_drugs_dispensed`,
       auditIdempotencyKey: `admissions:${admission.id}:audit:discharge_drugs_dispensed`,
-    }, { db: client }));
+    }, { db: client }), { propagate: runsInCallerTx(db) });
 }
 
 export async function emitFinalDischargeCompleted({
@@ -467,7 +571,7 @@ export async function emitFinalDischargeCompleted({
       tags: ['discharge'],
       timelineIdempotencyKey: `admissions:${admission.id}:discharge_completed`,
       auditIdempotencyKey: `admissions:${admission.id}:audit:discharge_completed`,
-    }, { db: client }));
+    }, { db: client }), { propagate: runsInCallerTx(db) });
 }
 
 export async function emitCriticalLabAlertAcknowledged({
@@ -509,6 +613,44 @@ export async function emitCriticalLabAlertAcknowledged({
       auditIdempotencyKey: `lab_critical_alerts:${alert.id}:audit:acknowledged`,
     }, { db: client });
 
+    // PRIMARY: complete the SLA the lab producer actually started. The
+    // results-inbox producer (labResultsService → enqueueCriticalResultTask)
+    // keys the critical_result_ack SLA + task to sourceTable='lab_result',
+    // source_id = lab_results.id. Historically the ack path here completed only
+    // 'investigations' / 'lab_critical_alerts' — never 'lab_result' — so the
+    // HL7 lab-panic SLA stayed active/breached forever and the escalation
+    // backfill kept re-creating a task for an already-acknowledged result
+    // (audit C-3). Unify the key: acknowledge the SAME ('lab_result', result_id)
+    // resource the producer started.
+    const resultId = alert.result_id != null ? String(alert.result_id) : null;
+    if (resultId) {
+      await completeWorkflowSla({
+        tenantId: alert.tenant_id || linked?.tenant_id,
+        ruleCode: 'critical_result_ack',
+        sourceTable: 'lab_result',
+        sourceId: resultId,
+        metadata: {
+          alert_id: alert.id,
+          acknowledged_by: actorUid || null,
+        },
+      }, { db: client });
+
+      // Also terminate the open results-inbox task for this lab_result resource,
+      // so the ack closes the accountable task (not just the SLA clock) and the
+      // engine's backfill won't re-alert (it skips resources with a terminal
+      // task). Best-effort + idempotent: only flips a still-open task.
+      await completeOpenResultTask({
+        db: client,
+        tenantId: alert.tenant_id || linked?.tenant_id,
+        resourceType: 'lab_result',
+        resourceId: resultId,
+        actorUid,
+      });
+    }
+
+    // Back-compat: also complete the investigation-keyed and alert-keyed SLAs
+    // (older producers / the manual investigation path may have started one of
+    // these). completeWorkflowSla is a no-op when no matching instance exists.
     if (linked?.investigation_id) {
       await completeWorkflowSla({
         tenantId: alert.tenant_id || linked.tenant_id,
@@ -533,7 +675,7 @@ export async function emitCriticalLabAlertAcknowledged({
         acknowledged_by: actorUid || null,
       },
     }, { db: client });
-  });
+  }, { propagate: runsInCallerTx(db) });
 }
 
 export async function emitCdsAlertAcknowledged({
@@ -570,5 +712,5 @@ export async function emitCdsAlertAcknowledged({
       tags: ['cds', 'safety'],
       timelineIdempotencyKey: `cds_alerts:${alert.id}:acknowledged`,
       auditIdempotencyKey: `cds_alerts:${alert.id}:audit:acknowledged`,
-    }, { db: client }));
+    }, { db: client }), { propagate: runsInCallerTx(db) });
 }

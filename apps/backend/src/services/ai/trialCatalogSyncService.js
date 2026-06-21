@@ -15,7 +15,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { upsertTrial } from './trialMatcherService.js';
 
 const API_URL = 'https://clinicaltrials.gov/api/v2/studies';
@@ -24,7 +24,7 @@ const MAX_RUN_SIZE = 200;
 const REQUEST_TIMEOUT_MS = 20_000;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

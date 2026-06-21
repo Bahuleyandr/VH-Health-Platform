@@ -1,4 +1,5 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import Sentry from '../sentry.js';
 import logger from '../../logging/logger.js';
 import { dispatch } from '../notifications/notificationDispatcher.js';
 import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js';
@@ -10,7 +11,7 @@ import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js'
 // tenant from users.tenant_id and create the task under THAT tenant (design
 // §4.6), falling back to DEFAULT_TENANT_ID only when it can't be resolved.
 import { enqueueCriticalResultTask } from '../../services/results/resultsInboxService.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 
 /**
  * Adult clinical reference ranges (default).
@@ -237,10 +238,17 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
     });
   }
 
-  // PATIENT SAFETY: Alerts are persisted synchronously — a CRITICAL vital sign alert
-  // must never be silently lost due to fire-and-forget (setImmediate). If persistence
-  // fails, the error propagates to the caller so it can be handled appropriately.
+  // PATIENT SAFETY: Alerts are persisted ATOMICALLY — every clinical_alerts
+  // row for this vitals write commits together or not at all. The previous
+  // implementation INSERTed each alert in its own auto-committing statement and
+  // the caller downgraded a failure to a warn, so a second simultaneous CRITICAL
+  // vital could be dropped while the POST still returned 200. Now the fan-out
+  // runs inside ONE setTenantTx, and a CRITICAL-alert persistence failure is a
+  // high-severity error (Sentry + logger.error) that PROPAGATES to the caller —
+  // it is never silently lost.
   if (alerts.length > 0) {
+    const hasCritical = alerts.some((a) => a.severity === 'CRITICAL');
+
     // Resolve patient_uid for the CDS-alert mirror — cds_alerts is keyed
     // by uuid, not the int patient_id. Single lookup outside the loop
     // so the mirror is amortised across multiple alert rows.
@@ -258,19 +266,17 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
     }
 
     // Resolve the patient UUID + tenant once for the results-inbox producer
-    // hook below. clinical_alerts is keyed by the int patient_id and is NOT
-    // tenant-keyed, but the results-inbox task (and its mig-269 SLA instance)
-    // must land under the PATIENT's tenant — `users` carries tenant_id, so we
-    // read it here rather than hardcoding the default. Only needed when at
-    // least one CRITICAL alert fired; a null uid still lets the task be created
-    // (patientUid is optional on the producer), and a null tenant falls back to
-    // DEFAULT_TENANT_ID at the enqueue call. We run this lookup whenever a
-    // CRITICAL alert fired — even if the pregnancy mirror already resolved the
-    // uid — because we still need the tenant_id (the pregnancy lookup above
-    // selects uid only).
+    // hook below AND for scoping the persistence transaction. clinical_alerts
+    // is keyed by the int patient_id and carries a tenant_id whose DEFAULT
+    // reads the `app.current_tenant_id` GUC — so wrapping the INSERT in
+    // setTenantTx(tenant) stamps the row with the PATIENT's tenant instead of
+    // the literal single-tenant fallback. `users` carries tenant_id, so we read
+    // it here. We run this lookup whenever a CRITICAL alert fired — even if the
+    // pregnancy mirror already resolved the uid — because we still need the
+    // tenant_id (the pregnancy lookup above selects uid only).
     let criticalPatientUid = null;
     let criticalPatientTenantId = null;
-    if (alerts.some((a) => a.severity === 'CRITICAL')) {
+    if (hasCritical) {
       try {
         const r = await prisma.$queryRawUnsafe(
           `SELECT uid, tenant_id FROM users WHERE id = $1::int LIMIT 1`,
@@ -287,24 +293,68 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         criticalPatientUid = pregnancyCdsPatientUid;
       }
     }
-    for (const alert of alerts) {
-      const alertRows = await prisma.$queryRawUnsafe(
-        `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
-         VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())
-         RETURNING id`,
-        alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by
-      );
-      const clinicalAlertId = alertRows[0]?.id ?? null;
+    const persistTenantId = requireTenantId(criticalPatientTenantId);
 
+    // ---- Phase 1: atomic persistence of the clinical_alerts fan-out ----
+    // Only the load-bearing safety rows live in the transaction so it stays
+    // clean (per the Phase 0/1/2 rule: NO swallowed best-effort calls inside a
+    // $transaction — a swallowed Prisma error would poison the tx). The
+    // cds_alerts mirror, realtime emits, notification dispatch, and the
+    // results-inbox enqueue are all post-commit (Phase 1.5) below.
+    let persisted;
+    try {
+      persisted = await setTenantTx(persistTenantId, async (tx) => {
+        const rows = [];
+        for (const alert of alerts) {
+          const alertRows = await tx.$queryRawUnsafe(
+            `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
+             VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())
+             RETURNING id`,
+            alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by,
+          );
+          rows.push({ alert, clinicalAlertId: alertRows[0]?.id ?? null });
+        }
+        return rows;
+      });
+    } catch (persistErr) {
+      // A CRITICAL vital alert must NEVER be silently lost. Escalate as a
+      // high-severity error (Sentry + logger.error) and re-throw so the caller
+      // (and monitoring) sees the failure instead of a swallowed warn / 200.
+      const detail = alerts.map((a) => `${a.vital_name}=${a.value} (${a.severity})`).join(', ');
+      if (hasCritical) {
+        logger.error(
+          `vitalSignMonitor: CRITICAL clinical alert persistence FAILED for patient ${patientId} [${detail}]: ${persistErr?.message}`,
+        );
+        Sentry.captureException(persistErr, {
+          level: 'fatal',
+          tags: { subsystem: 'clinical_alerts', severity: 'CRITICAL' },
+          extra: { patientId, alerts: detail },
+        });
+      } else {
+        logger.error(
+          `vitalSignMonitor: clinical alert persistence failed for patient ${patientId} [${detail}]: ${persistErr?.message}`,
+        );
+        Sentry.captureException(persistErr, {
+          level: 'error',
+          tags: { subsystem: 'clinical_alerts' },
+          extra: { patientId, alerts: detail },
+        });
+      }
+      throw persistErr;
+    }
+
+    // ---- Phase 1.5: post-commit best-effort fan-out ----
+    // The clinical_alerts rows are now durably committed. Each side effect
+    // below is independently best-effort: a failure here must not undo the
+    // persisted alerts (and must not throw past this point for non-CRITICAL
+    // mirrors), so each is wrapped in its own try/catch.
+    for (const { alert, clinicalAlertId } of persisted) {
       // D26 — Mirror pregnancy-hypertension and pre-eclampsia screen
       // alerts to cds_alerts so they surface on the doctor's CDS
       // dashboard alongside the existing drug-interaction / allergy /
-      // duplicate-order alerts the dashboard already reads. Without
-      // this, the OB doctor reviewing the chart during the ANC visit
-      // saw zero pregnancy-BP warnings even though clinical_alerts
-      // carried them — the dashboard reads cds_alerts only. Best-
-      // effort: a mirror failure must not block the clinical_alerts
-      // write or the alert dispatch. Finding b6dc4ea4.
+      // duplicate-order alerts the dashboard already reads. Best-effort:
+      // a mirror failure must not undo the committed clinical_alerts row
+      // or block the alert dispatch. Finding b6dc4ea4.
       if (alert.is_pregnancy_bp_signal && pregnancyCdsPatientUid) {
         try {
           await prisma.$executeRawUnsafe(
@@ -362,21 +412,20 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         }
 
         // Results-inbox producer hook (design §4.2 — deterministic core). The
-        // clinical_alerts row above is already committed (no enclosing tx —
-        // each $queryRaw auto-commits), so this is a post-commit, Phase-1.5
-        // best-effort enqueue: the CRITICAL vital becomes an assigned,
-        // acknowledgement-tracked task the escalation engine will chase if it
-        // goes unacked. CRITICAL: must never throw or slow the alert persist —
-        // enqueueCriticalResultTask is never-throws, and we still swallow
-        // defensively here. Idempotent via the mig-312 open-task index (keyed
-        // on the clinical_alert id), so a re-run never duplicates the task.
+        // clinical_alerts row above is already committed (Phase 1 tx), so this is
+        // a post-commit, Phase-1.5 best-effort enqueue: the CRITICAL vital
+        // becomes an assigned, acknowledgement-tracked task the escalation engine
+        // will chase if it goes unacked. CRITICAL: must never throw or slow the
+        // alert persist — enqueueCriticalResultTask is never-throws, and we still
+        // swallow defensively here. Idempotent via the mig-312 open-task index
+        // (keyed on the clinical_alert id), so a re-run never duplicates the task.
         if (clinicalAlertId != null) {
           try {
             await enqueueCriticalResultTask({
               // Land the task under the PATIENT's tenant (resolved from
               // users.tenant_id above); fall back to the default tenant only
               // when the lookup failed / the user row had no tenant.
-              tenantId: criticalPatientTenantId || DEFAULT_TENANT_ID,
+              tenantId: requireTenantId(criticalPatientTenantId),
               patientUid: criticalPatientUid,
               source: 'vital_alert',
               resourceType: 'clinical_alert',

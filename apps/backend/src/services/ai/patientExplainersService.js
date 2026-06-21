@@ -39,7 +39,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
@@ -106,7 +106,7 @@ const SAFETY_NUDGE = [
 ].join('\n');
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {
@@ -505,7 +505,7 @@ export async function generatePatientReportExplanation({
   // patientAccessGuard adds the care-relationship check (shadow-mode pre-
   // GO_LIVE); this existence + consistency check is load-bearing today, and the
   // SERVER-resolved uid (never the raw caller value) is what gets persisted.
-  const scopeTenant = tenantId || DEFAULT_TENANT_ID;
+  const scopeTenant = requireTenantId(tenantId);
   let resolvedUid = normalizedUid;
   if (normalizedAdm != null) {
     const admRows = await prisma.$queryRawUnsafe(

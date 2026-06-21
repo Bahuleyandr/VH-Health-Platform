@@ -12,7 +12,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const PACK_VERSION = 'clinical-ai-pilot-evidence-pack-v1';
 const SIGNOFF_APPROVAL_TYPE = 'pilot_evidence_pack_signoff';
@@ -35,7 +35,7 @@ const SIGNOFF_SELECT = `id, tenant_id, approval_type, module_key, status, reques
         rejected_by, reason, payload, expires_at, decided_at, created_at, updated_at`;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

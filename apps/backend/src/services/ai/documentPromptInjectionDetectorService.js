@@ -87,6 +87,12 @@ const MEDIUM_CONFIDENCE_PATTERNS = [
     code: 'INSTRUCTION_BLOCK_INJECTION',
     severity: 'high',
     weight: 50,
+    // Structural, NEWLINE-ANCHORED rule (markdown/bracket instruction headers).
+    // Must scan the RAW text: normalizeForMatching collapses runs of whitespace
+    // (incl. newlines) to single spaces, which strips the (^|\n) anchor and made
+    // this rule silently stop matching after the NFKC/zero-width normalization
+    // was added. rawText keeps the line structure this rule depends on.
+    rawText: true,
     pattern:
       /(^|\n)\s*(###\s*(instruction|system|rules?|directives?)|---\s*(instruction|system)|\[(instruction|system|rules?)\])/i,
     reason: 'Content includes markdown / bracket-style instruction headers commonly used in prompt-injection payloads.',
@@ -112,15 +118,23 @@ const LOW_CONFIDENCE_PATTERNS = [
   },
 ];
 
+// Obfuscation rules run against the RAW (un-normalized) text. Normalization
+// strips zero-width / bidi / format characters and collapses spacing before the
+// content rules match — so if these read normalized text the obfuscation signal
+// itself would vanish. Thresholds were lowered (audit 2026-06-18 §4): a 2-char
+// zero-width run and a 4-char combining-diacritic run are already abnormal in a
+// clinical document and worth a flag, especially now that the content rules see
+// through the obfuscation.
 const OBFUSCATION_PATTERNS = [
   {
     code: 'ZERO_WIDTH_OBFUSCATION',
     severity: 'medium',
     weight: 30,
-    // Three or more zero-width / bidi / format characters in a row:
+    // Two or more zero-width / bidi / format characters in a row:
     // U+200B–U+200F (zero-width), U+202A–U+202E (LRE/RLE/PDF/LRO/RLO),
     // U+2066–U+2069 (LRI/RLI/FSI/PDI), U+FEFF (BOM).
-    pattern: new RegExp('[\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]{3,}'),
+    pattern: new RegExp('[\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]{2,}', 'g'),
+    rawText: true,
     reason: 'Content contains runs of zero-width or bidirectional control characters used to hide instructions.',
   },
   {
@@ -128,7 +142,8 @@ const OBFUSCATION_PATTERNS = [
     severity: 'medium',
     weight: 25,
     // U+0300–U+036F: Combining Diacritical Marks block (zalgo).
-    pattern: new RegExp('[\\u0300-\\u036f]{8,}'),
+    pattern: new RegExp('[\\u0300-\\u036f]{4,}', 'g'),
+    rawText: true,
     reason: 'Content contains a flood of combining diacritics (zalgo-style obfuscation).',
   },
   {
@@ -136,8 +151,11 @@ const OBFUSCATION_PATTERNS = [
     severity: 'medium',
     weight: 20,
     // Long unbroken base64-style run. Some lab reports include short base64
-    // tokens; this only fires past 320 chars.
-    pattern: /[A-Za-z0-9+/]{320,}={0,2}/,
+    // tokens; this only fires past 320 chars. Reads raw text because base64
+    // alphabet survives normalization unchanged but spacing-collapse could
+    // splice two unrelated runs together.
+    pattern: /[A-Za-z0-9+/]{320,}={0,2}/g,
+    rawText: true,
     reason: 'Content contains a long base64-style payload that may carry encoded instructions.',
   },
 ];
@@ -151,6 +169,65 @@ const ALL_PATTERNS = [
 
 const BLOCK_THRESHOLD = 80;
 const FLAG_THRESHOLD = 30;
+
+// Per-rule cumulative-weight cap. A single rule that matches many times (e.g. a
+// document that repeats "ignore previous instructions" 50×) should escalate,
+// but not run away with the score — cap each rule's contribution so the verdict
+// stays driven by the DIVERSITY + severity of signals, not sheer repetition.
+const MAX_RULE_HITS_COUNTED = 5;
+
+// Characters stripped before content matching: zero-width spaces/joiners
+// (U+200B–U+200D), bidi/LTR/RTL marks + embeddings/overrides (U+200E–U+200F,
+// U+202A–U+202E), isolates (U+2066–U+2069), word-joiner (U+2060), and BOM/ZWNBSP
+// (U+FEFF). These are the splitter characters an attacker inserts mid-token to
+// defeat a literal regex; none of them carry clinical meaning.
+const ZERO_WIDTH_STRIP_RE = /[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+
+/**
+ * Normalize content before matching the textual injection rules.
+ *
+ *   1. Unicode NFKC — folds full-width / compatibility homoglyphs
+ *      (ｉｇｎｏｒｅ → ignore, ﬁ → fi) to their canonical ASCII form so a
+ *      homoglyph payload can't slip past a literal regex.
+ *   2. Strip zero-width / bidi / format characters that are used purely to
+ *      split a token (ig<U+200B>nore → ignore).
+ *   3. Collapse runs of whitespace (incl. tabs/newlines) to a single space so
+ *      "ig nore   all" and inter-character spacing splits ("< | im _ start | >")
+ *      reduce toward the literal token the rules look for.
+ *
+ * The OBFUSCATION rules deliberately run on the RAW text (rawText:true) so the
+ * stripping here doesn't hide the very signal they detect. Fail-closed posture
+ * is unchanged: normalization only makes MORE payloads match, never fewer.
+ */
+function normalizeForMatching(text) {
+  let normalized;
+  try {
+    normalized = text.normalize('NFKC');
+  } catch {
+    normalized = text;
+  }
+  return normalized
+    .replace(ZERO_WIDTH_STRIP_RE, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Compile a rule's pattern with the global flag so we can count cumulative
+ * matches (matchAll) instead of stopping at the first hit. Cached on the rule.
+ */
+function globalPattern(rule) {
+  if (rule.__globalPattern) return rule.__globalPattern;
+  const flags = rule.pattern.flags.includes('g')
+    ? rule.pattern.flags
+    : `${rule.pattern.flags}g`;
+  const compiled = new RegExp(rule.pattern.source, flags);
+  Object.defineProperty(rule, '__globalPattern', {
+    value: compiled,
+    enumerable: false,
+    writable: false,
+  });
+  return compiled;
+}
 
 function sampleAround(text, index, length) {
   if (index < 0) return '';
@@ -182,6 +259,9 @@ function sampleAround(text, index, length) {
 export function detectPromptInjection({ text = '', source = 'unknown', metadata = {} } = {}) {
   const body = String(text || '');
   const scanned = body.length > MAX_SCAN_CHARS ? body.slice(0, MAX_SCAN_CHARS) : body;
+  // Normalized view for the textual rules (homoglyph fold + zero-width strip +
+  // spacing collapse). Obfuscation rules read `scanned` (raw) instead.
+  const normalized = normalizeForMatching(scanned);
   const empty = {
     verdict: 'pass',
     score: 0,
@@ -193,35 +273,57 @@ export function detectPromptInjection({ text = '', source = 'unknown', metadata 
   };
 
   // Skip very short content — too little signal, high false-positive risk.
-  if (scanned.trim().length < 20) {
+  // Measure against the normalized text so a doc padded only with zero-width
+  // characters can't sneak under the floor.
+  if (normalized.trim().length < 20) {
     return empty;
   }
 
   const hits = [];
   const reasons = [];
   let totalScore = 0;
-  let highestSeverityIndex = -1;
-  let highestSeverityLength = 0;
+  // Track the location of the strongest signal so reviewers get a useful
+  // sample. Critical hits win; among equals, the first seen. Index is relative
+  // to whichever text (raw vs normalized) the winning rule matched against.
+  let bestSample = null; // { text, index, length, weight, critical }
 
   for (const rule of ALL_PATTERNS) {
-    const match = rule.pattern.exec(scanned);
-    if (!match) continue;
-    const matchIndex = match.index ?? scanned.indexOf(match[0]);
-    const matched = match[0];
+    const haystack = rule.rawText ? scanned : normalized;
+    const re = globalPattern(rule);
+    re.lastIndex = 0;
+    let count = 0;
+    let firstMatch = null;
+    for (const match of haystack.matchAll(re)) {
+      if (!firstMatch) firstMatch = match;
+      count += 1;
+      if (count >= MAX_RULE_HITS_COUNTED) break;
+      // Guard against a zero-length match looping forever (defensive; all
+      // current patterns consume ≥1 char).
+      if (match[0] === '') break;
+    }
+    if (!firstMatch) continue;
+
+    const matched = firstMatch[0];
+    const matchIndex = firstMatch.index ?? haystack.indexOf(matched);
+    // Cumulative weight, capped per rule so repetition can escalate but not
+    // dominate the verdict.
+    totalScore += rule.weight * count;
     hits.push({
       code: rule.code,
       severity: rule.severity,
       weight: rule.weight,
+      count,
       sample: matched.slice(0, 120),
     });
     reasons.push(rule.reason);
-    totalScore += rule.weight;
-    if (rule.severity === 'critical' && (highestSeverityIndex < 0 || rule.weight >= 100)) {
-      highestSeverityIndex = matchIndex;
-      highestSeverityLength = matched.length;
-    } else if (highestSeverityIndex < 0) {
-      highestSeverityIndex = matchIndex;
-      highestSeverityLength = matched.length;
+
+    const critical = rule.severity === 'critical';
+    if (
+      !bestSample
+      || (critical && !bestSample.critical)
+      || (critical === bestSample.critical && rule.weight > bestSample.weight)
+    ) {
+      bestSample = { text: haystack, index: matchIndex, length: matched.length, weight: rule.weight, critical };
     }
   }
 
@@ -239,8 +341,8 @@ export function detectPromptInjection({ text = '', source = 'unknown', metadata 
     score,
     hits,
     reasons: [...new Set(reasons)],
-    sample: highestSeverityIndex >= 0
-      ? sampleAround(scanned, highestSeverityIndex, highestSeverityLength)
+    sample: bestSample
+      ? sampleAround(bestSample.text, bestSample.index, bestSample.length)
       : null,
     scanned_chars: scanned.length,
     metadata: { source, ...metadata },
@@ -293,6 +395,8 @@ export const __testing__ = {
   BLOCK_THRESHOLD,
   FLAG_THRESHOLD,
   MAX_SCAN_CHARS,
+  MAX_RULE_HITS_COUNTED,
+  normalizeForMatching,
 };
 
 export default {

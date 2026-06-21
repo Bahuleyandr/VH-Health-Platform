@@ -32,7 +32,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { sendSecurityWebhook } from '../../utils/securityWebhook.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getRolePolicy } from '../../config/rolePolicyGraph.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -171,7 +171,7 @@ export async function activateBreakGlass({
   reason,
   expiresInHours,
 } = {}) {
-  const tid = cleanUuid(tenantId) || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(cleanUuid(tenantId));
   const patient = cleanUuid(patientUid);
   const actor = cleanUuid(actorUid);
   const role = normalizeRole(actorRole);
@@ -259,7 +259,7 @@ export async function activateBreakGlass({
  * @returns {Promise<object>} the revoked break-glass row.
  */
 export async function revokeBreakGlass({ id, tenantId, actorUid } = {}) {
-  const tid = cleanUuid(tenantId) || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(cleanUuid(tenantId));
   const actor = cleanUuid(actorUid);
   const bgId = Number.parseInt(id, 10);
   if (!Number.isInteger(bgId) || bgId <= 0) {
@@ -327,7 +327,7 @@ export async function revokeBreakGlass({ id, tenantId, actorUid } = {}) {
  * @returns {Promise<object[]>}
  */
 export async function listActiveBreakGlass({ tenantId, patientUid, limit = 100 } = {}) {
-  const tid = cleanUuid(tenantId) || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(cleanUuid(tenantId));
   const patient = cleanUuid(patientUid);
   const cappedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
 

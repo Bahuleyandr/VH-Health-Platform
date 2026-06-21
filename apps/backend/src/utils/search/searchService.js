@@ -2,7 +2,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { DEFAULT_TENANT_ID, requireTenantId } from '../../services/tenant/tenantService.js';
 import { maskEmail, maskPhone } from '../piiMask.js';
 
 /**
@@ -17,7 +17,7 @@ function buildTsQuery(query) {
 }
 
 function tenantOf(context = {}) {
-  return context.tenantId || context.tenant_id || DEFAULT_TENANT_ID;
+  return requireTenantId(context.tenantId || context.tenant_id);
 }
 
 function normalizeRole(role) {

@@ -39,6 +39,8 @@ jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => (
 // Stub collaborators the service imports but we don't test here.
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: 'default-tenant-id',
+  resolveTenantOrThrow: (req) => req?.tenantId || 'default-tenant-id',
+  requireTenantId: (tenantId) => tenantId || 'default-tenant-id',
 }));
 jest.unstable_mockModule('../../services/emr/clinicalTimelineService.js', () => ({
   collectAdmissionClinicalContext: jest.fn().mockResolvedValue({
@@ -92,7 +94,15 @@ describe('recordPayerDecision', () => {
 
   describe('when decision is "denied"', () => {
     beforeEach(() => {
-      mockQueryRawUnsafe.mockResolvedValue([BASE_ROW]);
+      // recordPayerDecision now reads the current state first: a payer decision
+      // is only valid FROM 'submitted', and re-recording the same decision is an
+      // idempotent no-op (no event). So model a real submitted -> denied
+      // transition: SELECT current returns 'submitted', the UPDATE...RETURNING
+      // returns the denied row.
+      mockQueryRawUnsafe
+        .mockResolvedValueOnce([{ ...BASE_ROW, status: 'submitted' }])
+        .mockResolvedValueOnce([{ ...BASE_ROW, status: 'denied' }])
+        .mockResolvedValue([{ ...BASE_ROW, status: 'denied' }]);
     });
 
     it('calls publishEvent once with clinical_ai.prior_auth_denied', async () => {

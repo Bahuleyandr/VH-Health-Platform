@@ -7,9 +7,11 @@ metadata:
     # TLS via cert-manager (Let's Encrypt prod issuer — overlay may switch to
     # `letsencrypt-staging` in dev/staging to avoid rate limits).
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # Request/response tunables — match backend's 10mb JSON body limit
-    # but allow larger multipart uploads for patient record attachments
-    # (validatePatientUpload caps at 25MB PDF, so 50m leaves headroom).
+    # Request/response tunables — the backend's express.json limit is small
+    # (HTTP_BODY_LIMIT, default 1mb; configmap) because large JSON is a DoS
+    # surface. This proxy-body-size is sized for the multipart UPLOAD path
+    # (validatePatientUpload caps at 25MB PDF, so 50m leaves headroom), which
+    # goes through multer rather than express.json.
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
@@ -46,6 +48,26 @@ spec:
       secretName: vhhealth-backend-tls
   rules:
     - host: api.vhhealth.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80
+    # ── Per-tenant subdomains (multi-tenancy W7, FLAT 1st-level model) ───────
+    # Route every 1st-level host to the backend (the per-tenant API host is
+    # `<slug>-api.vhhealth.app`); W4 derives the tenant from the preserved Host.
+    # `admin.vhhealth.app` keeps its own more-specific Ingress (→ admin), so
+    # nginx routes it correctly; `api.vhhealth.app` keeps the apex rule above.
+    # Browser-facing TLS is the Cloudflare edge's FREE Universal SSL cert for
+    # `*.vhhealth.app` (1st-level — no ACM). The wildcard is deliberately NOT in
+    # the cert-manager `tls.hosts` (the cloudflared→ingress hop is HTTP). INERT
+    # until the wildcard DNS exists (runbook Part A). See
+    # docs/TENANT_ONBOARDING_RUNBOOK.md.
+    - host: "*.vhhealth.app"
       http:
         paths:
           - path: /

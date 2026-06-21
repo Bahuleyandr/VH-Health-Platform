@@ -1,7 +1,7 @@
 // src/services/emr/clinicalNotesService.js
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertCanWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -385,7 +385,7 @@ export async function createNote(data) {
   // row + its canonical timeline/audit events persist together or not at
   // all. Schema defaults: version=1, is_addendum=false, is_signed=false,
   // created_at=now(). We pass them explicitly to mirror the pre-ORM INSERT.
-  const created = await setTenantTx((data.tenant_id || data.tenantId) || DEFAULT_TENANT_ID, async (tx) => {
+  const created = await setTenantTx(requireTenantId(data.tenant_id || data.tenantId), async (tx) => {
     const row = await tx.clinical_notes.create({
       data: {
         encounter_id: resolvedEncounterId ?? null,
@@ -435,7 +435,7 @@ export async function createNote(data) {
   // are meaningful. Idempotent + self-contained: swallows every error
   // internally and MUST NEVER block or fail the note write.
   await populateAuthorshipCareTeam({
-    tenantId: (data.tenant_id || data.tenantId) || DEFAULT_TENANT_ID,
+    tenantId: requireTenantId(data.tenant_id || data.tenantId),
     patientUid: patient_uid,
     authorUid: author_uid,
     authorRole: author_role,
@@ -448,7 +448,7 @@ export async function createNote(data) {
   // leftover draft is harmless (the expiry janitor reaps it; the client prefers
   // the committed note on next open).
   await clearDraftForFinalizedNote({
-    tenantId: (data.tenant_id || data.tenantId) || DEFAULT_TENANT_ID,
+    tenantId: requireTenantId(data.tenant_id || data.tenantId),
     authorUid: author_uid,
     patientUid: patient_uid,
     appointmentId: appointment_id ?? null,
@@ -520,7 +520,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   // events persist together (canonical timeline invariant). Tenant-scoped so
   // the writes land under the RLS tenant_isolation policy instead of its
   // permissive (GUC-unset) branch.
-  const created = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const created = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const row = await tx.clinical_notes.create({
       data: {
         encounter_id: parentNote.encounter_id,
@@ -538,7 +538,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
     });
 
     await recordCanonicalNoteEvent({
-      tenantId: tenantId || DEFAULT_TENANT_ID,
+      tenantId: requireTenantId(tenantId),
       patientUid: row.patient_uid,
       encounterId: row.encounter_id,
       eventType: 'note.addendum_created',
@@ -693,7 +693,7 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
   // persist together (canonical timeline invariant). Tenant-scoped so the
   // writes land under the RLS tenant_isolation policy instead of its
   // permissive (GUC-unset) branch.
-  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const row = await tx.clinical_notes.update({
       where: { id: Number(noteId) },
       data: {
@@ -705,7 +705,7 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
     });
 
     await recordCanonicalNoteEvent({
-      tenantId: tenantId || DEFAULT_TENANT_ID,
+      tenantId: requireTenantId(tenantId),
       patientUid: row.patient_uid,
       encounterId: row.encounter_id,
       eventType: 'note.edited',
@@ -818,7 +818,7 @@ export async function signNote(noteId, signerUid, actingUser = null, tenantId = 
   // the tx so the note does not silently flip to signed without a traceable
   // timeline + audit row. Tenant-scoped so the writes land under the RLS
   // tenant_isolation policy instead of its permissive (GUC-unset) branch.
-  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const updated = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const row = await tx.clinical_notes.update({
       where: { id: Number(noteId) },
       data: {
@@ -831,7 +831,7 @@ export async function signNote(noteId, signerUid, actingUser = null, tenantId = 
     });
 
     await recordCanonicalNoteEvent({
-      tenantId: tenantId || DEFAULT_TENANT_ID,
+      tenantId: requireTenantId(tenantId),
       patientUid: row.patient_uid,
       encounterId: row.encounter_id,
       eventType: 'note.signed',

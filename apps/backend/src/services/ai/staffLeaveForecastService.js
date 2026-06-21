@@ -6,7 +6,7 @@ import {
   normalizeRosterDepartment,
 } from '../../config/rosterDepartmentConfig.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { generateClinicalText } from './localLlmClient.js';
 
 export const STAFF_LEAVE_FORECAST_MODULE_KEY = 'staff_roster_optimizer';
@@ -32,7 +32,7 @@ const WEATHER_SEVERITY_WEIGHTS = {
 };
 
 function resolveTenantId(tenantId) {
-  return tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(tenantId);
 }
 
 function isMissingSchemaError(err) {

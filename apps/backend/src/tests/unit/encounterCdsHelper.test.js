@@ -11,6 +11,7 @@ import { jest } from '@jest/globals';
 const queryUnsafeMock = jest.fn();
 const getActiveAlertsMock = jest.fn();
 const getProtocolRemindersMock = jest.fn();
+const getUnifiedActiveAllergiesMock = jest.fn(async () => []);
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -28,6 +29,20 @@ jest.unstable_mockModule('../../services/emr/cdsEngine.js', () => ({
   getProtocolReminders: getProtocolRemindersMock,
   // Only these two are imported; the others stay unmocked for other tests.
 }));
+// getUnifiedActiveAllergies queries 4 stores internally (patient resolution +
+// patient_allergies + legacy allergies + admission intake). Mock it at the
+// SERVICE level so this test asserts the helper's alert logic without tracking
+// the allergy service's internal $queryRawUnsafe call count — that count changed
+// in the audit-2026-06-18 fail-open-UNION fix (a leading `SELECT … FROM users`
+// resolution query was added), which silently desynced the old positional
+// $queryRawUnsafe sequence mock and dropped the downstream alerts.
+jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
+  getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  mergeAllergyRows: (rows) => rows,
+  rankSeverity: () => 0,
+  SEVERE_BLOCK_RANK: 4,
+  default: { getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock },
+}));
 
 const {
   buildEncounterDischargeAlerts,
@@ -40,6 +55,8 @@ beforeEach(() => {
   queryUnsafeMock.mockReset();
   getActiveAlertsMock.mockReset();
   getProtocolRemindersMock.mockReset();
+  getUnifiedActiveAllergiesMock.mockReset();
+  getUnifiedActiveAllergiesMock.mockResolvedValue([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -60,10 +77,10 @@ describe('buildEncounterStartAlerts', () => {
     getProtocolRemindersMock.mockResolvedValueOnce([
       { type: 'protocol_reminder', severity: 'warning', title: 'VTE prophylaxis due', description: 'NICE NG89' },
     ]);
-    queryUnsafeMock.mockResolvedValueOnce([
-      { allergen: 'penicillin', severity: 'severe', reaction: 'anaphylaxis' },
-      { allergen: 'sulfa', severity: 'mild', reaction: 'rash' },
-    ]); // allergies
+    getUnifiedActiveAllergiesMock.mockResolvedValueOnce([
+      { allergen: 'penicillin', severity: 'severe', sources: ['patient_allergies'] },
+      { allergen: 'sulfa', severity: 'mild', sources: ['patient_allergies'] },
+    ]); // allergies (service-level)
     queryUnsafeMock.mockResolvedValueOnce([]); // active problems (B7)
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 5, origin_kind: 'discharge', due_at: new Date(Date.now() - 86400000).toISOString(), reason: '6w post-op' },
@@ -93,7 +110,8 @@ describe('buildEncounterStartAlerts', () => {
   it('survives schema-missing on optional tables', async () => {
     getActiveAlertsMock.mockResolvedValueOnce([]);
     getProtocolRemindersMock.mockResolvedValueOnce([]);
-    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "patient_allergies" does not exist'));
+    // allergies degrade to [] via the service-level mock (default in beforeEach);
+    // the remaining optional tables still throw schema-missing and are swallowed.
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "patient_problems" does not exist'));
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "follow_up_plans" does not exist'));
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tasks" does not exist'));
@@ -104,7 +122,6 @@ describe('buildEncounterStartAlerts', () => {
   it('survives cdsEngine errors gracefully (logs, not throws)', async () => {
     getActiveAlertsMock.mockRejectedValueOnce(new Error('db down'));
     getProtocolRemindersMock.mockRejectedValueOnce(new Error('db down'));
-    queryUnsafeMock.mockResolvedValueOnce([]);  // allergies
     queryUnsafeMock.mockResolvedValueOnce([]);  // active problems (B7)
     queryUnsafeMock.mockResolvedValueOnce([]);  // follow-ups
     queryUnsafeMock.mockResolvedValueOnce([]);  // tasks
@@ -115,7 +132,6 @@ describe('buildEncounterStartAlerts', () => {
   it('produces info severity for due-but-not-overdue follow-up', async () => {
     getActiveAlertsMock.mockResolvedValueOnce([]);
     getProtocolRemindersMock.mockResolvedValueOnce([]);
-    queryUnsafeMock.mockResolvedValueOnce([]); // allergies
     queryUnsafeMock.mockResolvedValueOnce([]); // active problems (B7)
     const future = new Date(Date.now() + 7 * 86400000).toISOString();
     queryUnsafeMock.mockResolvedValueOnce([

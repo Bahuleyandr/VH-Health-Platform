@@ -55,14 +55,16 @@ describe('billing v2 payment invoice totals', () => {
 
   it('keeps advance settlements in amount_paid when reversing a later payment', async () => {
     mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }])
-      .mockResolvedValueOnce([{ paid: '15000' }])
-      .mockResolvedValueOnce([{ total_amount: '17300' }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }]) // UPDATE payment RETURNING
+      .mockResolvedValueOnce([{ id: 3 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
+      .mockResolvedValueOnce([{ paid: '15000' }]) // recompute aggregate
+      .mockResolvedValueOnce([{ total_amount: '17300' }]) // recompute total
+      .mockResolvedValueOnce([]); // syncUnusedAdmissionAdvancesForInvoice -> invoice lookup
 
     await reversePayment(9, { reason: 'cash entry voided' });
 
-    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[1][0];
+    // The lock is calls[1]; the paid aggregate is now calls[2].
+    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[2][0];
     expect(paidAggregateSql).toContain('billing_payments');
     expect(paidAggregateSql).toContain('billing_advance_settlements');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(

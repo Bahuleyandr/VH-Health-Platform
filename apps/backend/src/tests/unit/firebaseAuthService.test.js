@@ -7,6 +7,7 @@ const prismaMock = {
 
 const verifyIdTokenMock = jest.fn();
 const issueAccessTokenAndClaimSessionMock = jest.fn();
+const generateRefreshTokenMock = jest.fn();
 const ensureHospitalNumberMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -47,6 +48,7 @@ jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', (
 
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: issueAccessTokenAndClaimSessionMock,
+  generateRefreshToken: generateRefreshTokenMock,
 }));
 
 const { authenticateWithFirebase } = await import(
@@ -65,6 +67,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     issueAccessTokenAndClaimSessionMock.mockResolvedValue({
       accessToken: 'vh-jwt-token',
     });
+    generateRefreshTokenMock.mockReturnValue('vh-refresh-token');
     ensureHospitalNumberMock.mockResolvedValue('VH-000123');
     prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
   });
@@ -113,8 +116,21 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
         }),
       }),
     );
+    // C-9 companion (audit 2026-06-18): the PRIMARY patient login path must
+    // mint a SEPARATE type:'refresh' token, else the access token is the only
+    // credential and the bearer-rotation it used to rely on now 401s at
+    // /refresh-token. Mirror the identity AuthService._generateRefreshToken uses.
+    expect(generateRefreshTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: insertedUser.uid,
+        id: insertedUser.id,
+        phone: insertedUser.phone,
+        role: 'PATIENT',
+      }),
+    );
     expect(result).toMatchObject({
       accessToken: 'vh-jwt-token',
+      refreshToken: 'vh-refresh-token',
       isNewUser: true,
       user: {
         uid: insertedUser.uid,
@@ -193,18 +209,20 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     expect(insertParams[0]).toBe(DEFAULT_TENANT);
   });
 
-  it('SEC-5: honours an explicit x-tenant-id header (SaaS path)', async () => {
+  it('SEC-5/W4: honours the per-tenant subdomain (SaaS path)', async () => {
     const SAAS_TENANT = '55555555-5555-4555-8555-555555555555';
     const req = {
-      headers: { 'user-agent': 'jest', 'x-tenant-id': SAAS_TENANT },
+      // W4: the tenant comes from the Host subdomain (flat <slug>-api), not a header.
+      hostname: 'saas-api.localhost',
+      headers: { 'user-agent': 'jest' },
       connection: { remoteAddress: '127.0.0.1' },
     };
 
-    // resolveTenantForRequest validates the header tenant against the tenants
-    // table (getTenantById → prisma.$queryRawUnsafe). Return an active tenant,
-    // then the user-lookup SELECT (empty), then the INSERT RETURNING row.
+    // resolveTenantForRequest → tenantFromHost resolves the 'saas' subdomain via
+    // getTenantBySlug → prisma.$queryRawUnsafe. Return an active tenant, then the
+    // user-lookup SELECT (empty), then the INSERT RETURNING row.
     prismaMock.$queryRawUnsafe
-      .mockResolvedValueOnce([{ id: SAAS_TENANT, status: 'active' }]) // getTenantById
+      .mockResolvedValueOnce([{ id: SAAS_TENANT, status: 'active' }]) // getTenantBySlug
       .mockResolvedValueOnce([]) // user SELECT (scoped)
       .mockResolvedValueOnce([{
         id: 1, uid: '66666666-6666-4666-8666-666666666666', tenant_id: SAAS_TENANT,

@@ -1,5 +1,8 @@
 import { body, query, param } from 'express-validator';
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
+
+const PASSWORD_MIN_LENGTH = SECURITY_CONFIG.password.minLength;
 
 export const staffProfileValidation = [
   body('user_id')
@@ -13,12 +16,12 @@ export const staffProfileValidation = [
   body('role').optional().isIn(Object.values(STAFF_ROLES)).withMessage('Valid staff role required'),
   body('temporary_password')
     .optional({ checkFalsy: true })
-    .isLength({ min: 6 })
-    .withMessage('Temporary password must be at least 6 characters'),
+    .isLength({ min: PASSWORD_MIN_LENGTH })
+    .withMessage(`Temporary password must be at least ${PASSWORD_MIN_LENGTH} characters`),
   body('password')
     .optional({ checkFalsy: true })
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters'),
+    .isLength({ min: PASSWORD_MIN_LENGTH })
+    .withMessage(`Password must be at least ${PASSWORD_MIN_LENGTH} characters`),
   body('position').notEmpty().withMessage('Position required'),
   body('department').notEmpty().withMessage('Department required'),
   body('shift').optional().isIn(Object.keys(SHIFT_TYPES)).withMessage('Valid shift required'),

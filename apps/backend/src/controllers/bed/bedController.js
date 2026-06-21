@@ -203,7 +203,18 @@ export const deleteBed = async (req, res) => {
 
 export const admitPatient = async (req, res) => {
   try {
-    const bed = await bedService.admitPatient(req.params.id, req.body, req.user?.role);
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    // C-2 — route through the hardened bedService.admitPatient, which creates a
+    // real admission + bed_transfers + canonical event under a FOR UPDATE lock
+    // (the old path left a half-populated bed with no admission). Pass the
+    // resolved tenant + the actor's uid through so the canonical/audit layer and
+    // RLS scope are correct.
+    const bed = await bedService.admitPatient(
+      req.params.id,
+      req.body,
+      req.user?.role,
+      { tenantId, actorUid: req.user?.uid || null },
+    );
     if (!bed) return error(res, 'Bed not available for admission', HTTP_STATUS.BAD_REQUEST);
     emitBedEvent('patient-admitted', bed);
     success(res, { bed }, 'Patient admitted');
@@ -219,11 +230,23 @@ export const admitPatient = async (req, res) => {
 
 export const dischargePatient = async (req, res) => {
   try {
-    const bed = await bedService.dischargePatient(req.params.id);
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    // C-2 — route through the hardened bedService.dischargePatient, which
+    // delegates to bedManagementService.dischargePatient: bed → 'cleaning'
+    // (infection-control turnover, not straight-to-available), admission closed,
+    // bed_transfers + canonical discharge event in-tx, and a housekeeping
+    // cleaning ticket. The old path skipped all of that.
+    const bed = await bedService.dischargePatient(
+      req.params.id,
+      { tenantId, dischargedBy: req.user?.uid || null },
+    );
     if (!bed) return error(res, 'Bed is not occupied', HTTP_STATUS.BAD_REQUEST);
     emitBedEvent('patient-discharged', bed);
     success(res, { bed }, 'Patient discharged');
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, err.details);
+    }
     logger.error('Error discharging patient:', err);
     error(res, 'Failed to discharge patient', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

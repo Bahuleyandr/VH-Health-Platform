@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 export const CLINICAL_AI_MODULES = [
   {
@@ -2103,6 +2103,47 @@ function moduleApprovalPolicy(module) {
   return String(module?.settings?.approvalPolicy || '').toLowerCase();
 }
 
+function moduleSurface(module) {
+  return String(module?.settings?.surface || '').toLowerCase().trim();
+}
+
+function isPatientSurface(module) {
+  return moduleSurface(module) === 'patient';
+}
+
+/**
+ * Patient-surface enablement guard (audit 2026-06-18 §3 /
+ * CLINICAL_AI_ENABLEMENT_PLAN.md). Patient-facing AI must stay OFF until it is
+ * explicitly cleared, so no module whose registry `settings.surface === 'patient'`
+ * may be toggled into an ENABLED state through the normal enable path.
+ *
+ * Fires only on the OFF→ON transition for a patient-surface module, and only
+ * when no explicit override flag is present. A disable (enabled:false) or a
+ * no-op is never blocked. Throws AppError.forbidden with a clear code so the
+ * route surfaces a 403 instead of a generic 500.
+ *
+ * Escape hatch: pass `allow_patient_surface: true` (or `allowPatientSurface`)
+ * in the update payload to deliberately enable a cleared patient surface. The
+ * two-person / eval gates still apply on top of the override.
+ *
+ * @param {object} args
+ * @param {object} args.current  current (effective) module config
+ * @param {object} args.next     proposed (effective) module config
+ * @param {object} args.data     raw update payload (carries the override flag)
+ */
+function assertPatientSurfaceEnablementAllowed({ current, next, data = {} }) {
+  const enablingNow = !current?.enabled && next?.enabled === true;
+  if (!enablingNow) return;
+  if (!isPatientSurface(next)) return;
+  const override = data.allow_patient_surface === true || data.allowPatientSurface === true;
+  if (override) return;
+  throw AppError.forbidden(
+    'Patient-facing clinical AI modules cannot be enabled until patient surfaces are explicitly cleared',
+    'CLINICAL_AI_PATIENT_SURFACE_FORBIDDEN',
+    { module_key: next?.module_key || current?.module_key || null, surface: 'patient' }
+  );
+}
+
 function riskyChangedFields(current, next) {
   return RISKY_MODULE_FIELDS.filter((field) => valuesDiffer(current?.[field], next?.[field]));
 }
@@ -2136,7 +2177,7 @@ function changeRequiresEval(current, next, changedFields) {
 function moduleChangePayload({ scope, tenantId, moduleKey, actorUid, changedFields, current, next, reasons, evalGate }) {
   const payload = {
     scope,
-    tenant_id: tenantId || DEFAULT_TENANT_ID,
+    tenant_id: requireTenantId(tenantId),
     module_key: moduleKey,
     changed_fields: changedFields,
     current: Object.fromEntries(RISKY_MODULE_FIELDS.map((field) => [field, current?.[field] ?? null])),
@@ -2164,7 +2205,7 @@ async function readApprovedModuleChangeApproval({ tenantId, approvalId, moduleKe
          AND module_key = $3
        LIMIT 1`,
       Number.parseInt(approvalId, 10),
-      tenantId || DEFAULT_TENANT_ID,
+      requireTenantId(tenantId),
       moduleKey
     );
     const approval = rows[0] || null;
@@ -2199,7 +2240,7 @@ async function createPendingModuleChangeApproval({ tenantId, moduleKey, requeste
          (tenant_id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
        VALUES ($1::uuid, $2, $3, 'pending', $4::uuid, $5, $6::jsonb, NOW() + INTERVAL '7 days', NOW(), NOW())
        RETURNING id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at`,
-      tenantId || DEFAULT_TENANT_ID,
+      requireTenantId(tenantId),
       MODULE_APPROVAL_TYPE,
       moduleKey,
       requestedBy || null,
@@ -2240,7 +2281,7 @@ async function assertAcceptedEvalGate({ tenantId, moduleKey, module, guardrails 
          AND COALESCE(metadata->>'model', version, '') = $5
        ORDER BY created_at DESC
        LIMIT 1`,
-      tenantId || DEFAULT_TENANT_ID,
+      requireTenantId(tenantId),
       maxAgeDays,
       moduleKey,
       provider,
@@ -2560,7 +2601,7 @@ export async function listClinicalAiModules({ refresh = false, tenantId = null }
 }
 
 export async function listClinicalAiTenantModules({ tenantId = null, refresh = false } = {}) {
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   try {
     const [modules, overrides] = await Promise.all([
       listClinicalAiModules({ refresh }),
@@ -2595,14 +2636,14 @@ export async function getClinicalAiModule(moduleKey, { tenantId = null, refresh 
 }
 
 export async function getClinicalAiTenantModule(moduleKey, { tenantId = null, refresh = false } = {}) {
-  return getClinicalAiModule(moduleKey, { tenantId: tenantId || DEFAULT_TENANT_ID, refresh });
+  return getClinicalAiModule(moduleKey, { tenantId: requireTenantId(tenantId), refresh });
 }
 
 export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = null) {
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
 
-  const tid = data.tenantId || data.tenant_id || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(data.tenantId || data.tenant_id);
   const current = (await readModulesFromDb().catch((err) => {
     throw schemaUnavailableError(err, 'global_module_read');
   })).find((module) => module.module_key === key) || normalizeModule(defaultModuleFor(key));
@@ -2620,6 +2661,9 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
       : current.settings || {},
   };
   const normalizedNext = normalizeModule({ ...current, ...next });
+  // Patient-surface enablement guard — reject an OFF→ON flip of a patient-facing
+  // module before any approval/eval work or DB write (absolute policy denial).
+  assertPatientSurfaceEnablementAllowed({ current, next: normalizedNext, data });
   const changedFields = riskyChangedFields(current, normalizedNext);
   const approvalReasons = changeRequiresApproval(current, normalizedNext, changedFields);
   let evalGate = null;
@@ -2716,7 +2760,7 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
 export async function updateClinicalAiTenantModule(moduleKey, data = {}, updatedBy = null, { tenantId = null } = {}) {
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   const globalModules = await readModulesFromDb().catch((err) => {
     throw schemaUnavailableError(err, 'tenant_module_global_read');
   });
@@ -2762,6 +2806,9 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
       ...(next.settings || {}),
     },
   });
+  // Patient-surface enablement guard — reject an OFF→ON flip of a patient-facing
+  // module before any approval/eval work or DB write (absolute policy denial).
+  assertPatientSurfaceEnablementAllowed({ current, next: nextEffective, data });
   const changedFields = riskyChangedFields(current, nextEffective);
   const approvalReasons = changeRequiresApproval(current, nextEffective, changedFields);
   let evalGate = null;
@@ -2881,7 +2928,7 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
 export async function deleteClinicalAiTenantModule(moduleKey, { tenantId = null } = {}) {
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
   await prisma.$queryRawUnsafe(
     `DELETE FROM clinical_ai_tenant_modules
      WHERE tenant_id = $1::uuid
@@ -2958,7 +3005,7 @@ export async function updateClinicalAiGuardrails(data = {}, updatedBy = null) {
 
 export async function getClinicalAiUsageSummary({ days = 7, tenantId = null } = {}) {
   const windowDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = requireTenantId(tenantId);
   const [overall, byModule, byProvider, recentFailures, moduleReviews] = await Promise.all([
     prisma.$queryRawUnsafe(
       `SELECT
@@ -3094,7 +3141,7 @@ export async function getClinicalAiUsageSummary({ days = 7, tenantId = null } = 
 
 export async function getClinicalAiSafetyReviewSummary({ days = 7, tenantId = null } = {}) {
   const windowDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
-  const tid = tenantId || DEFAULT_TENANT_ID;
+  const tid = requireTenantId(tenantId);
 
   try {
     const [overallRows, byModule, recentFindings] = await Promise.all([

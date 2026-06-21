@@ -89,6 +89,12 @@ class OtpService {
       final user = data?['user'] as Map<String, dynamic>?;
       final isNewUser = data?['isNewUser'] ?? user?['isNewUser'] ?? false;
       final jwt = data?['accessToken'];
+      // C-9 companion (audit 2026-06-18): the backend now returns a separate
+      // type:'refresh' token. Persist it so VHHttpClient refreshes via the
+      // { refreshToken } body path — the old bearer-rotation now 401s at
+      // /refresh-token (which accepts type:'refresh' only), which would force
+      // a re-login every time the 1h access token expires.
+      final refreshToken = data?['refreshToken'];
       final userPhone = user?['phone'];
       final userName = user?['name'];
       final hospitalNumber =
@@ -96,6 +102,14 @@ class OtpService {
 
       if (jwt != null && userPhone != null) {
         await secureStorage.write(key: 'jwt', value: jwt);
+        // Stored under the same key vhhealth_core AuthService.getRefreshToken()
+        // reads, so VHHttpClient._performRefresh switches to the body path.
+        if (refreshToken != null) {
+          await secureStorage.write(
+            key: 'refreshToken',
+            value: refreshToken.toString(),
+          );
+        }
         await secureStorage.write(key: 'user_phone', value: userPhone);
         if (userName != null) {
           await secureStorage.write(

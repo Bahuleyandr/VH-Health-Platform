@@ -3,7 +3,7 @@
 import { Router } from 'express';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { isStaff } from '../utils/roleHelpers.js';
 import { success, error } from '../utils/responseHelper.js';
 import {
@@ -16,7 +16,7 @@ import {
 const router = Router();
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 // GET /api/v1/search?q=term&type=all|users|doctors|appointments&limit=20

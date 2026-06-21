@@ -5,6 +5,7 @@ import appointmentService from '../../services/appointment/appointmentService.js
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
 import { emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
@@ -12,10 +13,9 @@ import { logAudit } from '../../utils/logAudit.js';
 
 // Status transitions that shift every downstream patient's queue position
 const QUEUE_SHIFTING_STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED']);
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function attachAppointmentPhiContext(req, appointment) {

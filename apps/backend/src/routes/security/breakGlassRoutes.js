@@ -25,7 +25,7 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
-import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import {
   activateBreakGlass,
@@ -53,9 +53,7 @@ const validate = (req, res, next) => {
 };
 
 function tenantOf(req) {
-  return req.tenantId
-    || req.tenant?.id
-    || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 function actorOf(req) {

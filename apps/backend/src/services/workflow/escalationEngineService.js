@@ -41,6 +41,7 @@ import logger from '../../logging/logger.js';
 import * as taskService from './taskService.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { sendSecurityWebhook } from '../../utils/securityWebhook.js';
+import { ROLES, DOCTOR_TIERS, LEADERSHIP_ROLES } from '../../utils/roleHelpers.js';
 // Reuse the producer's role-token resolver + backfill entrypoint. resolveRoleCode
 // MUST be shared (not duplicated) so the mig-312 seed tokens (DUTY/LEADERSHIP)
 // resolve to the IDENTICAL concrete role on the assignment (producer) and
@@ -64,6 +65,120 @@ const CRITICAL_RESULT_RULE_CODE = 'critical_result_ack';
 // at the final tier" signal. Not in securityWebhook's CRITICAL_EVENTS set, but
 // the helper delivers any event when webhooks are enabled.
 const UNACKED_EVENT = 'CRITICAL_RESULT_UNACKED';
+
+// Role-family fallback so a tier is NEVER a silent no-op. A notify tier resolves
+// to its primary concrete role (DUTY→DUTY_DOCTOR, LEADERSHIP→CMO); if NO active
+// user holds that exact role in the tenant, we widen to the role's clinical
+// "family" (the way drugChartSlaService falls back from the roster nurse to the
+// nursing incharge). Keyed by the primary concrete role code resolveRoleCode
+// produces for the seeded DUTY/LEADERSHIP tokens.
+const ROLE_FAMILY_FALLBACK = Object.freeze({
+  // DUTY (mig-312 T2) resolves to DUTY_DOCTOR — widen to every doctor tier so a
+  // ward with no one tagged DUTY_DOCTOR still reaches an on-shift physician.
+  [ROLES.DUTY_DOCTOR]: DOCTOR_TIERS,
+  // LEADERSHIP (mig-312 T3) resolves to CMO — widen to the full leadership group
+  // (CMO/CNO/DEPT_HEAD/MED_SUPERINTENDENT), matching the mig-269
+  // critical_result_ack escalation_role_codes intent (CMO + MEDICAL_SUPERINTENDENT).
+  [ROLES.CMO]: LEADERSHIP_ROLES,
+});
+
+// De-dupe resolved recipient rows by integer user id (a user can match both the
+// primary role and the family fallback set).
+function uniqueRecipients(rows = []) {
+  const seen = new Set();
+  const out = [];
+  for (const row of (Array.isArray(rows) ? rows : [])) {
+    const id = Number(row?.id);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, uid: row.uid || null, phone: row.phone || null, role: row.role || null });
+  }
+  return out;
+}
+
+// Resolve a concrete role code → real, active recipients in THIS tenant (the tx
+// is already scoped via setTenantTx, so the SELECT is tenant-isolated by RLS).
+// Tries the exact role first; if empty, widens to the role family so a DUTY /
+// LEADERSHIP tier always reaches a human. Returns [] only when the tenant truly
+// has no clinician in the role or its family (logged loudly by the caller).
+async function resolveRecipientsForRole(tx, tenantId, roleCode) {
+  const role = roleCode == null ? '' : String(roleCode).trim();
+  if (!role) return [];
+  const exact = await tx.$queryRawUnsafe(
+    `SELECT id, uid, phone, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND role = $2
+        AND is_active = TRUE
+      ORDER BY id
+      LIMIT 50`,
+    tenantId,
+    role,
+  );
+  if (Array.isArray(exact) && exact.length > 0) return uniqueRecipients(exact);
+
+  const family = ROLE_FAMILY_FALLBACK[role];
+  if (!Array.isArray(family) || family.length === 0) return [];
+  const widened = await tx.$queryRawUnsafe(
+    `SELECT id, uid, phone, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND role = ANY($2::text[])
+        AND is_active = TRUE
+      ORDER BY id
+      LIMIT 50`,
+    tenantId,
+    family.map(String),
+  );
+  return uniqueRecipients(widened);
+}
+
+// Resolve a single assignee uid → its recipient row (for the T1 re-notify, which
+// targets the task's existing assignee, not a role).
+async function resolveRecipientByUid(tx, tenantId, uid) {
+  const clean = uid == null ? '' : String(uid).trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean)) {
+    return [];
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, uid, phone, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+      LIMIT 1`,
+    tenantId,
+    clean,
+  );
+  return uniqueRecipients(rows);
+}
+
+// Enqueue ONE outbox row per resolved recipient with a REAL recipientId +
+// recipientPhone, so the drained outbox (scheduler.js drainNotificationOutbox)
+// actually delivers a push/WS (by userId) and/or SMS (by phone) to a human. A
+// per-recipient failure is swallowed so a single bad row never undoes the
+// already-recorded escalation marker. Returns the count enqueued.
+async function queueRecipientNotifications({ recipients, title, body, data }) {
+  let queued = 0;
+  for (const r of (Array.isArray(recipients) ? recipients : [])) {
+    try {
+      await notificationOutbox.queue({
+        type: 'push',
+        recipientId: r.id,
+        recipientPhone: r.phone || null,
+        title,
+        body,
+        data: { ...data, recipient_role: r.role || null },
+      });
+      queued += 1;
+    } catch (err) {
+      logger.warn('escalation notify: outbox queue failed for recipient', {
+        recipientId: r.id, err: err?.message,
+      });
+    }
+  }
+  return queued;
+}
 
 function clampLimit(value) {
   const parsed = Number.parseInt(value, 10);
@@ -180,44 +295,78 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
     tenantId,
   );
 
-  // Notifications (best-effort, RECORD-INTENT). NOTE: notificationOutbox.queue
-  // persists push intent, but the outbox push channel is not currently drained
-  // platform-wide (a separate, pre-existing gap — the retry cron reads
-  // failed_notifications, not notification_outbox), and we set no integer
-  // recipientId here, so these rows record escalation intent rather than
-  // guaranteeing a delivered push. The GUARANTEED escalation signals are the
-  // priority bump (surfaced in GET /tasks/inbox) and the tier-3
-  // sendSecurityWebhook (synchronous). A failed notify must never undo the
-  // already-recorded escalation marker.
+  // Notifications (best-effort, REAL DELIVERY). We resolve the tier's target
+  // (assignee uid for T1 re-notify; the notify_role → on-shift/active users for
+  // T2/T3) to concrete recipients and enqueue ONE outbox row PER recipient with
+  // a real recipientId + recipientPhone. The outbox is now drained
+  // (scheduler.js drainNotificationOutbox, audit C-6 fix), so these rows are
+  // actually delivered as a push/WS (by userId) and/or SMS (by phone) — no tier
+  // is a silent no-op. A failed notify must never undo the already-recorded
+  // escalation marker (it is appended above, before this point), so resolution
+  // + queueing is wrapped defensively.
   if (action === 'escalate_priority' && payload.also_notify === 'assignee') {
-    await notificationOutbox.queue({
-      type: 'push',
-      recipientPhone: null,
-      title: 'Critical result still needs review',
-      body: `Escalated (tier ${tier ?? 1}): ${taskRow.title || 'critical result'} — please review now.`,
-      data: {
-        kind: 'results_inbox_escalation',
-        task_id: taskRow.id,
-        tier,
-        assigned_to_uid: taskRow.assigned_to_uid || null,
-        assigned_to_role: taskRow.assigned_to_role || null,
-      },
-    });
+    try {
+      const recipients = await resolveRecipientByUid(tx, tenantId, taskRow.assigned_to_uid);
+      const queued = await queueRecipientNotifications({
+        recipients,
+        title: 'Critical result still needs review',
+        body: `Escalated (tier ${tier ?? 1}): ${taskRow.title || 'critical result'} — please review now.`,
+        data: {
+          kind: 'results_inbox_escalation',
+          task_id: taskRow.id,
+          tier,
+          assigned_to_uid: taskRow.assigned_to_uid || null,
+          assigned_to_role: taskRow.assigned_to_role || null,
+        },
+      });
+      if (queued === 0) {
+        // No deliverable assignee — the priority bump (visible in GET
+        // /tasks/inbox) still escalates, but record that the page didn't land.
+        logger.warn('escalation tier-1: no deliverable assignee for re-notify', {
+          tenantId, taskId: taskRow.id, tier, assignedToUid: taskRow.assigned_to_uid || null,
+        });
+      }
+    } catch (err) {
+      logger.warn('escalation tier-1: assignee re-notify failed', {
+        tenantId, taskId: taskRow.id, err: err?.message,
+      });
+    }
   } else if (action === 'notify') {
     const role = resolveRoleCode(payload.notify_role);
-    await notificationOutbox.queue({
-      type: 'push',
-      recipientPhone: null,
-      title: 'Critical result escalation',
-      body: `Tier ${tier ?? ''} escalation: ${taskRow.title || 'critical result'} unacknowledged.`,
-      data: {
-        kind: 'results_inbox_escalation',
-        task_id: taskRow.id,
-        tier,
-        notify_role: role,
-        patient_uid: taskRow.patient_uid || null,
-      },
-    });
+    let queued = 0;
+    try {
+      const recipients = await resolveRecipientsForRole(tx, tenantId, role);
+      queued = await queueRecipientNotifications({
+        recipients,
+        title: 'Critical result escalation',
+        body: `Tier ${tier ?? ''} escalation: ${taskRow.title || 'critical result'} unacknowledged — please action now.`,
+        data: {
+          kind: 'results_inbox_escalation',
+          task_id: taskRow.id,
+          tier,
+          notify_role: role,
+          patient_uid: taskRow.patient_uid || null,
+        },
+      });
+    } catch (err) {
+      logger.warn('escalation notify: recipient resolution failed', {
+        tenantId, taskId: taskRow.id, role, err: err?.message,
+      });
+    }
+    if (queued === 0) {
+      // A DUTY/LEADERSHIP tier resolved to NO active clinician (and no family
+      // fallback) — this is the one case a notify could still go unheard, so
+      // make it LOUD via the security webhook regardless of the rule flag, so an
+      // unstaffed-role escalation is never a silent no-op.
+      logger.error('escalation notify: tier resolved to NO recipient — paging via security webhook', {
+        tenantId, taskId: taskRow.id, tier, role, patientUid: taskRow.patient_uid || null,
+      });
+      sendSecurityWebhook(UNACKED_EVENT, {
+        userId: taskRow.assigned_to_uid || null,
+        path: `/api/v1/admin/workflow/tasks/${taskRow.id}`,
+        reason: `tier=${tier ?? ''} role=${role} patient=${taskRow.patient_uid || 'unknown'} :: NO recipient resolved for critical-result escalation`,
+      });
+    }
     if (payload.security_webhook) {
       // Loud final-tier signal: a critical result is STILL unacknowledged.
       sendSecurityWebhook(UNACKED_EVENT, {
@@ -383,6 +532,20 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
         // (c) Backfill backstop: breached critical_result_ack instances with NO
         // task linking back to them (metadata.sla_instance_id) → re-create the
         // task via the producer. Closes the net if a producer hook ever failed.
+        //
+        // TWO exclusions so we never re-alert an already-handled result (audit
+        // C-3): skip an instance if EITHER (1) a task already links it via
+        // metadata.sla_instance_id (its own producer-created task), OR (2) a
+        // TERMINAL (completed/cancelled) task already exists for the same
+        // (source_table, source_id) resource. The producer's ON CONFLICT only
+        // de-dupes OPEN tasks (the mig-312 partial unique index predicate is
+        // status IN open/in_progress/blocked), so without guard (2) a stale
+        // breached instance whose task was acked→completed would spawn a FRESH
+        // open task for a result a clinician already actioned — the exact
+        // false-re-alert the audit flags. Acking now completes the linked
+        // instance too (taskService.completeLinkedSla), so the common path is
+        // already covered by status; (2) is the belt-and-braces for any instance
+        // that stayed breached after its task reached a terminal state.
         let orphans;
         try {
           orphans = await tx.$queryRawUnsafe(
@@ -401,6 +564,13 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
                   SELECT 1 FROM tasks t
                    WHERE t.tenant_id = s.tenant_id
                      AND t.metadata->>'sla_instance_id' = s.id::text
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM tasks t2
+                   WHERE t2.tenant_id = s.tenant_id
+                     AND t2.related_resource_type = s.source_table
+                     AND t2.related_resource_id = s.source_id
+                     AND t2.status IN ('completed', 'cancelled')
                 )
               ORDER BY s.id ASC
               LIMIT $4::int`,
@@ -455,4 +625,9 @@ export const __testing__ = {
   triggerHolds,
   ESCALATABLE_STATUSES,
   toIso,
+  uniqueRecipients,
+  resolveRecipientsForRole,
+  resolveRecipientByUid,
+  queueRecipientNotifications,
+  ROLE_FAMILY_FALLBACK,
 };

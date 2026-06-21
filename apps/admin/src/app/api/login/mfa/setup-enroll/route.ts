@@ -9,35 +9,13 @@
 
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 
 const API_BASE_URL = getServerBackendUrl();
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 
-function validateOrigin(request: Request): NextResponse | null {
-  const origin = request.headers.get("origin");
-  const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || "http://localhost:3000";
-  if (origin && origin !== allowed) {
-    const allowedHosts = allowed.split(",").map((s: string) => s.trim());
-    const originHost = new URL(origin).origin;
-    const isAllowed = allowedHosts.some((h: string) => {
-      if (h === origin) return true;
-      if (h.startsWith("https://") && h.endsWith(".vhhealth.app")) {
-        return originHost === h;
-      }
-      return false;
-    });
-    if (!isAllowed) {
-      return NextResponse.json(
-        { message: "Forbidden: Origin not allowed", success: false },
-        { status: 403 },
-      );
-    }
-  }
-  return null;
-}
-
 export async function POST(request: Request) {
-  const csrfError = validateOrigin(request);
+  const csrfError = assertSameOriginOrAllowed(request);
   if (csrfError) return csrfError;
 
   const body = await request.json().catch(() => null);

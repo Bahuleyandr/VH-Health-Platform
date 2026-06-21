@@ -22,7 +22,7 @@ import solver from 'javascript-lp-solver';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const SHIFT_DEFINITIONS = [
   { code: 'morning', start_hour: 7, end_hour: 15 },
@@ -38,7 +38,7 @@ const DEFAULT_SOLVER_TIMEOUT_MS = 750;
 const DEFAULT_SOLVER_MAX_VARIABLES = 2500;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {

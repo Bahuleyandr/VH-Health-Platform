@@ -6,8 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:vhhealth_core/config/api_config.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/utils/safe_filename.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -80,10 +80,15 @@ class DocumentOpener {
           ? resolvedFilename
           : '$resolvedFilename$ext';
 
-      // Write to temp directory
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/$safeName');
-      await file.writeAsBytes(response.bodyBytes);
+      // The OS viewer can only open a plaintext file. Write into the purgeable
+      // staging dir (logout wipes it via LogoutService → DocStaging) instead of
+      // leaving cleartext PHI loose in the temp root, so no decrypted document
+      // survives logout on a shared/family device. `safeName` is already
+      // sanitised above. Audit §3 (patient).
+      final file = await DocStaging.writePlaintext(
+        safeName,
+        response.bodyBytes,
+      );
 
       // Close loading dialog
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();

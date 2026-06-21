@@ -24,16 +24,26 @@ const TENANT_B = '00000000-0000-4000-8000-0000000000bb';
 
 const mockGetTenantById = jest.fn();
 const mockResolveTenantForUser = jest.fn();
-const mockIsEnforced = jest.fn();
+const mockAllowDefault = jest.fn();
 const mockExecuteRawUnsafe = jest.fn();
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID,
   getTenantById: mockGetTenantById,
   resolveTenantForUser: mockResolveTenantForUser,
+  resolveTenantOrThrow: (req) => req?.tenantId || DEFAULT_TENANT_ID,
+  requireTenantId: (tenantId) => tenantId || DEFAULT_TENANT_ID,
+  // W4 C1/C4: the middleware imports these for the Host↔token cross-check. These
+  // coverage cases use bare hosts (no subdomain) → parseTenantSlug returns null
+  // → the cross-check is skipped (the dedicated C4 deep test covers the path).
+  parseTenantSlug: () => null,
+  tenantFromHost: jest.fn().mockResolvedValue(null),
 }));
 jest.unstable_mockModule('../../config/tenantRlsConfig.js', () => ({
-  isTenantRlsEnforcementEnabled: mockIsEnforced,
+  // W1: tenantContextMiddleware now keys resolution policy on
+  // isDefaultTenantAllowed (NOT isTenantRlsEnforcementEnabled). allowDefault=true
+  // is the permissive single-tenant path; allowDefault=false is fail-closed.
+  isDefaultTenantAllowed: mockAllowDefault,
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $executeRawUnsafe: mockExecuteRawUnsafe },
@@ -60,7 +70,7 @@ function makeReq(overrides = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockIsEnforced.mockReturnValue(false);
+  mockAllowDefault.mockReturnValue(true); // permissive single-tenant default
   mockGetTenantById.mockResolvedValue({ id: TENANT_A, status: 'active', region: 'IN', compliance_profile: 'DPDP' });
   mockResolveTenantForUser.mockResolvedValue(null);
   mockExecuteRawUnsafe.mockResolvedValue(1);
@@ -159,14 +169,26 @@ describe('tenantContextMiddleware — SUPER_ADMIN override', () => {
 });
 
 describe('tenantContextMiddleware — enforcement + tenant status', () => {
-  it('fails closed with 403 when enforced and no tenant resolves', async () => {
-    mockIsEnforced.mockReturnValue(true);
+  it('fails closed with 403 when default is not allowed and no tenant resolves', async () => {
+    mockAllowDefault.mockReturnValue(false);
     mockResolveTenantForUser.mockResolvedValue(null);
     const req = makeReq({ user: { uid: 'u1', role: 'DOCTOR' } });
     let nextErr;
     await tenantContextMiddleware(req, {}, (e) => { nextErr = e; });
     expect(nextErr.statusCode).toBe(403);
     expect(nextErr.code).toBe('TENANT_CONTEXT_REQUIRED');
+    // resolveTenantForUser must be called fail-closed so a miss returns null.
+    expect(mockResolveTenantForUser).toHaveBeenCalledWith('u1', { failClosed: true });
+  });
+
+  it('lets a public/pre-auth request (no req.user) proceed with a null tenant when fail-closed', async () => {
+    mockAllowDefault.mockReturnValue(false);
+    const req = makeReq({ user: undefined });
+    let nextErr = 'unset';
+    await tenantContextMiddleware(req, {}, (e) => { nextErr = e; });
+    expect(nextErr).toBeUndefined();
+    expect(req.tenantId).toBeNull();
+    expect(req.tenant).toBeNull();
   });
 
   it('rejects an inactive tenant for a non-super-admin', async () => {
@@ -199,8 +221,8 @@ describe('tenantContextMiddleware — catch path', () => {
     expect(req.user.tenantId).toBe(DEFAULT_TENANT_ID);
   });
 
-  it('forwards a 403 AppError when a lookup throws in enforced mode', async () => {
-    mockIsEnforced.mockReturnValue(true);
+  it('forwards a 403 AppError when a lookup throws in fail-closed mode', async () => {
+    mockAllowDefault.mockReturnValue(false);
     mockGetTenantById.mockRejectedValue(new Error('db down'));
     const req = makeReq({ user: { uid: 'u1', role: 'DOCTOR', tenant_id: TENANT_A } });
     let nextErr;
@@ -209,8 +231,8 @@ describe('tenantContextMiddleware — catch path', () => {
     expect(nextErr.code).toBe('TENANT_CONTEXT_UNAVAILABLE');
   });
 
-  it('re-forwards an AppError unchanged from the catch in enforced mode', async () => {
-    mockIsEnforced.mockReturnValue(true);
+  it('re-forwards an AppError unchanged from the catch in fail-closed mode', async () => {
+    mockAllowDefault.mockReturnValue(false);
     // resolveTenantForUser throwing an AppError should be forwarded as-is.
     const { AppError } = await import('../../utils/AppError.js');
     mockResolveTenantForUser.mockRejectedValue(AppError.forbidden('boom', 'CUSTOM_CODE'));

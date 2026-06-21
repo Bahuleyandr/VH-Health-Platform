@@ -206,14 +206,32 @@ function isExternalUrl(baseUrl) {
  * PHI egress; this guard is the last mile that enforces it.
  *
  * `CLINICAL_AI_EXTERNAL_REGIONS` is a comma-separated allowlist of regions
- * (e.g. `US,AP`). Empty or unset means every region is allowed — fine for
- * single-tenant pilots, but MUST be set the moment a second region onboards.
+ * (e.g. `US,AP`). External egress is allowed ONLY when a tenant's region is
+ * explicitly allow-listed.
+ *
+ * FAIL-CLOSED default (audit 2026-06-18, §3/§6): an empty/unset allowlist no
+ * longer means "every region is allowed". A tenant that CARRIES a region is
+ * DENIED external use until that region is explicitly listed — so onboarding a
+ * second region can never silently start exporting its PHI cross-region.
+ *
+ * Two documented escapes are preserved so the single-tenant pilot keeps working
+ * out of the box:
+ *   - A tenant with NO region (single-tenant deployments don't tag a region) is
+ *     allowed when the allowlist is empty. As soon as an allowlist IS set, even
+ *     a region-less tenant is denied (it can't be matched against the list).
+ *   - An explicit wildcard `CLINICAL_AI_EXTERNAL_REGIONS=*` allows every region
+ *     (deliberate, audited opt-out of the region gate).
  */
 function tenantCanUseExternal(tenantRegion) {
   const raw = (process.env.CLINICAL_AI_EXTERNAL_REGIONS || '').trim();
-  if (!raw) return true;
-  if (!tenantRegion) return false;
+  if (!raw) {
+    // Empty/unset allowlist: fail closed for any region-bearing tenant, but
+    // keep the single-tenant pilot (no region tagged) working.
+    return !tenantRegion;
+  }
   const allowed = raw.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+  if (allowed.includes('*')) return true;
+  if (!tenantRegion) return false;
   return allowed.includes(String(tenantRegion).trim().toUpperCase());
 }
 

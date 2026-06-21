@@ -179,6 +179,9 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([]) // q2 overdue-marking
       .mockResolvedValueOnce([rule()]) // q3 active rules → T1 escalate_priority
       .mockResolvedValueOnce([task()]) // q4 candidates for the rule
+      // fireAction (audit C-3): T1 re-notify resolves the assignee uid → the
+      // recipient row, then enqueues a per-recipient outbox row with a REAL id.
+      .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce([]); // q5 backfill
 
     const res = await runEscalationSweep({ now: NOW });
@@ -198,9 +201,11 @@ describe('runEscalationSweep', () => {
       expect.objectContaining({ tier: 1, rule_id: 5, action: 'escalate_priority' }),
     ]);
 
-    // also_notify:'assignee' → a notification to the assignee uid.
+    // also_notify:'assignee' → a notification to the RESOLVED assignee, carrying
+    // the real integer recipientId (audit C-3: no null-recipient no-op).
     expect(queueNotificationMock).toHaveBeenCalledTimes(1);
     const note = queueNotificationMock.mock.calls[0][0];
+    expect(note.recipientId).toBe(42);
     expect(String(note.body || note.title || '')).toMatch(/escalat|critical|review/i);
   });
 
@@ -237,21 +242,59 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([t2])
       .mockResolvedValueOnce([task()]) // breach_at 11:45 + 10min = 11:55 < NOW 12:00 → fires
+      // fireAction (audit C-3): notify resolves notify_role (DUTY→DUTY_DOCTOR) to
+      // the active on-duty users via the EXACT-role query (non-empty → no family
+      // fallback), then enqueues one outbox row per recipient with a real id.
+      .mockResolvedValueOnce([{ id: 51, uid: '33333333-3333-4333-8333-333333333333', phone: '+919800000051', role: 'DUTY_DOCTOR' }])
       .mockResolvedValueOnce([]);
 
     const res = await runEscalationSweep({ now: NOW });
 
     expect(res.escalated).toBe(1);
     expect(resolveRoleCodeMock).toHaveBeenCalledWith('DUTY');
+    // Resolved to a REAL recipient → exactly one outbox row, NON-NULL recipientId
+    // (audit C-3: a DUTY tier reaches a human, not a null no-op).
     expect(queueNotificationMock).toHaveBeenCalledTimes(1);
     const note = queueNotificationMock.mock.calls[0][0];
+    expect(note.recipientId).toBe(51);
     // role-targeted notification carries the resolved concrete role code.
     expect(JSON.stringify(note)).toMatch(/DUTY_DOCTOR/);
+    // The empty-recipient fallback security webhook must NOT fire (we resolved one).
+    expect(sendSecurityWebhookMock).not.toHaveBeenCalled();
     // metadata append records the tier-2 fire keyed to rule 6 (bound ::jsonb param).
     const meta = JSON.parse(executeRawMock.mock.calls[0][1]);
     expect(meta.escalations).toEqual([
       expect.objectContaining({ tier: 2, rule_id: 6, action: 'notify' }),
     ]);
+  });
+
+  it('tier-2 notify with NO resolvable recipient → pages via security webhook (never a silent no-op)', async () => {
+    const t2 = rule({
+      id: 6,
+      trigger_window_minutes: 10,
+      action_kind: 'notify',
+      action_payload: { tier: 2, notify_role: 'DUTY' },
+    });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([t2])
+      .mockResolvedValueOnce([task()])
+      // Exact-role query → empty, family-fallback query → empty: the tenant has
+      // no clinician in the role or its family.
+      .mockResolvedValueOnce([]) // resolveRecipientsForRole exact
+      .mockResolvedValueOnce([]) // resolveRecipientsForRole family fallback
+      .mockResolvedValueOnce([]); // q5 backfill
+
+    const res = await runEscalationSweep({ now: NOW });
+
+    expect(res.escalated).toBe(1);
+    // No outbox row (nobody to deliver to) — but the unstaffed-role escalation is
+    // made LOUD via the security webhook so it is never an unheard no-op (C-3).
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+    const [eventType] = sendSecurityWebhookMock.mock.calls[0];
+    expect(eventType).toMatch(/CRITICAL_RESULT_UNACKED|UNACK/i);
   });
 
   it('does NOT fire a tier whose window has not elapsed since breach', async () => {
@@ -290,12 +333,20 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([t3])
       .mockResolvedValueOnce([breachedLongAgo])
+      // notify resolves LEADERSHIP→CMO to a real recipient (exact-role query
+      // non-empty → no family fallback), so the security webhook fires ONCE from
+      // the rule's security_webhook flag — NOT from the empty-recipient path.
+      .mockResolvedValueOnce([{ id: 61, uid: '44444444-4444-4444-8444-444444444444', phone: '+919800000061', role: 'CMO' }])
       .mockResolvedValueOnce([]);
 
     const res = await runEscalationSweep({ now: NOW });
 
     expect(res.escalated).toBe(1);
     expect(resolveRoleCodeMock).toHaveBeenCalledWith('LEADERSHIP');
+    // The leadership tier reached a human (real recipientId) AND the loud final
+    // signal fired exactly once (the rule flag, not a no-recipient fallback).
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+    expect(queueNotificationMock.mock.calls[0][0].recipientId).toBe(61);
     expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
     const [eventType] = sendSecurityWebhookMock.mock.calls[0];
     expect(eventType).toMatch(/CRITICAL_RESULT_UNACKED|UNACK/i);

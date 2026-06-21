@@ -6,14 +6,13 @@ import appointmentService from '../../services/appointment/appointmentService.js
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
-
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+  return resolveTenantOrThrow(req);
 }
 
 async function resolveOrCreatePatientFromPhone({ patientPhone, patientName, tenantId }) {

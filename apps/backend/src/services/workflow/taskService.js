@@ -23,7 +23,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -54,7 +54,7 @@ const TASK_TRANSITIONS = {
 };
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {
@@ -143,6 +143,62 @@ function normalizeTimestamp(value, label) {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) throw AppError.badRequest(`${label} must be a valid timestamp`);
   return date.toISOString();
+}
+
+// Complete the mig-269 workflow_sla_instances row a task links via
+// metadata.sla_instance_id, so acknowledging / completing a critical result
+// STOPS the SLA clock (audit C-3): otherwise the instance stays active/breached
+// forever and the escalation backfill keeps re-creating a task for an
+// already-handled result. Mirrors canonicalClinicalPlatformService.completeWorkflowSla's
+// terminal-status logic (breached if past due_at, else completed) but targets
+// the instance by its id (the task's canonical link) rather than the
+// rule_code/source key — and is a no-op for an instance already in a terminal
+// state, so a second ack / an ack-then-complete never reopens or double-stamps.
+//
+// Best-effort + never-throws: a failed SLA completion must not undo or block the
+// task state change that already succeeded. Returns the updated instance row (or
+// null when there is no linked instance / nothing to complete).
+//
+// We resolve by metadata.sla_instance_id (a uuid). A direct UPDATE (rather than
+// importing completeWorkflowSla) keeps taskService free of the canonical
+// platform service's heavy transitive import graph — the same ESM-circular
+// concern resultsInboxService documents for startWorkflowSla.
+async function completeLinkedSla({ tenantId, taskRow, db = null, completedBy = null }) {
+  const slaInstanceId = taskRow?.metadata?.sla_instance_id;
+  if (!slaInstanceId) return null;
+  const client = db || prisma;
+  try {
+    const rows = await client.$queryRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET status = CASE WHEN due_at IS NOT NULL AND NOW() > due_at THEN 'breached' ELSE 'completed' END,
+              completed_at = NOW(),
+              breached_at = CASE
+                WHEN due_at IS NOT NULL AND NOW() > due_at THEN COALESCE(breached_at, NOW())
+                ELSE breached_at
+              END,
+              metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object('completed_via', 'task_ack'::text, 'completed_by_task', $1::int)
+                || CASE WHEN $4::text IS NOT NULL
+                        THEN jsonb_build_object('acknowledged_by', $4::text)
+                        ELSE '{}'::jsonb END,
+              updated_at = NOW()
+        WHERE id = $2::uuid
+          AND tenant_id = $3::uuid
+          AND status NOT IN ('completed', 'cancelled')
+        RETURNING id, status, completed_at`,
+      taskRow.id,
+      String(slaInstanceId),
+      tenantId,
+      completedBy ? String(completedBy) : null,
+    );
+    return rows[0] || null;
+  } catch (err) {
+    if (isMissingSchemaError(err)) return null;
+    logger.warn('completeLinkedSla: SLA completion failed', {
+      taskId: taskRow?.id, slaInstanceId, err: err?.message,
+    });
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +426,16 @@ export async function transitionTask({
     ...params,
   );
   if (!rows[0]) throw AppError.notFound('Task not found');
+
+  // A terminal transition also STOPS the SLA clock (audit C-3): resolving a
+  // critical result directly (or the engine's auto_resolve) must close the
+  // linked mig-269 instance, not just acknowledging it. Runs on the SAME db
+  // client (the caller's tx when provided) so it commits atomically with the
+  // transition. Best-effort + never-throws — a failed SLA completion must not
+  // roll back a completed/cancelled task.
+  if (cleanNext === 'completed' || cleanNext === 'cancelled') {
+    await completeLinkedSla({ tenantId: tid, taskRow: rows[0], db });
+  }
   return rows[0];
 }
 
@@ -426,6 +492,13 @@ export async function acknowledgeTask({ tenantId = null, id, actorUid = null } =
     // Otherwise it was completed/cancelled out from under us → not acknowledgeable.
     throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
   }
+
+  // Acknowledging a critical result STOPS the SLA clock (audit C-3): complete
+  // the linked mig-269 instance so it leaves 'active'/'breached' and the
+  // escalation backfill stops re-creating a task for this already-handled
+  // result. Best-effort + never-throws — an acked task must not be un-acked
+  // because the SLA completion failed.
+  await completeLinkedSla({ tenantId: tid, taskRow: rows[0], completedBy: ackUid });
 
   // Append a state_change audit comment (best-effort: an acknowledged task must
   // not be un-acknowledged just because the comment insert failed).

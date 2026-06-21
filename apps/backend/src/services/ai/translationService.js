@@ -21,7 +21,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { generateClinicalText } from './localLlmClient.js';
 
 const MODULE_KEY = 'patient_communication_translation';
@@ -42,7 +42,7 @@ const DATE_RE = /\b(\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})?|\d{4}-\d{2}-\d{2})\b/g;
 const MED_HINT_RE = /\b([A-Z][a-zA-Z]+(?:cin|cillin|olol|azole|prazole|statin|pril|sartan|mycin|parin|metformin|aspirin|paracetamol|ibuprofen))\b/g;
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function flatten(value, out = []) {

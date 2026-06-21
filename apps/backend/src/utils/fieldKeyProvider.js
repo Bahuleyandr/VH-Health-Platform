@@ -159,6 +159,28 @@ export class LocalKekProvider {
   generateDek() {
     return crypto.randomBytes(DEK_LENGTH);
   }
+
+  // --- W3: per-tenant KEKs ----------------------------------------------------
+  // Per-tenant KEKs are random keys stored (wrapped under a master KEK) in the
+  // encryption_keys table and loaded async by tenantKekProvider, then registered
+  // here so the SYNC wrap/unwrap path can use them by their `t:<tenantId>:v1`
+  // keyId. (Sync provider + async DB load → load-then-register.)
+
+  /** Register an externally-loaded per-tenant KEK for sync wrap/unwrap. */
+  registerTenantKek(keyId, kek) {
+    this._registerKek(keyId, kek);
+  }
+
+  /** Is a KEK for this keyId loaded? Lets encrypt fall back to the global KEK
+   *  when a tenant KEK has not been preloaded (rather than throwing). */
+  hasKek(keyId) {
+    return this._keks.has(keyId);
+  }
+
+  /** Evict a (crypto-shredded) tenant KEK from the in-process cache. */
+  evictKek(keyId) {
+    return this._keks.delete(keyId);
+  }
 }
 
 /**

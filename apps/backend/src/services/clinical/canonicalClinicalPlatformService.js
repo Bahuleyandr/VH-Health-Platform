@@ -10,7 +10,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getPatientTimeline as getLegacyPatientTimeline } from '../emr/clinicalTimelineService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -160,13 +160,44 @@ function hasRawClient(db) {
   return db && typeof db.$queryRawUnsafe === 'function';
 }
 
-function isSchemaMissing(err) {
+// The canonical tables these helpers write to. The swallow below is restricted
+// to a genuinely-ABSENT one of these — never a column-drift or a generic fault.
+const CANONICAL_TABLE_NAMES = [
+  'clinical_timeline_events',
+  'clinical_audit_events',
+  'patient_encounters',
+  'workflow_sla_instances',
+  'workflow_sla_rules',
+  'medication_safety_reviews',
+];
+
+// Narrowed (audit 2026-06-18 §4): the swallow is intentionally limited to
+// SQLSTATE 42P01 (undefined_table) for one of the canonical tables above —
+// i.e. the additive canonical layer hasn't been migrated onto this DB yet, so
+// emitting the timeline/audit row is genuinely impossible and the detail write
+// should still commit. It deliberately does NOT match 42703 (undefined_column)
+// or a "...does not exist" message regex: on schema DRIFT (a real canonical
+// table missing a column) or any transient/generic write fault, swallowing
+// would silently break the atomic timeline invariant — a detail row with no
+// timeline+audit row. Those now PROPAGATE so the in-tx writers
+// (recordCanonicalOrderEvent / recordCanonicalVitalsEvent) abort their
+// transaction and the failure surfaces / alarms.
+// Exported so the operational bridge (canonicalOperationalBridgeService) reuses
+// the EXACT same canonical-table-absent predicate instead of keeping a second,
+// drifting copy of the table list + SQLSTATE handling.
+export function isSchemaMissing(err) {
   const code = err?.meta?.code
     || err?.meta?.driverAdapterError?.cause?.originalCode
     || err?.code;
-  return code === '42P01'
-    || code === '42703'
-    || /relation .* does not exist|column .* does not exist/i.test(String(err?.message || ''));
+  if (code !== '42P01') return false;
+  // 42P01 from an unrelated relation (defensive — every query here targets a
+  // canonical table) must not be swallowed either: confirm the absent relation
+  // is one of ours when the message names it. A 42P01 with no parseable
+  // relation name (some adapter shapes) is treated as a canonical-table miss.
+  const message = String(err?.message || '');
+  const named = /relation ["']?([a-z_]+)["']? does not exist/i.exec(message);
+  if (!named) return true;
+  return CANONICAL_TABLE_NAMES.includes(named[1].toLowerCase());
 }
 
 function logCanonicalFailure(context, err) {
@@ -202,7 +233,7 @@ function normalizedLimit(value, fallback = 100, max = 500) {
 }
 
 function normalizeTenantId(value) {
-  return cleanUuid(value) || DEFAULT_TENANT_ID;
+  return requireTenantId(cleanUuid(value));
 }
 
 function safeJson(value, fallback = {}) {
@@ -463,19 +494,45 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
   const action = cleanText(input.action);
   if (!action) return null;
 
+  // Append-only safe (migration 324): the audit tables carry a BEFORE UPDATE/DELETE
+  // guard that aborts the transaction for the non-superuser app role. So this
+  // idempotent recorder must NOT use ON CONFLICT DO UPDATE — even the prior no-op
+  // `SET idempotency_key = EXCLUDED.idempotency_key` fires the guard and aborts the
+  // enclosing clinical-write tx under the sealed prod role. Use DO NOTHING, and on
+  // an idempotency-key conflict read the existing row back so callers that consume
+  // the returned audit row keep working.
+  const idempotencyKey = cleanText(input.idempotencyKey || input.idempotency_key)
+    || sourceKey({
+      action,
+      sourceTable: input.resourceTable || input.resource_table,
+      sourceId: input.resourceId || input.resource_id,
+      patientUid: input.patientUid || input.patient_uid,
+    });
   try {
+    // Single statement: INSERT (append-only safe — DO NOTHING never fires the
+    // BEFORE UPDATE guard), then UNION-read the existing row on an idempotency
+    // conflict so callers that consume the returned audit row (e.g.
+    // documentIntegrityService links sig.audit_event_id = events.audit.id) keep
+    // working. One query → mock-sequenced unit tests see the same call count as
+    // the prior ON CONFLICT DO UPDATE form.
     const rows = await db.$queryRawUnsafe(
-      `INSERT INTO clinical_audit_events
-         (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
-          resource_type, resource_table, resource_id, request_id, ip_address, user_agent,
-          before_state, after_state, metadata, idempotency_key, occurred_at)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
-               $8, $9, $10, $11, NULLIF($12, '')::inet, $13,
-               $14::jsonb, $15::jsonb, $16::jsonb, $17, COALESCE($18::timestamptz, NOW()))
-       ON CONFLICT (idempotency_key)
-       WHERE idempotency_key IS NOT NULL
-       DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
-       RETURNING *`,
+      `WITH ins AS (
+         INSERT INTO clinical_audit_events
+           (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
+            resource_type, resource_table, resource_id, request_id, ip_address, user_agent,
+            before_state, after_state, metadata, idempotency_key, occurred_at)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
+                 $8, $9, $10, $11, NULLIF($12, '')::inet, $13,
+                 $14::jsonb, $15::jsonb, $16::jsonb, $17, COALESCE($18::timestamptz, NOW()))
+         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
+         DO NOTHING
+         RETURNING *
+       )
+       SELECT * FROM ins
+       UNION ALL
+       SELECT * FROM clinical_audit_events
+        WHERE idempotency_key = $17 AND NOT EXISTS (SELECT 1 FROM ins)
+       LIMIT 1`,
       tenantId,
       cleanUuid(input.patientUid || input.patient_uid),
       cleanUuid(input.encounterId || input.encounter_id),
@@ -492,13 +549,7 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
       stringifyJson(input.beforeState || input.before_state, null),
       stringifyJson(input.afterState || input.after_state, null),
       stringifyJson(input.metadata),
-      cleanText(input.idempotencyKey || input.idempotency_key)
-        || sourceKey({
-          action,
-          sourceTable: input.resourceTable || input.resource_table,
-          sourceId: input.resourceId || input.resource_id,
-          patientUid: input.patientUid || input.patient_uid,
-        }),
+      idempotencyKey,
       input.occurredAt || input.occurred_at || null,
     );
     return rows[0] || null;

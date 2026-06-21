@@ -1,15 +1,18 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
+import { requireTenantId } from '../services/tenant/tenantService.js';
 
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
-
+// Preserve the existing claim-first precedence (this scopes which tenant's
+// billing PHI is resolved), but fail closed instead of silently defaulting:
+// NO-OP when ALLOW_DEFAULT_TENANT=true, 403 otherwise (W1).
 function tenantOf(req) {
-  return req.user?.tenant_id
+  return requireTenantId(
+    req.user?.tenant_id
     || req.user?.tenantId
     || req.tenantId
-    || req.tenant?.id
-    || DEFAULT_TENANT_ID;
+    || req.tenant?.id,
+  );
 }
 
 function cleanId(value) {

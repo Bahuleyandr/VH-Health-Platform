@@ -15,6 +15,7 @@ import {
 } from '../../utils/notification/notificationHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 
 const query = async (sql, params = []) => {
@@ -32,7 +33,6 @@ const query = async (sql, params = []) => {
   return { rowCount: Number(rowCount) || 0 };
 };
 
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const ADMIN_NOTIFICATION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 const NOTIFICATION_EVENT_TYPES = new Set([
   'delivered',
@@ -43,7 +43,7 @@ const NOTIFICATION_EVENT_TYPES = new Set([
 ]);
 
 function normalizeTenant(tenantId) {
-  return tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(tenantId);
 }
 
 function normalizeRole(role) {
@@ -758,7 +758,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
     }
 
     const byTenant = rows.reduce((acc, row) => {
-      const key = row.tenant_id || DEFAULT_TENANT_ID;
+      const key = requireTenantId(row.tenant_id);
       if (!acc.has(key)) acc.set(key, []);
       acc.get(key).push(row);
       return acc;

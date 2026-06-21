@@ -2,7 +2,7 @@
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { OPERATIONAL_ALERT_EVALUATORS } from './operationalAlertEvaluators.js';
 import { publishEvent } from '../events/eventOutboxService.js';
@@ -13,7 +13,7 @@ const PUSH_SEVERITIES = new Set(['high', 'critical']);
 const FINAL_DECISIONS = new Set(['accepted', 'deferred', 'rejected', 'edited']);
 
 function sevRank(s) { const i = SEVERITY.indexOf(s); return i < 0 ? 0 : i; }
-function resolveTenantId(t) { return t || DEFAULT_TENANT_ID; }
+function resolveTenantId(t) { return requireTenantId(t); }
 
 // Advisory guarantee (spec): EVERY persisted alert carries the decision-support
 // disclaimer regardless of what an evaluator returned. Injected at the upsert.

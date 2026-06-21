@@ -364,6 +364,19 @@ describeJourney('Journey: surgical-day-care', () => {
       expect(anesth.statusCode).toBe(200);
       expect(anesth.body.data.status).toBe('finalized');
 
+      // WHO surgical safety sign-out (the third phase) — the final
+      // count/specimen/concerns read-aloud before the patient leaves the room.
+      // The case-close gate (audit 2026-06-18 §3 fix #4) requires it complete
+      // (or an authorized override) before post_op/completed.
+      const signOut = await surgeon.put(`/api/v1/surgical/safety/${otScheduleId}/sign_out`).send({
+        patient_uid: PATIENT_UID,
+        all_items_confirmed: true,
+        status: 'complete',
+        items: [{ item: 'instrument_sponge_needle_counts_correct', confirmed: true }],
+      });
+      expect(signOut.statusCode).toBe(200);
+      expect(signOut.body.data.status).toBe('complete');
+
       for (const target of ['post_op', 'completed']) {
         const res = await admin.put(`/api/v1/theatre/${otScheduleId}/status`).send({ status: target });
         expect(res.statusCode).toBe(200);

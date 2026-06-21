@@ -36,11 +36,20 @@ export const verifyOtp = async (req, res) => {
 // Refresh JWT token
 export const refreshToken = async (req, res) => {
   try {
+    // Accept the refresh token from the request BODY or the Authorization
+    // header. Once the Flutter client holds a stored refresh token it switches
+    // to POSTing `{ refreshToken }` in the body with auth:false (vhhealth_core
+    // VHHttpClient._performRefresh); the pre-stored-refresh / staff clients
+    // still send it as a bearer header. C-9: AuthService.refreshToken enforces
+    // that whatever is presented actually carries type:'refresh'.
     const authHeader = req.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const bearer = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.split(' ')[1]
+      : null;
+    const token = req.body?.refreshToken || bearer;
+    if (!token) {
       return error(res, 'Authorization token required', HTTP_STATUS.UNAUTHORIZED);
     }
-    const token = authHeader.split(' ')[1];
     const result = await AuthService.refreshToken(token, req);
     success(res, result, 'Token refreshed successfully');
   } catch (err) {

@@ -110,6 +110,9 @@ router.post('/patient-login', async (req, res) => {
       id: user.id,
       phone: user.phone,
       role: user.role,
+      // W4 C5: stamp the patient's tenant (already selected above). Omitted when
+      // null so tenantContextMiddleware resolves it; dev-only path regardless.
+      tenant_id: user.tenant_id ?? undefined,
     });
 
     return success(res, {

@@ -28,6 +28,7 @@ import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
+import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
 import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
@@ -297,11 +298,40 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
   }
 
   Future<void> _applyScreenProtection() async {
+    // Cross-platform plugin: covers Android (FLAG_SECURE) and iOS (recents
+    // blur). It has NO Windows/Linux/macOS implementation.
     try {
       await ScreenProtector.protectDataLeakageOn();
       await ScreenProtector.preventScreenshotOn();
     } catch (e) {
       if (kDebugMode) debugPrint('ScreenProtector init skipped: $e');
+    }
+
+    // Windows desktop (audit 2026-06-18, STF-1): `screen_protector` is a no-op
+    // on Windows, so apply native capture exclusion via our method channel.
+    // Do NOT silently swallow a no-op — if protection cannot be applied on a
+    // platform that handles PHI, log it loudly so the gap is visible.
+    if (WindowsScreenCapture.isSupported) {
+      final applied = await WindowsScreenCapture.enable();
+      if (!applied) {
+        debugPrint(
+          'SECURITY WARNING: Windows screen-capture protection could NOT be '
+          'applied — this PHI workbench is screenshot-able on this device.',
+        );
+        await CrashReporter.instance.recordError(
+          StateError('Windows screen-capture protection unavailable'),
+          StackTrace.current,
+          context: 'screen-capture protection',
+          fatal: false,
+        );
+      }
+    } else if (!kIsWeb && (Platform.isLinux || Platform.isMacOS)) {
+      // Known, accepted gap: no native capture exclusion implemented for
+      // Linux/macOS desktop yet. Surface it rather than failing silently.
+      debugPrint(
+        'NOTE: screen-capture protection is not implemented on this desktop '
+        'platform (${Platform.operatingSystem}); PHI may be screenshot-able.',
+      );
     }
   }
 

@@ -7,7 +7,7 @@ import {
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import {
   ACCESS_POLICY_CODES,
   getAccessPolicy,
@@ -86,11 +86,12 @@ const OPERATIONAL_ROLE_POLICIES = new Set([
 export { ACCESS_POLICY_CODES, SAFE_PATIENT_ACCESS_DENIAL_MESSAGE };
 
 export function deriveTenantIdFromRequest(req) {
-  return req.tenantId
+  return requireTenantId(
+    req.tenantId
     || req.user?.tenant_id
     || req.user?.tenantId
-    || req.tenant?.id
-    || DEFAULT_TENANT_ID;
+    || req.tenant?.id,
+  );
 }
 
 export function deriveActionFromRequest(req, policy = null) {
@@ -919,8 +920,56 @@ async function findGuardianRelationship(req, patient) {
   return firstRow(rows);
 }
 
+// Durable, never-throwing file fallback for the patient-access audit. The DB
+// table (patient_access_audit_log.patient_uid) is NOT NULL, so two cases land
+// here instead of the table: (1) the INSERT failed, and (2) the patient could
+// not be resolved (a denied attempt that still must leave a trail). logger.warn
+// lands in error.log/combined.log; the inner catch keeps a logger/transport
+// failure from escaping. Audit §3: a patient-access decision is never lost.
+function _writePatientAccessAuditToFile(req, decision, extra = {}) {
+  try {
+    logger.warn('Patient access audit file fallback:', {
+      tenant_id: deriveTenantIdFromRequest(req),
+      patient_uid: decision?.patient_uid ?? null,
+      patient_id: decision?.patient_id ?? null,
+      actor_uid: cleanUuid(actorUidOf(req)),
+      actor_role: decision?.actor_role || 'UNKNOWN',
+      access_decision: decision?.accessDecision ?? null,
+      access_source: decision?.accessSource ?? null,
+      reason: decision?.reason ?? null,
+      route: String(req?.originalUrl || req?.url || '').slice(0, 255),
+      action: decision?.action || deriveActionFromRequest(req),
+      request_id: req?.id ? String(req.id) : null,
+      policy_code: decision?.policy_code ?? null,
+      record_type: decision?.recordType ?? null,
+      timestamp: new Date().toISOString(),
+      ...extra,
+    });
+  } catch (logErr) {
+    try {
+      console.error(
+        'PATIENT_ACCESS_AUDIT file fallback failed:',
+        decision?.accessDecision,
+        logErr?.message,
+      );
+    } catch {
+      // Last resort exhausted; never throw out of the audit path.
+    }
+  }
+}
+
 async function writePatientAccessAudit(req, decision) {
-  if (!decision?.patient_uid) return;
+  // The denied access attempt still happened — leave an audit trail even when
+  // the patient could not be resolved. The table's patient_uid is NOT NULL, so
+  // a patientless attempt is recorded in the durable file sink (marked) rather
+  // than dropped.
+  if (!decision?.patient_uid) {
+    _writePatientAccessAuditToFile(req, decision, {
+      patient_unresolved: true,
+      error: 'patient context could not be resolved',
+    });
+    return;
+  }
   try {
     await prisma.$executeRawUnsafe(
       `INSERT INTO patient_access_audit_log (
@@ -962,10 +1011,9 @@ async function writePatientAccessAudit(req, decision) {
       }),
     );
   } catch (err) {
-    logger.warn('Patient access audit write failed', {
-      path: req?.originalUrl || req?.url,
-      error: err?.message,
-    });
+    // Durable fallback — carry the full decision tuple to the file sink so the
+    // audit row is recoverable, not just an error line (audit §3).
+    _writePatientAccessAuditToFile(req, decision, { error: err?.message });
   }
 }
 
@@ -999,12 +1047,26 @@ export async function authorizePatientAccessRequest(req, {
   if (!resolvedPatient?.uid) {
     if (!requireResolvedPatient) return { allowed: true, no_patient_context: true, policy_code: policy.code };
     const rolePolicy = rolePolicyFor(actorRoleOf(req));
-    return denyDecision({
-      req,
-      patient: null,
-      policy,
-      rolePolicy,
-    }, 'Patient context could not be resolved for this access request', { recordType });
+    const unresolvedDecision = {
+      ...denyDecision({
+        req,
+        patient: null,
+        policy,
+        rolePolicy,
+      }, 'Patient context could not be resolved for this access request', { recordType }),
+      action: deriveActionFromRequest(req, policy),
+      recordType,
+      shadow_mode: shadowMode,
+      enforced: shadowMode !== true,
+    };
+    // A denied access attempt must leave an audit trail even when no patient
+    // could be resolved (audit §3). patient_access_audit_log.patient_uid is NOT
+    // NULL, so writePatientAccessAudit records this in the durable file sink
+    // with an unresolved-patient marker rather than dropping it.
+    if (audit && policy.audit_required !== false) {
+      await writePatientAccessAudit(req, unresolvedDecision);
+    }
+    return unresolvedDecision;
   }
 
   const role = actorRoleOf(req);

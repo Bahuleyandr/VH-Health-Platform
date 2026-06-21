@@ -19,7 +19,7 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -52,7 +52,7 @@ function severityForDaysRemaining(days) {
 }
 
 function resolveTenantId(options = {}) {
-  return options.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(options.tenantId);
 }
 
 function isMissingSchemaError(err) {
@@ -1149,7 +1149,7 @@ export async function receivePurchaseOrderLine({
   const cleanLot = safeText(lotNumber, 120);
   const performerUid = maybeUuid(performedBy, 'performed_by');
 
-  return setTenantTx(tid || DEFAULT_TENANT_ID, async (tx) => {
+  return setTenantTx(requireTenantId(tid), async (tx) => {
     // 1. Resolve the PO line — gives us inventory_item_id + parent PO id.
     const lines = await tx.$queryRawUnsafe(
       `SELECT id, purchase_order_id, inventory_item_id, ordered_quantity, received_quantity

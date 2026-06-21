@@ -5,9 +5,10 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import { generateToken, issueSetupToken, verifyToken, verifyTokenAllowExpired } from '../../utils/jwtUtils.js';
+import { generateToken, issueSetupToken, verifyToken } from '../../utils/jwtUtils.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -16,7 +17,7 @@ import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
-import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
+import { issueAccessTokenAndClaimSession, generateRefreshToken, resolveTenantIdForUid } from './loginSessionHelper.js';
 import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
@@ -28,11 +29,13 @@ import * as otpService from './otpService.js';
 // any in-flight legacy plaintext row still matches via the === fallback.
 const OTP_HASH_ROUNDS = 6;
 
-// Lock a single password-reset OTP after this many failed verify attempts
-// (matches SECURITY_CONFIG.otp.maxAttemptsPerPhone). Once locked the row is
-// marked used so the admin must request a fresh OTP — blocks online guessing
-// of the 6-digit code.
-const PASSWORD_RESET_OTP_MAX_ATTEMPTS = 5;
+// Lock a single password-reset OTP after this many failed verify attempts.
+// Single source of truth: SECURITY_CONFIG.otp.maxAttemptsPerPhone — previously
+// this was a hardcoded literal that merely *claimed* to match the config, so a
+// change to the config would have silently left this path on the old value.
+// Once the cap is reached the row is marked used so the admin must request a
+// fresh OTP — blocks online guessing of the 6-digit code.
+const PASSWORD_RESET_OTP_MAX_ATTEMPTS = SECURITY_CONFIG.otp.maxAttemptsPerPhone;
 
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */
@@ -73,7 +76,9 @@ export class AuthService {
     try {
       const normalizedPhone = normalizePhone(phone);
 
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333: @@unique([tenant_id, phone])),
+      // so findUnique on phone alone is invalid — use findFirst.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true, name: true, role: true },
       });
@@ -107,25 +112,31 @@ export class AuthService {
       }
 
       // Check if user already exists to determine isNewUser
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333: @@unique([tenant_id, phone])),
+      // so findUnique/upsert keyed on phone alone are invalid. Look up with
+      // findFirst, then update-by-uid (atomic) or create a new patient.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true },
       });
       const isNewUser = !existingUser;
       const now = new Date();
 
-      // Upsert: create if new, update last_login if existing
-      const user = await prisma.users.upsert({
-        where: { phone: normalizedPhone },
-        create: {
-          phone: normalizedPhone,
-          role: 'PATIENT',
-          registered_at: now,
-          updated_at: now,
-        },
-        update: { updated_at: now },
-        select: { uid: true, id: true, name: true, phone: true, role: true },
-      });
+      const user = existingUser
+        ? await prisma.users.update({
+            where: { uid: existingUser.uid },
+            data: { updated_at: now },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          })
+        : await prisma.users.create({
+            data: {
+              phone: normalizedPhone,
+              role: 'PATIENT',
+              registered_at: now,
+              updated_at: now,
+            },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          });
 
       if (isNewUser) {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
@@ -136,10 +147,24 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the bearer's tenant so the token self-describes it
+        // (matches the helper-minted Firebase/staff/admin paths). Cached +
+        // default-tenant fallback, so it never blocks a login.
+        tenant_id: await resolveTenantIdForUid(user.uid),
+      });
+
+      // C-9 (audit 2026-06-18): issue a separate type:'refresh' token so the
+      // access token is never the refresh credential.
+      const refreshToken = this._generateRefreshToken({
+        uid: user.uid,
+        id: user.id,
+        phone: user.phone,
+        role: user.role,
       });
 
       return {
         token,
+        refreshToken,
         user: {
           uid: user.uid,
           id: user.id,
@@ -170,10 +195,22 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the bearer's tenant (see verifyOtp). Cached +
+        // default-tenant fallback, so it never blocks a login.
+        tenant_id: await resolveTenantIdForUid(user.uid),
+      });
+
+      // C-9 (audit 2026-06-18): issue a separate type:'refresh' token.
+      const refreshToken = this._generateRefreshToken({
+        uid: user.uid,
+        id: user.id,
+        phone: user.phone,
+        role: user.role,
       });
 
       return {
         token,
+        refreshToken,
         user: {
           uid: user.uid,
           id: user.id,
@@ -299,34 +336,55 @@ export class AuthService {
         };
       }
 
-      // 2FA check: if TOTP is enabled, return a challenge instead of a JWT
+      // 2FA check: if TOTP is enabled, return a challenge instead of a JWT.
+      // FAIL CLOSED (audit 2026-06-18 §3): a 2FA-enabled admin must NEVER be
+      // downgraded to password-only because the challenge could not be
+      // persisted. If the challenge-store write fails we abort the login with
+      // a 503 — we never fall through to issue a full admin JWT.
       if (admin.totp_enabled) {
         const { challengeToken, expiresAt } = generateChallengeToken();
 
-        // Store the challenge in the database
         try {
+          // Store the expiry server-side (NOW() + interval) instead of binding a
+          // client-side JS Date. A bound Date is reinterpreted across the Node
+          // process timezone vs the DB session timezone: on a non-UTC host this
+          // wrote expires_at in the PAST (IST offset), so mfaVerifyChallenge's
+          // `expires_at > NOW()` check read every challenge as already-expired and
+          // login-time 2FA could never complete. Server-side time is authoritative,
+          // tz-independent, and matches the verify check. (audit 2026-06-18 follow-up)
           await prisma.$queryRawUnsafe(
             `INSERT INTO totp_challenges (admin_id, challenge_token, expires_at, created_at)
-             VALUES ($1, $2, $3, NOW())`,
-            admin.uid, challengeToken, expiresAt
+             VALUES ($1, $2, NOW() + INTERVAL '5 minutes', NOW())`,
+            admin.uid, challengeToken
           );
         } catch (challengeErr) {
-          logger.warn('TOTP challenge table may not exist, falling back to direct login:', challengeErr.message);
-          // Fall through to normal login if table doesn't exist yet
+          logger.error('TOTP challenge persistence failed — failing CLOSED (no JWT issued)', {
+            adminId: admin.uid,
+            error: challengeErr.message,
+          });
+          logSecurityEvent('MFA_CHALLENGE_STORE_FAILED', {
+            userId: admin.uid,
+            userName: admin.username,
+            userRole: admin.role,
+            reason: 'TOTP challenge could not be persisted; login aborted (fail-closed)',
+          });
+          throw new AppError(
+            'Two-factor authentication is temporarily unavailable. Please try again.',
+            503,
+            'MFA_UNAVAILABLE',
+          );
         }
 
-        if (admin.totp_enabled) {
-          logger.info('2FA challenge issued for admin login', { adminId: admin.uid });
-          return {
-            requiresTwoFactor: true,
-            challengeToken,
-            expiresAt: expiresAt.toISOString(),
-            admin: {
-              uid: admin.uid,
-              username: admin.username,
-            },
-          };
-        }
+        logger.info('2FA challenge issued for admin login', { adminId: admin.uid });
+        return {
+          requiresTwoFactor: true,
+          challengeToken,
+          expiresAt: expiresAt.toISOString(),
+          admin: {
+            uid: admin.uid,
+            username: admin.username,
+          },
+        };
       }
 
       // Issue the admin JWT and register it as the single active session for
@@ -348,8 +406,18 @@ export class AuthService {
         req,
       });
 
+      // C-9 (audit 2026-06-18): issue a separate type:'refresh' token. Admins
+      // previously got no refresh token, so the short-lived admin access token
+      // was being replayed at /refresh-token. The refresh endpoint now only
+      // accepts type:'refresh' tokens.
+      const refreshToken = this._generateRefreshToken({
+        uid: admin.uid,
+        role: String(admin.role).toUpperCase(),
+      });
+
       return {
         token,
+        refreshToken,
         admin: {
           uid: admin.uid,
           username: admin.username,
@@ -516,9 +584,13 @@ export class AuthService {
   /* ========================= Staff Auth (PIN) ========================= */
   static async staffLogin(employeeId, pin) {
     try {
-      const staff = await prisma.staff.findUnique({
+      // employee_id is unique per-tenant now (mig 330: @@unique([tenant_id,
+      // employee_id])); findUnique on it alone is invalid — use findFirst and
+      // update by the unique id below.
+      const staff = await prisma.staff.findFirst({
         where: { employee_id: employeeId },
         select: {
+          id: true,
           uid: true,
           employee_id: true,
           pin_hash: true,
@@ -539,10 +611,13 @@ export class AuthService {
         phone: staff.phone,
         role: String(staff.role).toUpperCase(),
         sub: String(staff.uid),
+        // W4 C5: stamp the staff member's tenant (staff live in `users`, so
+        // resolveTenantIdForUid resolves it directly). Cached + default fallback.
+        tenant_id: await resolveTenantIdForUid(String(staff.uid)),
       });
 
       await prisma.staff.update({
-        where: { employee_id: employeeId },
+        where: { id: staff.id },
         data: { last_login: new Date() },
       });
 
@@ -586,7 +661,8 @@ export class AuthService {
 
   static async resetStaffPin(employeeId, newPin, adminId) {
     try {
-      const staff = await prisma.staff.findUnique({
+      // employee_id is unique per-tenant now (mig 330); use findFirst.
+      const staff = await prisma.staff.findFirst({
         where: { employee_id: employeeId },
         select: { id: true },
       });
@@ -815,32 +891,61 @@ export class AuthService {
   }
 
   /* ======================== Tokens / Sessions ======================== */
+
+  // Mint a long-lived refresh token (type:'refresh') for a patient/admin
+  // session. Delegates to the SHARED loginSessionHelper.generateRefreshToken so
+  // every realm — patient OTP, admin, and the Firebase patient path — mints
+  // through one source of truth (no duplicated `type:'refresh'` / expiry logic
+  // that could drift). See audit 2026-06-18 C-9.
+  static _generateRefreshToken({ uid, id, phone, role }) {
+    return generateRefreshToken({ uid, id, phone, role });
+  }
+
   static async refreshToken(token, req) {
     try {
-      // Refresh must accept a JUST-EXPIRED access token — that's the whole
-      // point. We still verify the signature and reject already-revoked
-      // tokens (replay protection via jti blacklist).
-      const decoded = verifyTokenAllowExpired(token);
-      if (!decoded) throw new Error('Invalid token signature');
+      // C-9 (audit 2026-06-18): the refresh endpoint must ONLY accept genuine
+      // refresh tokens. Verify signature + expiry — a real 30-day refresh
+      // token that has expired means the session is genuinely over, so we do
+      // NOT use verifyTokenAllowExpired here (that previously let any signed,
+      // even expired, ACCESS token be rotated into a fresh live session).
+      const decoded = verifyToken(token);
+      if (!decoded) throw AppError.unauthorized('Invalid or expired refresh token', 'TOKEN_INVALID');
 
-      if (decoded.jti && await isTokenBlacklisted(decoded.jti)) {
-        throw new Error('Token has been revoked');
+      // Type confusion guard: reject access tokens (which carry no `type`
+      // claim) presented at the refresh endpoint. Only `type:'refresh'`
+      // tokens minted at login may rotate a session.
+      if (decoded.type !== 'refresh') {
+        throw AppError.unauthorized('Invalid or expired refresh token', 'TOKEN_INVALID');
       }
 
-      const user = await prisma.users.findUnique({
-        where: { uid: decoded.uid },
-        select: { uid: true, id: true, phone: true, name: true, role: true },
-      });
-      if (!user) throw new Error('User not found');
+      // Replay protection: a logged-out / already-rotated refresh token whose
+      // jti is blacklisted must not mint new tokens.
+      if (decoded.jti && await isTokenBlacklisted(decoded.jti)) {
+        throw AppError.tokenRevoked();
+      }
 
-      // Belt-and-suspenders: blacklist the rotated request's jti directly
-      // (in case it diverges from whatever's in user_active_sessions). For
-      // tokens that have already expired, blacklistToken short-circuits.
+      // A genuine refresh token carries the uid in `sub` — jwtUtils.generateToken
+      // maps uid -> sub, so a real token has NO top-level `uid` claim (only
+      // test-minted tokens set one). Resolve the subject the same way
+      // jwtMiddleware does, or the lookup runs against `undefined` and every
+      // real refresh 401s with "user not found" (i.e. refresh never works).
+      const subjectUid = decoded.uid ?? decoded.sub;
+      const user = subjectUid
+        ? await prisma.users.findUnique({
+            where: { uid: subjectUid },
+            select: { uid: true, id: true, phone: true, name: true, role: true },
+          })
+        : null;
+      if (!user) throw AppError.unauthorized('User not found', 'TOKEN_INVALID');
+
+      // Rotate the refresh token: blacklist the presented refresh jti so it
+      // cannot be replayed. For tokens already past exp, blacklistToken
+      // short-circuits.
       if (decoded.jti && decoded.exp) {
         await blacklistToken(decoded.jti, decoded.exp, 'refresh_rotation');
       }
 
-      // Mint the new access token *and* rotate the user_active_sessions row
+      // Mint a fresh access token *and* rotate the user_active_sessions row
       // to its jti. Without this update a subsequent login-elsewhere would
       // blacklist the *original* login's jti (whatever's still in the table)
       // instead of the refreshed one, and the booted device would survive.
@@ -859,8 +964,18 @@ export class AuthService {
         pushRevoked: false,
       });
 
+      // Issue a fresh refresh token too (rotation) so the client always holds
+      // a current refresh credential and the old one is dead.
+      const newRefreshToken = this._generateRefreshToken({
+        uid: user.uid,
+        id: user.id,
+        phone: user.phone,
+        role: user.role,
+      });
+
       return {
         token: newToken,
+        refreshToken: newRefreshToken,
         user: {
           uid: user.uid,
           id: user.id,
@@ -913,7 +1028,9 @@ export class AuthService {
   static async getUserByPhone(phone) {
     try {
       const normalizedPhone = normalizePhone(phone);
-      const user = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333); findUnique on phone alone is
+      // invalid — use findFirst.
+      const user = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true, id: true, phone: true, name: true, role: true },
       });
@@ -952,7 +1069,8 @@ export class AuthService {
       this._assertLegacyPhoneAuthAllowed('registration');
       const normalizedPhone = normalizePhone(phone);
 
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333); use findFirst.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true },
       });
@@ -979,6 +1097,9 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the newly-registered patient's tenant (just-created
+        // users row). Cached + default-tenant fallback.
+        tenant_id: await resolveTenantIdForUid(user.uid),
       });
 
       return {
@@ -1153,24 +1274,30 @@ export class AuthService {
         throw err;
       }
 
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333); see verifyOtp. findFirst +
+      // update-by-uid / create instead of the now-invalid phone-keyed upsert.
+      const existingUser = await prisma.users.findFirst({
         where: { phone: normalizedPhone },
         select: { uid: true },
       });
       const isNewUser = !existingUser;
       const now = new Date();
 
-      const user = await prisma.users.upsert({
-        where: { phone: normalizedPhone },
-        create: {
-          phone: normalizedPhone,
-          role: 'PATIENT',
-          registered_at: now,
-          updated_at: now,
-        },
-        update: { updated_at: now },
-        select: { uid: true, id: true, name: true, phone: true, role: true },
-      });
+      const user = existingUser
+        ? await prisma.users.update({
+            where: { uid: existingUser.uid },
+            data: { updated_at: now },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          })
+        : await prisma.users.create({
+            data: {
+              phone: normalizedPhone,
+              role: 'PATIENT',
+              registered_at: now,
+              updated_at: now,
+            },
+            select: { uid: true, id: true, name: true, phone: true, role: true },
+          });
 
       if (isNewUser) {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
@@ -1181,10 +1308,25 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        // W4 C5: stamp the bearer's tenant (see verifyOtp). Cached +
+        // default-tenant fallback, so it never blocks a login.
+        tenant_id: await resolveTenantIdForUid(user.uid),
+      });
+
+      // C-9 (audit 2026-06-18): issue a SEPARATE refresh token. Patients
+      // previously got no refresh token, so the access token was being used as
+      // the refresh credential at /refresh-token. The refresh endpoint now
+      // only accepts type:'refresh' tokens.
+      const refreshToken = this._generateRefreshToken({
+        uid: user.uid,
+        id: user.id,
+        phone: user.phone,
+        role: user.role,
       });
 
       return {
         token,
+        refreshToken,
         user: {
           uid: user.uid,
           id: user.id,

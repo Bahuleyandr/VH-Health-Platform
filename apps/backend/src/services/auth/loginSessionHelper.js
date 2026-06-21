@@ -12,6 +12,7 @@
 
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateToken } from '../../utils/jwtUtils.js';
@@ -37,7 +38,7 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const tenantCache = new Map();
 const TENANT_CACHE_MAX = 50000;
 
-async function resolveTenantIdForUid(uid) {
+export async function resolveTenantIdForUid(uid) {
   if (!uid) return DEFAULT_TENANT_ID;
   if (tenantCache.has(uid)) return tenantCache.get(uid);
   let tenantId = DEFAULT_TENANT_ID;
@@ -48,6 +49,21 @@ async function resolveTenantIdForUid(uid) {
     );
     if (rows.length > 0 && rows[0].tenant_id) {
       tenantId = String(rows[0].tenant_id);
+    } else {
+      // Admins are a separate identity realm — they are NOT in `users` (staff,
+      // patients, and Firebase users are). Fall back to the admins table
+      // (tenant_id added in mig 334; NULL for platform SUPER_ADMINs, who stay
+      // on DEFAULT and override per-request via x-tenant-id). Without this,
+      // adminLogin / refresh / MFA-verify minted a token defaulted to the
+      // default tenant, and tenantContextMiddleware then scoped a tenant-A
+      // admin to the wrong tenant. (W4 C5)
+      const adminRows = await prisma.$queryRawUnsafe(
+        'SELECT tenant_id FROM admins WHERE uid = $1::uuid LIMIT 1',
+        String(uid),
+      );
+      if (adminRows.length > 0 && adminRows[0].tenant_id) {
+        tenantId = String(adminRows[0].tenant_id);
+      }
     }
   } catch (err) {
     logger.warn(`tenant resolution fell back to default for uid=${uid}: ${err.message}`);
@@ -57,6 +73,40 @@ async function resolveTenantIdForUid(uid) {
   }
   tenantCache.set(uid, tenantId);
   return tenantId;
+}
+
+/**
+ * Mint a long-lived refresh token (type:'refresh') for a patient / admin /
+ * Firebase session. This is the SINGLE source of truth for the refresh-token
+ * shape across every login realm — both AuthService (patient OTP, admin) and
+ * firebaseAuthService (the primary patient path) mint through here, so no
+ * realm can accidentally ship a refresh credential that the C-9 type guard at
+ * /refresh-token would reject.
+ *
+ * The refresh token is a SEPARATE credential from the short-lived access
+ * token: it carries `type:'refresh'` (the only token type
+ * AuthService.refreshToken will rotate), a long refresh expiry, and a `jti`
+ * (auto-stamped by generateToken) so it can be revoked on rotation / logout.
+ * `id` and `phone` are included only when supplied (admin tokens carry neither).
+ *
+ * @param {Object} identity
+ * @param {string} identity.uid - users.uid (becomes the `sub` claim).
+ * @param {number|string} [identity.id] - DB integer id, when known.
+ * @param {string} [identity.phone] - E.164 phone, when known.
+ * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
+ * @returns {string} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
+ */
+export function generateRefreshToken({ uid, id, phone, role }) {
+  return generateToken(
+    {
+      uid,
+      ...(id !== undefined && id !== null ? { id } : {}),
+      ...(phone ? { phone } : {}),
+      role,
+      type: 'refresh',
+    },
+    SECURITY_CONFIG.jwt.refreshExpiry,
+  );
 }
 
 /**

@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { isDefaultTenantAllowed } from '../../config/tenantRlsConfig.js';
 
 export const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -188,13 +189,29 @@ export async function updateTenant(tenantId, patch = {}) {
 }
 
 export async function resolveTenantForUser(userUid, { failClosed = false } = {}) {
-  if (!userUid) return DEFAULT_TENANT_ID;
+  // When failClosed, a missing uid or a lookup MISS returns null (not the
+  // default tenant) so the caller's fail-closed gate can fire — silently
+  // defaulting here would mask a missing-tenant bug as default-tenant activity
+  // (W1, multi-tenancy program). Single-tenant installs (failClosed=false) keep
+  // the legacy default floor.
+  const onMiss = failClosed ? null : DEFAULT_TENANT_ID;
+  if (!userUid) return onMiss;
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
       userUid
     );
-    return rows[0]?.tenant_id || DEFAULT_TENANT_ID;
+    if (rows[0]?.tenant_id) return rows[0].tenant_id;
+    // Admins are a separate identity realm (not in `users`). A bare admin token
+    // (the MFA-enroll / challenge-verify mints in adminAuthController carry no
+    // tenant_id claim) lands here — resolve their tenant from the admins table
+    // (mig 334; NULL for platform SUPER_ADMINs → onMiss, overridden per-request).
+    // Symmetric with resolveTenantIdForUid's admin fallback. (W4 C5)
+    const adminRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id FROM admins WHERE uid = $1::uuid LIMIT 1`,
+      userUid
+    );
+    return adminRows[0]?.tenant_id || onMiss;
   } catch (err) {
     if (failClosed) {
       throw AppError.internal('Tenant context lookup failed', 'TENANT_CONTEXT_LOOKUP_FAILED');
@@ -204,7 +221,38 @@ export async function resolveTenantForUser(userUid, { failClosed = false } = {})
   }
 }
 
-const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/**
+ * Fail-closed tenant resolver for handlers/services. Returns the tenant already
+ * resolved onto `req.tenantId` by tenantContextMiddleware; if absent, throws
+ * 403 TENANT_CONTEXT_REQUIRED — UNLESS `ALLOW_DEFAULT_TENANT=true` (single-tenant
+ * installs), in which case it returns the default tenant. This is the single
+ * sanctioned replacement for the scattered `req.tenantId || … || DEFAULT_TENANT_ID`
+ * resolvers (W1, multi-tenancy program).
+ *
+ * @param {import('express').Request} req
+ * @returns {string} resolved tenant id
+ */
+export function resolveTenantOrThrow(req) {
+  return requireTenantId(req?.tenantId);
+}
+
+/**
+ * Value-level fail-closed guard for the service layer (W1, multi-tenancy
+ * program). Returns the given tenantId if truthy; otherwise throws 403
+ * TENANT_CONTEXT_REQUIRED — UNLESS `ALLOW_DEFAULT_TENANT=true` (single-tenant
+ * installs), in which case it returns the default tenant. This is the sanctioned
+ * replacement for `tenantId || DEFAULT_TENANT_ID` in service `scopedTx`/`tenantOr`
+ * helpers: a falsy tenant on a clinical/money write must fail, not silently
+ * scope to the default tenant.
+ *
+ * @param {string|null|undefined} tenantId
+ * @returns {string} a valid tenant id
+ */
+export function requireTenantId(tenantId) {
+  if (tenantId) return tenantId;
+  if (isDefaultTenantAllowed()) return DEFAULT_TENANT_ID;
+  throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+}
 
 /**
  * Resolve the tenant a *pre-auth* request belongs to, BEFORE any user
@@ -217,48 +265,94 @@ const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]
  * phone number that exists in two tenants resolves arbitrarily and we
  * mint a JWT bound to the wrong tenant (SEC-5).
  *
- * Resolution order (first signal wins):
- *   1. `x-tenant-id` header — an explicit tenant UUID (SaaS clients /
- *      per-tenant ingress). Validated against the tenants table; an
- *      unknown or non-active tenant is rejected.
- *   2. `x-tenant-slug` header — a human-friendly tenant slug, resolved
- *      via `getTenantBySlug`. Same active-status check.
- *   3. DEFAULT_TENANT_ID — the single-tenant production floor. Today the
- *      platform ships single-tenant, so absent any signal this is the
- *      correct (and safe) answer. Documented so a future SaaS rollout
- *      knows to start sending one of the headers above rather than
- *      relying on this fallback.
+ * W4 (edge routing): the tenant is derived from the request Host SUBDOMAIN via
+ * `tenantFromHost` — the per-tenant subdomain is the authoritative, unspoofable
+ * (trust-by-topology) signal. The bare base host resolves to DEFAULT_TENANT_ID
+ * (single-tenant floor). Client `x-tenant-id` / `x-tenant-slug` headers are NOT
+ * trusted here; a SUPER_ADMIN cross-tenant override is handled post-auth (with a
+ * reason + audit) in tenantContextMiddleware.
  *
- * NOTE: we deliberately do NOT silently pick the first matching user row
- * across tenants. When there is no tenant signal we use the configured
- * default; we never let the *identity* decide the tenant.
+ * NOTE: we never let the *identity* decide the tenant — the tenant is pinned from
+ * the Host before the user lookup, so a phone/username present in two tenants
+ * resolves to the right one by subdomain.
  *
  * @param {import('express').Request} req
  * @returns {Promise<string>} resolved tenant id (always a valid uuid)
  */
 export async function resolveTenantForRequest(req) {
-  const headerGet = typeof req?.get === 'function'
-    ? (name) => req.get(name)
-    : (name) => req?.headers?.[String(name).toLowerCase()];
+  // W4 (edge routing): Host-derived, trust-by-topology. The per-tenant subdomain
+  // is the authoritative pre-auth tenant signal — the only path to the backend is
+  // via the Cloudflare tunnel + per-tenant TLS, so the Host cannot be spoofed to
+  // another tenant. Client x-tenant-id / x-tenant-slug headers are NOT trusted
+  // here (a SUPER_ADMIN cross-tenant override is a post-auth concern, validated +
+  // audited in tenantContextMiddleware). Bare base host → default tenant, so
+  // single-tenant operation is unchanged.
+  return tenantFromHost(req);
+}
 
-  // 1. Explicit tenant UUID header.
-  const rawTenantId = clean(headerGet('x-tenant-id'));
-  if (rawTenantId && TENANT_UUID_RE.test(rawTenantId)) {
-    const tenant = await getTenantById(rawTenantId.toLowerCase());
-    if (tenant && tenant.status === 'active') return tenant.id;
+// W4 (edge routing): the per-tenant subdomain is the authoritative tenant signal.
+// The base host(s) the subdomains sit under (TENANT_BASE_HOST, comma list for
+// prod/staging/dev/localhost). Default 'localhost' keeps tests + local dev working.
+function tenantBaseHosts() {
+  return String(process.env.TENANT_BASE_HOST || 'localhost')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Pure: extract the tenant slug from a Host string, or null for the bare base
+ * host / apex / a host not under any base host (→ default tenant).
+ *
+ * Flat 1st-level model (no Cloudflare ACM): the per-tenant API host is
+ * `<slug>-api.<base>` (e.g. `acme-api.vhhealth.app`), a SINGLE label under the
+ * apex so Cloudflare Universal SSL `*.<base>` covers it for free. ONLY a
+ * leftmost label ending in `-api` marks a tenant host — its `-api` suffix is
+ * stripped to yield the slug. The apex hosts (`api`, `admin`), `www`, and any
+ * other label resolve to the default tenant. The admin app stays single-host
+ * (`admin.<base>`, tenant driven by the token), so no `-admin` form is needed.
+ * Case-insensitive; strips the port. No DB access.
+ *
+ * @param {string} host
+ * @param {string[]} [baseHosts]
+ * @returns {string|null}
+ */
+export function parseTenantSlug(host, baseHosts = tenantBaseHosts()) {
+  const h = String(host || '').toLowerCase().split(':')[0].trim();
+  if (!h) return null;
+  for (const base of baseHosts) {
+    if (h === base) return null;                       // bare base host → default
+    if (h.endsWith('.' + base)) {
+      const label = h.slice(0, -(base.length + 1)).split('.')[0] || '';
+      if (label.endsWith('-api') && label.length > 4) {
+        return label.slice(0, -4);                     // <slug>-api → <slug>
+      }
+      return null;                                     // apex/other label → default
+    }
+  }
+  return null;                                         // not our domain → default
+}
+
+/**
+ * Resolve the tenant a request belongs to from its Host subdomain (W4 trust-by-
+ * topology). Bare base host / unknown domain → default tenant. A configured
+ * subdomain → that tenant; an unknown or inactive subdomain is rejected (mirrors
+ * the resolveTenantForRequest contract). Always returns a valid tenant id (or throws).
+ *
+ * @param {import('express').Request} req
+ * @returns {Promise<string>}
+ */
+export async function tenantFromHost(req) {
+  const host = (typeof req?.hostname === 'string' && req.hostname)
+    || req?.headers?.host
+    || '';
+  const slug = parseTenantSlug(host);
+  if (!slug) return DEFAULT_TENANT_ID;
+  const tenant = await getTenantBySlug(slug);
+  if (!tenant || tenant.status !== 'active') {
     throw AppError.badRequest('Unknown or inactive tenant', 'TENANT_NOT_RESOLVED');
   }
-
-  // 2. Tenant slug header.
-  const rawSlug = clean(headerGet('x-tenant-slug'));
-  if (rawSlug) {
-    const tenant = await getTenantBySlug(rawSlug);
-    if (tenant && tenant.status === 'active') return tenant.id;
-    throw AppError.badRequest('Unknown or inactive tenant', 'TENANT_NOT_RESOLVED');
-  }
-
-  // 3. Single-tenant production floor.
-  return DEFAULT_TENANT_ID;
+  return tenant.id;
 }
 
 export default {
@@ -268,6 +362,10 @@ export default {
   listTenants,
   resolveTenantForRequest,
   resolveTenantForUser,
+  resolveTenantOrThrow,
+  requireTenantId,
+  parseTenantSlug,
+  tenantFromHost,
   updateTenant,
   DEFAULT_TENANT_ID,
 };

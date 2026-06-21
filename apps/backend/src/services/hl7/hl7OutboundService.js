@@ -14,7 +14,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { assertSafeFeedUrl } from '../../utils/ssrfGuard.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
 
 export const MAX_DELIVERY_ATTEMPTS = 7;
@@ -57,7 +57,7 @@ export async function listSubscriptions({ tenantId = null } = {}) {
 export async function createSubscription({
   name, endpointUrl, authHeader = null, messageTypes = ['ADT^A01', 'ADT^A03', 'ORU^R01'],
 } = {}, context = {}) {
-  const tenantId = context.tenantId || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(context.tenantId);
   const cleanedName = (name || '').trim();
   const cleanedUrl = (endpointUrl || '').trim();
   if (!cleanedName) throw AppError.badRequest('name is required', 'HL7_FEED_NAME_REQUIRED');

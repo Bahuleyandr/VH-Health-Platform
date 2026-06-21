@@ -7,11 +7,14 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination } from '../../utils/listQuery.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
-import {
-  recordCanonicalClinicalEvent,
-  startWorkflowSla,
-} from '../clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+// enqueueCriticalResultTask itself (re)starts the mig-269 critical_result_ack
+// SLA AND creates the assigned, ack-tracked task in one idempotent, never-throws
+// call, so the critical-investigation path gets an accountable owner +
+// escalation tier from minute 0 (audit C-3). resultsInboxService does NOT import
+// investigationService, so this static import introduces no ESM cycle.
+import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
 // (migration 082 declared both). Verbose because Prisma has to disambiguate
@@ -733,7 +736,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
   // Snapshot prior state into previous_results before overwriting.
   // Use a transaction so a partial fail leaves the row intact.
   try {
-    return await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    return await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const existing = await tx.investigations.findUnique({
         where: { id: investId },
         select: {
@@ -896,7 +899,7 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
       const critical = hasCriticalResultSignal(updated.results);
       await bestEffortInvestigationCanonical('investigation result', async () => {
         await recordCanonicalClinicalEvent({
-          tenantId: tenantId || DEFAULT_TENANT_ID,
+          tenantId: requireTenantId(tenantId),
           patientUid: updated.patient_uid,
           eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
           eventSubtype: updated.test_type,
@@ -922,18 +925,32 @@ export const addResults = async (id, resultData, userId, tenantId = null) => {
           auditIdempotencyKey: `investigations:${updated.id}:audit:result:v${updated.result_version || 1}`,
         });
         if (critical) {
-          await startWorkflowSla({
-            tenantId: tenantId || DEFAULT_TENANT_ID,
-            ruleCode: 'critical_result_ack',
+          // A critical investigation result must get an ACCOUNTABLE, ack-tracked
+          // task + escalation tier from minute 0 — exactly like the lab and
+          // vitals paths (audit C-3). Previously this branch started the SLA but
+          // never enqueued the results-inbox task, so a critical investigation
+          // result had no owner / no escalation for the first ~15 min.
+          //
+          // enqueueCriticalResultTask itself starts the critical_result_ack SLA
+          // (keyed to the SAME ('investigations', id) resource as the canonical
+          // event above and the ack path that closes it), then creates the
+          // assigned, idempotent ack-task linking that instance. It is
+          // best-effort / never-throws (it must not break the result write) and
+          // idempotent (mig-312 open-task index), so it both replaces the bare
+          // startWorkflowSla and adds the missing task. resourceType is
+          // 'investigations' (the SLA/ack key); source is the human label.
+          await enqueueCriticalResultTask({
+            tenantId: requireTenantId(tenantId),
             patientUid: updated.patient_uid,
-            sourceTable: 'investigations',
-            sourceId: updated.id,
-            priority: 'critical',
-            metadata: {
-              test_name: updated.test_name,
-              test_type: updated.test_type,
-              result_version: updated.result_version,
-            },
+            source: 'investigation',
+            resourceType: 'investigations',
+            resourceId: updated.id,
+            severity: 'critical',
+            title: `Critical result: ${updated.test_name}`,
+            summary: updated.result_summary
+              ? `${updated.test_name}: ${updated.result_summary}`
+              : `${updated.test_name} result is critical — review required.`,
+            orderingClinicianUid: updated.requested_by || null,
           });
         }
       });

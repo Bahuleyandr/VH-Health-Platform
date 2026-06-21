@@ -6,16 +6,15 @@
 
 import logger from '../logging/logger.js';
 import { recordClinicalAuditEvent } from '../services/clinical/canonicalClinicalPlatformService.js';
+import { requireTenantId } from '../services/tenant/tenantService.js';
 import { isStaff } from '../utils/roleHelpers.js';
-
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function deviceTypeOf(req) {
   return String(req.user?.deviceType ?? '').trim().toLowerCase();
 }
 
 function tenantOf(req) {
-  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+  return requireTenantId(req.tenantId || req.user?.tenant_id || req.user?.tenantId);
 }
 
 function patientUidFromRequest(req) {

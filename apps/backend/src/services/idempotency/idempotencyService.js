@@ -38,9 +38,26 @@ export function isValidIdempotencyKey(key) {
 /**
  * Atomically claim a slot for the given (tenant, user, key, path) tuple.
  *
+ * Uniqueness scope (migration 130): the UNIQUE constraint is
+ * (tenant_id, user_uid, request_key, request_path). The first-writer race is
+ * resolved by that constraint's INSERT, so the *path* is always part of the
+ * identity — two endpoints can safely reuse the same client key. The
+ * staff-vitals mount runs this middleware BEFORE tenantContext, so
+ * `tenant_id` can be NULL at claim time; in that case the row is still
+ * uniquely identified by (user_uid, request_key, request_path).
+ *
+ * NULL caveat: Postgres treats NULLs as DISTINCT in a UNIQUE constraint, so
+ * when BOTH tenant_id and user_uid are NULL the atomic INSERT cannot block a
+ * truly-concurrent duplicate. The post-insert COALESCE lookup below still
+ * detects an already-finalised row on a *sequential* retry (the common
+ * client-retry case), and the staff-vitals path always carries a user_uid, so
+ * (user_uid, request_key, request_path) keeps that path atomic. Migration 130
+ * predates `NULLS NOT DISTINCT`; tightening the constraint is a schema change
+ * tracked separately.
+ *
  * Returns:
  *   { state: 'claimed' }                                   — first time, caller proceeds
- *   { state: 'replay', response_status, response_body }    — already complete, cached
+ *   { state: 'replay', response_status, response_body }    — already complete + unexpired
  *   { state: 'in_flight' }                                 — concurrent retry — 409
  *   { state: 'mismatch' }                                  — same key reused with different body
  */
@@ -72,9 +89,11 @@ export async function claimIdempotencyKey({
     }
   }
 
-  // Existing row — fetch and decide.
+  // Existing row — fetch and decide. `is_expired` lets us refuse to replay a
+  // cached response whose retention window has lapsed.
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, status, response_status, response_body, request_body_hash
+    `SELECT id, status, response_status, response_body, request_body_hash,
+            (expires_at IS NOT NULL AND expires_at <= NOW()) AS is_expired
      FROM idempotency_keys
      WHERE COALESCE(tenant_id::text, '') = COALESCE($1::text, '')
        AND COALESCE(user_uid::text, '') = COALESCE($2::text, '')
@@ -92,12 +111,47 @@ export async function claimIdempotencyKey({
     return { state: 'mismatch' };
   }
   if (existing.status === 'complete' || existing.status === 'failed') {
+    // Replay the cached answer only while the row is still within its
+    // retention window. Past expires_at the cached response is stale, so we
+    // re-arm the existing row as a fresh in-flight claim (new body hash + new
+    // expiry) and let the handler re-execute — without this the key would
+    // serve an expired response forever.
+    if (existing.is_expired) {
+      return reclaimExpiredRow({ id: existing.id, requestBodyHash });
+    }
     return {
       state: 'replay',
       response_status: existing.response_status,
       response_body: existing.response_body,
     };
   }
+  return { state: 'in_flight' };
+}
+
+/**
+ * Re-arm an expired row as a fresh in-flight claim so the caller re-executes.
+ * Guarded on status so a concurrent retry that already flipped the row back to
+ * in_flight (or completed it) is reported as in_flight rather than double-armed.
+ */
+async function reclaimExpiredRow({ id, requestBodyHash }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE idempotency_keys
+        SET status = 'in_flight',
+            request_body_hash = $2,
+            response_status = NULL,
+            response_body = NULL,
+            expires_at = NOW() + ($3 || ' hours')::interval,
+            updated_at = NOW()
+      WHERE id = $1
+        AND status IN ('complete', 'failed', 'expired')
+        AND expires_at <= NOW()
+      RETURNING id`,
+    id, requestBodyHash || null, String(RETENTION_HOURS),
+  );
+  if (rows[0]?.id) {
+    return { state: 'claimed', id: rows[0].id };
+  }
+  // Lost the re-arm race — another retry is already executing.
   return { state: 'in_flight' };
 }
 
@@ -120,6 +174,28 @@ export async function finaliseIdempotencyKey({
       cleanStatus,
       responseStatus,
       responseBody !== undefined ? JSON.stringify(responseBody) : null,
+      id,
+    );
+    return rows[0] || null;
+  } catch (err) {
+    if (isMissingSchemaError(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Release an in-flight claim by deleting its row. Called when the handler
+ * produced a transient failure (5xx / timeout) that must NOT be pinned under
+ * the key — deleting frees the (tenant, user, key, path) slot so the client's
+ * retry re-executes the handler and can succeed. A deterministic 4xx is
+ * persisted via finaliseIdempotencyKey instead; only non-deterministic
+ * failures are released here.
+ */
+export async function releaseIdempotencyKey(id) {
+  if (!id) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `DELETE FROM idempotency_keys WHERE id = $1 RETURNING id`,
       id,
     );
     return rows[0] || null;
@@ -158,6 +234,7 @@ export const __testing__ = { RETENTION_HOURS, KEY_MAX_LEN };
 export default {
   claimIdempotencyKey,
   finaliseIdempotencyKey,
+  releaseIdempotencyKey,
   expireOldIdempotencyKeys,
   hashRequestBody,
   isValidIdempotencyKey,

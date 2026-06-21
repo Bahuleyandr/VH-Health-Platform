@@ -164,7 +164,10 @@ export class UserService {
     const phone = normalizePhone(data.phone || data.phoneNumber);
 
     try {
-      const existingUser = await prisma.users.findUnique({
+      // phone is unique per-tenant now (mig 333: @@unique([tenant_id, phone])),
+      // so findUnique/update keyed on phone alone are invalid. findFirst to
+      // locate, then update by the unique uid.
+      const existingUser = await prisma.users.findFirst({
         where: { phone },
         select: { uid: true, role: true }
       });
@@ -176,7 +179,7 @@ export class UserService {
         };
 
         const updatedUser = await prisma.users.update({
-          where: { phone },
+          where: { uid: existingUser.uid },
           data: updateData,
           select: USER_SELECT
         });

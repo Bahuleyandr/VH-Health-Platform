@@ -8,6 +8,7 @@ import notificationOutbox from '../../utils/notifications/notificationOutbox.js'
 import { getFileFromR2, uploadFileToR2 } from '../../utils/r2Storage.js';
 import { scanBuffer } from '../../utils/virusScanner.js';
 import { emitStaffMessage } from '../../utils/websocket/realtimeEmitter.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VALID_PRIORITIES = ['normal', 'urgent', 'critical'];
@@ -36,7 +37,7 @@ const normalizeRole = role =>
   String(role || '')
     .trim()
     .toUpperCase();
-const normalizeTenant = tenantId => tenantId || DEFAULT_TENANT_ID;
+const normalizeTenant = tenantId => requireTenantId(tenantId);
 const isAdminBroadcastRole = role => ADMIN_BROADCAST_ROLES.has(normalizeRole(role));
 const isDepartmentBroadcastRole = role => DEPARTMENT_BROADCAST_ROLES.has(normalizeRole(role));
 

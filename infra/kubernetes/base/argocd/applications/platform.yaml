@@ -23,9 +23,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: argocd
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    # Deploy-safety (audit 2026-06-18): prod sync is MANUAL — NOT auto-tracking
+    # `main` HEAD. A merge to main no longer auto-deploys to the live hospital
+    # cluster; an operator triggers sync deliberately after review. Re-enable
+    # `automated` only against a pinned release tag once a release-promotion
+    # flow exists (do not point automated sync at a moving HEAD).
     syncOptions:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground

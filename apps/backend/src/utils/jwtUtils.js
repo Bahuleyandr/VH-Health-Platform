@@ -55,6 +55,77 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
+// ─── Audience / issuer (audit §3, Auth — defense-in-depth, 2026-06-19) ───
+// Tokens carry an `iss` (issuer) + a per-realm `aud` (audience) so a token
+// minted for one realm cannot be silently replayed against another even if the
+// `role`/`requireRole` layer were ever bypassed. Realm separation still rests
+// primarily on the role claim; this is a second, independent gate.
+//
+// CRITICAL backward-compat contract (see verifyToken below): these are
+// validated ONLY WHEN PRESENT. A grandfathered token minted before this change
+// carries no aud/iss and MUST still verify — it expires naturally. We therefore
+// do NOT use jsonwebtoken's built-in `audience`/`issuer` verify options, which
+// REJECT a token that lacks the claim. Instead we assert post-hoc only when the
+// claim is present.
+export const JWT_ISSUER = 'vh-health-backend';
+export const JWT_AUDIENCES = Object.freeze({
+  patient: 'vh-health-patient',
+  staff: 'vh-health-staff',
+  admin: 'vh-health-admin',
+});
+// Set of every accepted audience — a present `aud` must be one of these.
+const ACCEPTED_AUDIENCES = new Set(Object.values(JWT_AUDIENCES));
+
+// Roles that belong to the admin realm. Kept as a local literal set (rather than
+// importing roleHelpers) so jwtUtils stays a leaf module with no app-graph
+// imports — it is imported almost everywhere and must not pull in role config.
+// SUPER_ADMIN is a real role in the codebase even though it is not on the ROLES
+// enum; ADMIN covers the rest of the admin portal.
+const ADMIN_REALM_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+/**
+ * Map a role to its realm audience. PATIENT → patient; admin roles → admin;
+ * every other (staff/clinical/support/platform) role → staff. Unknown/blank
+ * roles fall back to the patient audience, mirroring generateToken's
+ * `role || 'PATIENT'` default so the issued aud always matches the issued role.
+ * @param {string} [role]
+ * @returns {string} one of JWT_AUDIENCES.*
+ */
+function audienceForRole(role) {
+  const normalized = String(role || 'PATIENT').toUpperCase();
+  if (normalized === 'PATIENT') return JWT_AUDIENCES.patient;
+  if (ADMIN_REALM_ROLES.has(normalized)) return JWT_AUDIENCES.admin;
+  return JWT_AUDIENCES.staff;
+}
+
+/**
+ * Backward-compatible aud/iss assertion. Throws a jsonwebtoken-style error
+ * (so the caller's existing catch sets lastError = 'JsonWebTokenError' and
+ * returns null) ONLY when a claim is present AND wrong. A missing aud/iss is
+ * always accepted — never reject a token solely for a missing realm claim.
+ * @param {Object} decoded - verified JWT payload
+ */
+function assertAudienceAndIssuer(decoded) {
+  if (!decoded || typeof decoded !== 'object') return;
+
+  // `aud` may be a string or (per RFC 7519) an array of strings.
+  if (decoded.aud !== undefined && decoded.aud !== null) {
+    const auds = Array.isArray(decoded.aud) ? decoded.aud : [decoded.aud];
+    const ok = auds.some((a) => ACCEPTED_AUDIENCES.has(a));
+    if (!ok) {
+      const err = new jwt.JsonWebTokenError('jwt audience invalid');
+      throw err;
+    }
+  }
+
+  if (decoded.iss !== undefined && decoded.iss !== null) {
+    if (decoded.iss !== JWT_ISSUER) {
+      const err = new jwt.JsonWebTokenError('jwt issuer invalid');
+      throw err;
+    }
+  }
+}
+
 /**
  * Generates a JWT token with Supabase-compatible claims.
  * @param {Object} payload - { uid, phone, role, ...extraClaims } — all fields are included in the token.
@@ -67,6 +138,12 @@ export function generateToken(payload, expiresIn) {
     jti: crypto.randomUUID(),  // Unique token ID for revocation/blacklisting
     sub: uid,
     role: role || 'PATIENT',
+    // Defense-in-depth (audit §3): stamp issuer + a per-realm audience on every
+    // token. A caller that set iss/aud explicitly (e.g. admin login) wins via
+    // the ...extraClaims spread below; otherwise we default from the role. This
+    // is additive only — verification grandfathers tokens that lack them.
+    iss: JWT_ISSUER,
+    aud: audienceForRole(role),
     ...(phone && { phone }),
     ...extraClaims,  // Include email, type, sub overrides, iss, aud, etc.
     [process.env.JWT_CLAIMS_NAMESPACE || 'https://vhhealth.app/jwt/claims']: {
@@ -95,7 +172,11 @@ export function verifyToken(token) {
     // Explicit algorithm allowlist (audit finding M1): without it, adding
     // any RS/ES/JWKS verification path later opens the classic
     // alg-confusion hole. All first-party tokens are HS256.
-    return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    // Defense-in-depth (audit §3): reject a token that carries a WRONG aud/iss.
+    // No-op when the claims are absent — grandfathers pre-existing tokens.
+    assertAudienceAndIssuer(decoded);
+    return decoded;
   } catch (error) {
     verifyToken.lastError = error.name; // 'TokenExpiredError' | 'JsonWebTokenError' | 'NotBeforeError'
     logger.error('❌ JWT Verification Failed:', error.message || error);
@@ -145,7 +226,11 @@ export function issueSetupToken(admin) {
 export function verifyTokenAllowExpired(token) {
   try {
     // Algorithm allowlist — see verifyToken (audit finding M1).
-    return jwt.verify(token, JWT_SECRET, { ignoreExpiration: true, algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true, algorithms: ['HS256'] });
+    // Defense-in-depth (audit §3): a present-but-wrong aud/iss is rejected even
+    // on the expiry-tolerant refresh path; absent claims still pass (legacy).
+    assertAudienceAndIssuer(decoded);
+    return decoded;
   } catch (error) {
     logger.error('❌ JWT signature verification failed:', error.message || error);
     return null;

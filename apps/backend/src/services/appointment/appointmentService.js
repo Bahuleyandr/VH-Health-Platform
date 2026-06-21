@@ -4,7 +4,7 @@
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
 import { ensureAppointmentQueueForAppointment } from './appointmentQueueService.js';
@@ -99,7 +99,7 @@ export class AppointmentService {
     let bookedDoctorUid = null;
     let bookedDoctorId = null;
     try {
-      const bookingResult = await setTenantTx(tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+      const bookingResult = await setTenantTx(requireTenantId(tenant_id), async (tx) => {
         // Resolve patient phone and, when specified, doctor routing metadata.
         const [pRows, resolvedDoctor] = await Promise.all([
           tx.$queryRaw`
@@ -204,7 +204,7 @@ export class AppointmentService {
         await populateAppointmentCareTeam({
           appointment: bookingResult,
           appointmentId: bookingResult?.id ?? null,
-          tenantId: bookingResult?.tenant_id || tenant_id || DEFAULT_TENANT_ID,
+          tenantId: requireTenantId(bookingResult?.tenant_id || tenant_id),
           patientUid: bookedPatientUid,
           doctorUid: bookedDoctorUid,
           doctorId: bookedDoctorId,
@@ -263,7 +263,7 @@ export class AppointmentService {
       // emergency walk-in but leaves the visit unrouted — see finding
       // 2026-05-10-dynamic-acute-abdomen-receptionist-fallback-no-visit-number.
       if (normalizedStatus === 'CONFIRMED') {
-        await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+        await setTenantTx(requireTenantId(tenantId), async (tx) => {
           const apptRows = await tx.$queryRawUnsafe(
             `SELECT id, patient_id, doctor_id, appointment_date,
                     token_number, confirmed_at, department, status, visit_type
@@ -348,7 +348,7 @@ export class AppointmentService {
                     chief_complaint, status)
                  VALUES ($1::uuid, $2, $3::uuid, 'walk_in', $4, 'arriving')
                  ON CONFLICT (tenant_id, visit_number) DO NOTHING`,
-                tenantId || DEFAULT_TENANT_ID, visitNo, patientUid,
+                requireTenantId(tenantId), visitNo, patientUid,
                 'Confirmed via /status fallback',
               );
             }

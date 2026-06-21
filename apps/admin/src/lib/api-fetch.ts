@@ -8,8 +8,9 @@ export type ApiRequestInit = RequestInit & {
   absolute?: boolean;
 };
 
-// API key is injected server-side in the /api/proxy route via process.env.API_KEY.
-// Client-side code must NOT use NEXT_PUBLIC_API_KEY (would inline the key in the browser bundle).
+// API key is injected server-side in the /api/proxy route via
+// process.env.BACKEND_API_KEY. Client-side code must NOT read the backend key
+// from any NEXT_PUBLIC_* var — Next.js would inline it into the browser bundle.
 
 function isAbsoluteUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);

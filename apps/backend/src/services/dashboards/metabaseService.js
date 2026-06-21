@@ -19,6 +19,7 @@
 import jwt from 'jsonwebtoken';
 import { AppError } from '../../utils/AppError.js';
 import * as snapshotService from './snapshotService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const METABASE_URL = process.env.METABASE_URL || '';
 const METABASE_EMBED_SECRET = process.env.METABASE_EMBED_SECRET || '';
@@ -104,7 +105,7 @@ export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600, tenantId = D
     resource: { dashboard: dash.metabase_id },
     params: {
       ...params,
-      tenant_id: tenantId || DEFAULT_TENANT,
+      tenant_id: requireTenantId(tenantId),
     },
     exp: Math.round(Date.now() / 1000) + Math.max(60, Math.min(86400, ttlSeconds)),
   };

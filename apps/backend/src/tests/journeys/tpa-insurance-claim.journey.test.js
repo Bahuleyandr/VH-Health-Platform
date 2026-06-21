@@ -559,7 +559,10 @@ describeJourney('Journey: tpa-insurance-claim', () => {
       // invoice to PAID -> billingV2Service.syncUnusedAdmissionAdvancesForInvoice
       // (the 42P18 CONCAT_WS bug is fixed, $2::text), zeroing amount_due so the
       // 'billing' discharge work item can finally clear (assertBillingReadyForCompletion).
-      const payRes = await admin.post('/api/v1/billing/v2/payments').send({
+      const payRes = await admin
+        .post('/api/v1/billing/v2/payments')
+        .set('Idempotency-Key', `tpa-pay-${RUN}`)
+        .send({
         invoice_id: invoiceId,
         patient_uid: PATIENT_UID,
         amount: TOTAL_BILLED,

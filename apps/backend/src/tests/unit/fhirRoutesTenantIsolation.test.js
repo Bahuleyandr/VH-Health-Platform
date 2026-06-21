@@ -34,6 +34,8 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: TENANT_A,
+  resolveTenantOrThrow: (req) => req?.tenantId || TENANT_A,
+  requireTenantId: (tenantId) => tenantId || TENANT_A,
 }));
 
 jest.unstable_mockModule('../../services/emr/vitalsChartService.js', () => ({
@@ -152,14 +154,14 @@ describe('FHIR R4 tenant isolation', () => {
   it('does not leak a Patient read for a cross-tenant patient id', async () => {
     const res = await request(buildApp(TENANT_A)).get(`/fhir/Patient/${PATIENT_B}`);
 
-    expect(res.status).toBe(404);
+    // Audit 2026-06-18 §3 finding #1 (enumeration oracle): a present-but-
+    // unresolvable patient ref — including a cross-tenant id — now returns 403
+    // (not 404). A 404-for-unresolvable / 403-for-no-relationship split is itself
+    // a patient-existence oracle; the fix collapses it to "403-both". The read is
+    // still blocked before any demographic row is returned.
+    expect(res.status).toBe(403);
     expect(res.body.resourceType).toBe('OperationOutcome');
-    expect(res.body.issue[0].code).toBe('not-found');
-
-    const [sql, patientUid, tenantId] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toContain('tenant_id = $2::uuid');
-    expect(patientUid).toBe(PATIENT_B);
-    expect(tenantId).toBe(TENANT_A);
+    expect(res.body.issue[0].code).toBe('forbidden');
   });
 
   it('blocks cross-tenant Observation creates before the vitals sink', async () => {

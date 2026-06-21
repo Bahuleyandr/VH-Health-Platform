@@ -37,9 +37,25 @@ const SEVERITY_RANK = {
   MILD: 1,
 };
 
-function rankSeverity(value) {
-  if (!value) return 0;
-  return SEVERITY_RANK[String(value).trim().toUpperCase()] || 0;
+// At/above this rank an allergy-drug conflict is a hard blocker, not a warning
+// (SEVERE / CONTRAINDICATED and up). Exported so the prescription gate ranks
+// severity instead of matching a hardcoded label set.
+export const SEVERE_BLOCK_RANK = 4;
+
+// Labels that explicitly assert NO known severity → rank 0 (warning, not a
+// blocker). These are deliberate "we don't know" sentinels, distinct from an
+// UNPARSEABLE label.
+const NO_SEVERITY_CLAIM = new Set(['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL']);
+
+// A severity that is PRESENT and not an explicit no-claim sentinel but is not in
+// SEVERITY_RANK is treated as SEVERE (fail-safe): a clinician recorded a real
+// severity we merely failed to parse, and we must never silently downgrade it to
+// a warning. Absent/blank/no-claim severity stays 0 (free-text/profile/intake).
+export function rankSeverity(value) {
+  if (value == null) return 0;
+  const key = String(value).trim().toUpperCase();
+  if (!key || NO_SEVERITY_CLAIM.has(key)) return 0;
+  return SEVERITY_RANK[key] ?? SEVERE_BLOCK_RANK;
 }
 
 /**
@@ -89,68 +105,93 @@ export async function getUnifiedActiveAllergies(db, { patientId = null, patientU
     : null;
   if (idInt == null && uid == null) return [];
 
+  // Resolve the patient once (id + uid + free-text profile allergies). If even
+  // this fails the patient is genuinely unresolvable and there is nothing to
+  // fetch.
+  let patient = null;
   try {
-    const rows = await db.$queryRawUnsafe(
-      `WITH patient_row AS (
-         SELECT id, uid, allergies
-           FROM users
-          WHERE ($1::int  IS NOT NULL AND id  = $1::int)
-             OR ($2::uuid IS NOT NULL AND uid = $2::uuid)
-          LIMIT 1
-       ),
-       structured AS (
-         SELECT pa.allergy_name AS allergen, pa.severity, 'patient_allergies' AS source
-           FROM patient_allergies pa
-           JOIN patient_row p ON (pa.patient_id = p.id OR pa.patient_uid = p.uid)
-          WHERE COALESCE(pa.is_active, TRUE) = TRUE
-       ),
-       legacy AS (
-         SELECT COALESCE(NULLIF(a.allergen, ''), a.name) AS allergen, a.severity,
-                'allergies' AS source
-           FROM allergies a
-           JOIN patient_row p ON a.patient_uid = p.uid
-          WHERE COALESCE(a.status, 'active') NOT IN ('inactive', 'resolved', 'entered-in-error')
-       ),
-       profile AS (
-         SELECT trim(value) AS allergen, NULL::text AS severity, 'users.allergies' AS source
-           FROM patient_row p,
-                regexp_split_to_table(COALESCE(p.allergies, ''), ',') AS value
-          WHERE trim(value) <> ''
-       ),
-       admission_intake AS (
-         SELECT trim(value) AS allergen, NULL::text AS severity, 'admission_intake' AS source
-           FROM patient_row p
-           JOIN LATERAL (
-             SELECT a2.allergies
-               FROM admissions a2
-              WHERE a2.patient_uid = p.uid
-                AND COALESCE(a2.status, 'admitted') NOT IN ('discharged', 'cancelled')
-              ORDER BY a2.created_at DESC
-              LIMIT 1
-           ) latest ON TRUE,
-           unnest(COALESCE(latest.allergies, ARRAY[]::text[])) AS value
-          WHERE trim(value) <> ''
-       )
-       SELECT allergen, severity, source
-         FROM (
-           SELECT * FROM structured
-           UNION ALL SELECT * FROM legacy
-           UNION ALL SELECT * FROM profile
-           UNION ALL SELECT * FROM admission_intake
-         ) merged
-        WHERE allergen IS NOT NULL AND trim(allergen) <> ''`,
+    const prows = await db.$queryRawUnsafe(
+      `SELECT id, uid, allergies
+         FROM users
+        WHERE ($1::int  IS NOT NULL AND id  = $1::int)
+           OR ($2::uuid IS NOT NULL AND uid = $2::uuid)
+        LIMIT 1`,
       idInt,
       uid,
     );
-    return mergeAllergyRows(rows);
+    patient = prows[0] || null;
   } catch (err) {
-    logger.warn('Unified allergy fetch failed — treating as no structured allergies on file', {
-      patientId: idInt,
-      patientUid: uid,
-      error: err?.message,
+    logger.warn('Unified allergy fetch: patient lookup failed', {
+      patientId: idInt, patientUid: uid, error: err?.message,
     });
     return [];
   }
+  if (!patient) return [];
+
+  // Each source is queried INDEPENDENTLY and its failure is isolated: a single
+  // source's schema fault (e.g. a table missing on a partial DB) must degrade
+  // only THAT source, never silently zero every allergy at the prescription
+  // gate (audit §3: fail-open UNION). The free-text profile source is pure JS
+  // so it cannot fail.
+  const rows = [];
+
+  // 1. Structured store (patient_allergies).
+  try {
+    const r = await db.$queryRawUnsafe(
+      `SELECT pa.allergy_name AS allergen, pa.severity
+         FROM patient_allergies pa
+        WHERE (pa.patient_id = $1::int OR pa.patient_uid = $2::uuid)
+          AND COALESCE(pa.is_active, TRUE) = TRUE`,
+      patient.id,
+      patient.uid,
+    );
+    for (const row of r) rows.push({ allergen: row.allergen, severity: row.severity, source: 'patient_allergies' });
+  } catch (err) {
+    logger.warn("Unified allergy fetch: source 'patient_allergies' failed — skipping it", { error: err?.message });
+  }
+
+  // 2. Legacy/import table (allergies).
+  try {
+    const r = await db.$queryRawUnsafe(
+      `SELECT COALESCE(NULLIF(a.allergen, ''), a.name) AS allergen, a.severity
+         FROM allergies a
+        WHERE a.patient_uid = $1::uuid
+          AND COALESCE(a.status, 'active') NOT IN ('inactive', 'resolved', 'entered-in-error')`,
+      patient.uid,
+    );
+    for (const row of r) rows.push({ allergen: row.allergen, severity: row.severity, source: 'allergies' });
+  } catch (err) {
+    logger.warn("Unified allergy fetch: source 'allergies' failed — skipping it", { error: err?.message });
+  }
+
+  // 3. Free-text profile column (users.allergies) — pure JS, cannot fail.
+  for (const value of String(patient.allergies || '').split(',')) {
+    const allergen = value.trim();
+    if (allergen) rows.push({ allergen, severity: null, source: 'users.allergies' });
+  }
+
+  // 4. Admission intake (latest active admission's allergies[]).
+  try {
+    const r = await db.$queryRawUnsafe(
+      `SELECT trim(value) AS allergen
+         FROM (
+           SELECT a2.allergies
+             FROM admissions a2
+            WHERE a2.patient_uid = $1::uuid
+              AND COALESCE(a2.status, 'admitted') NOT IN ('discharged', 'cancelled')
+            ORDER BY a2.created_at DESC
+            LIMIT 1
+         ) latest,
+         unnest(COALESCE(latest.allergies, ARRAY[]::text[])) AS value
+        WHERE trim(value) <> ''`,
+      patient.uid,
+    );
+    for (const row of r) rows.push({ allergen: row.allergen, severity: null, source: 'admission_intake' });
+  } catch (err) {
+    logger.warn("Unified allergy fetch: source 'admission_intake' failed — skipping it", { error: err?.message });
+  }
+
+  return mergeAllergyRows(rows);
 }
 
 export default { getUnifiedActiveAllergies, mergeAllergyRows };

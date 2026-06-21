@@ -17,6 +17,27 @@ import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
 
+// ─── Durable file fallback ────────────────────────────────────────────────────
+// The "audit never lost" guarantee: when the universal audit row cannot reach
+// the DB — whether because the bounded queue is full (backpressure drop) or the
+// INSERT itself failed — the entry is written to the Winston file sink instead
+// of being silently dropped. logger.warn lands in error.log/combined.log (and
+// the rotated daily file), so the entry is recoverable by operators. The inner
+// try/catch keeps even a logger/transport failure from escaping (last resort:
+// console.error) since several call sites run inside detached setImmediate
+// callbacks where a throw would become an unhandled rejection.
+function _auditLogToFile(reason, entry) {
+  try {
+    logger.warn(`Audit log ${reason}, writing to file fallback:`, entry);
+  } catch (logErr) {
+    try {
+      console.error('AUDIT_LOG file fallback failed:', reason, JSON.stringify(entry), logErr?.message);
+    } catch {
+      // Nothing more we can safely do; never throw out of the audit path.
+    }
+  }
+}
+
 // ─── Path → module mapping ───────────────────────────────────────────────────
 export function deriveModule(path) {
   const p = String(path || '').toLowerCase();
@@ -403,7 +424,25 @@ export function auditLogMiddleware(req, res, next) {
 
   res.on('finish', () => {
     if (pendingAuditLogs >= MAX_PENDING_AUDIT_LOGS) {
-      logger.warn('Audit log queue full, dropping entry');
+      // Backpressure drop — but the audit entry must still be durable. Write it
+      // to the same Winston file fallback the DB-error path uses so it is never
+      // silently lost (audit §3). Build the minimal recoverable tuple here; the
+      // full enrichment in the setImmediate branch is skipped under load.
+      const cleanPathOnDrop = req.originalUrl ? req.originalUrl.split('?')[0] : (req.path || '');
+      const userOnDrop = req.user;
+      _auditLogToFile('queue full', {
+        action: deriveAction(req.method, cleanPathOnDrop),
+        module: deriveModule(cleanPathOnDrop),
+        userId: normalizeAuditLogUserId(
+          userOnDrop?.id ?? userOnDrop?.userId ?? userOnDrop?.user_id ?? null,
+        ),
+        userRole: userOnDrop?.role || userOnDrop?.claims?.role || null,
+        path: req.originalUrl,
+        method: req.method,
+        status_code: res.statusCode,
+        tenant_id: auditTenantId(req),
+        timestamp: new Date().toISOString(),
+      });
       return;
     }
     pendingAuditLogs++;
@@ -467,7 +506,7 @@ export function auditLogMiddleware(req, res, next) {
         );
       } catch (err) {
         // Fallback: write to audit log file when DB is unavailable
-        logger.warn('Audit DB write failed, writing to file fallback:', {
+        _auditLogToFile('DB write failed', {
           action: deriveAction(method, cleanPath),
           userId: userId,
           path: req.originalUrl,

@@ -10,7 +10,7 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
 import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
 import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
-import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
+import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
 
 
 // Local pg-shape shim: returns the raw `rows` array directly for any
@@ -66,12 +66,12 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   const phone = normalizePhone(firebasePhone);
   const firebaseUid = decodedToken.uid;
 
-  // SEC-5: resolve the tenant from the REQUEST before we look up identity.
-  // This runs before tenantContextMiddleware (no req.user yet), so we derive
-  // the tenant from request-level signals (x-tenant-id / x-tenant-slug),
-  // falling back to the single-tenant default. Scoping the lookup by tenant
-  // prevents a phone that exists in two tenants from resolving arbitrarily
-  // and minting a JWT bound to the wrong tenant.
+  // SEC-5 / W4: resolve the tenant from the REQUEST before we look up identity.
+  // This runs before tenantContextMiddleware (no req.user yet), so we derive the
+  // tenant from the request HOST subdomain (trust-by-topology — client x-tenant-*
+  // headers are not trusted), falling back to the single-tenant default for the
+  // bare host. Scoping the lookup by tenant prevents a phone that exists in two
+  // tenants from resolving arbitrarily and minting a JWT bound to the wrong tenant.
   const tenantId = await resolveTenantForRequest(req);
 
   // Check if user exists in our database — scoped to the resolved tenant.
@@ -145,17 +145,29 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     deviceType,
     req,
   });
-  
+
+  // C-9 companion (audit 2026-06-18): mint a SEPARATE type:'refresh' token for
+  // the primary patient login path. Without it the client holds only the short
+  // access token and its old bearer-rotation now 401s at /refresh-token (which
+  // accepts type:'refresh' only) — forcing a re-login every hour.
+  const refreshToken = generateRefreshToken({
+    uid: user.uid,
+    id: user.id,
+    phone: user.phone,
+    role: user.role,
+  });
+
   // Store device info if provided
   if (deviceInfo) {
     await storeDeviceInfo(user.uid, deviceInfo);
   }
-  
+
   // Log authentication
   await logFirebaseAuth(phone, isNewUser ? AUTH_ACTIONS.FIREBASE_REGISTER : AUTH_ACTIONS.FIREBASE_LOGIN, true, null, req);
-  
+
   return {
     accessToken,
+    refreshToken,
     isNewUser,
     user: {
       uid: user.uid,
@@ -284,10 +296,20 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     req,
   });
 
+  // C-9 companion (audit 2026-06-18): a separate type:'refresh' token, so an
+  // account-link login can refresh through /refresh-token like every other path.
+  const refreshToken = generateRefreshToken({
+    uid: user.uid,
+    id: user.id,
+    phone: user.phone,
+    role: user.role,
+  });
+
   logger.info(`🔗 Firebase account linked to existing user: ${maskPhoneForLog(normalizedPhone)}`);
-  
+
   return {
     accessToken,
+    refreshToken,
     user: {
       uid: user.uid,
       id: user.id,
@@ -513,8 +535,18 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
     req,
   });
 
+  // C-9 companion (audit 2026-06-18): a separate type:'refresh' token so the
+  // legacy register path is refreshable through /refresh-token too.
+  const refreshToken = generateRefreshToken({
+    uid: user.uid,
+    id: user.id,
+    phone: user.phone,
+    role: user.role,
+  });
+
   return {
     token,
+    refreshToken,
     user: {
       uid: user.uid,
       id: user.id,

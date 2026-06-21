@@ -1,4 +1,4 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
@@ -188,8 +188,11 @@ async function findDoctorRecipients(admission) {
     admission.attending_doctor,
     admission.admitting_doctor,
   ]);
-  if (!doctorUids.length) return [];
+  if (!doctorUids.length || !admission.tenant_id) return [];
 
+  // The doctor UIDs come from the admission row itself (already tenant-bound),
+  // but we still scope by users.tenant_id ($4) so recipient resolution is
+  // uniformly tenant-internal and cannot leak across tenants.
   return prisma.$queryRawUnsafe(
     `SELECT id,
             uid,
@@ -204,21 +207,28 @@ async function findDoctorRecipients(admission) {
        FROM users
       WHERE uid = ANY($1::uuid[])
         AND is_active = true
+        AND tenant_id = $4::uuid
         AND role = ANY($3::text[])
       ORDER BY CASE WHEN uid = $2::uuid THEN 0 ELSE 1 END, id`,
     doctorUids,
     admission.attending_doctor || admission.admitting_doctor || null,
     DOCTOR_ROLES,
+    admission.tenant_id,
   );
 }
 
 async function findRosterNurseRecipients({
+  tenantId = null,
   wardId = null,
   wardName = null,
   now = new Date(),
   timezone = DEFAULT_TIMEZONE,
 } = {}) {
+  if (!tenantId) return [];
   if (!wardId && !wardName) return [];
+  // The staff_shift_roster_* tables carry no tenant_id; the admission's tenant
+  // is enforced through users.tenant_id ($6) so a nurse rostered in another
+  // tenant (even on a same-id / same-named ward) is never selected.
   return prisma.$queryRawUnsafe(
     `WITH ctx AS (
        SELECT $3::timestamptz AS ts,
@@ -245,6 +255,7 @@ async function findRosterNurseRecipients({
         AND a.assignment_target_type = 'ward'
        JOIN users u ON u.id = a.staff_id
       WHERE u.is_active = true
+        AND u.tenant_id = $6::uuid
         AND u.role = ANY($5::text[])
         AND (
           ($1::int IS NOT NULL AND a.assignment_target_id = $1::int)
@@ -271,10 +282,14 @@ async function findRosterNurseRecipients({
     toIso(now),
     timezone,
     NURSING_ROLES,
+    tenantId,
   );
 }
 
-async function findNursingInchargeFallbackRecipients() {
+async function findNursingInchargeFallbackRecipients({ tenantId = null } = {}) {
+  if (!tenantId) return [];
+  // Tenant-scope the escalation fallback through users.tenant_id ($1) so a
+  // super-admin cron sweep never pages an in-charge from a different tenant.
   return prisma.$queryRawUnsafe(
     `SELECT id,
             uid,
@@ -285,6 +300,7 @@ async function findNursingInchargeFallbackRecipients() {
             'nursing_escalation_fallback'::text AS source
        FROM users
       WHERE is_active = true
+        AND tenant_id = $1::uuid
         AND role IN ('NURSING_INCHARGE', 'ICU_INCHARGE', 'CNO')
       ORDER BY CASE role
                  WHEN 'NURSING_INCHARGE' THEN 0
@@ -293,6 +309,7 @@ async function findNursingInchargeFallbackRecipients() {
                END,
                name NULLS LAST,
                id`,
+    tenantId,
   );
 }
 
@@ -304,6 +321,7 @@ export async function resolveDrugChartAlertRecipients({
   const [doctors, nurses] = await Promise.all([
     findDoctorRecipients(admission),
     findRosterNurseRecipients({
+      tenantId: admission.tenant_id,
       wardId: admission.ward_id,
       wardName: admission.ward_name,
       now,
@@ -313,7 +331,7 @@ export async function resolveDrugChartAlertRecipients({
 
   const fallbackNursing = nurses.length
     ? []
-    : await findNursingInchargeFallbackRecipients();
+    : await findNursingInchargeFallbackRecipients({ tenantId: admission.tenant_id });
 
   return uniqueRecipients([...doctors, ...nurses, ...fallbackNursing]);
 }
@@ -325,7 +343,7 @@ async function insertDrugChartNotifications({
   graceMinutes = DEFAULT_GRACE_MINUTES,
 } = {}) {
   const ids = uniqueRecipients(recipients).map(row => row.id);
-  if (!ids.length) return [];
+  if (!ids.length || !admission.tenant_id) return [];
 
   const title = 'Drug chart pending after admission';
   const body = `${admissionLabel(admission)} has no inpatient drug chart after ${graceMinutes} minutes. Please review and enter orders or document the plan.`;
@@ -336,10 +354,16 @@ async function insertDrugChartNotifications({
     alert_state: 'open',
   });
 
-  return prisma.$queryRawUnsafe(
+  // The sweep runs under a super-admin cron context, so the GUC-reading
+  // tenant_id DEFAULT on `notifications` would resolve to the literal default
+  // tenant. Write the admission's true tenant_id explicitly ($8) AND scope the
+  // recipient sub-select by u.tenant_id so a stray cross-tenant recipient id is
+  // never inserted; setTenantTx pins the GUC so the dedup/WITH CHECK both apply
+  // to the admission's tenant.
+  return setTenantTx(admission.tenant_id, (tx) => tx.$queryRawUnsafe(
     `INSERT INTO notifications
        (uid, user_id, phone, title, body, type, priority, data, is_read,
-        created_at, updated_at, related_id, recipient_role)
+        created_at, updated_at, related_id, recipient_role, tenant_id)
      SELECT u.uid,
             u.id,
             u.phone,
@@ -352,10 +376,12 @@ async function insertDrugChartNotifications({
             $6::timestamptz,
             $6::timestamptz,
             $1::int,
-            u.role
+            u.role,
+            $8::uuid
        FROM users u
       WHERE u.id = ANY($7::int[])
         AND u.is_active = true
+        AND u.tenant_id = $8::uuid
         AND u.phone IS NOT NULL
         AND TRIM(u.phone) <> ''
         AND NOT EXISTS (
@@ -373,7 +399,8 @@ async function insertDrugChartNotifications({
     JSON.stringify(data),
     toIso(now),
     ids,
-  );
+    admission.tenant_id,
+  ));
 }
 
 async function insertMissingDrugChartAudit({
@@ -405,7 +432,7 @@ async function insertMissingDrugChartAudit({
        (uid, role, action, resource, resource_id, metadata, created_at)
      SELECT NULL::uuid,
             'system',
-            $2,
+            $2::varchar,
             'admission',
             $1::text,
             $3::jsonb,
@@ -413,7 +440,7 @@ async function insertMissingDrugChartAudit({
       WHERE NOT EXISTS (
         SELECT 1
           FROM audit_logs
-         WHERE action = $2
+         WHERE action = $2::varchar
            AND resource = 'admission'
            AND resource_id = $1::text
       )
@@ -607,7 +634,7 @@ export async function recordFirstDrugChartEntry(order) {
          (uid, role, action, resource, resource_id, metadata, created_at)
        SELECT $2::uuid,
               'system',
-              $3,
+              $3::varchar,
               'admission',
               $1::text,
               $4::jsonb,
@@ -615,7 +642,7 @@ export async function recordFirstDrugChartEntry(order) {
         WHERE NOT EXISTS (
           SELECT 1
             FROM audit_logs
-           WHERE action = $3
+           WHERE action = $3::varchar
              AND resource = 'admission'
              AND resource_id = $1::text
         )

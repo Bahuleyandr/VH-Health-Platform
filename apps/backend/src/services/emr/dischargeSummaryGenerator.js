@@ -7,13 +7,9 @@ import { publishEvent } from '../events/eventOutboxService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { collectAdmissionClinicalContext } from './clinicalTimelineService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const PROMPT_VERSION = 'clinical-discharge-v1';
-
-// Fallback tenant when the request doesn't carry one. clinical_ai_generations.tenant_id
-// is NOT NULL in the schema, so we always need a value. Matches the historical
-// raw-SQL fallback ('00000000-0000-4000-8000-000000000001').
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Common Prisma `select` shapes — keep these in one place so every read returns
 // the same projection the pre-ORM raw SQL did.
@@ -892,7 +888,7 @@ async function saveAiGeneration(context, summary, requestedBy, sourceHash, tenan
 
   return prisma.clinical_ai_generations.create({
     data: {
-      tenant_id: tenantId || DEFAULT_TENANT_ID,
+      tenant_id: requireTenantId(tenantId),
       patient_uid: context.admission.patient_uid,
       admission_id: context.admission.id,
       task_type: 'discharge_summary',
@@ -1216,7 +1212,7 @@ export async function signDischargeSummary(admissionId, doctorUid, tenantId = nu
   const signedAt = new Date();
   const signer = await resolveSignerDetails(doctorUid);
 
-  const txnResult = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+  const txnResult = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const note = await tx.clinical_notes.findFirst({
       where: {
         encounter_id: admission.encounter_id,

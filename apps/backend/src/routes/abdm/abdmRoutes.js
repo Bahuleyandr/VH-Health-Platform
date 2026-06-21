@@ -10,7 +10,10 @@ import logger from '../../logging/logger.js';
 import abdmService from '../../services/abdm/abdmService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
-import { verifySignedRequest } from '../../utils/signedRequest.js';
+import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
+import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 
 // ====================================
 // CALLBACK ROUTER — Public (no JWT)
@@ -18,15 +21,25 @@ import { verifySignedRequest } from '../../utils/signedRequest.js';
 // ====================================
 
 const callbackRouter = Router();
+// Audit 2026-06-18: throttle the unauthenticated ABDM callback surface — each
+// request does DB + HMAC work, so brute-force/DoS must be capped before that.
+callbackRouter.use(genericLimiter);
 const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
 
 /**
  * Middleware: Validate ABDM gateway request authenticity.
  * ABDM callbacks are public by mount, so enabled callbacks must be
  * self-authenticating: HIP id, timestamp, request id, HMAC signature,
- * and process-local replay protection.
+ * and replay protection.
+ *
+ * Replay protection is two-layered, mirroring HL7 /receive:
+ *   - verifySignedRequest: sync HMAC + freshness + same-PROCESS replay (Map).
+ *   - assertSharedReplayOnce: cross-REPLICA replay guard (Redis SET NX EX → DB
+ *     interop_replay_guard, fail-closed). The per-process Map is defeated by the
+ *     3-replica cluster / a restart, so a captured (still-fresh) signed callback
+ *     replayed against a different replica would otherwise be accepted again.
  */
-function validateABDMRequest(req, res, next) {
+async function validateABDMRequest(req, res, next) {
   if (!ABDM_CALLBACK_PATHS.has(req.path)) {
     return next('router');
   }
@@ -35,27 +48,56 @@ function validateABDMRequest(req, res, next) {
     return error(res, 'ABDM integration is not enabled', 503);
   }
 
-  if (!ABDM_CONFIG.hipId) {
-    logger.error('ABDM callback rejected: ABDM_HIP_ID is not configured');
-    return error(res, 'ABDM HIP ID is not configured', 503);
-  }
-
   const hipId = req.headers['x-hip-id'];
-  if (!hipId || hipId !== ABDM_CONFIG.hipId) {
-    logger.warn('ABDM callback rejected: HIP ID mismatch', { received: hipId, expected: ABDM_CONFIG.hipId });
+  if (!hipId) {
+    logger.warn('ABDM callback rejected: missing HIP ID');
     return error(res, 'Invalid HIP ID', 401);
   }
 
+  // W3: resolve the tenant from the HIP id BEFORE the HMAC check, then verify with
+  // THAT tenant's secret — so one hospital's secret cannot authenticate a callback
+  // aimed at another. A per-tenant row (tenant_interop_secrets) wins; the
+  // configured global HIP id is the env-backed DEFAULT tenant (single-tenant
+  // unchanged). An unrecognized HIP id is rejected — no blanket global fallback.
+  let tenantId = await resolveTenantBySender('abdm_callback', hipId);
+  let callbackSecret = tenantId ? await getInteropSecret(tenantId, 'abdm_callback') : null;
+  if (!callbackSecret && ABDM_CONFIG.hipId && hipId === ABDM_CONFIG.hipId) {
+    tenantId = DEFAULT_TENANT_ID;
+    callbackSecret = ABDM_CONFIG.callbackSecret;
+  }
+  if (!tenantId || !callbackSecret) {
+    logger.warn('ABDM callback rejected: unrecognized HIP ID', { received: hipId });
+    return error(res, 'Invalid HIP ID', 401);
+  }
+
+  // Resolve the signed-request fields once so the same identity feeds BOTH the
+  // sync HMAC check and the cross-replica replay claim.
+  const signature = req.headers['x-abdm-signature'] || req.headers['x-vhhealth-abdm-signature'];
+  const timestamp = req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp;
+  const requestId = req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id;
+
   try {
+    // Sync fast-path: HMAC + freshness + same-process replay.
     verifySignedRequest({
-      secret: ABDM_CONFIG.callbackSecret,
-      signature: req.headers['x-abdm-signature'] || req.headers['x-vhhealth-abdm-signature'],
-      timestamp: req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp,
-      requestId: req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id,
+      secret: callbackSecret,
+      signature,
+      timestamp,
+      requestId,
       payload: req.body || {},
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
       replayNamespace: 'abdm-callback',
+    });
+    // Cross-replica replay guard (the per-process Map above is defeated by the
+    // multi-worker / multi-replica cluster). Fail-closed like HL7: a detected
+    // replay OR an unreachable store rejects the request.
+    await assertSharedReplayOnce({
+      replayNamespace: 'abdm-callback',
+      requestId,
+      timestamp,
+      signature,
+      context: 'ABDM callback',
+      codePrefix: 'ABDM_CALLBACK',
     });
   } catch (err) {
     logger.warn('ABDM callback rejected: authenticity check failed', {
@@ -65,6 +107,10 @@ function validateABDMRequest(req, res, next) {
     return error(res, err.message, err.statusCode || 401);
   }
 
+  // Hand the resolved tenant to the downstream handler (it still re-derives the
+  // tenant from the matched patient/consent for the write, but this records the
+  // callback's authenticated tenant).
+  req.tenantId = tenantId;
   next();
 }
 
@@ -91,6 +137,24 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
       requester: notification.requester || {},
       dateRange: notification.permission?.dateRange || notification.dateRange || {},
       expiry: notification.permission?.dataEraseAt || notification.expiry,
+      // Thread the CM-signed consent artefact + its detached signature so
+      // handleConsentRequest -> _verifyConsentArtefact can verify the CM RSA
+      // signature (audit C-4b). Without these the verifier always saw undefined
+      // and, once ABDM_VERIFY_CONSENT_ARTEFACT is enabled, rejected EVERY consent
+      // as ABDM_CONSENT_UNSIGNED. Field names cover the common ABDM shapes (flat
+      // consentDetail/consentArtefact and the nested consent.* form); confirm the
+      // exact production gateway contract before flipping verification on.
+      consentArtefact:
+        notification.consentDetail
+        || notification.consentArtefact
+        || notification.consent?.consentDetail
+        || notification.consent?.consentArtefact
+        || null,
+      signature:
+        notification.signature
+        || notification.consent?.signature
+        || req.body?.signature
+        || null,
     };
 
     const consent = await abdmService.handleConsentRequest(consentRequest);

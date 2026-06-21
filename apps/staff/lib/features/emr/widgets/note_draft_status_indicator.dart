@@ -58,7 +58,9 @@ class NoteDraftStatusIndicator extends StatelessWidget {
         return (Icons.cloud_sync_outlined, 'Saving…', AppTheme.textSecondary);
       case NoteDraftStatusKind.saved:
         final at = value.savedAt;
-        final when = at != null ? DateFormat('h:mm a').format(at.toLocal()) : '';
+        final when = at != null
+            ? DateFormat('h:mm a').format(at.toLocal())
+            : '';
         return (
           Icons.cloud_done_outlined,
           when.isEmpty ? 'Draft saved' : 'Saved $when',

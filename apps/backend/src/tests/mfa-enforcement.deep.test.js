@@ -12,6 +12,7 @@
 // skip pattern of other *-deep.test.js integration tests).
 
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { generate as otpGenerate } from 'otplib';
 import request from 'supertest';
 import app from '../app.js';
@@ -263,5 +264,100 @@ d('MFA enforcement for SUPER_ADMIN — deep integration', () => {
     expect(dbAdmin.totp_enabled).toBe(true);
     expect(dbAdmin.totp_secret_encrypted).toBe(enrollPayload.encryptedSecret);
     expect(dbAdmin.totp_enrolled_at).not.toBeNull();
+  });
+
+  // ---------------------------------------------------------------------
+  // 7. A completed login-time 2FA challenge stamps the `mfa` step-up claim
+  //    on the issued JWT (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
+  //    requireSuperAdminStepUp reads req.user.mfa to scope the bypass on
+  //    sensitive namespaces, so the challenge-verify token MUST carry it.
+  // ---------------------------------------------------------------------
+  it('stamps mfa:true on the JWT issued by a completed login 2FA challenge', async () => {
+    process.env.REQUIRE_MFA_FOR_SUPER_ADMIN = 'true';
+    const u = USERNAME_SUPER_NO_TOTP_FLAG_OFF; // super-admin, unused past scenario 2
+
+    // Enroll a real TOTP secret so the login path returns a challenge.
+    await prisma.$executeRawUnsafe(
+      `UPDATE admins SET totp_enabled = FALSE, totp_secret_encrypted = NULL,
+              totp_backup_codes = NULL, totp_enrolled_at = NULL WHERE username = $1`,
+      u,
+    );
+    const login1 = await request(app)
+      .post('/api/v1/auth/admin/login')
+      .set('x-api-key', API_KEY)
+      .send({ username: u, password: PASSWORD });
+    const setupToken = (login1.body?.data ?? login1.body).setupToken;
+    expect(setupToken).toEqual(expect.any(String));
+    const enroll = await request(app)
+      .post('/api/v1/auth/admin/mfa/setup-enroll')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${setupToken}`);
+    const ep = enroll.body?.data ?? enroll.body;
+    const secret = decryptSecret(ep.encryptedSecret);
+    await request(app)
+      .post('/api/v1/auth/admin/mfa/setup-confirm')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${setupToken}`)
+      .send({ code: await otpGenerate({ secret }), encryptedSecret: ep.encryptedSecret, backupCodes: ep.backupCodes });
+
+    // Fresh login → TOTP challenge → verify.
+    const login2 = await request(app)
+      .post('/api/v1/auth/admin/login')
+      .set('x-api-key', API_KEY)
+      .send({ username: u, password: PASSWORD });
+    const challengeToken = (login2.body?.data ?? login2.body).challengeToken;
+    expect(challengeToken).toEqual(expect.any(String));
+
+    // Use a backup code (not a fresh TOTP) so we don't collide with the code
+    // just consumed by setup-confirm inside the same 30s window.
+    const verifyRes = await request(app)
+      .post('/api/v1/auth/admin/mfa/challenge/verify')
+      .set('x-api-key', API_KEY)
+      .send({ challengeToken, code: ep.backupCodes[0], useBackupCode: true });
+    expect(verifyRes.statusCode).toBe(200);
+    const token = (verifyRes.body?.data ?? verifyRes.body).token;
+    expect(token).toEqual(expect.any(String));
+
+    const decoded = jwt.decode(token);
+    expect(decoded.mfa).toBe(true);
+    expect(String(decoded.role).toUpperCase()).toBe('SUPER_ADMIN');
+  });
+
+  // ---------------------------------------------------------------------
+  // 8. Wiring: requireSuperAdminStepUp is mounted on the sensitive admin
+  //    control planes — a SUPER_ADMIN token WITHOUT a 2FA session is blocked
+  //    there (403 SUPER_ADMIN_MFA_REQUIRED), while a normal ADMIN is not.
+  //    (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass)
+  // ---------------------------------------------------------------------
+  it('blocks a SUPER_ADMIN without a 2FA session on a guarded namespace, but not a normal ADMIN', async () => {
+    const [su] = await prisma.$queryRawUnsafe(
+      `SELECT uid FROM admins WHERE username = $1`, USERNAME_SUPER_WITH_TOTP,
+    );
+    const [ad] = await prisma.$queryRawUnsafe(
+      `SELECT uid FROM admins WHERE username = $1`, USERNAME_ADMIN_NO_TOTP,
+    );
+
+    // SUPER_ADMIN, no `mfa` claim → must be stopped by the step-up gate.
+    const superToken = jwt.sign(
+      { uid: String(su.uid), id: 1, role: 'SUPER_ADMIN' },
+      process.env.JWT_SECRET, { expiresIn: '1h' },
+    );
+    const superRes = await request(app)
+      .get('/api/v1/system')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${superToken}`);
+    expect(superRes.statusCode).toBe(403);
+    expect(JSON.stringify(superRes.body)).toContain('SUPER_ADMIN_MFA_REQUIRED');
+
+    // Normal ADMIN → step-up does not apply; it must NOT see the step-up 403.
+    const adminToken = jwt.sign(
+      { uid: String(ad.uid), id: 2, role: 'ADMIN' },
+      process.env.JWT_SECRET, { expiresIn: '1h' },
+    );
+    const adminRes = await request(app)
+      .get('/api/v1/system')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(JSON.stringify(adminRes.body)).not.toContain('SUPER_ADMIN_MFA_REQUIRED');
   });
 });

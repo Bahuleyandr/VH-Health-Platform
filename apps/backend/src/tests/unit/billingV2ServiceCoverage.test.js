@@ -972,7 +972,8 @@ describe('reversePayment additional branches', () => {
   it('reverses a payment attached to an invoice and recomputes payment state', async () => {
     queryMock
       .mockResolvedValueOnce([{ id: 6, invoice_id: 9 }]) // UPDATE RETURNING (has invoice)
-      // recomputeInvoicePaymentState:
+      .mockResolvedValueOnce([{ id: 9 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
+      // recomputeInvoicePaymentStateTx:
       .mockResolvedValueOnce([{ paid: '0' }]) // aggregate
       .mockResolvedValueOnce([{ total_amount: '500' }]) // total
       // syncUnusedAdmissionAdvancesForInvoice -> invoice lookup, no admission
@@ -1090,27 +1091,58 @@ describe('advances', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('settleAdvance partial -> advance stays ACTIVE', async () => {
+  it('settleAdvance partial -> advance stays ACTIVE (atomic decrement)', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '1000', patient_uid: PATIENT }]) // advance
-      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }]) // invoice
-      .mockResolvedValueOnce([{ id: 70, amount: '300' }]); // INSERT settlement
+      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '1000', patient_uid: PATIENT }]) // advance FOR UPDATE
+      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }]) // lockBillingInvoice
+      .mockResolvedValueOnce([{ id: 70, amount: '300' }]) // INSERT settlement
+      .mockResolvedValueOnce([{ id: 1 }]); // atomic balance decrement RETURNING id (sufficient -> ACTIVE)
     const r = await svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 300, settled_by: PATIENT });
     expect(r).toMatchObject({ id: 70 });
-    // balance update: 1000-300 = 700, ACTIVE
+    // Atomic decrement: `balance = balance - $amt WHERE balance >= $amt` with the
+    // partial→ACTIVE / full→EXHAUSTED CASE baked into the same UPDATE; params are
+    // (amount, advance_id). The decrement is the authoritative debit.
+    const decCall = queryMock.mock.calls.find(
+      (c) => /UPDATE billing_advances/.test(c[0]) && /balance >= \$1::numeric/.test(c[0]),
+    );
+    expect(decCall).toBeTruthy();
+    expect(decCall.slice(1)).toEqual([300, 1]);
+    expect(decCall[0]).toMatch(/'EXHAUSTED'.*ELSE\s+'ACTIVE'/s);
+    // Invoice amount_paid is then bumped by the settled amount.
     expect(execMock).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE billing_advances'), 700, 'ACTIVE', 1,
+      expect.stringContaining('UPDATE billing_invoices'), 300, 2,
     );
   });
 
-  it('settleAdvance full -> advance EXHAUSTED', async () => {
+  it('settleAdvance full -> advance EXHAUSTED (atomic decrement)', async () => {
     queryMock
       .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '300', patient_uid: PATIENT }])
       .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }])
-      .mockResolvedValueOnce([{ id: 71, amount: '300' }]);
+      .mockResolvedValueOnce([{ id: 71, amount: '300' }]) // INSERT settlement
+      .mockResolvedValueOnce([{ id: 1 }]); // atomic decrement RETURNING id (full -> EXHAUSTED)
     await svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 300 });
-    expect(execMock).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE billing_advances'), 0, 'EXHAUSTED', 1,
+    const decCall = queryMock.mock.calls.find(
+      (c) => /UPDATE billing_advances/.test(c[0]) && /balance >= \$1::numeric/.test(c[0]),
+    );
+    expect(decCall).toBeTruthy();
+    expect(decCall.slice(1)).toEqual([300, 1]);
+  });
+
+  it('settleAdvance rejects when the atomic decrement affects zero rows (insufficient balance)', async () => {
+    // The FOR UPDATE balance check passes (concurrent drain not yet visible to
+    // the early read), but the conditional `WHERE balance >= $amt` decrement
+    // affects zero rows -> BILLING_ADVANCE_INSUFFICIENT_BALANCE.
+    queryMock
+      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '300', patient_uid: PATIENT }]) // advance FOR UPDATE
+      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }]) // lockBillingInvoice
+      .mockResolvedValueOnce([{ id: 72, amount: '300' }]) // INSERT settlement
+      .mockResolvedValueOnce([]); // atomic decrement affects zero rows
+    await expect(
+      svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 300 }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_ADVANCE_INSUFFICIENT_BALANCE' });
+    // The invoice bump must NOT run when the decrement failed.
+    expect(execMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE billing_invoices'), expect.anything(), expect.anything(),
     );
   });
 });
@@ -1149,10 +1181,25 @@ describe('refunds', () => {
 
   it('raiseRefund (invoice) inserts and resolves patient from invoice', async () => {
     queryMock
-      .mockResolvedValueOnce([{ patient_uid: PATIENT }]) // findBillingInvoice
+      // lockBillingInvoice (patient_uid, amount_paid) — paid 100 so a 100 refund is allowed
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '100' }])
+      .mockResolvedValueOnce([{ total: '0' }]) // sumActiveInvoiceRefunds (no prior refunds)
       .mockResolvedValueOnce([{ id: 80, amount: '100' }]); // INSERT
     const r = await svc.raiseRefund({ reason: 'overpay', amount: 100, mode: 'CASH', invoice_id: 1 });
     expect(r).toMatchObject({ id: 80 });
+  });
+
+  it('raiseRefund (invoice) rejects an over-refund beyond refundable headroom', async () => {
+    // paid 100, prior refunds 40 -> refundable 60; a 100 refund must be rejected.
+    queryMock
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '100' }]) // lockBillingInvoice
+      .mockResolvedValueOnce([{ total: '40' }]); // sumActiveInvoiceRefunds (prior non-rejected refunds)
+    await expect(
+      svc.raiseRefund({ reason: 'overpay', amount: 100, mode: 'CASH', invoice_id: 1 }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_REFUND_EXCEEDS_PAID' });
+    // No INSERT must run when the refund is rejected.
+    const insertCall = queryMock.mock.calls.find((c) => /INSERT INTO billing_refunds/.test(c[0]));
+    expect(insertCall).toBeFalsy();
   });
 
   it('raiseRefund (advance) throws notFound when advance missing', async () => {
@@ -1171,10 +1218,21 @@ describe('refunds', () => {
 
   it('raiseRefund (advance) inserts and resolves patient from advance', async () => {
     queryMock
-      .mockResolvedValueOnce([{ patient_uid: PATIENT }]) // advance lookup
+      // advance FOR UPDATE (patient_uid, balance) — balance 500 so a 500 refund is allowed
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, balance: '500' }])
       .mockResolvedValueOnce([{ id: 81 }]); // INSERT
     const r = await svc.raiseRefund({ reason: 'deposit return', amount: 500, mode: 'UPI', advance_id: 2, tenantId: TENANT });
     expect(r).toMatchObject({ id: 81 });
+  });
+
+  it('raiseRefund (advance) rejects a refund exceeding the advance balance', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, balance: '300' }]); // advance FOR UPDATE
+    await expect(
+      svc.raiseRefund({ reason: 'deposit return', amount: 500, mode: 'UPI', advance_id: 2 }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE' });
+    const insertCall = queryMock.mock.calls.find((c) => /INSERT INTO billing_refunds/.test(c[0]));
+    expect(insertCall).toBeFalsy();
   });
 
   it('approveRefund throws notFound when not pending', async () => {
@@ -1216,12 +1274,27 @@ describe('refunds', () => {
     expect(execMock).not.toHaveBeenCalled();
   });
 
-  it('markRefundPaid reduces the advance balance when linked to an advance', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 2, advance_id: 55, amount: '300' }]);
+  it('markRefundPaid reduces the advance balance when linked to an advance (atomic decrement)', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ id: 2, advance_id: 55, amount: '300' }]) // UPDATE refund -> PAID RETURNING
+      .mockResolvedValueOnce([{ id: 55 }]); // atomic advance-balance decrement RETURNING id
     await svc.markRefundPaid(2, { paid_by: PATIENT });
-    expect(execMock).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE billing_advances'), 300, 55,
+    // The balance reduction is now an atomic guarded UPDATE (queryRaw, not exec):
+    // `balance = balance - $amt WHERE balance >= $amt`, params (amount, advance_id).
+    const decCall = queryMock.mock.calls.find(
+      (c) => /UPDATE billing_advances/.test(c[0]) && /balance >= \$1::numeric/.test(c[0]),
     );
+    expect(decCall).toBeTruthy();
+    expect(decCall.slice(1)).toEqual([300, 55]);
+  });
+
+  it('markRefundPaid rejects when the advance decrement affects zero rows at payout time', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ id: 3, advance_id: 55, amount: '300' }]) // UPDATE refund -> PAID RETURNING
+      .mockResolvedValueOnce([]); // decrement affects zero rows (balance drained)
+    await expect(
+      svc.markRefundPaid(3, { paid_by: PATIENT }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE' });
   });
 
   it('listRefunds applies status + patient filters', async () => {

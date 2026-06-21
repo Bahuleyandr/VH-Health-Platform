@@ -82,6 +82,8 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 // Stub tenantService so DEFAULT_TENANT_ID resolves without DB.
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
+  resolveTenantOrThrow: (req) => req?.tenantId || '00000000-0000-4000-8000-000000000001',
+  requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
 }));
 
 // Lazy import — must come after all jest.unstable_mockModule() calls.

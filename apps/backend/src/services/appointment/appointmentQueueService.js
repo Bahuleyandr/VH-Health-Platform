@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function cleanText(value, max = 120) {
@@ -106,7 +106,7 @@ export async function ensureAppointmentQueueForAppointment(
   { actorUid = null, source = 'appointment' } = {},
 ) {
   const appointmentId = cleanInt(appointment?.id);
-  const tenantId = cleanUuid(appointment?.tenant_id) || DEFAULT_TENANT_ID;
+  const tenantId = requireTenantId(cleanUuid(appointment?.tenant_id));
   const queueDate = dateParam(appointment?.appointment_date);
   if (!appointmentId || !queueDate) return null;
 

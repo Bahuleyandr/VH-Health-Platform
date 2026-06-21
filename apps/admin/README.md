@@ -24,8 +24,9 @@ Typical local/CI values:
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:5000
 NEXT_PUBLIC_WS_URL=ws://localhost:5000
-NEXT_PUBLIC_API_KEY=test-api-key
-NEXT_PUBLIC_X_API_KEY=test-api-key
+# Server-only backend key — injected by /api/proxy + /api/login. NEVER use a
+# NEXT_PUBLIC_ prefix (Next.js inlines those into the client bundle).
+BACKEND_API_KEY=test-api-key
 NEXT_PUBLIC_APP_ORIGIN=http://localhost:3001
 NEXT_PUBLIC_APP_NAME="VHHealth Admin"
 ```

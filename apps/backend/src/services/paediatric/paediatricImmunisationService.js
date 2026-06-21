@@ -17,6 +17,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_STATUSES = new Set([
   'scheduled', 'given', 'missed', 'refused', 'contraindicated',
@@ -25,9 +26,7 @@ const VALID_INJECTION_SITES = new Set([
   'left_thigh', 'right_thigh', 'left_deltoid', 'right_deltoid', 'oral', 'sc',
 ]);
 
-const TENANT_DEFAULT = '00000000-0000-4000-8000-000000000001';
-
-function tenantOr(t) { return t || TENANT_DEFAULT; }
+function tenantOr(t) { return requireTenantId(t); }
 
 async function assertPatientInTenant(patientUid, tenantId) {
   const tid = tenantOr(tenantId);
