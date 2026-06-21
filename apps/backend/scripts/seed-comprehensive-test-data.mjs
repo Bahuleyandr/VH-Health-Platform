@@ -367,7 +367,7 @@ async function seedCoreData() {
     const user = await client.query(
       `INSERT INTO users (phone, name, role, encrypted_password, is_active, status, updated_at)
        VALUES ($1, $2, $3, $4, TRUE, 'active', NOW())
-       ON CONFLICT (phone) DO UPDATE
+       ON CONFLICT (tenant_id, phone) DO UPDATE
          SET name = EXCLUDED.name,
              role = EXCLUDED.role,
              encrypted_password = EXCLUDED.encrypted_password,
@@ -423,7 +423,7 @@ async function seedCoreData() {
           profile_completed_at, updated_at)
        VALUES ($1, $2, $3, $4, 'PATIENT', TRUE, 'active', $5, 'Penicillin', 'Hypertension',
                NOW(), NOW())
-       ON CONFLICT (phone) DO UPDATE
+       ON CONFLICT (tenant_id, phone) DO UPDATE
          SET name = EXCLUDED.name,
              role = 'PATIENT',
              is_active = TRUE,
