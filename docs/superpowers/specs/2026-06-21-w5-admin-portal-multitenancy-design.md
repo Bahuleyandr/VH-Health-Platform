@@ -1,7 +1,7 @@
 # W5 — Admin portal multi-tenancy (design)
 
 - **Date:** 2026-06-21 · **Wave:** 5 of the [multi-tenancy program](2026-06-19-multi-tenancy-program-design.md).
-- **Status:** Design — derived from the program spec §Wave 5 + a current-state mapping of `apps/admin`. Ready for an implementation plan.
+- **Status:** ✅ IMPLEMENTED + GATED (2026-06-21). S1–S4 done; backend chunked-as-postgres gate GREEN ("All chunks passed", 87 chunks) + admin `npm test` (435) + `tsc` + `eslint` + `next build` all green. Commits S1 `040b0e4b` · S2 `71f661ab` · S3 `c52c6db6` · S4 `63783458`. Wildcard admin subdomain DNS/TLS = operator/HELD (W7). Branch `feat/multi-tenancy-program`, HOLD (not pushed).
 - **Branch:** `feat/multi-tenancy-program` (HOLD — not pushed). Builds on W1 (fail-closed resolution), W2 (schema), W3 (per-tenant secrets/state), **W4 (edge routing + token tenant claim)**.
 - **Depends on:** W4 — the admin token now carries `tenant_id` (C5), the backend derives tenant from Host (C1/C2), and the SUPER_ADMIN `x-tenant-id` override is audited (W1/W3). W5 is the **admin-app delivery** of that backend isolation. Coordinates with W7 (wildcard admin subdomain DNS/TLS = operator/HELD).
 

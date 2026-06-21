@@ -10,6 +10,8 @@
 
 **Invariant (every task):** byte-identical for the single default tenant — no branding row + non-super admin ⇒ today's behaviour. Branch `feat/multi-tenancy-program`, HOLD (no push, no ff to main).
 
+**Status:** ✅ COMPLETE (2026-06-21). S1 `040b0e4b` · S2 `71f661ab` · S3 `c52c6db6` · S4 `63783458`. Backend chunked gate GREEN (87 chunks) + admin `npm test` 435 + `tsc` + `eslint` + `next build` all green. HOLD (not pushed). The S3↔S4 server-signal open question was resolved with the lean (httpOnly `acting_tenant` cookie set by `/api/act-as` after a signature-verified SUPER_ADMIN check; the proxy reads + re-gates it). Branding key confirmed = `tenants.settings.branding` via `tenantSettingsService.getBranding`. Residual UX polish (the act-as reason uses `window.prompt` — a modal would be nicer) left for human review.
+
 ---
 
 ## Task S1 — Backend: `GET /api/v1/admin/tenant/context`
