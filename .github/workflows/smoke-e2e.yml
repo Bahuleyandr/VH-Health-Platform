@@ -120,6 +120,20 @@ jobs:
           node scripts/check-schema-drift.mjs
           npm run ci:db-guardrails
 
+      - name: Demote route-crawl admin to ADMIN (skip the SUPER_ADMIN 2FA step-up gate)
+        # The admin route-crawl (e2e/route-crawl.spec.ts) logs in as the seeded
+        # `admin` user, which is SUPER_ADMIN. The 2026-06-18 audit's
+        # requireSuperAdminStepUp gate 403s a SUPER_ADMIN without a 2FA-verified
+        # (mfa:true) session on sensitive namespaces — including the admin
+        # dashboard the crawl loads on every page — hanging the crawl until its
+        # 336s timeout. The crawl is designed for a non-super ADMIN (see the
+        # e2e/auth.setup.ts header); demote the ephemeral smoke admin so it
+        # passes the gate. Smoke DB only — never touches a real database.
+        env:
+          PGPASSWORD: ${{ github.run_id }}
+        run: |
+          psql -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth -c "UPDATE admins SET role='ADMIN' WHERE username='admin';"
+
       - name: Start backend
         working-directory: apps/backend
         run: |
