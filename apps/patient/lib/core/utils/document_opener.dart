@@ -85,7 +85,10 @@ class DocumentOpener {
       // leaving cleartext PHI loose in the temp root, so no decrypted document
       // survives logout on a shared/family device. `safeName` is already
       // sanitised above. Audit §3 (patient).
-      final file = await DocStaging.writePlaintext(safeName, response.bodyBytes);
+      final file = await DocStaging.writePlaintext(
+        safeName,
+        response.bodyBytes,
+      );
 
       // Close loading dialog
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();

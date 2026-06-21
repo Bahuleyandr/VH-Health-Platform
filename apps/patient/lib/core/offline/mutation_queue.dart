@@ -130,7 +130,11 @@ class MutationQueue {
       case 'PUT':
         return ApiClient.put(path, body: body, idempotencyKey: idempotencyKey);
       case 'PATCH':
-        return ApiClient.patch(path, body: body, idempotencyKey: idempotencyKey);
+        return ApiClient.patch(
+          path,
+          body: body,
+          idempotencyKey: idempotencyKey,
+        );
       case 'DELETE':
         return ApiClient.delete(path);
       default:
