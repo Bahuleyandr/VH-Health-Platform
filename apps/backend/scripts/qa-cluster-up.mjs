@@ -27,6 +27,9 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+// Single source for the non-owner RLS test roles, shared with the docker CI
+// path (run-db-guardrails-docker.mjs) so the two cannot drift.
+import { provisionRlsTestRoles } from './provision-rls-test-roles.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendDir = path.resolve(__dirname, '..');
@@ -225,36 +228,13 @@ async function ensureDatabaseAndRole() {
          GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${QA_ROLE}`
     );
 
-    // Non-owner RLS test roles (roadmap A2). The *-deep RLS suites SET LOCAL
-    // ROLE to these so tenant_isolation policies actually fire even though
-    // qa_writer/superuser connections would otherwise bypass them. qa_writer
-    // cannot CREATE ROLE itself, so provision them here (idempotent).
-    for (const rlsRole of ['rls_test_app', 'rls_phase2_test_app', 'rls_http_test_app', 'rls_sectx_test_app', 'rls_phi_routes_test_app', 'rls_journey_test_app']) {
-      await dbClient.query(`
-        DO $$ BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${rlsRole}') THEN
-            CREATE ROLE ${rlsRole} NOLOGIN;
-          END IF;
-        END $$`);
-      await dbClient.query(`ALTER ROLE ${rlsRole} NOSUPERUSER NOBYPASSRLS`);
-      await dbClient.query(`GRANT USAGE ON SCHEMA public TO ${rlsRole}`);
-      await dbClient.query(
-        `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${rlsRole}`
-      );
-      await dbClient.query(
-        `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${rlsRole}`
-      );
-      // Tolerant: on clusters without pgvector, resolving vector-typed
-      // function signatures throws 58P01 — EXECUTE on specific functions is
-      // not needed by the RLS suites anyway.
-      await dbClient.query(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${rlsRole}`)
-        .catch((err) => console.warn(`  (skipping function grants for ${rlsRole}: ${err.message})`));
-      await dbClient.query(`GRANT ${rlsRole} TO ${QA_ROLE}`);
-      await dbClient.query(
-        `ALTER DEFAULT PRIVILEGES FOR ROLE ${SUPERUSER} IN SCHEMA public
-           GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${rlsRole}`
-      );
-    }
+    // Non-owner RLS test roles (roadmap A2) the *-deep RLS suites SET LOCAL ROLE
+    // into so tenant_isolation policies actually fire (qa_writer/superuser would
+    // otherwise bypass them). qa_writer cannot CREATE ROLE itself, so provision
+    // them here as the superuser. Shared helper so the docker CI path
+    // (run-db-guardrails-docker.mjs) cannot drift from this — a gap there
+    // silently skips / 42501-fails the RLS-posture suites.
+    await provisionRlsTestRoles({ connectionString: SUPER_URL, grantToRole: QA_ROLE });
   } finally {
     await dbClient.end();
   }
