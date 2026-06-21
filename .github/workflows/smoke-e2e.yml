@@ -120,19 +120,20 @@ jobs:
           node scripts/check-schema-drift.mjs
           npm run ci:db-guardrails
 
-      - name: Demote route-crawl admin to ADMIN (skip the SUPER_ADMIN 2FA step-up gate)
-        # The admin route-crawl (e2e/route-crawl.spec.ts) logs in as the seeded
-        # `admin` user, which is SUPER_ADMIN. The 2026-06-18 audit's
-        # requireSuperAdminStepUp gate 403s a SUPER_ADMIN without a 2FA-verified
-        # (mfa:true) session on sensitive namespaces — including the admin
-        # dashboard the crawl loads on every page — hanging the crawl until its
-        # 336s timeout. The crawl is designed for a non-super ADMIN (see the
-        # e2e/auth.setup.ts header); demote the ephemeral smoke admin so it
-        # passes the gate. Smoke DB only — never touches a real database.
-        env:
-          PGPASSWORD: ${{ github.run_id }}
+      - name: Enroll SUPER_ADMIN TOTP for the route-crawl (real 2FA)
+        working-directory: apps/backend
+        # The admin route-crawl (e2e/route-crawl.spec.ts) visits SUPER_ADMIN-only
+        # pages (/dashboard/admin-management → /auth/admin/list), so it must auth
+        # as SUPER_ADMIN — but the 2026-06-18 audit's requireSuperAdminStepUp gate
+        # 403s a SUPER_ADMIN without a 2FA-verified (mfa:true) session on sensitive
+        # namespaces (incl. the admin dashboard loaded on every page). Enroll a
+        # known TOTP secret on the seeded `admin` so auth.setup.ts can complete the
+        # REAL 2FA challenge and obtain an mfa:true session that satisfies BOTH the
+        # step-up gate and the super-admin-only RBAC. The plaintext secret is
+        # exported (run-scoped) for the Playwright step to generate codes. Smoke DB.
         run: |
-          psql -h 127.0.0.1 -p 5432 -U vhhealth -d vhhealth -c "UPDATE admins SET role='ADMIN' WHERE username='admin';"
+          SECRET="$(node scripts/seed-smoke-admin-totp.mjs)"
+          echo "PLAYWRIGHT_ADMIN_TOTP_SECRET=$SECRET" >> "$GITHUB_ENV"
 
       - name: Start backend
         working-directory: apps/backend

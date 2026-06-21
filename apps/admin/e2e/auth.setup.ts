@@ -1,6 +1,7 @@
 import { test as setup, expect, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 /**
  * One-shot login that writes a reusable storage-state file for the
@@ -36,6 +37,43 @@ import path from 'node:path';
 const AUTH_FILE = path.resolve(__dirname, '../playwright/.auth/admin.json');
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_ADMIN_USERNAME || 'playwright-admin';
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD || 'PlaywrightTest!2026';
+
+// Backend API for deterministic token acquisition (the UI login form has no
+// scriptable MFA step in CI). API key + the run-scoped TOTP secret that the
+// smoke's "Enroll SUPER_ADMIN TOTP" step exports when the admin has 2FA.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5206';
+const API_KEY = process.env.NEXT_PUBLIC_X_API_KEY || process.env.API_KEY || '';
+const TOTP_SECRET = process.env.PLAYWRIGHT_ADMIN_TOTP_SECRET || '';
+
+// Standalone RFC-6238 TOTP (SHA1, 30s step, 6 digits, base32 secret) — matches
+// the backend's otplib defaults, so generated codes pass otplib `verify`. Kept
+// dependency-free so the admin package needs no OTP library just for E2E.
+function base32ToBuffer(b32: string): Buffer {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const ch of b32.replace(/=+$/, '').toUpperCase().replace(/\s/g, '')) {
+    const v = alphabet.indexOf(ch);
+    if (v < 0) continue;
+    bits += v.toString(2).padStart(5, '0');
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  return Buffer.from(bytes);
+}
+function totpCode(secret: string, step = 30, digits = 6): string {
+  const key = base32ToBuffer(secret);
+  const counter = Math.floor(Date.now() / 1000 / step);
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const h = crypto.createHmac('sha1', key).update(buf).digest();
+  const off = h[h.length - 1] & 0x0f;
+  const bin =
+    ((h[off] & 0x7f) << 24) |
+    ((h[off + 1] & 0xff) << 16) |
+    ((h[off + 2] & 0xff) << 8) |
+    (h[off + 3] & 0xff);
+  return (bin % 10 ** digits).toString().padStart(digits, '0');
+}
 
 type StorageState = {
   cookies?: Array<{
@@ -77,26 +115,64 @@ setup('authenticate as playwright-admin', async ({ page }) => {
     return;
   }
 
-  await page.goto('/login');
-  await expect(page).toHaveURL(/\/login$/);
+  // Acquire a session token via the backend API so we can complete the REAL
+  // admin 2FA (TOTP) challenge when the test admin has MFA enrolled — the UI
+  // login form has no scriptable MFA step in CI. The resulting JWT carries
+  // `mfa: true`, which the 2026-06-18 super-admin step-up gate requires on
+  // sensitive admin namespaces (admin dashboard, admin-management).
+  const loginRes = await page.request.post(`${API_URL}/api/v1/auth/admin/login`, {
+    headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+  });
+  expect(
+    loginRes.ok(),
+    `admin login failed (${loginRes.status()}): ${await loginRes.text()}`,
+  ).toBeTruthy();
+  const loginData = (await loginRes.json())?.data ?? {};
 
-  // Form submit via the actual UI so any future client-side auth
-  // hardening (CSRF token, honeypot field, hCaptcha) automatically
-  // gets exercised by every authenticated spec.
-  const inputs = page.getByRole('textbox');
-  await inputs.nth(0).fill(ADMIN_USERNAME);
-  // The password field is textbox-typed in the login form today (not
-  // role=password) — first textbox is username, second is password.
-  await inputs.nth(1).fill(ADMIN_PASSWORD);
+  let token: string | undefined = loginData.token;
 
-  await page.getByRole('button', { name: 'Sign In' }).click();
+  if (loginData.requiresTwoFactor) {
+    expect(
+      TOTP_SECRET,
+      'PLAYWRIGHT_ADMIN_TOTP_SECRET must be set to complete the admin 2FA challenge',
+    ).not.toBe('');
+    const verifyRes = await page.request.post(
+      `${API_URL}/api/v1/auth/admin/mfa/challenge/verify`,
+      {
+        headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+        data: { challengeToken: loginData.challengeToken, code: totpCode(TOTP_SECRET) },
+      },
+    );
+    expect(
+      verifyRes.ok(),
+      `2FA challenge verify failed (${verifyRes.status()}): ${await verifyRes.text()}`,
+    ).toBeTruthy();
+    token = ((await verifyRes.json())?.data ?? {}).token;
+  }
 
-  // Post-login the dashboard renders — the URL stops being /login.
-  // Using a permissive matcher so this works whether the dashboard
-  // root is `/dashboard` or redirects somewhere else.
+  expect(token, 'no auth token obtained from admin login').toBeTruthy();
+
+  // Set the httpOnly auth_token cookie the proxy + middleware expect. CI serves
+  // the admin over http on localhost, so the cookie must be non-Secure (a Secure
+  // cookie is dropped over http and every route would bounce to /login).
+  await page.context().addCookies([
+    {
+      name: 'auth_token',
+      value: token as string,
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Strict',
+      expires: Math.floor(Date.now() / 1000) + 4 * 3600,
+    },
+  ]);
+
+  // Confirm the session lands on the dashboard, not /login.
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
   await expect(page).not.toHaveURL(/\/login/);
 
-  // Persist the auth_token cookie + any localStorage profile cache
-  // so the dependent project can reuse the session.
+  // Persist the auth_token cookie so the dependent project reuses the session.
   await page.context().storageState({ path: AUTH_FILE });
 });
