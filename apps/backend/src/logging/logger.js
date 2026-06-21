@@ -79,6 +79,33 @@ const fileFormat = useJson
   ? format.combine(phiRedactionFormat(), format.timestamp(), format.errors({ stack: true }), format.json())
   : format.combine(phiRedactionFormat(), format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat);
 
+// winston's File / DailyRotateFile transports CREATE their target directory at
+// construction time (regardless of `silent: true`), so only BUILD them when
+// they're not silenced. Otherwise importing the logger in production
+// (readOnlyRootFilesystem) or on a CI runner where /app isn't writable throws
+// EACCES/EROFS at import — this completes the audit-C-8 guard above, which only
+// covered the explicit mkdirSync, not winston's implicit one.
+const fileTransports = fileTransportsSilent ? [] : [
+  new transports.File({
+    filename: path.join(logsDir, 'error.log'),
+    level: 'error',
+    format: fileFormat,
+  }),
+  new transports.File({
+    filename: path.join(logsDir, 'combined.log'),
+    format: fileFormat,
+  }),
+  new DailyRotateFile({
+    dirname: logsDir,
+    filename: 'vh-health-%DATE%.log',
+    datePattern: 'DD-MM-YYYY',
+    zippedArchive: true,
+    maxSize: '20m',
+    maxFiles: '90d', // retain logs for 90 days
+    format: fileFormat,
+  }),
+];
+
 // Create Winston logger instance.
 // phiRedactionFormat (audit finding H5) scrubs phone/email/MRN patterns from
 // every record on EVERY transport as a global backstop — call sites must
@@ -98,30 +125,10 @@ const logger = createLogger({
       )
     }),
 
-    // File-based logs — structured JSON in production for log aggregators
-    new transports.File({
-      filename: path.join(logsDir, 'error.log'),
-      level: 'error',
-      format: fileFormat,
-      silent: fileTransportsSilent
-    }),
-    new transports.File({
-      filename: path.join(logsDir, 'combined.log'),
-      format: fileFormat,
-      silent: fileTransportsSilent
-    }),
-
-    // Daily rotated .gz compressed logs
-    new DailyRotateFile({
-      dirname: logsDir,
-      filename: 'vh-health-%DATE%.log',
-      datePattern: 'DD-MM-YYYY',
-      zippedArchive: true,
-      maxSize: '20m',
-      maxFiles: '90d', // retain logs for 90 days
-      format: fileFormat,
-      silent: fileTransportsSilent
-    })
+    // File-based logs (structured JSON in prod). Only present when not silenced
+    // — built above so a read-only / permission-denied logsDir can never EACCES
+    // at construction.
+    ...fileTransports
   ]
 });
 
