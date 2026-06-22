@@ -192,9 +192,20 @@ describeIfDb('Drug-chart SLA sweep tenant isolation (audit 2026-06-18 §3)', () 
     inchargeA = await seedUser({ tenantId: TENANT_A, phone: PHONE.inchargeA, role: 'NURSING_INCHARGE', name: 'Tenant-A Incharge' });
     inchargeB = await seedUser({ tenantId: TENANT_B, phone: PHONE.inchargeB, role: 'NURSING_INCHARGE', name: 'Tenant-B Incharge' });
 
-    // Local (Postgres-server tz) date — avoids the UTC/IST midnight drift the
-    // backend CLAUDE.md warns about.
-    const [{ local_date: localDate }] = await query(`SELECT CURRENT_DATE::text AS local_date`);
+    // The resolver computes "today" in the CLINICAL timezone (DEFAULT_TIMEZONE =
+    // APP_TIMEZONE || TZ || 'Asia/Kolkata'), NOT the Postgres-server tz. Seeding
+    // the board on the server's CURRENT_DATE silently breaks whenever the server
+    // tz date differs from the clinical-tz date — e.g. a UTC CI runner past
+    // 18:30 UTC sees an IST date one day ahead, so roster_date != ctx.local_date
+    // and the shift-window predicate misses (roster nurse not found → in-charge
+    // fallback fires → nurseA absent). Compute the seed date with the SAME tz the
+    // resolver uses so roster_date == ctx.local_date regardless of when/where CI
+    // runs. (Reproduces only between 18:30–24:00 UTC; the #327 merge dodged it.)
+    const resolverTimezone = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
+    const [{ local_date: localDate }] = await query(
+      `SELECT (NOW() AT TIME ZONE $1)::date::text AS local_date`,
+      [resolverTimezone],
+    );
 
     // BOTH nurses rostered on the SAME shared ward (same id + label). Only the
     // tenant filter can keep them apart.
