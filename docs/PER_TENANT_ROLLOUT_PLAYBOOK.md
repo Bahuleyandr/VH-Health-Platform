@@ -11,7 +11,7 @@ modules for an existing tenant.
 - [`AI_FEATURE_GAP_BACKLOG.md`](archive/AI_FEATURE_GAP_BACKLOG.md) — the
   full ~250-feature catalogue with per-module status. Use it to look
   up "do we have AI feature X?".
-- [`HEALTHCARE_AI_SPEC_AUDIT.md`](HEALTHCARE_AI_SPEC_AUDIT.md) —
+- [`HEALTHCARE_AI_SPEC_AUDIT.md`](archive/audits/HEALTHCARE_AI_SPEC_AUDIT.md) —
   entity / infra-layer audit against the 38-section healthcare-AI
   spec.
 

@@ -60,7 +60,7 @@ or government engagement. No code or config changes are pending on those items
 
 - [`docs/ABDM_READINESS.md`](../ABDM_READINESS.md) — ABDM technical preflight (companion to B7.1)
 - [`docs/PENTEST_READINESS.md`](../PENTEST_READINESS.md) — Existing pen-test pack (superseded/extended by B7.4)
-- [`docs/SECURITY_CONTROLS_SELFASSESSMENT.md`](../SECURITY_CONTROLS_SELFASSESSMENT.md) — Self-assessment status register
+- [`docs/SECURITY_CONTROLS_SELFASSESSMENT.md`](../archive/audits/SECURITY_CONTROLS_SELFASSESSMENT.md) — Self-assessment status register
 - [`docs/india-deployment-readiness.md`](../india-deployment-readiness.md) — Go-live operator checklist
-- [`docs/PLATFORM_AUDIT_2026-06-13.md`](../PLATFORM_AUDIT_2026-06-13.md) — Source audit (read-only)
+- [`docs/PLATFORM_AUDIT_2026-06-13.md`](../archive/audits/PLATFORM_AUDIT_2026-06-13.md) — Source audit (read-only)
 - [`docs/S_TIER_ROADMAP.md`](../archive/S_TIER_ROADMAP.md) — Roadmap and batch definitions (read-only)

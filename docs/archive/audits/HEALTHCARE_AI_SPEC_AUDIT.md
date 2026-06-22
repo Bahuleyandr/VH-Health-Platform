@@ -7,11 +7,11 @@
 **TL;DR:** the existing platform already covers ≈75% of the spec end-to-end. Gaps cluster in five areas: (1) explicit `Facility` / `Location` / `Room` granularity below tenant, (2) formal `Webhook` + `Integration` registry tables, (3) telemedicine session entities, (4) knowledge-base CRUD as a first-class module (current RAG is service-only), and (5) several spec-named entities that exist as differently-named tables (rename / alias rather than rebuild). Stack rewrite is **not needed** — the spec explicitly says "if existing stack differs, follow it" and Express/Prisma/Postgres meets the requirements.
 
 **Companion docs (read alongside this one):**
-- [`CLINICAL_AI_ROLLOUT_PLAN.md`](archive/CLINICAL_AI_ROLLOUT_PLAN.md) —
+- [`CLINICAL_AI_ROLLOUT_PLAN.md`](../CLINICAL_AI_ROLLOUT_PLAN.md) —
   five-phase deployment plan for the multi-agent substrate that's
   already on `main`. **All shipped 2026-04-30.** That's "how to deploy
   what's built"; this audit is "what to build next at infra/entity level".
-- [`AI_FEATURE_GAP_BACKLOG.md`](archive/AI_FEATURE_GAP_BACKLOG.md) —
+- [`AI_FEATURE_GAP_BACKLOG.md`](../AI_FEATURE_GAP_BACKLOG.md) —
   ~250-feature AI-catalogue audit at the **module / feature layer**
   (vs this doc's entity / infra layer). Surfaces five substrate-level
   safety holes (S1–S5: prompt-injection gate on document ingest,
@@ -703,7 +703,7 @@ Closes the ops gaps that block hospital onboarding.
 ## Phase G — Module catalogue closure (Tier A–H) ✅ SHIPPED 2026-04-30 → 2026-05-01
 
 This is **module-layer** work tracked in
-[`AI_FEATURE_GAP_BACKLOG.md`](archive/AI_FEATURE_GAP_BACKLOG.md), not
+[`AI_FEATURE_GAP_BACKLOG.md`](../AI_FEATURE_GAP_BACKLOG.md), not
 entity/infra-layer; included here as a cross-reference because several
 items unblock spec sections that were marked partial above.
 

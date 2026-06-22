@@ -79,7 +79,7 @@ uses it, on what device, and over which network* — not about new AI
 features.
 
 **Companion docs (read alongside this one):**
-- [`HEALTHCARE_AI_SPEC_AUDIT.md`](HEALTHCARE_AI_SPEC_AUDIT.md) —
+- [`HEALTHCARE_AI_SPEC_AUDIT.md`](audits/HEALTHCARE_AI_SPEC_AUDIT.md) —
   audit of the codebase against an external 38-section healthcare-AI
   build spec; verdict matrix per section + Phase A–F remediation
   roadmap (~16 weeks). **Entity / infra layer.**

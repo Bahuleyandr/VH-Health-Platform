@@ -23,9 +23,22 @@ code claims verified shipped against `main` @ `502fc033`.
 | `GAP_ANALYSIS_TENANT_RLS.md` | Tenant-RLS gap + Path-B remediation; code shipped, runtime verify pending. |
 | `LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md` | Dalekdefender schema-drift closure + deploy-helper follow-up log. |
 
-## Older point-in-time reports
+## Audit & evidence snapshots → [`audits/`](audits/)
+
+Point-in-time platform/security audits, sweeps, self-assessments, and
+investigations. Evidence only — do not edit.
 
 | Doc | What it was |
 | --- | --- |
-| `AUDIT_patient-app_2026-04-26.md` | Patient-app audit snapshot. |
-| `REPORT_error-scan_2026-05-01.md` | Error-scan report snapshot. |
+| `audits/PLATFORM_AUDIT_2026-06-13.md` | Platform audit (2026-06-13). |
+| `audits/PLATFORM_AUDIT_2026-06-18.md` | Platform audit (2026-06-18). |
+| `audits/PLATFORM_AUDIT_2026-06-18_RECONCILIATION.md` | Reconciliation of the two 06-18 audits. |
+| `audits/PLATFORM_SECURITY_AUDIT_2026-06-10.md` | Security audit (2026-06-10). |
+| `audits/SECURITY_CONTROLS_SELFASSESSMENT.md` | Security-controls self-assessment register. |
+| `audits/HEALTHCARE_AI_SPEC_AUDIT.md` | Healthcare-AI spec gap audit. |
+| `audits/STAFF_ROLE_WORKFLOW_SWEEP.md` | Staff role-workflow sweep snapshot. |
+| `audits/NUL_BYTE_VITALS_INVESTIGATION.md` | NUL-byte vitals investigation. |
+| `audits/MOBILE_LIST_CONSISTENCY_AUDIT.md` | Mobile list consistency audit. |
+| `audits/UI_TABLE_LIST_CONSISTENCY_AUDIT.md` | UI table/list consistency audit. |
+| `audits/AUDIT_patient-app_2026-04-26.md` | Patient-app audit snapshot. |
+| `audits/REPORT_error-scan_2026-05-01.md` | Error-scan report snapshot. |
