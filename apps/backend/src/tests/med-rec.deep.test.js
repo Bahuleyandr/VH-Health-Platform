@@ -83,7 +83,11 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
          (tenant_id, patient_uid, medication_name, dose, route, scheduled_time, status)
        VALUES
          ($1::uuid, $2::uuid, 'B6TEST Metformin 500mg', '500mg', 'oral',
-          NOW() + INTERVAL '2 hours', 'scheduled')`,
+          NOW() + INTERVAL '2 hours', 'scheduled'),
+         -- M7: a currently-running med (already administered, no future scheduled
+         -- dose). Must appear in the reconciliation snapshot, not read as omitted.
+         ($1::uuid, $2::uuid, 'B6TEST Aspirin 75mg', '75mg', 'oral',
+          NOW() - INTERVAL '4 hours', 'administered')`,
       DEFAULT_TENANT_ID,
       patientUid,
     );
@@ -127,6 +131,10 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
     expect(items.find((i) => i.medication_name.toLowerCase().includes('metformin')).source).toBe('home');
     expect(names.some((n) => n.includes('telmisartan'))).toBe(true);
     expect(names.some((n) => n.includes('atorvastatin'))).toBe(true);
+    // M7: the running (administered) Aspirin must be surfaced for reconciliation,
+    // not silently dropped as an omission (the snapshot previously excluded
+    // 'administered' MAR rows).
+    expect(names.some((n) => n.includes('aspirin'))).toBe(true);
     expect(items.every((i) => i.decision === null)).toBe(true);
 
     const timeline = await prisma.$queryRawUnsafe(
