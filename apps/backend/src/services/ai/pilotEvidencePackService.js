@@ -889,10 +889,15 @@ export async function decidePilotSignoff(signoffId, decision, actorUid = null, r
   };
 
   const rows = await prisma.$queryRawUnsafe(
+    // $2 (the decision) is compared against string literals AND assigned to the
+    // varchar `status` column, so Postgres deduces conflicting types for it
+    // ("text versus character varying", 42P08) unless every use is cast to one
+    // type. Cast `$2::text` at all three usages — mirrors decideApproval() in
+    // clinicalAiWorkflowService.js, which was already fixed the same way.
     `UPDATE clinical_ai_approvals
-     SET status = $2,
-         approved_by = CASE WHEN $2 = 'approved' THEN $3::uuid ELSE approved_by END,
-         rejected_by = CASE WHEN $2 IN ('hold', 'rejected') THEN $3::uuid ELSE rejected_by END,
+     SET status = $2::text,
+         approved_by = CASE WHEN $2::text = 'approved' THEN $3::uuid ELSE approved_by END,
+         rejected_by = CASE WHEN $2::text IN ('hold', 'rejected') THEN $3::uuid ELSE rejected_by END,
          reason = $4,
          payload = $5::jsonb,
          decided_at = NOW(),
