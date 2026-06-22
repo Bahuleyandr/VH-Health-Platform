@@ -11,10 +11,7 @@ analysis). Those source docs are now in [`archive/`](archive/) — see
 
 **Code/CI state:** `main` @ `502fc033`; GitHub CI (Backend + Smoke E2E +
 Canonical) green; the S-tier program (WS0–WS8) and the full multi-tenancy
-program are **code-complete**. **Almost nothing below is blocked on more core
-platform code** — the bulk is operator go-live execution and external
-engagements. Step-by-step execution runbooks remain **live at `docs/`** (linked
-inline); this file is the *index of what's left*, not a replacement for them.
+program are **code-complete**. **[§0](#0--engineering-remediation-backlog-2026-06-22-codebase-audit) is the front of queue** — the 2026-06-22 full-codebase audit found real engineering work (13 adversarially-confirmed High findings) that ranks **ahead** of the operator/external gates in §1–§8 (which remain the go-live-execution + external/procurement tail). Step-by-step execution runbooks remain **live at `docs/`** (linked inline).
 
 ## Legend
 
@@ -24,6 +21,29 @@ inline); this file is the *index of what's left*, not a replacement for them.
 | `[EXTERNAL]` | Third-party / government engagement (certification, pen test, audit). |
 | `[PROCUREMENT]` | Hardware or commercial-license purchase. |
 | `[CODE]` | Genuinely-unwritten code. Deferred-by-design / customer-pull unless flagged otherwise. |
+
+---
+
+## 0 — Engineering remediation backlog (2026-06-22 codebase audit) `[CODE]`
+
+Front of queue. Evidence + per-finding fixes: **[`CODEBASE_ANALYSIS_2026-06-22.md`](CODEBASE_ANALYSIS_2026-06-22.md)** (13 confirmed High / ~60 Medium / ~30 Low / ~85 upgrade opportunities — multi-agent deep read, every High adversarially verified). Being executed here as a **TDD sweep** (branch → failing deep test → fix → local gate → CI → merge), highest-risk first. Tick boxes as workstreams merge.
+
+### Tier 0 — go-live blockers (the 13 Highs, bundled "fix-once-helps-many")
+
+- [ ] **WS-A — NEWS2 / deterioration end-to-end** `[M]` — closes **W1-H4** (backend queues the high-NEWS2 alert with no recipient → never pages) + **W2-H2** (staff app discards the NEWS2 response → nurse never sees the score). Resolve concrete recipients (shared `resolveResponsibleClinicians` helper) + surface a colour-coded NEWS2 banner with one-tap escalate.
+- [ ] **WS-B — Wrong-patient hard-stop + positive-ID read-back** `[M]` — closes **W2-H1** (MAR identity-mismatch is overridable) + manual-vitals typed `patient_id` (no read-back) + MAR `maId→0`. Identity/drug mismatch = no-override re-scan; shared `PatientContextHeader` on every clinical-write screen.
+- [ ] **WS-C — Money: lock + idempotency** `[M]` — closes **W1-H2** (V1 `recordPayment` double-charge) + **W1-H3** (PMJAY floater non-atomic) + cashDrawer time-window + claimsService no-`FOR UPDATE`. `SELECT … FOR UPDATE` + recompute-from-`SUM` + unique-ref idempotency; ideally retire V1 onto billingV2.
+- [ ] **WS-D — Cross-tenant + step-up** `[M]` — closes **W1-H6** (denial-risk AI reads `insurance_claims` with no tenant filter) + **W1-H1** (admin-management routes miss `requireSuperAdminStepUp`) + **W3-H2** (`TENANT_BASE_HOST` unset → default-tenant resolution) + device/session `tenant_id` defaults + the edge-trust IP-allowlist (backend `trust proxy` hop count + admin XFF).
+- [ ] **WS-E — Interop injection + SSRF** `[M]` — closes **W1-H7** (outbound HL7 no delimiter escaping) + SSRF DNS-rebind. `encodeHL7Field` + a shared `resilientFetch` (resolve-once-pin + timeout + breaker).
+- [ ] **WS-F — Migration scale-safety** `[M]` — closes **W1-H5** (synchronous index builds + full-table backfills under a 120s cap → deploy crashloop at hospital scale). Per-file `@no-transaction`/`@statement_timeout` escape hatch + `NOT VALID`→`VALIDATE`.
+- [ ] **WS-G — Governance flags load-bearing** `[S/M]` — closes patient-chatbot missing enable-gate + `settings.surface` override bypass + inert `decisionSupportOnly`/`patientFacing`. One `requireEnabledModule` generation wrapper + a registry-lint runtime assertion.
+- [ ] **WS-H — Deploy/DR/observability correctness (infra)** `[S]` — closes **W3-H1** (Ingress snippet annotations vs disabled-snippets controller → admission rejection / CSP loss) + **W3-H3** (CNPG nightly base backup in the wrong namespace → never runs) + **W3-H4** (backend `/metrics` ServiceMonitor can't scrape → Prometheus blind to the backend). YAML fixes + `--dry-run=server` validation + a scrape-assertion.
+
+### Tier 1 — hardening (the ~60 Mediums + ~30 Lows)
+Per-finding detail in the analysis doc's Medium/Low tables. Clusters: **auth** (OTP attempt-counter TOCTOU + timing-`===`, 2FA-challenge counter, fail-open revoke-all) · **reliability** (webhook `in_flight` reaper, idempotency-keys sweep, revive the orphaned canary, breaker scoping, dead-letter/Redis/outbox alerts) · **data/RLS** (registerDevice tenant_id, an `ON CONFLICT`-vs-unique-index CI guard) · **clinical** (order-state TOCTOU, med-rec administered-dose, critical-vital routing) · **AI-gov** (prompt-injection on the chat input, RAG `flag`-verdict re-check) · **interop/crypto** (X25519 low-order reject, per-tenant ABDM token cache) · **api** (terminal 404 handler, deviceController helper misuse, admin god-router extraction) · **frontend** (CSP `unsafe-eval`, off-host PHI download scheme check, a11y/Semantics + i18n review-gate, offline queue for clinical writes, typed DTOs, single-WS, white-label theming) · **infra** (scope ingress secret read + east-west NetworkPolicies, PgBouncer pool sizing, SBOM attest + verify-before-pin + base-image digests, Loki 180d, Ollama PDB, monitoring auto-sync).
+
+### Tier 2 — S-tier upgrade epics (the ~85 opportunities → ~12 programs; each gets a brainstorm→design→plan cycle first)
+1. **Double-entry money ledger** (DB-enforced invariants, integer paise) · 2. **Terminology spine** (RxNorm/SNOMED + licensed DDI engine) · 3. **Typed event/outbox bus** · 4. **Real-time-first dashboards** (the WS fabric exists, used in 1 tile) · 5. **Single OpenAPI → Dart + admin-TS contract pipeline, CI drift-gated** · 6. **Governed AI-integration program** (agentic workflows, copilot surfaces, output-injection detector, drift→auto-rollback, terminology auto-coding) · 7. **White-label theming** (all 3 clients) · 8. **Observability / SLOs** (Prometheus exposition + the missing alert tier + 180-day retention via object-store Loki+Thanos) · 9. **Offline-first clinical capture** · 10. **Accessibility program** · 11. **Supply-chain → SLSA-L3** (cosign attest SBOM, verify-before-pin, digest-pin everything, Kyverno hardening Enforce) · 12. **Least-privilege network/RBAC + Cloudflare Access** (Zero-Trust admin, Cilium L7, per-tenant NetworkPolicy, edge-as-Terraform).
 
 ---
 
