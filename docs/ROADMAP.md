@@ -42,6 +42,14 @@ Front of queue. Evidence + per-finding fixes: **[`CODEBASE_ANALYSIS_2026-06-22.m
 - [x] **WS-H — Deploy/DR/observability (infra)** `ee500a7f` — **W3-H1** removed the 4 rejected ingress `configuration-snippet`s (headers are controller/Helmet-owned); **W3-H3** CNPG nightly backup namespace → `vhhealth-platform`; **W3-H4** `/metrics` accepts the monitoring token via `Authorization: Bearer` + ServiceMonitor `authorization` block (operator step: provision the `vhhealth-monitoring-token` Secret in the prometheus namespace). kustomize-build validated.
 
 ### Tier 1 — hardening (the ~60 Mediums + ~30 Lows)
+
+**Backend-medium progress (TDD, merged to main, full `postgres` gate each):**
+- ✅ **M1** OTP attempt-counter atomic + **M2** timing-safe legacy compare · **M9** wire canary cron + **M11** wire idempotency-sweep cron · **M18** deviceController 500 + **M19** terminal JSON 404 — batch 1 (`main 73b9a2a0`).
+- ✅ **M4** lock tpa_claims decision+settlement FOR UPDATE · **M3** cap login-2FA-challenge attempts (mig 341) · + de-flaked the hl7-ssrf-guard gate flake — batch 2 (`main 1563bc17`).
+- ✅ **M13/M14** (patient-chatbot enable-gate + immutable module classification) shipped in T0 WS-G.
+- ⏳ **Remaining backend:** M5 cashDrawer time-bound, M6 order-state TOCTOU, M7 med-rec administered-dose, M8 device/session tenant_id, M10 webhook in_flight reaper, M16 patient-chat injection fence. **Refactors (own passes):** M12 process-global breaker, M17 SSRF `resilientFetch`, M20 admin god-router split, M15 make `decisionSupportOnly`/`patientFacing` load-bearing `[S→T2]`.
+- ⏳ **Wave-2/3 frontend + infra Mediums** (below) not yet started.
+
 Per-finding detail in the analysis doc's Medium/Low tables. Clusters: **auth** (OTP attempt-counter TOCTOU + timing-`===`, 2FA-challenge counter, fail-open revoke-all) · **reliability** (webhook `in_flight` reaper, idempotency-keys sweep, revive the orphaned canary, breaker scoping, dead-letter/Redis/outbox alerts) · **data/RLS** (registerDevice tenant_id, an `ON CONFLICT`-vs-unique-index CI guard) · **clinical** (order-state TOCTOU, med-rec administered-dose, critical-vital routing) · **AI-gov** (prompt-injection on the chat input, RAG `flag`-verdict re-check) · **interop/crypto** (X25519 low-order reject, per-tenant ABDM token cache) · **api** (terminal 404 handler, deviceController helper misuse, admin god-router extraction) · **frontend** (CSP `unsafe-eval`, off-host PHI download scheme check, a11y/Semantics + i18n review-gate, offline queue for clinical writes, typed DTOs, single-WS, white-label theming) · **infra** (scope ingress secret read + east-west NetworkPolicies, PgBouncer pool sizing, SBOM attest + verify-before-pin + base-image digests, Loki 180d, Ollama PDB, monitoring auto-sync).
 
 ### Tier 2 — S-tier upgrade epics (the ~85 opportunities → ~12 programs; each gets a brainstorm→design→plan cycle first)
