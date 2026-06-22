@@ -9,7 +9,10 @@ export const registerDevice = async (req, res) => {
   const { phone, fcm_token, platform = 'unknown' } = req.body;
 
   if (!phone || !fcm_token) {
-    return res.status(400).json(error('Phone and FCM token are required.'));
+    // M18: success()/error() take `res` first and send the response themselves
+    // (res.status().json()). Passing a string made res.status() throw → every
+    // path 500'd. Call them with the correct signature.
+    return error(res, 'Phone and FCM token are required.', 400);
   }
 
   try {
@@ -31,9 +34,9 @@ export const registerDevice = async (req, res) => {
 
     logger.info(`[DEVICE REGISTERED] Phone: ${maskPhoneForLog(phone)}, Platform: ${platform}`);
 
-    return res.json(success('Device registered successfully.'));
+    return success(res, null, 'Device registered successfully.');
   } catch (err) {
     logger.error('Device registration error:', err);
-    return res.status(500).json(error('Internal server error.'));
+    return error(res, 'Internal server error.', 500);
   }
 };

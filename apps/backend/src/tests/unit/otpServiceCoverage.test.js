@@ -22,7 +22,7 @@ import { jest } from '@jest/globals';
 
 // ── Local prisma mock (self-contained) ───────────────────────────────
 const mockPrisma = {
-  otp_sessions: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), count: jest.fn() },
+  otp_sessions: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
   otp_logs: { create: jest.fn(), count: jest.fn() },
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -279,6 +279,7 @@ describe('verifyOtp — hashed OTP comparison', () => {
       id: 7, otp: '$2b$06$storedhash', expires_at: new Date(Date.now() + 5 * 60 * 1000),
       attempts: 0, user_id: 'user-9',
     });
+    mockPrisma.otp_sessions.updateMany.mockResolvedValue({ count: 1 }); // M1 attempt reserved
     mockPrisma.otp_sessions.update.mockResolvedValue({});
     mockPrisma.otp_logs.create.mockResolvedValue({});
     mockBcryptCompare.mockResolvedValue(true);
@@ -296,6 +297,7 @@ describe('verifyOtp — hashed OTP comparison', () => {
       id: 8, otp: '$2b$06$storedhash', expires_at: new Date(Date.now() + 5 * 60 * 1000),
       attempts: 1, user_id: null,
     });
+    mockPrisma.otp_sessions.updateMany.mockResolvedValue({ count: 1 }); // M1 attempt reserved
     mockPrisma.otp_sessions.update.mockResolvedValue({});
     mockPrisma.otp_logs.create.mockResolvedValue({});
     mockBcryptCompare.mockResolvedValue(false);

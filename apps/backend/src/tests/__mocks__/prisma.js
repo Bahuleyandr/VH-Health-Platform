@@ -8,7 +8,7 @@ const usersFind = jest.fn();
 const mockPrisma = {
   users: { findFirst: usersFind, findUnique: usersFind, upsert: jest.fn(), update: jest.fn(), create: jest.fn(), count: jest.fn() },
   admins: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn(), create: jest.fn() },
-  otp_sessions: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), count: jest.fn() },
+  otp_sessions: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
   otp_logs: { create: jest.fn(), count: jest.fn() },
   auth_logs: { create: jest.fn(), count: jest.fn() },
   password_reset_otps: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
