@@ -1084,13 +1084,24 @@ export async function verifyOrder(orderId, verifiedBy) {
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
   const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
-    const row = await tx.clinical_orders.update({
-      where: { id: existing.id },
+    // M6 (audit 2026-06-22): guard the expected status in the UPDATE itself, not
+    // just the pre-check read. A single conditional updateMany serialises on the
+    // row lock; count===0 means a concurrent transition already moved the order
+    // off 'ordered' → reject, instead of a second verify writing a duplicate
+    // canonical event / clobbering the first transition.
+    const reserved = await tx.clinical_orders.updateMany({
+      where: { id: existing.id, status: 'ordered' },
       data: {
         status: 'verified',
         verified_by: verifiedBy,
         verified_at: new Date(),
       },
+    });
+    if (reserved.count === 0) {
+      throw AppError.conflict(`Order ${existing.order_number} is no longer in 'ordered' status (changed concurrently)`);
+    }
+    const row = await tx.clinical_orders.findUnique({
+      where: { id: existing.id },
       select: ORDER_RETURNING_SELECT,
     });
 
@@ -1141,13 +1152,21 @@ export async function completeOrder(orderId, completedBy) {
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
   const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
-    const row = await tx.clinical_orders.update({
-      where: { id: existing.id },
+    // M6: atomic status guard (see verifyOrder). count===0 → a concurrent
+    // transition already left the completable set → reject.
+    const reserved = await tx.clinical_orders.updateMany({
+      where: { id: existing.id, status: { in: allowedStatuses } },
       data: {
         status: 'completed',
         completed_by: completedBy,
         completed_at: new Date(),
       },
+    });
+    if (reserved.count === 0) {
+      throw AppError.conflict(`Order ${existing.order_number} can no longer be completed (status changed concurrently)`);
+    }
+    const row = await tx.clinical_orders.findUnique({
+      where: { id: existing.id },
       select: ORDER_RETURNING_SELECT,
     });
 
@@ -1198,13 +1217,21 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
   const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
-    const row = await tx.clinical_orders.update({
-      where: { id: existing.id },
+    // M6: atomic status guard (see verifyOrder). A terminal order (completed/
+    // cancelled/discontinued) can't be cancelled; count===0 → reject.
+    const reserved = await tx.clinical_orders.updateMany({
+      where: { id: existing.id, status: { notIn: ['completed', 'cancelled', 'discontinued'] } },
       data: {
         status: 'cancelled',
         cancelled_by: cancelledBy,
         cancel_reason: reason,
       },
+    });
+    if (reserved.count === 0) {
+      throw AppError.conflict(`Order ${existing.order_number} can no longer be cancelled (status changed concurrently)`);
+    }
+    const row = await tx.clinical_orders.findUnique({
+      where: { id: existing.id },
       select: ORDER_RETURNING_SELECT,
     });
 
@@ -1257,14 +1284,22 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
   const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
-    const row = await tx.clinical_orders.update({
-      where: { id: existing.id },
+    // M6: atomic status guard (see verifyOrder). count===0 → a concurrent
+    // transition already left the discontinuable set → reject.
+    const reserved = await tx.clinical_orders.updateMany({
+      where: { id: existing.id, status: { in: allowedStatuses } },
       data: {
         status: 'discontinued',
         cancelled_by: discontinuedBy,
         cancel_reason: reason,
         end_date: new Date(),
       },
+    });
+    if (reserved.count === 0) {
+      throw AppError.conflict(`Order ${existing.order_number} can no longer be discontinued (status changed concurrently)`);
+    }
+    const row = await tx.clinical_orders.findUnique({
+      where: { id: existing.id },
       select: ORDER_RETURNING_SELECT,
     });
 

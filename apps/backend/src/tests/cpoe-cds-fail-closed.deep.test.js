@@ -42,7 +42,7 @@ jest.unstable_mockModule('../utils/clinical/prescriptionSafetyCheck.js', () => (
 
 const prismaModule = await import('../lib/prisma.js');
 const prisma = prismaModule.default;
-const { createOrder, createOrdersBulk } = await import('../services/emr/orderEntryService.js');
+const { createOrder, createOrdersBulk, verifyOrder } = await import('../services/emr/orderEntryService.js');
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -189,5 +189,39 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
 
     // Atomic: NOT EVEN the valid lab order persisted.
     expect(await orderCount()).toBe(before);
+  });
+
+  test('concurrent verifyOrder on the same order → exactly one verifies (M6 TOCTOU)', async () => {
+    safetyControl.throwError = null;
+    const created = await createOrder({
+      patient_uid: PATIENT_UID,
+      order_type: 'investigation',
+      details: { test_name: 'ESR' },
+      ordered_by: ORDERER_UID,
+      tenantId: TENANT_ID,
+    });
+    const orderId = Number(created.order.id);
+
+    // Two simultaneous verifies. Without the atomic status guard both read
+    // status='ordered', both pass the pre-check, and both UPDATE + write a
+    // canonical event (duplicate verify). With the WHERE status='ordered' guard,
+    // the loser's updateMany matches 0 rows and is rejected as a 409 conflict.
+    const results = await Promise.allSettled([
+      verifyOrder(orderId, ORDERER_UID),
+      verifyOrder(orderId, ORDERER_UID),
+    ]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toMatchObject({ statusCode: 409 });
+
+    // Exactly one order.verified canonical timeline event — no duplicate.
+    const evts = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM clinical_timeline_events
+        WHERE source_table = 'clinical_orders' AND source_id = $1 AND event_type = 'order.verified'`,
+      String(orderId),
+    );
+    expect(evts[0].n).toBe(1);
   });
 });
