@@ -239,15 +239,32 @@ jobs:
           -PgDatabase vhhealth
           -PgPassword '${{ github.run_id }}'
 
-      # -RequireNoWarnings is intentionally omitted here. Per
-      # check-clinical-ai-tenant-preflight.mjs it is the operator GO-LIVE
-      # posture: it turns advisory warnings ("some review roles unstaffed" /
-      # "deep module not live") into failures for EVERY one of the ~20 modules
-      # the migration catalog globally-enables — not achievable in a synthetic
-      # CI smoke without staffing every reviewer role for every module. The
-      # smoke still asserts the preflight runs, has zero hard FAILs, sees the
-      # approved pilot signoff, and is rollout-ready (manual attestations). The
-      # real go-live runbook runs this script WITH -RequireNoWarnings.
+      # The preflight runs STRICT (-RequireNoWarnings, the operator go-live
+      # posture). Two synthetic-CI gaps would otherwise warn and must be closed
+      # first (the green run's only 6 warnings were exactly these two classes;
+      # locale / numbering-series / retention-policy already PASS from the seed):
+      #  1. some_review_roles_unstaffed — the global catalog enables ~18 modules
+      #     for every tenant whose reviewRoles span niche roles the comprehensive
+      #     seed doesn't staff. Seed one active user per missing role (derived
+      #     from the catalog, idempotent).
+      #  2. deep_module_not_live — the preflight does a live GET /api/tags on the
+      #     deep provider, but the local-Ollama smoke above start/stopped its own
+      #     mock. Start a persistent mock that stays up through the preflight.
+      - name: Seed Clinical AI preflight reviewers
+        working-directory: apps/backend
+        run: node scripts/seed-clinical-ai-preflight-reviewers.mjs --tenant 00000000-0000-4000-8000-000000000001
+
+      - name: Start mock Ollama for preflight readiness
+        run: |
+          mkdir -p output/ci-smoke
+          node scripts/mock-ollama-readiness-server.mjs 11534 "$CLINICAL_AI_DEEP_MODEL" > output/ci-smoke/mock-ollama-readiness.log 2>&1 &
+          echo $! > output/ci-smoke/mock-ollama-readiness.pid
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:11534/api/tags >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          echo "mock ollama failed to start"; cat output/ci-smoke/mock-ollama-readiness.log; exit 1
+
       - name: Clinical AI tenant rollout preflight
         shell: pwsh
         run: >
@@ -262,6 +279,7 @@ jobs:
           -OutputPath output/ci-smoke/clinical-ai-tenant-preflight.json
           -RequirePilotSignoff
           -RequireRolloutReady
+          -RequireNoWarnings
           -ReviewerQueueWalkthroughConfirmed
           -PhiLoggingReviewed
           -SafetyReviewCadenceConfirmed
