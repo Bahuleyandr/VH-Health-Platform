@@ -310,6 +310,34 @@ describe('Money-path C-1 fixes (deep)', () => {
       const res = await claims.recordClaimPayment({ tenantId: TENANT_A, id: paid, paid_amount: 1000, payment_reference: 'UTR-123' });
       expect(['paid', 'settled_partial']).toContain(res.status);
     });
+
+    it('two simultaneous settlements (distinct refs) on the same claim → exactly one lands (M4)', async () => {
+      const patient = await makePatient();
+      const policy = await makePolicy(patient);
+      const claim = await makeTpaClaim(patient, policy, 'approved', TENANT_A, { claimed: 1000 });
+
+      // Two DIFFERENT settlement references posted concurrently. Without the row
+      // lock both read status='approved', both pass FROM_STATES, and both write a
+      // paid row (distinct-ref last-writer-wins → a double-settlement record).
+      // With FOR UPDATE the loser serializes, re-reads status='paid', and is
+      // rejected (paid is terminal).
+      const results = await Promise.allSettled([
+        claims.recordClaimPayment({ tenantId: TENANT_A, id: claim, paid_amount: 1000, payment_reference: 'UTR-A' }),
+        claims.recordClaimPayment({ tenantId: TENANT_A, id: claim, paid_amount: 1000, payment_reference: 'UTR-B' }),
+      ]);
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason).toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
+
+      // Exactly one settlement correspondence row — no double-write.
+      const corr = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS c FROM tpa_claim_correspondence WHERE claim_id = $1::int AND subject = 'Settlement received'`,
+        claim,
+      );
+      expect(corr[0].c).toBe(1);
+    });
   });
 
   // ── Fix 6: prior-auth payer-decision guard ────────────────────────────

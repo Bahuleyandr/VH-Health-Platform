@@ -8,7 +8,8 @@
 // final-bill linkage so the cashier and the insurance coordinator
 // stay in sync.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import logger from '../../logging/logger.js';
@@ -1922,34 +1923,56 @@ export async function recordClaimDecision({
     }
   }
 
-  await prisma.$executeRawUnsafe(
-    `UPDATE tpa_claims
-        SET status = $1::varchar,
-            approved_amount = COALESCE($2::numeric, approved_amount),
-            denial_reason = CASE WHEN $1::varchar = 'denied' THEN $3::text ELSE denial_reason END,
-            updated_at = NOW()
-      WHERE id = $4::int`,
-    decision,
-    approved_amount ? Number(approved_amount) : null,
-    denial_reason || null,
-    cl.id,
-  );
+  // M4 (audit 2026-06-22): lock the claim row and re-validate the transition
+  // against the COMMITTED status inside the tx. The checks above are fast-fail UX
+  // on a no-lock read; without this lock two concurrent decisions both read the
+  // old status, both pass, and both write (distinct-ref last-writer-wins).
+  const tid = requireTenantId(tenantId);
+  await setTenantTx(tid, async (tx) => {
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id, status FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1 FOR UPDATE`,
+      cl.id, tid,
+    );
+    const locked = lockedRows[0];
+    if (!locked) throw AppError.notFound('Claim not found');
+    const allowedToLocked = CLAIM_DECISION_TRANSITIONS[locked.status] ?? null;
+    if (allowedToLocked === null) {
+      throw AppError.badRequest(`Cannot record decision on ${locked.status} claim`);
+    }
+    if (locked.status === decision) return; // idempotent — already in this state
+    if (!allowedToLocked.includes(decision)) {
+      throw AppError.invalidTransition(locked.status, decision, allowedToLocked);
+    }
 
-  // Drop a correspondence row for the audit trail.
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO tpa_claim_correspondence
-       (claim_id, direction, channel, subject, body, recorded_by)
-     VALUES ($1::int, 'inbound', 'portal',
-             $2, $3, $4::uuid)`,
-    cl.id,
-    `Decision: ${decision}`,
-    [
+    await tx.$executeRawUnsafe(
+      `UPDATE tpa_claims
+          SET status = $1::varchar,
+              approved_amount = COALESCE($2::numeric, approved_amount),
+              denial_reason = CASE WHEN $1::varchar = 'denied' THEN $3::text ELSE denial_reason END,
+              updated_at = NOW()
+        WHERE id = $4::int`,
+      decision,
+      approved_amount ? Number(approved_amount) : null,
+      denial_reason || null,
+      cl.id,
+    );
+
+    // Drop a correspondence row for the audit trail.
+    await tx.$executeRawUnsafe(
+      `INSERT INTO tpa_claim_correspondence
+         (claim_id, direction, channel, subject, body, recorded_by)
+       VALUES ($1::int, 'inbound', 'portal',
+               $2, $3, $4::uuid)`,
+      cl.id,
       `Decision: ${decision}`,
-      approved_amount ? `Approved: ${approved_amount}` : null,
-      denial_reason ? `Reason: ${denial_reason}` : null,
-    ].filter(Boolean).join('\n'),
-    recorded_by ? String(recorded_by) : null,
-  );
+      [
+        `Decision: ${decision}`,
+        approved_amount ? `Approved: ${approved_amount}` : null,
+        denial_reason ? `Reason: ${denial_reason}` : null,
+      ].filter(Boolean).join('\n'),
+      recorded_by ? String(recorded_by) : null,
+    );
+  });
 
   return getClaim({ tenantId, id });
 }
@@ -2018,28 +2041,51 @@ export async function recordClaimPayment({
   const isShortPay = claimedNum > 0 && paidNum < claimedNum;
   const newStatus = isShortPay ? 'settled_partial' : 'paid';
   const disallowed = isShortPay ? Number((claimedNum - paidNum).toFixed(2)) : 0;
-  await prisma.$executeRawUnsafe(
-    `UPDATE tpa_claims
-        SET status = $1, paid_amount = $2::numeric,
-            disallowed_amount = $3::numeric,
-            payment_reference = $4, paid_at = COALESCE($5::timestamptz, NOW()),
-            updated_at = NOW()
-      WHERE id = $6::int`,
-    newStatus, paidNum, disallowed,
-    payment_reference || null,
-    paid_at || null, cl.id,
-  );
+  // M4 (audit 2026-06-22): lock + re-validate the settlement transition against
+  // the COMMITTED status inside the tx. The checks above are fast-fail UX on a
+  // no-lock read; without this lock two concurrent settlements both read a
+  // payable status and both write (distinct-ref last-writer-wins / double-pay).
+  const tid = requireTenantId(tenantId);
+  await setTenantTx(tid, async (tx) => {
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id, status, payment_reference FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1 FOR UPDATE`,
+      cl.id, tid,
+    );
+    const locked = lockedRows[0];
+    if (!locked) throw AppError.notFound('Claim not found');
+    if (['paid', 'settled_partial'].includes(locked.status)) {
+      const samePayment = payment_reference && locked.payment_reference
+        && String(locked.payment_reference) === String(payment_reference);
+      if (samePayment) return; // idempotent — same settlement re-posted
+      throw AppError.invalidTransition(locked.status, 'paid', CLAIM_PAYMENT_FROM_STATES);
+    }
+    if (!CLAIM_PAYMENT_FROM_STATES.includes(locked.status)) {
+      throw AppError.invalidTransition(locked.status, 'paid', CLAIM_PAYMENT_FROM_STATES);
+    }
 
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO tpa_claim_correspondence
-       (claim_id, direction, channel, subject, body, recorded_by)
-     VALUES ($1::int, 'inbound', 'portal',
-             $2, $3, $4::uuid)`,
-    cl.id,
-    `Settlement received`,
-    `Paid amount: ${paid_amount}\nRef: ${payment_reference || '—'}`,
-    recorded_by ? String(recorded_by) : null,
-  );
+    await tx.$executeRawUnsafe(
+      `UPDATE tpa_claims
+          SET status = $1, paid_amount = $2::numeric,
+              disallowed_amount = $3::numeric,
+              payment_reference = $4, paid_at = COALESCE($5::timestamptz, NOW()),
+              updated_at = NOW()
+        WHERE id = $6::int`,
+      newStatus, paidNum, disallowed,
+      payment_reference || null,
+      paid_at || null, cl.id,
+    );
+
+    await tx.$executeRawUnsafe(
+      `INSERT INTO tpa_claim_correspondence
+         (claim_id, direction, channel, subject, body, recorded_by)
+       VALUES ($1::int, 'inbound', 'portal',
+               $2, $3, $4::uuid)`,
+      cl.id,
+      `Settlement received`,
+      `Paid amount: ${paid_amount}\nRef: ${payment_reference || '—'}`,
+      recorded_by ? String(recorded_by) : null,
+    );
+  });
 
   return getClaim({ tenantId, id });
 }
