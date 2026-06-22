@@ -20,16 +20,13 @@ metadata:
     # ALLOWED_ORIGINS from env. Ingress must NOT double-handle or it strips
     # Access-Control-Allow-Credentials.
     nginx.ingress.kubernetes.io/enable-cors: "false"
-    # Security headers — mirror the helmet.js config in backend app.js.
-    # Kept at the ingress so the browser never sees an unhardened first
-    # byte even during a backend restart.
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
-      more_set_headers "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+    # Security headers are NOT set here (audit 2026-06-22 W3-H1). The controller
+    # has allow-snippet-annotations="false" (CVE-2021-25742/2023-5043), so a
+    # configuration-snippet here is REJECTED at admission → API routing outage.
+    # Transport headers (HSTS, X-Content-Type-Options, X-Frame-Options,
+    # Referrer-Policy, Permissions-Policy) are applied controller-wide via the
+    # http-snippet + nginx-security-headers ConfigMap in base/ingress-nginx; the
+    # strict API CSP (default-src 'none') is owned by Helmet.js in backend app.js.
     # Rate limiting — belt-and-braces on top of backend's express-rate-limit.
     # Per-IP burst protection for anyone bypassing the /api/v1/auth rate limits.
     nginx.ingress.kubernetes.io/limit-connections: "50"

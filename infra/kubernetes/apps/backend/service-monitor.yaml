@@ -23,6 +23,18 @@ spec:
       interval: 30s
       scrapeTimeout: 10s
       honorLabels: true
+      # The backend /metrics endpoint is token-gated (requireProductionMonitoring
+      # Access). Send the monitoring token as a Bearer credential so the scrape
+      # authenticates — without this Prometheus is blind to the backend (audit
+      # 2026-06-22 W3-H4). The Secret lives in the PROMETHEUS namespace (Prometheus
+      # reads scrape credentials from its own namespace, not the target's):
+      #   kubectl -n monitoring create secret generic vhhealth-monitoring-token \
+      #     --from-literal=token="$MONITORING_TOKEN"   # same value as the backend's MONITORING_TOKEN
+      authorization:
+        type: Bearer
+        credentials:
+          name: vhhealth-monitoring-token
+          key: token
       # Drop verbose node_ + process_ labels — we only care about
       # http_*, vh_* and pg_pool_* custom metrics.
       metricRelabelings:

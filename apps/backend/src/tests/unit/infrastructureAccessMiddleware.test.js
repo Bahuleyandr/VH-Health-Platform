@@ -33,6 +33,22 @@ describe('infrastructure access middleware', () => {
     expect(hasValidMonitoringToken(req, {})).toBe(false);
   });
 
+  // W3-H4 — a Prometheus ServiceMonitor can only send standard auth headers, so
+  // the same monitoring token must be accepted via Authorization: Bearer.
+  it('accepts the monitoring token via Authorization: Bearer (ServiceMonitor scrape)', () => {
+    const env = { MONITORING_TOKEN: 'alpha,beta' };
+    const req = { get: (h) => (h.toLowerCase() === 'authorization' ? 'Bearer beta' : null) };
+
+    expect(hasValidMonitoringToken(req, env)).toBe(true);
+  });
+
+  it('rejects a Bearer token that is not in the configured set', () => {
+    const env = { MONITORING_TOKEN: 'alpha' };
+    const req = { get: (h) => (h.toLowerCase() === 'authorization' ? 'Bearer wrong' : null) };
+
+    expect(hasValidMonitoringToken(req, env)).toBe(false);
+  });
+
   describe('requireProductionMonitoringAccess gate', () => {
     const ORIGINAL_ENV = { ...process.env };
 
