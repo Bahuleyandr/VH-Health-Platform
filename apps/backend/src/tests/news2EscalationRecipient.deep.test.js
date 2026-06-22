@@ -30,6 +30,11 @@ async function query(sql, ...p) {
 
 d('NEWS2 escalation reaches an assigned recipient (audit W1-H4)', () => {
   beforeAll(async () => {
+    // Clear any task left by a prior/aborted run for this patient — an open task
+    // for this score would make the producer idempotently skip (created:false,
+    // no error), which is a safe no-op for the service but defeats this test's
+    // "a fresh task is created" intent. Self-isolating, not stale-state-dependent.
+    await exec(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
     await exec(
       `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
        VALUES ($1::uuid, '8990111222', 'NEWS2 Test Patient', 'PATIENT', true, 'active', $2::uuid, NOW())

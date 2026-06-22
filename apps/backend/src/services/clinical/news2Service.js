@@ -276,12 +276,20 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
       logger.error(`NEWS2 escalation FAILED for patient ${patientUid} (score=${totalScore}): ${err.message}`);
       throw err;
     }
-    // LOUD: a high-NEWS2 alert that produced NO assigned task must not be
-    // silently lost — surface it so Sentry / the caller sees the miss.
+    // LOUD only on a genuine FAILURE: enqueueCriticalResultTask returns
+    // created:false for TWO reasons — (a) a DB error (it carries `error`), which
+    // means the deteriorating-patient alert reached no one → must surface; and
+    // (b) an idempotency conflict (no `error`): an OPEN task for this score
+    // already exists, i.e. a duplicate/retry escalation. The alert already
+    // reached a recipient, so a conflict is a safe no-op, NOT a miss — throwing on
+    // it would crash the caller on any re-escalation of the same score.
     if (!result?.created) {
-      const msg = `NEWS2 escalation produced no assigned task for patient ${patientUid} (score=${totalScore}): ${result?.error || 'unknown'}`;
-      logger.error(msg);
-      throw new Error(msg);
+      if (result?.error) {
+        const msg = `NEWS2 escalation FAILED to create a task for patient ${patientUid} (score=${totalScore}): ${result.error}`;
+        logger.error(msg);
+        throw new Error(msg);
+      }
+      logger.info(`NEWS2 escalation skipped for patient ${patientUid} (score=${totalScore}): an open task for this score already exists (idempotent)`);
     }
   }
 

@@ -79,11 +79,21 @@ describe('NEWS2 escalation loudness + recipient (MEDIUM §4 / W1-H4)', () => {
     expect(enqueueSpy).toHaveBeenCalledTimes(1);
   });
 
-  test('>=5: a producer that creates NO task (created:false) throws loud (W1-H4)', async () => {
+  test('>=5: a producer FAILURE (created:false WITH an error) throws loud (W1-H4)', async () => {
     inboxControl.result = { created: false, error: 'no recipient resolvable' };
     await expect(recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid'))
-      .rejects.toThrow(/no assigned task|escalation/i);
+      .rejects.toThrow(/failed to create a task|escalation/i);
     expect(insertSpy).toHaveBeenCalled();
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('>=5: an idempotency conflict (created:false, NO error) is a safe no-op (no throw)', async () => {
+    // enqueueCriticalResultTask returns created:false WITHOUT an error when an
+    // OPEN task for this score already exists (a duplicate/retry escalation). The
+    // alert already reached a recipient, so the service must NOT throw — doing so
+    // would crash the caller on any re-escalation of the same score.
+    inboxControl.result = { created: false, taskId: null };
+    await expect(recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid')).resolves.toBeTruthy();
     expect(enqueueSpy).toHaveBeenCalledTimes(1);
   });
 
