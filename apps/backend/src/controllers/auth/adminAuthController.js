@@ -601,18 +601,31 @@ export const mfaVerifyChallenge = async (req, res) => {
       return error(res, 'challengeToken and code are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Lookup valid (non-expired) challenge
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT admin_id FROM totp_challenges
-        WHERE challenge_token = $1
-          AND expires_at > NOW()
-        LIMIT 1`,
-      challengeToken
+    // Atomically reserve an attempt on a live challenge (M3 — audit 2026-06-22).
+    // A single conditional UPDATE increments attempts only while under the cap, so
+    // every verify (success OR failure) consumes one attempt. Previously the
+    // challenge was deleted ONLY on success, and there was no counter — so one
+    // token could be retried with unlimited codes within its expiry window,
+    // making the 6-digit TOTP brute-forceable. count===0 means expired/invalid OR
+    // the cap was hit.
+    const reserved = await prisma.$queryRawUnsafe(
+      `UPDATE totp_challenges
+          SET attempts = attempts + 1
+        WHERE challenge_token = $1 AND expires_at > NOW() AND attempts < $2
+        RETURNING admin_id`,
+      challengeToken,
+      SECURITY_CONFIG.mfa.challengeMaxAttempts,
     );
-    if (rows.length === 0) {
-      return error(res, 'Challenge expired or invalid. Please log in again.', HTTP_STATUS.UNAUTHORIZED);
+    if (reserved.length === 0) {
+      // Burn the token so a capped (or expired) challenge can never be retried,
+      // and force a fresh login.
+      await prisma.$queryRawUnsafe(
+        `DELETE FROM totp_challenges WHERE challenge_token = $1`,
+        challengeToken,
+      );
+      return error(res, 'Challenge expired, invalid, or too many attempts. Please log in again.', HTTP_STATUS.UNAUTHORIZED);
     }
-    const adminId = rows[0].admin_id;
+    const adminId = reserved[0].admin_id;
 
     const admin = await prisma.admins.findUnique({
       where: { uid: String(adminId) },
