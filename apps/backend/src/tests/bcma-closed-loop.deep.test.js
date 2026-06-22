@@ -201,7 +201,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(withReason.body.data.override_reason).toMatch(/scanner battery dead/);
   });
 
-  test('B4.2: administer-with-scan 409s on a mismatched patient scan, 200s with an override', async () => {
+  test('B4.2: a mismatched patient scan is a NON-overridable hard-stop (audit F-H1)', async () => {
     // Fresh scheduled row for this patient.
     const ma3 = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
@@ -212,7 +212,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     const scanMaId = Number(ma3[0].id);
 
     // Mismatched wristband UID (NURSE_UID is a real user but not this MA's
-    // patient) with no override → server-side two-scan gate rejects with 409.
+    // patient) with no override → wrong-patient hard-stop, 409 MAR_PATIENT_MISMATCH.
     const mismatch = await nurseClient()
       .post(`/api/v1/clinical/mar/${scanMaId}/administer-with-scan`)
       .send({
@@ -220,9 +220,11 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
         scanned_barcode: 'B1TEST Paracetamol 500mg',
       });
     expect(mismatch.status).toBe(409);
-    expect(mismatch.body.code).toBe('MAR_TWO_SCAN_REQUIRED');
+    expect(mismatch.body.code).toBe('MAR_PATIENT_MISMATCH');
 
-    // Same mismatch WITH a documented override (>=5 chars) → administered.
+    // The canonical BCMA never-event: the SAME wrong-patient scan WITH a
+    // documented override must STILL be refused — wrong-patient is not a
+    // justify-and-proceed. The order must remain unadministered.
     const overridden = await nurseClient()
       .post(`/api/v1/clinical/mar/${scanMaId}/administer-with-scan`)
       .send({
@@ -230,9 +232,15 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
         scanned_barcode: 'B1TEST Paracetamol 500mg',
         override_reason: 'B1TEST wristband unreadable; identity confirmed verbally + ID band',
       });
-    expect(overridden.status).toBe(200);
-    expect(overridden.body.data.status).toBe('administered');
-    expect(overridden.body.data.override_reason).toMatch(/wristband unreadable/);
+    expect(overridden.status).toBe(409);
+    expect(overridden.body.code).toBe('MAR_PATIENT_MISMATCH');
+
+    // Defence-in-depth: confirm the row was never flipped to administered.
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT status FROM medication_administrations WHERE id = $1`,
+      scanMaId,
+    );
+    expect(after[0].status).toBe('scheduled');
   });
 
   test('5-rights drug-right passes via med-pack barcode for the right patient', async () => {

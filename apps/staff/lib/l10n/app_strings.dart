@@ -1984,6 +1984,11 @@ class AppStrings {
   String get marScanScanAgain => _t('mar_scan.scan_again');
   String get marScanTryAgain => _t('mar_scan.try_again');
   String get marScanUnknownMedication => _t('mar_scan.unknown_medication');
+  // Wrong-patient / wrong-drug hard-stop (audit 2026-06-22 F-H1).
+  String get marScanHardStopTitle => _t('mar_scan.hardstop.title');
+  String get marScanHardStopPatient => _t('mar_scan.hardstop.patient');
+  String get marScanHardStopDrug => _t('mar_scan.hardstop.drug');
+  String get marScanHardStopBody => _t('mar_scan.hardstop.body');
 
   // ── EMR / Discharge Summary ───────────────────────────────────────
   String get dischargeTitlePrefix => _t('discharge.title_prefix');
@@ -4318,6 +4323,14 @@ class AppStrings {
       'mar_scan.scan_again': 'Scan again',
       'mar_scan.try_again': 'Try again',
       'mar_scan.unknown_medication': '(unknown medication)',
+      'mar_scan.hardstop.title': 'Cannot administer — re-scan required',
+      'mar_scan.hardstop.patient':
+          'The scanned wristband does not match this order (wrong patient).',
+      'mar_scan.hardstop.drug':
+          'The scanned barcode does not match the ordered medication (wrong drug).',
+      'mar_scan.hardstop.body':
+          'Patient- and drug-identity mismatches cannot be overridden. Confirm '
+          'you have the correct patient and medication, then scan again.',
       // Discharge Summary
       'discharge.title_prefix': 'Discharge —',
       'discharge.save_draft': 'Save Draft',

@@ -32,17 +32,23 @@ async function cleanupFixtures() {
 }
 
 async function seedMedicationAdministration(overrides = {}) {
+  // scheduledOffsetMinutes shifts scheduled_time relative to now so a test can
+  // force a SOFT (time-window) right failure while patient + drug still match —
+  // the only remaining overridable path now that patient/drug mismatch is a
+  // non-overridable hard-stop (audit F-H1).
+  const offset = Number(overrides.scheduledOffsetMinutes || 0);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO medication_administrations (
        patient_uid, medication_name, dose, route, scheduled_time, status, created_at, updated_at
      ) VALUES (
-       $1::uuid, $2, $3, $4, NOW(), 'scheduled', NOW(), NOW()
+       $1::uuid, $2, $3, $4, NOW() + ($5 || ' minutes')::interval, 'scheduled', NOW(), NOW()
      )
      RETURNING id`,
     overrides.patientUid || PATIENT_UID,
     overrides.medicationName || 'Amoxicillin 500mg',
     overrides.dose || '500 mg',
     overrides.route || 'oral',
+    String(offset),
   );
   return rows[0].id;
 }
@@ -102,21 +108,49 @@ describe('Clinical safety controls', () => {
     });
   });
 
-  it('records the override audit trail when a five-rights failure is overridden', async () => {
-    const maId = await seedMedicationAdministration();
+  it('records the override audit trail when a SOFT right (time) is overridden', async () => {
+    // Patient + drug match (no hard-stop); the dose is 3h outside the scheduling
+    // window, so the time right fails — that IS overridable with a documented
+    // reason, and the override must be audited.
+    const maId = await seedMedicationAdministration({ scheduledOffsetMinutes: -180 });
 
     const updated = await administerWithScan({
       ma_id: maId,
-      scanned_patient_uid: OTHER_PATIENT_UID,
+      scanned_patient_uid: PATIENT_UID,
       scanned_barcode: 'amoxicillin',
       administeredBy: CLINICIAN_UID,
-      overrideReason: 'Patient wristband replaced after manual identity verification',
+      overrideReason: 'Dose given late — patient returned from imaging; documented per policy',
     });
 
     expect(updated.status).toBe('administered');
     expect(updated.all_rights_passed).toBe(false);
-    expect(updated.rights_passed).toMatchObject({ patient: false, drug: true });
-    expect(updated.override_reason).toContain('manual identity');
+    expect(updated.rights_passed).toMatchObject({ patient: true, drug: true, time: false });
+    expect(updated.override_reason).toContain('returned from imaging');
+  });
+
+  it('a wrong-patient scan is a NON-overridable hard-stop even WITH a reason (audit F-H1)', async () => {
+    const maId = await seedMedicationAdministration();
+
+    await expect(
+      administerWithScan({
+        ma_id: maId,
+        scanned_patient_uid: OTHER_PATIENT_UID, // wristband does not match the order
+        scanned_barcode: 'amoxicillin',
+        administeredBy: CLINICIAN_UID,
+        overrideReason: 'Patient wristband replaced after manual identity verification',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'MAR_PATIENT_MISMATCH',
+      details: { hardStop: true, failedRight: 'patient' },
+    });
+
+    // The order must remain unadministered.
+    const [row] = await prisma.$queryRawUnsafe(
+      `SELECT status FROM medication_administrations WHERE id = $1`,
+      maId,
+    );
+    expect(row.status).toBe('scheduled');
   });
 
   // B4.2 — BCMA server-side two-scan enforcement. The patient-wristband scan
@@ -126,7 +160,7 @@ describe('Clinical safety controls', () => {
   // auditable trail, and an override must leave a complete clinical_audit_events
   // entry.
   describe('B4.2 BCMA two-scan enforcement', () => {
-    it('rejects administration with a mismatched patient scan and no override (MAR_TWO_SCAN_REQUIRED)', async () => {
+    it('rejects administration with a mismatched patient scan (MAR_PATIENT_MISMATCH hard-stop)', async () => {
       const maId = await seedMedicationAdministration();
 
       await expect(
@@ -138,7 +172,7 @@ describe('Clinical safety controls', () => {
         }),
       ).rejects.toMatchObject({
         statusCode: 409,
-        code: 'MAR_TWO_SCAN_REQUIRED',
+        code: 'MAR_PATIENT_MISMATCH',
         details: { rights: expect.objectContaining({ patient: false }) },
       });
     });
@@ -169,13 +203,16 @@ describe('Clinical safety controls', () => {
       expect(row.all_rights_passed).toBe(true);
     });
 
-    it('administers a mismatched scan WITH an override and writes a clinical_audit_events row carrying the override', async () => {
-      const maId = await seedMedicationAdministration();
-      const overrideReason = 'Wristband barcode unreadable; identity confirmed against ID band and chart';
+    it('administers a SOFT-right (time) override and writes a clinical_audit_events row carrying the override', async () => {
+      // Patient + drug match → no hard-stop; the time right fails (3h late) and
+      // is overridden. The administration proceeds and the audit row carries the
+      // override. (Patient/drug mismatches can no longer reach administration.)
+      const maId = await seedMedicationAdministration({ scheduledOffsetMinutes: -180 });
+      const overrideReason = 'Dose given late after theatre delay; identity + drug scans matched';
 
       const updated = await administerWithScan({
         ma_id: maId,
-        scanned_patient_uid: OTHER_PATIENT_UID, // patient right fails
+        scanned_patient_uid: PATIENT_UID,
         scanned_barcode: 'amoxicillin',
         administeredBy: CLINICIAN_UID,
         overrideReason,
@@ -198,8 +235,10 @@ describe('Clinical safety controls', () => {
       );
       expect(audit.length).toBeGreaterThanOrEqual(1);
       expect(audit[0].action).toBe('mar.administered');
+      // Both identity scans matched, so two_scan_override is false; the soft-right
+      // override is still recorded.
       expect(audit[0].metadata).toMatchObject({
-        two_scan_override: true,
+        two_scan_override: false,
         override_reason: overrideReason,
       });
     });
