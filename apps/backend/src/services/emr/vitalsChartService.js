@@ -636,6 +636,7 @@ export async function recordVitals(data) {
     news2Result = news2Persisted.record;
     await news2Service.escalateNews2(
       resolvedPatientUid, news2Persisted.record, news2Persisted.computed,
+      { tenantId: resolvedTenantId },
     );
   }
 

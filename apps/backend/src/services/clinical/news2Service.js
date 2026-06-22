@@ -1,7 +1,6 @@
 // src/services/clinical/news2Service.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 
 // ===================================================================
 // NEWS2 Scoring — Pure calculation functions + persistence
@@ -221,35 +220,68 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
   return { record: rows[0], computed };
 }
 
+// Resolve the patient's tenant for routing a deterioration alert when the
+// caller did not pass one (the standalone NEWS2 path). Best-effort: a failed
+// lookup yields null and enqueueCriticalResultTask then surfaces the miss LOUDLY.
+async function resolvePatientTenantId(patientUid) {
+  if (!patientUid) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id::text AS tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
+      patientUid,
+    );
+    return rows?.[0]?.tenant_id || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Escalate a recorded NEWS2 score: queue the alert (>= threshold) and surface it
- * onto the CDS card pipeline. Must run POST-COMMIT (it touches other tables /
- * the CDS module). A HIGH-NEWS2 (>=5) escalation enqueue failure is LOUD — it
- * throws so the caller / Sentry sees a deteriorating-patient alert that did not
- * get queued (audit 2026-06-18 §4). The CDS surfacing remains best-effort.
+ * Escalate a recorded NEWS2 score: for a score >= threshold, create an assigned,
+ * acknowledgement-tracked results-inbox task (the escalation engine chases it if
+ * unacked), and surface it onto the CDS card pipeline. Must run POST-COMMIT (it
+ * touches other tables / the CDS module). A HIGH-NEWS2 (>=5) escalation that
+ * fails to land an assigned task is LOUD — it throws so the caller / Sentry sees
+ * a deteriorating-patient alert that reached no one. CDS surfacing stays
+ * best-effort. Pass { tenantId } from the caller's resolved tenant; otherwise it
+ * is resolved from the patient.
  */
-export async function escalateNews2(patientUid, record, computed) {
+export async function escalateNews2(patientUid, record, computed, { tenantId = null } = {}) {
   const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = computed;
 
   if (totalScore >= NEWS2_ESCALATION_THRESHOLD) {
+    // Route the deterioration alert to a REAL, assigned, acknowledgement-tracked
+    // recipient via the results-inbox producer (DUTY-role fallback when there is
+    // no single ordering clinician), so the escalation engine chases it if it
+    // goes unacked. (audit 2026-06-22 W1-H4: the previous notificationOutbox
+    // queue carried no recipient_id/recipient_phone and silently dead-lettered
+    // after 3 retries — the deteriorating-patient page reached nobody.)
+    let result;
     try {
-      await notificationOutbox.queue({
-        type: 'NEWS2_ALERT',
-        title: `NEWS2 Alert — Score ${totalScore} (${clinicalRisk.replace(/_/g, ' ')})`,
-        body: escalationAction,
-        data: {
-          patient_uid: patientUid,
-          news2_id: record?.id,
-          total_score: totalScore,
-          clinical_risk: clinicalRisk,
-        },
-        priority: totalScore >= 7 ? 'CRITICAL' : 'HIGH',
+      const { enqueueCriticalResultTask } = await import('../results/resultsInboxService.js');
+      const effectiveTenantId = tenantId || (await resolvePatientTenantId(patientUid));
+      result = await enqueueCriticalResultTask({
+        tenantId: effectiveTenantId,
+        patientUid,
+        source: 'news2',
+        resourceType: 'news2_score',
+        resourceId: record?.id ?? null,
+        severity: totalScore >= 7 ? 'critical' : 'high',
+        title: `NEWS2 ${totalScore} (${clinicalRisk.replace(/_/g, ' ')}) — review required`,
+        summary: escalationAction,
+        // No single ordering clinician for a ward vital → DUTY-role fallback.
+        orderingClinicianUid: null,
       });
     } catch (err) {
-      // LOUD: a high-NEWS2 escalation that fails to enqueue must NOT be
-      // swallowed — a deteriorating patient's alert would be silently lost.
-      logger.error(`NEWS2 escalation enqueue FAILED for patient ${patientUid} (score=${totalScore}): ${err.message}`);
+      logger.error(`NEWS2 escalation FAILED for patient ${patientUid} (score=${totalScore}): ${err.message}`);
       throw err;
+    }
+    // LOUD: a high-NEWS2 alert that produced NO assigned task must not be
+    // silently lost — surface it so Sentry / the caller sees the miss.
+    if (!result?.created) {
+      const msg = `NEWS2 escalation produced no assigned task for patient ${patientUid} (score=${totalScore}): ${result?.error || 'unknown'}`;
+      logger.error(msg);
+      throw new Error(msg);
     }
   }
 
@@ -275,7 +307,7 @@ export async function recordNEWS2(patientUid, vitals, recordedBy, options = {}) 
   const persisted = await persistNews2(patientUid, vitals, recordedBy, options);
   if (!persisted) return null;
   const { record, computed } = persisted;
-  await escalateNews2(patientUid, record, computed);
+  await escalateNews2(patientUid, record, computed, { tenantId: options?.tenantId ?? null });
   logger.info(`NEWS2 recorded for patient ${patientUid}: score=${computed.totalScore}, risk=${computed.clinicalRisk}`);
   return record;
 }

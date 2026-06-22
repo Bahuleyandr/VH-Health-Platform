@@ -207,6 +207,71 @@ String recordDateTimeLabel(dynamic value) {
   return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
 }
 
+/// NEWS2 escalates at a total score >= 5 (matches the backend
+/// NEWS2_ESCALATION_THRESHOLD); >= 7 is the critical band.
+const int news2EscalationThreshold = 5;
+
+/// Immutable view-model for the NEWS2 deterioration banner, derived from a
+/// record-vitals API response. Audit 2026-06-22 W2-H2: the clinician must SEE
+/// the early-warning score + the recommended escalation response after saving.
+class News2Banner {
+  const News2Banner({
+    required this.totalScore,
+    required this.clinicalRisk,
+    required this.severity,
+    required this.shouldEscalate,
+  });
+
+  /// 0–20 aggregate NEWS2 score.
+  final int totalScore;
+
+  /// Raw backend enum: `low` | `low_to_medium` | `medium` | `high`.
+  final String clinicalRisk;
+
+  /// UI severity band: `critical` | `high` | `medium` | `low`.
+  final String severity;
+
+  /// True when totalScore >= the escalation threshold (the deterioration case).
+  final bool shouldEscalate;
+}
+
+/// Map a NEWS2 total score + clinical-risk enum to a UI severity band. Score is
+/// authoritative; the enum is a tie-breaker so a high-risk single-parameter
+/// trigger (e.g. score 3 in one parameter → clinicalRisk 'high') still bands up.
+String news2SeverityToken(int totalScore, String clinicalRisk) {
+  final risk = clinicalRisk.toLowerCase();
+  if (totalScore >= 7 || risk == 'high') return 'critical';
+  if (totalScore >= news2EscalationThreshold || risk == 'medium') return 'high';
+  if (totalScore >= 1 || risk == 'low_to_medium') return 'medium';
+  return 'low';
+}
+
+/// Extract a [News2Banner] from a record-vitals API response (`data` envelope
+/// already unwrapped). Returns null when there is no usable NEWS2 payload, so
+/// callers can simply hide the banner. Tolerates numeric strings / doubles for
+/// the score and either `clinical_risk` or its `risk_level` alias.
+News2Banner? extractNews2Banner(Map<String, dynamic>? response) {
+  if (response == null) return null;
+  final raw = response['news2'];
+  if (raw is! Map) return null;
+  final news2 = raw.cast<String, dynamic>();
+  final scoreRaw = news2['total_score'];
+  final int? score = scoreRaw is int
+      ? scoreRaw
+      : scoreRaw is num
+      ? scoreRaw.toInt()
+      : int.tryParse('${scoreRaw ?? ''}');
+  if (score == null) return null;
+  final clinicalRisk =
+      (news2['clinical_risk'] ?? news2['risk_level'] ?? '').toString();
+  return News2Banner(
+    totalScore: score,
+    clinicalRisk: clinicalRisk,
+    severity: news2SeverityToken(score, clinicalRisk),
+    shouldEscalate: score >= news2EscalationThreshold,
+  );
+}
+
 class _VitalsChartScreenState extends State<VitalsChartScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -223,6 +288,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   List<Map<String, dynamic>> _ioHistory = [];
   bool _ioHistoryLoading = true;
   String? _ioHistoryError;
+
+  // Most recent elevated NEWS2 result to surface as a deterioration banner.
+  News2Banner? _latestNews2;
 
   List<Map<String, dynamic>> get _last24hVitals =>
       filterVitalsRowsLast24h(_vitalsHistory);
@@ -638,7 +706,8 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     }
 
     try {
-      await MedicalApiService.recordEmrVitals(data);
+      final response = await MedicalApiService.recordEmrVitals(data);
+      final news2 = extractNews2Banner(response);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -646,6 +715,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
             backgroundColor: AppTheme.successGreen,
           ),
         );
+        // Surface the deterioration banner only for an escalation-grade score
+        // (>= threshold); routine low scores stay silent to avoid alert fatigue.
+        setState(() {
+          _latestNews2 = (news2 != null && news2.shouldEscalate) ? news2 : null;
+        });
         _loadVitalsHistory();
       }
     } catch (e) {
@@ -1571,6 +1645,141 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     );
   }
 
+  ({Color color, String band, String guidance, IconData icon}) _news2Style(
+    AppStrings s,
+    News2Banner banner,
+  ) {
+    switch (banner.severity) {
+      case 'critical':
+        return (
+          color: _errorColor,
+          band: s.news2BandCritical,
+          guidance: s.news2GuidanceCritical,
+          icon: Icons.crisis_alert,
+        );
+      case 'high':
+        return (
+          color: _warningColor,
+          band: s.news2BandHigh,
+          guidance: s.news2GuidanceHigh,
+          icon: Icons.warning_amber,
+        );
+      case 'medium':
+        return (
+          color: _warningColor,
+          band: s.news2BandMedium,
+          guidance: s.news2GuidanceMedium,
+          icon: Icons.info_outline,
+        );
+      default:
+        return (
+          color: _successColor,
+          band: s.news2BandLow,
+          guidance: s.news2GuidanceLow,
+          icon: Icons.check_circle_outline,
+        );
+    }
+  }
+
+  void _showNews2Guidance(News2Banner banner) {
+    final s = AppStrings.of(context);
+    final style = _news2Style(s, banner);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(style.icon, color: style.color),
+        title: Text(s.news2GuidanceTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              s.news2BannerTitle(banner.totalScore, style.band),
+              style: TextStyle(fontWeight: FontWeight.w700, color: style.color),
+            ),
+            const SizedBox(height: 12),
+            Text(style.guidance),
+            const SizedBox(height: 12),
+            Text(
+              s.news2BannerNotified,
+              style: TextStyle(
+                fontStyle: FontStyle.italic,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(s.actionClose),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNews2Banner() {
+    final banner = _latestNews2;
+    if (banner == null) return const SizedBox.shrink();
+    final s = AppStrings.of(context);
+    final style = _news2Style(s, banner);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: style.color.withValues(alpha: _isDark ? 0.18 : 0.10),
+        border: Border.all(color: style.color),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(style.icon, color: style.color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.news2BannerTitle(banner.totalScore, style.band),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: style.color,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                tooltip: s.news2BannerDismiss,
+                onPressed: () => setState(() => _latestNews2 = null),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 2),
+            child: Text(
+              s.news2BannerNotified,
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _showNews2Guidance(banner),
+              icon: Icon(Icons.escalator_warning, size: 18, color: style.color),
+              label: Text(
+                s.news2BannerEscalate,
+                style: TextStyle(color: style.color),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -1594,6 +1803,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               ],
             ),
           ),
+          _buildNews2Banner(),
           Expanded(
             child: TabBarView(
               controller: _tabController,

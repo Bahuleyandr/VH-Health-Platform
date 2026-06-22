@@ -118,6 +118,61 @@ void main() {
     });
   });
 
+  group('NEWS2 banner (audit W2-H2)', () {
+    test('severity bands by score, with clinical_risk as tie-breaker', () {
+      expect(news2SeverityToken(8, 'high'), 'critical');
+      expect(news2SeverityToken(7, 'medium'), 'critical');
+      expect(news2SeverityToken(5, 'medium'), 'high');
+      expect(news2SeverityToken(6, 'low'), 'high');
+      // A single-parameter high-risk trigger bands up even at a low total.
+      expect(news2SeverityToken(3, 'high'), 'critical');
+      expect(news2SeverityToken(2, 'low_to_medium'), 'medium');
+      expect(news2SeverityToken(0, 'low'), 'low');
+    });
+
+    test('extracts a banner from a high-score record-vitals response', () {
+      final banner = extractNews2Banner({
+        'vitals': {'id': 1},
+        'news2': {'total_score': 8, 'clinical_risk': 'high'},
+        'alerts': [],
+      });
+
+      expect(banner, isNotNull);
+      expect(banner!.totalScore, 8);
+      expect(banner.clinicalRisk, 'high');
+      expect(banner.severity, 'critical');
+      expect(banner.shouldEscalate, isTrue);
+    });
+
+    test('tolerates the risk_level alias and numeric-string scores', () {
+      final banner = extractNews2Banner({
+        'news2': {'total_score': '5', 'risk_level': 'medium'},
+      });
+
+      expect(banner, isNotNull);
+      expect(banner!.totalScore, 5);
+      expect(banner.severity, 'high');
+      expect(banner.shouldEscalate, isTrue);
+    });
+
+    test('a sub-threshold score does not escalate', () {
+      final banner = extractNews2Banner({
+        'news2': {'total_score': 2, 'clinical_risk': 'low_to_medium'},
+      });
+
+      expect(banner, isNotNull);
+      expect(banner!.shouldEscalate, isFalse);
+      expect(banner.severity, 'medium');
+    });
+
+    test('returns null when there is no usable NEWS2 payload', () {
+      expect(extractNews2Banner(null), isNull);
+      expect(extractNews2Banner({'vitals': {}}), isNull);
+      expect(extractNews2Banner({'news2': 'nope'}), isNull);
+      expect(extractNews2Banner({'news2': {'clinical_risk': 'high'}}), isNull);
+    });
+  });
+
   group('vitals and I/O history filters', () {
     test('formats vitals timestamps with dd/mm date and time', () {
       expect(recordDateTimeLabel(DateTime(2026, 6, 2, 7, 5)), '02/06 07:05');
