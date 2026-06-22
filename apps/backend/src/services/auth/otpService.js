@@ -14,6 +14,17 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 
 const OTP_HASH_ROUNDS = 6; // Lower than password hashing — OTPs are short-lived
 
+// Constant-time string compare for the legacy plaintext-OTP branch (M2). OTPs
+// are fixed-length, so the length guard leaks nothing; it only satisfies
+// timingSafeEqual's equal-length requirement. Mirrors the timing-safe compares
+// in signedRequest.js / infrastructureAccessMiddleware.js.
+function timingSafeStrEqual(a, b) {
+  const ab = Buffer.from(String(a ?? ''));
+  const bb = Buffer.from(String(b ?? ''));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
 // Generate secure OTP
 export const generateOTP = () => {
   if (OTP_CONFIG.devMode) {
@@ -99,22 +110,27 @@ export const verifyOtp = async (phone, inputOtp, purpose, req) => {
     return { valid: false, reason: OTP_ERRORS.EXPIRED };
   }
 
-  // Check attempts
-  if (session.attempts >= OTP_CONFIG.maxAttempts) {
+  // Atomically reserve an attempt (M1 — audit 2026-06-22). The previous
+  // read-then-increment was a TOCTOU: concurrent verifies all read attempts <
+  // maxAttempts before any increment landed, so each got a guess and the per-OTP
+  // cap was bypassable under concurrency. A single conditional UPDATE increments
+  // ONLY while attempts < maxAttempts (row-locked, serialized); count === 0 means
+  // the cap was already reached.
+  const reserved = await prisma.otp_sessions.updateMany({
+    where: { id: session.id, attempts: { lt: OTP_CONFIG.maxAttempts } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (reserved.count === 0) {
     await logActivity(normalizedPhone, purpose, 'verify', false, 'max_attempts', req);
     return { valid: false, reason: OTP_ERRORS.MAX_ATTEMPTS, attemptsLeft: 0 };
   }
 
-  // Increment attempts
-  await prisma.otp_sessions.update({
-    where: { id: session.id },
-    data: { attempts: { increment: 1 } },
-  });
-
-  // Verify OTP — use bcrypt.compare for timing-safe comparison of hashed OTPs
+  // Verify OTP — bcrypt.compare is timing-safe for hashed OTPs; the legacy
+  // plaintext branch uses a constant-time compare too (M2) so a short-lived OTP
+  // can't be probed via a timing side-channel on `===`.
   const isOtpValid = session.otp.startsWith('$2')
     ? await bcrypt.compare(inputOtp, session.otp)  // Hashed OTP (new format)
-    : session.otp === inputOtp;                      // Legacy plaintext (migration-safe)
+    : timingSafeStrEqual(session.otp, inputOtp);    // Legacy plaintext (migration-safe)
 
   if (!isOtpValid) {
     const attemptsLeft = OTP_CONFIG.maxAttempts - session.attempts - 1;

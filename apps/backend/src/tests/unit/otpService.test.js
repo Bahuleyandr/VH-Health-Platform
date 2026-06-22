@@ -179,6 +179,8 @@ describe('verifyOtp', () => {
       attempts: 3, // maxAttempts is 3, so >= 3 triggers rejection
       user_id: null,
     });
+    // M1: the atomic conditional UPDATE (attempts < max) reserves no attempt.
+    mockPrisma.otp_sessions.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.otp_logs.create.mockResolvedValue({});
 
     const result = await verifyOtp(phone, '123456', purpose, {});
@@ -186,6 +188,11 @@ describe('verifyOtp', () => {
     expect(result.valid).toBe(false);
     expect(result.reason).toBe('Maximum verification attempts exceeded');
     expect(result.attemptsLeft).toBe(0);
+    // The cap is enforced atomically (WHERE attempts < max), not read-then-check.
+    expect(mockPrisma.otp_sessions.updateMany).toHaveBeenCalledWith({
+      where: { id: 2, attempts: { lt: 3 } },
+      data: { attempts: { increment: 1 } },
+    });
   });
 
   it('returns invalid for wrong OTP code and decrements remaining attempts', async () => {
@@ -196,7 +203,7 @@ describe('verifyOtp', () => {
       attempts: 1,
       user_id: null,
     });
-    mockPrisma.otp_sessions.update.mockResolvedValue({});
+    mockPrisma.otp_sessions.updateMany.mockResolvedValue({ count: 1 }); // attempt reserved
     mockPrisma.otp_logs.create.mockResolvedValue({});
 
     const result = await verifyOtp(phone, '000000', purpose, {});
@@ -205,9 +212,9 @@ describe('verifyOtp', () => {
     expect(result.reason).toBe('Invalid OTP');
     // attempts was 1, incremented to 2, so attemptsLeft = 3 - 1 - 1 = 1
     expect(result.attemptsLeft).toBe(1);
-    // Should have incremented attempts
-    expect(mockPrisma.otp_sessions.update).toHaveBeenCalledWith({
-      where: { id: 3 },
+    // Should have atomically reserved an attempt (conditional increment).
+    expect(mockPrisma.otp_sessions.updateMany).toHaveBeenCalledWith({
+      where: { id: 3, attempts: { lt: 3 } },
       data: { attempts: { increment: 1 } },
     });
   });
@@ -220,6 +227,7 @@ describe('verifyOtp', () => {
       attempts: 0,
       user_id: 'user-42',
     });
+    mockPrisma.otp_sessions.updateMany.mockResolvedValue({ count: 1 }); // attempt reserved
     mockPrisma.otp_sessions.update.mockResolvedValue({});
     mockPrisma.otp_logs.create.mockResolvedValue({});
 
@@ -232,9 +240,9 @@ describe('verifyOtp', () => {
     expect(result.purpose).toBe(purpose);
     expect(result.verifiedAt).toBeDefined();
 
-    // Should have incremented attempts, then marked verified
-    expect(mockPrisma.otp_sessions.update).toHaveBeenCalledWith({
-      where: { id: 4 },
+    // Should have atomically reserved an attempt, then marked verified.
+    expect(mockPrisma.otp_sessions.updateMany).toHaveBeenCalledWith({
+      where: { id: 4, attempts: { lt: 3 } },
       data: { attempts: { increment: 1 } },
     });
     expect(mockPrisma.otp_sessions.update).toHaveBeenCalledWith({
