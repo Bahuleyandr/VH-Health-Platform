@@ -1,7 +1,93 @@
 // Unit tests for HL7v2 escape-sequence decoding + LOINC validator.
 
 import { decodeHL7Escapes, parseHL7 } from '../../services/hl7/hl7Parser.js';
+import {
+  encodeHL7Field,
+  admissionToADT,
+  resultToORU,
+} from '../../services/hl7/hl7Transformer.js';
 import { isInAllowlist, isValidStructure, validate } from '../../services/hl7/loincValidator.js';
+
+// audit 2026-06-22 H7 — outbound HL7 must escape delimiter characters in text
+// fields, or a patient-editable value forges fields/segments downstream.
+describe('encodeHL7Field (outbound injection guard)', () => {
+  it('escapes the 5 delimiter characters', () => {
+    expect(encodeHL7Field('a|b')).toBe('a\\F\\b');
+    expect(encodeHL7Field('a^b')).toBe('a\\S\\b');
+    expect(encodeHL7Field('a&b')).toBe('a\\T\\b');
+    expect(encodeHL7Field('a~b')).toBe('a\\R\\b');
+    expect(encodeHL7Field('a\\b')).toBe('a\\E\\b');
+  });
+
+  it('escapes the backslash FIRST so introduced escapes are not double-encoded', () => {
+    // '|' → '\F\'; the backslashes in '\F\' must NOT then become '\E\'.
+    expect(encodeHL7Field('|')).toBe('\\F\\');
+    expect(decodeHL7Escapes(encodeHL7Field('|'))).toBe('|');
+  });
+
+  it('hex-escapes CR/LF so they cannot inject a new segment', () => {
+    expect(encodeHL7Field('a\rb')).toBe('a\\X0D\\b');
+    expect(encodeHL7Field('a\nb')).toBe('a\\X0A\\b');
+  });
+
+  it('coerces null/undefined/number to a safe string', () => {
+    expect(encodeHL7Field(null)).toBe('');
+    expect(encodeHL7Field(undefined)).toBe('');
+    expect(encodeHL7Field(42)).toBe('42');
+  });
+
+  it('round-trips losslessly through decodeHL7Escapes (inverse property)', () => {
+    const samples = [
+      'DOE^JOHN',
+      'A|B|C',
+      '10 Main St\r\nApt 4',
+      'value~with&all|delimiters^and\\backslash',
+      'पेशेंट नाम', // non-ASCII passes through untouched (no delimiters)
+    ];
+    for (const s of samples) {
+      expect(decodeHL7Escapes(encodeHL7Field(s))).toBe(s);
+    }
+  });
+});
+
+describe('outbound HL7 builders escape malicious values (H7)', () => {
+  it('a forged patient name cannot inject extra PID fields or a new segment', () => {
+    const patient = {
+      uid: 'u-1',
+      // Attempt to inject an SSN field + a whole new OBR segment.
+      name: 'EVIL||999-99-9999\rOBR|1|HACK',
+      address: '1 St',
+      phone: '555',
+      birthday: null,
+      gender: 'male',
+    };
+    const msg = admissionToADT({ ward: 'W', bed: '1', id: 'a1' }, patient);
+    const lines = msg.split('\r');
+    // Exactly 3 segments (MSH, PID, PV1) — the injected "OBR" did not become one.
+    expect(lines).toHaveLength(3);
+    expect(lines[1].startsWith('PID|')).toBe(true);
+    // The raw injection markers are escaped, not literal, in the PID line.
+    expect(lines[1]).toContain('\\F\\'); // the '|' chars were escaped
+    expect(lines[1]).toContain('\\X0D\\'); // the CR was hex-escaped
+    expect(lines[1]).not.toContain('999-99-9999|'); // no literal injected field break
+    // Round-trip back through the parser recovers the original name verbatim.
+    expect(parseHL7(msg).pid.name).toBe('EVIL||999-99-9999\rOBR|1|HACK');
+  });
+
+  it('a malicious lab result value cannot forge an OBX field', () => {
+    const investigation = {
+      test_name: 'Glucose',
+      results: ['12|F|CRITICAL\rOBX|99|ST|FORGED'],
+    };
+    const msg = resultToORU(investigation, { uid: 'u', name: 'N' });
+    const lines = msg.split('\r');
+    // MSH, PID, OBR, OBX — exactly 4 segments; the injected OBX is escaped.
+    expect(lines).toHaveLength(4);
+    expect(lines.filter((l) => l.startsWith('OBX|'))).toHaveLength(1);
+    expect(lines[3]).toContain('\\F\\');
+    expect(lines[3]).toContain('\\X0D\\');
+  });
+});
 
 describe('decodeHL7Escapes', () => {
   it('passes through strings with no backslashes (fast path)', () => {
