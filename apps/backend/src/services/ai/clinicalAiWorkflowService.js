@@ -1209,6 +1209,12 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
   const id = Number.parseInt(claimId, 10);
   if (!Number.isFinite(id)) throw AppError.badRequest('Invalid claim ID');
 
+  // Tenant-scope the lookup (audit 2026-06-22 H6): insurance_claims carries
+  // tenant_id (migration 239) but this query previously matched on id only — a
+  // cross-tenant claim id would load another tenant's claim (+ patient PHI) into
+  // the denial-risk assist. SERIAL ids are not globally unique, so the tenant
+  // predicate is load-bearing defense-in-depth even before the RLS enforce flip.
+  // The sibling appealLetterGeneratorService.loadClaim was already fixed this way.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.claim_number, c.patient_uid, c.invoice_id, c.insurance_provider,
             c.policy_number, c.claim_amount, c.approved_amount, c.status, c.documents,
@@ -1219,8 +1225,10 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
      LEFT JOIN invoices i ON i.id = c.invoice_id
      LEFT JOIN users u ON u.uid = c.patient_uid
      WHERE c.id = $1
+       AND c.tenant_id = $2::uuid
      LIMIT 1`,
-    id
+    id,
+    tenantId,
   );
   const claim = rows[0] || null;
   if (!claim) throw AppError.notFound('Insurance claim not found');

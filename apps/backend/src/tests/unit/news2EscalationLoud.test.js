@@ -1,28 +1,37 @@
-// MEDIUM (audit 2026-06-18 §4) — a high-NEWS2 (>=5) escalation failure must be
-// LOUD (propagate), not swallowed.
+// MEDIUM (audit 2026-06-18 §4) + W1-H4 (audit 2026-06-22) — a high-NEWS2 (>=5)
+// escalation failure must be LOUD (propagate), not swallowed, AND it must route
+// to a REAL assigned recipient (the results-inbox producer), not a recipient-less
+// notification_outbox row that dead-letters to nobody.
 //
-// Defect: recordNEWS2 queued the >=5 alert in a try/catch that downgraded any
-// failure to logger.error + continue — a deteriorating patient's escalation
-// could be lost while the call returned "success".
+// Defects:
+//   §4   recordNEWS2 queued the >=5 alert in a try/catch that downgraded any
+//        failure to logger.error + continue — a deteriorating patient's
+//        escalation could be lost while the call returned "success".
+//   W1-H4 escalateNews2 queued into notification_outbox with NO recipient — the
+//        drain dead-lettered it after 3 retries, so it reached no one even on
+//        the "happy" path.
 //
-// Fix proven here (unit; outbox + persistence module-mocked):
-//   1. A >=5 NEWS2 whose escalation enqueue FAILS makes recordNEWS2 throw
+// Fix proven here (unit; results-inbox producer + persistence module-mocked):
+//   1. A >=5 NEWS2 whose escalation producer THROWS makes recordNEWS2 throw
 //      (loud) — the caller / Sentry sees it.
-//   2. A <5 NEWS2 enqueue failure stays best-effort (no throw) — a routine
+//   2. A >=5 NEWS2 whose producer returns { created: false } (no assigned task)
+//      ALSO throws loud — a deteriorating-patient alert that reached no one must
+//      never look like success (the W1-H4 regression guard).
+//   3. A <5 NEWS2 producer failure stays best-effort (no throw) — a routine
 //      monitoring nudge must never block clinical recording.
-//   3. The news2_scores row is still persisted before escalation in both cases.
+//   4. The news2_scores row is still persisted before escalation in all cases.
 
 import { jest } from '@jest/globals';
 
-const outboxControl = { throwError: null };
-const queueSpy = jest.fn(async () => {
-  if (outboxControl.throwError) throw outboxControl.throwError;
-  return { queued: true };
+// The shared results-inbox producer is the recipient-bearing escalation path.
+const inboxControl = { throwError: null, result: { created: true, taskId: 99 } };
+const enqueueSpy = jest.fn(async () => {
+  if (inboxControl.throwError) throw inboxControl.throwError;
+  return inboxControl.result;
 });
 
-jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
-  default: { queue: queueSpy },
-  queue: queueSpy,
+jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => ({
+  enqueueCriticalResultTask: enqueueSpy,
 }));
 
 // Stub the CDS surfacing dynamic import so it never touches a DB.
@@ -53,32 +62,56 @@ const LOW_VITALS = {
   respiration_rate: 21, spo2: 98, temperature: 37, systolic_bp: 120, heart_rate: 72, consciousness: 'A',
 };
 
-describe('NEWS2 escalation loudness (MEDIUM §4)', () => {
+describe('NEWS2 escalation loudness + recipient (MEDIUM §4 / W1-H4)', () => {
   beforeEach(() => {
-    outboxControl.throwError = null;
-    queueSpy.mockClear();
+    inboxControl.throwError = null;
+    inboxControl.result = { created: true, taskId: 99 };
+    enqueueSpy.mockClear();
     insertSpy.mockClear();
   });
 
-  test('>=5: an escalation enqueue failure PROPAGATES (loud)', async () => {
-    outboxControl.throwError = new Error('outbox down');
+  test('>=5: a producer THROW propagates (loud)', async () => {
+    inboxControl.throwError = new Error('inbox down');
     await expect(recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid'))
-      .rejects.toThrow(/outbox down|escalation/i);
+      .rejects.toThrow(/inbox down|escalation/i);
     // Row was persisted before escalation was attempted.
     expect(insertSpy).toHaveBeenCalled();
-    expect(queueSpy).toHaveBeenCalledTimes(1);
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
   });
 
-  test('<5: an escalation enqueue failure stays best-effort (no throw)', async () => {
-    outboxControl.throwError = new Error('outbox down');
-    // Score is below 5 → no alert queued at all, so nothing to fail loudly on.
+  test('>=5: a producer FAILURE (created:false WITH an error) throws loud (W1-H4)', async () => {
+    inboxControl.result = { created: false, error: 'no recipient resolvable' };
+    await expect(recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid'))
+      .rejects.toThrow(/failed to create a task|escalation/i);
+    expect(insertSpy).toHaveBeenCalled();
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('>=5: an idempotency conflict (created:false, NO error) is a safe no-op (no throw)', async () => {
+    // enqueueCriticalResultTask returns created:false WITHOUT an error when an
+    // OPEN task for this score already exists (a duplicate/retry escalation). The
+    // alert already reached a recipient, so the service must NOT throw — doing so
+    // would crash the caller on any re-escalation of the same score.
+    inboxControl.result = { created: false, taskId: null };
+    await expect(recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid')).resolves.toBeTruthy();
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('<5: a producer failure stays best-effort (no throw)', async () => {
+    inboxControl.throwError = new Error('inbox down');
+    // Score is below 5 → no alert produced at all, so nothing to fail loudly on.
     await expect(recordNEWS2('p-uid', LOW_VITALS, 'r-uid')).resolves.toBeTruthy();
     expect(insertSpy).toHaveBeenCalled();
+    expect(enqueueSpy).not.toHaveBeenCalled();
   });
 
-  test('>=5 happy path: escalation succeeds, returns the persisted record', async () => {
+  test('>=5 happy path: an assigned task is created, returns the persisted record', async () => {
     const record = await recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid');
     expect(record).toBeTruthy();
-    expect(queueSpy).toHaveBeenCalledTimes(1);
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
+    // The producer was asked for a deliverable critical task for this score.
+    const arg = enqueueSpy.mock.calls[0][0];
+    expect(arg).toMatchObject({ source: 'news2', resourceType: 'news2_score' });
+    expect(arg.severity).toBe('critical'); // 12 >= 7
   });
 });

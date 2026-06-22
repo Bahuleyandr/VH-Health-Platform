@@ -147,60 +147,69 @@ class BillingService {
       throw AppError.badRequest(`Invalid payment method. Must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`);
     }
 
-    const invoice = await prisma.invoices.findFirst({
-      where: {
-        id: invoiceId,
-        ...(tenantId ? { tenant_id: String(tenantId) } : {}),
-      },
-      select: { id: true, total_amount: true, paid_amount: true, payment_status: true },
-    });
-
-    if (!invoice) throw AppError.notFound('Invoice not found');
-
-    const totalAmount = parseFloat(invoice.total_amount);
-    const currentPaid = parseFloat(invoice.paid_amount);
-    const newPaid = currentPaid + parseFloat(amount);
-
-    if (newPaid > totalAmount) {
-      throw AppError.badRequest(
-        `Payment of ${amount} would exceed the remaining balance of ${(totalAmount - currentPaid).toFixed(2)}`
-      );
-    }
-
-    let newStatus;
-    if (newPaid >= totalAmount) {
-      newStatus = 'paid';
-    } else if (newPaid > 0) {
-      newStatus = 'partial';
-    } else {
-      newStatus = 'pending';
-    }
-
-    const paidAt = newStatus === 'paid' ? new Date() : null;
     const now = new Date();
 
-    // Transaction + invoice update atomically. Interactive form (not the
-    // array form) because the tenant-RLS model wrapper in src/lib/prisma.js
-    // returns real Promises under an active tenant context, which the
-    // array form rejects (see roadmap A2 notes in lib/prisma.js).
-    // SEC-3: scopedTx scopes the tx to `tenantId` so the invoices update runs
-    // under the tenant_isolation policy (the bare $transaction left the GUC
-    // unset → permissive branch → cross-tenant invoice write was reachable).
-    const [transaction, updatedInvoice] = await scopedTx(tenantId, async (tx) => Promise.all([
-      tx.payment_transactions.create({
-        data: {
-          invoice_id: invoiceId,
-          amount,
-          payment_method: method.toLowerCase(),
-          transaction_ref: transactionRef || null,
-          processed_by: processedBy || null,
-        },
-      }),
-      tx.invoices.update({
+    // H2 (audit 2026-06-22) — the read+overpay-check+write MUST run inside the
+    // tenant-scoped tx with the invoice row locked FOR UPDATE. The old path read
+    // with findFirst OUTSIDE the tx, so two concurrent (or replayed) payments
+    // both saw the same currentPaid and each added `amount` → overpay +
+    // duplicate payment_transactions rows (billingV2 already fixed this class via
+    // lockBillingInvoice + mig-317). scopedTx also pins the RLS GUC so the lock /
+    // update run under the tenant_isolation policy. Idempotency backstop: the
+    // mig-340 partial unique (tenant_id, transaction_ref) makes a replay collide
+    // (P2002) → 409 instead of a second charge.
+    const { transaction, updatedInvoice, newStatus } = await scopedTx(tenantId, async (tx) => {
+      const lockedRows = await tx.$queryRawUnsafe(
+        `SELECT id, total_amount, paid_amount, payment_status
+           FROM invoices
+          WHERE id = $1::int
+          LIMIT 1
+          FOR UPDATE`,
+        invoiceId,
+      );
+      const locked = lockedRows[0];
+      if (!locked) throw AppError.notFound('Invoice not found');
+
+      const totalAmount = parseFloat(locked.total_amount);
+      const currentPaid = parseFloat(locked.paid_amount);
+      const nextPaid = currentPaid + parseFloat(amount);
+      if (nextPaid > totalAmount) {
+        throw AppError.badRequest(
+          `Payment of ${amount} would exceed the remaining balance of ${(totalAmount - currentPaid).toFixed(2)}`,
+        );
+      }
+
+      const status = nextPaid >= totalAmount ? 'paid' : nextPaid > 0 ? 'partial' : 'pending';
+      const paidAt = status === 'paid' ? new Date() : null;
+
+      let createdTxn;
+      try {
+        createdTxn = await tx.payment_transactions.create({
+          data: {
+            invoice_id: invoiceId,
+            amount,
+            payment_method: method.toLowerCase(),
+            transaction_ref: transactionRef || null,
+            processed_by: processedBy || null,
+          },
+        });
+      } catch (e) {
+        // mig-340 partial unique violation → this transaction_ref already paid
+        // this tenant's invoice. A replay, not a second charge.
+        if (e?.code === 'P2002') {
+          throw AppError.conflict(
+            'A payment with this transaction reference has already been recorded',
+            'DUPLICATE_PAYMENT_REF',
+          );
+        }
+        throw e;
+      }
+
+      const inv = await tx.invoices.update({
         where: { id: invoiceId },
         data: {
-          paid_amount: newPaid,
-          payment_status: newStatus,
+          paid_amount: nextPaid,
+          payment_status: status,
           payment_method: method.toLowerCase(),
           paid_at: paidAt,
           updated_at: now,
@@ -209,8 +218,10 @@ class BillingService {
           id: true, invoice_number: true, patient_uid: true, total_amount: true,
           paid_amount: true, payment_status: true, payment_method: true, paid_at: true,
         },
-      }),
-    ]));
+      });
+
+      return { transaction: createdTxn, updatedInvoice: inv, newStatus: status };
+    });
 
     logger.info(`Payment of ${amount} recorded for invoice ${invoiceId}, status: ${newStatus}`);
     return { invoice: updatedInvoice, transaction };

@@ -55,6 +55,19 @@ async function grantDoctorCareTeam(patientUid, displayName) {
   );
 }
 
+// audit_logs is append-only (mig-324 audit-chain hardening): a DELETE is blocked
+// unless an authorized maintenance path opts in via the transaction-local
+// app.audit_bypass = 'on' GUC. Test fixture cleanup is exactly that path.
+async function purgeCorrectVitalsAudit(recorderUid) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`,
+      recorderUid,
+    );
+  });
+}
+
 describe('EMR vitals + anomaly alerts — deep integration', () => {
   const doctor = doctorAs();
   let patientIntId;
@@ -67,7 +80,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, RECORDER_UID);
+    await purgeCorrectVitalsAudit(RECORDER_UID);
     // clinical_alerts keyed by int patient_id — look it up first, then delete
     const existing = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT_UID);
     if (existing.length) {
@@ -123,7 +136,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, RECORDER_UID).catch(() => {});
+    await purgeCorrectVitalsAudit(RECORDER_UID).catch(() => {});
     if (patientIntId) {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, patientIntId).catch(() => {});
     }

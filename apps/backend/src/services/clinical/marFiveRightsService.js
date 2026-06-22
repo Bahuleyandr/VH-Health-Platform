@@ -178,11 +178,38 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
 export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, tenantId = null, windowMinutes = DEFAULT_WINDOW_MINUTES }) {
   const evaluation = await evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes });
 
-  // B4.2 — explicit two-scan gate. The "right patient" (wristband) and "right
-  // drug" (medication barcode) scans must BOTH match. This is the specific
-  // bedside-safety contract and fails with its own code BEFORE the broader
-  // 5-rights check below, so the client can distinguish "your two scans don't
-  // match" from a dose/route/time mismatch and drive the right override modal.
+  // Wrong-patient / wrong-drug HARD-STOP (audit 2026-06-22 F-H1). This endpoint
+  // ALWAYS carries a scan (scanned_patient_uid + scanned_barcode are required),
+  // so a patient- or drug-RIGHT failure here means the scan ACTIVELY mismatched
+  // the order — the canonical BCMA never-events (wrong patient, wrong drug).
+  // There is NO clinical justification for "justify and proceed" on an active
+  // identity mismatch, so NO override_reason can authorize it: re-scan the
+  // correct patient/medication. (The genuine "equipment failure / could not
+  // scan" break-glass is the separate non-scan POST /mar/:id/administer route,
+  // which administers the order as written and cannot mis-target a patient.)
+  // Only the SOFT rights (dose/route/time) remain overridable below.
+  if (!evaluation.rights.patient) {
+    const err = AppError.conflict(
+      'Patient identity mismatch: the scanned wristband does not match this order. Re-scan the correct patient — this cannot be overridden.',
+      'MAR_PATIENT_MISMATCH',
+    );
+    err.details = { rights: evaluation.rights, context: evaluation.context, hardStop: true, failedRight: 'patient' };
+    throw err;
+  }
+  if (!evaluation.rights.drug) {
+    const err = AppError.conflict(
+      'Medication mismatch: the scanned barcode does not match the ordered medication. Re-scan the correct medication — this cannot be overridden.',
+      'MAR_DRUG_MISMATCH',
+    );
+    err.details = { rights: evaluation.rights, context: evaluation.context, hardStop: true, failedRight: 'drug' };
+    throw err;
+  }
+
+  // B4.2 — explicit two-scan gate. With the hard-stop above, reaching here means
+  // both the patient and drug scans matched; this guard is retained as
+  // defence-in-depth (e.g. a future caller path) and fails with its own code
+  // BEFORE the broader 5-rights check, so the client can distinguish "your two
+  // scans don't match" from a dose/route/time mismatch and drive the right modal.
   const twoScanOk = evaluation.rights.patient && evaluation.rights.drug;
   if (!twoScanOk && !overrideReason) {
     const err = AppError.conflict(

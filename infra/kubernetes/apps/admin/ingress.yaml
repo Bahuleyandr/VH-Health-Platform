@@ -20,16 +20,12 @@ metadata:
     # src/middleware.ts emits a per-request nonce CSP ('strict-dynamic', no
     # 'unsafe-inline') on every response (matcher covers every route incl.
     # /login). `more_set_headers` REPLACES the upstream header, so setting a
-    # CSP at this ingress would clobber the nonce and force the browser onto a
-    # weaker 'unsafe-inline' policy — defeating the M9 XSS backstop. We keep
-    # only the static, non-nonce security headers here (they guard the first
-    # byte during rollouts); the nonce CSP flows through from the pod.
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+    # Security headers are NOT set here (audit 2026-06-22 W3-H1): the controller
+    # has allow-snippet-annotations="false", so a configuration-snippet would be
+    # REJECTED at admission. The static transport headers (HSTS, X-Content-Type-
+    # Options, X-Frame-Options, Referrer-Policy, Permissions-Policy) are applied
+    # controller-wide via base/ingress-nginx; the nonce CSP flows through from the
+    # Next.js pod (and must stay there so the per-request nonce is preserved).
     nginx.ingress.kubernetes.io/limit-connections: "30"
     nginx.ingress.kubernetes.io/limit-rpm: "300"
   labels:

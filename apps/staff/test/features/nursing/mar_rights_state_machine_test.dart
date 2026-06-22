@@ -19,6 +19,7 @@
 // carrying stale patient+drug state into a new administration.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/features/nursing/screens/mar_scan_screen.dart';
 
 /// Mirror of the private `_Step` enum in mar_scan_screen.dart.
 enum MarStep { scanWristband, scanDrug, verify, done }
@@ -188,6 +189,60 @@ void main() {
       expect(m.step, MarStep.done);
       expect(m.onScan('ANOTHER-WRISTBAND'), isFalse);
       expect(m.step, MarStep.done);
+    });
+  });
+
+  group('marIsIdentityMismatch (wrong-patient/wrong-drug hard-stop, F-H1)', () {
+    test('true when the patient right failed', () {
+      expect(
+        marIsIdentityMismatch({
+          'patient': false,
+          'drug': true,
+          'dose': true,
+          'route': true,
+          'time': true,
+        }),
+        isTrue,
+      );
+    });
+
+    test('true when the drug right failed', () {
+      expect(
+        marIsIdentityMismatch({
+          'patient': true,
+          'drug': false,
+          'dose': true,
+          'route': true,
+          'time': true,
+        }),
+        isTrue,
+      );
+    });
+
+    test('false when only SOFT rights (dose/route/time) failed — overridable', () {
+      expect(
+        marIsIdentityMismatch({
+          'patient': true,
+          'drug': true,
+          'dose': true,
+          'route': true,
+          'time': false,
+        }),
+        isFalse,
+      );
+    });
+
+    test('false when all rights pass', () {
+      expect(
+        marIsIdentityMismatch({
+          'patient': true,
+          'drug': true,
+          'dose': true,
+          'route': true,
+          'time': true,
+        }),
+        isFalse,
+      );
     });
   });
 }

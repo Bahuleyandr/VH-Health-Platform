@@ -44,10 +44,25 @@ function constantTimeEqual(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function readHeader(req, header) {
+  return typeof req.get === 'function' ? req.get(header) : req.headers?.[header];
+}
+
 function requestMonitoringToken(req) {
   for (const header of MONITORING_TOKEN_HEADERS) {
-    const value = typeof req.get === 'function' ? req.get(header) : req.headers?.[header];
+    const value = readHeader(req, header);
     if (value) return String(value);
+  }
+  // Also accept the token via `Authorization: Bearer <token>` (audit 2026-06-22
+  // W3-H4). A Prometheus ServiceMonitor can only send standard auth headers, not
+  // an arbitrary `x-monitoring-token`, so without this the scrape can never
+  // authenticate and Prometheus is blind to the backend. The Bearer credential
+  // is the SAME monitoring token; it is matched constant-time against the same
+  // configured set, so this widens the transport, not the trust.
+  const auth = readHeader(req, 'authorization');
+  if (auth) {
+    const m = /^Bearer[ \t]+(.+)$/i.exec(String(auth).trim());
+    if (m) return m[1].trim();
   }
   return null;
 }

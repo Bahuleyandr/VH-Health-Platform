@@ -13,7 +13,11 @@ apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
   name: vhhealth-pg-nightly
-  namespace: vhhealth
+  # MUST match the Cluster's namespace (cluster.yaml → vhhealth-platform). A
+  # ScheduledBackup applies cleanly to the wrong namespace, finds no Cluster, and
+  # the operator silently never runs it — the exact "WAL with no base backup"
+  # failure this CR's header warns about (audit 2026-06-22 W3-H3).
+  namespace: vhhealth-platform
 spec:
   # CNPG cron format includes seconds: sec min hour day month weekday
   schedule: "0 30 19 * * *"

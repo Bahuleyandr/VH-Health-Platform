@@ -54,16 +54,12 @@ metadata:
     # public ingress — leaving it disabled here so we don't strip
     # Access-Control-Allow-Credentials.
     nginx.ingress.kubernetes.io/enable-cors: "false"
-    # Mirror the helmet.js security headers from app.js. HSTS preload
-    # is FALSE on this cert because step-ca-internal is a private CA;
-    # public CT log preload would be incorrect.
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
-      more_set_headers "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+    # Security headers are NOT set here (audit 2026-06-22 W3-H1): the controller
+    # has allow-snippet-annotations="false", so a configuration-snippet would be
+    # REJECTED at admission. Transport headers are applied controller-wide via
+    # base/ingress-nginx; the strict API CSP (default-src 'none') is owned by
+    # Helmet.js in backend app.js. (HSTS preload stays off-cert here because
+    # step-ca-internal is a private CA — that is already the controller default.)
     # Per-IP rate limit (defense in depth on top of express-rate-limit).
     # Higher than the public ingress because clinicians legitimately
     # generate many drafts per shift.

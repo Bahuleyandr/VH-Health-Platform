@@ -32,6 +32,26 @@ function truncate(text, n = 280) {
   return body.length > n ? `${body.slice(0, n - 3)}...` : body;
 }
 
+// M13 (audit 2026-06-22): the patient-facing RAG chatbot must run ONLY when its
+// module is enabled for the tenant. The catalog ships patient_record_chatbot with
+// enabled:false / surface:'patient', and the enable flip is patient-surface-
+// clearance-gated — but the chatbot entry points never consulted the toggle, so
+// it answered over the patient's PHI while the platform reported the module
+// disabled. Gate every write/AI entry point. Lazy import avoids a load-time cycle
+// with the large clinicalAiModuleService.
+async function assertChatbotEnabled(tenantId) {
+  const { getClinicalAiModule } = await import('./clinicalAiModuleService.js');
+  const module = await getClinicalAiModule('patient_record_chatbot', { tenantId });
+  if (!module?.enabled) {
+    throw AppError.forbidden(
+      'The patient record chatbot is not enabled for this tenant',
+      'CLINICAL_AI_MODULE_DISABLED',
+      { module_key: 'patient_record_chatbot' },
+    );
+  }
+  return module;
+}
+
 async function assertOwnership({ conversationId, tenantId, patientUid, role }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, tenant_id, status
@@ -55,6 +75,7 @@ async function assertOwnership({ conversationId, tenantId, patientUid, role }) {
 export async function startConversation({ tenantId = null, patientUid, title = null } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
   const tid = resolveTenantId({ tenantId });
+  await assertChatbotEnabled(tid);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO patient_chat_conversations
        (tenant_id, patient_uid, title, started_at, last_message_at, status, message_count)
@@ -96,6 +117,7 @@ export async function sendMessage({ req, conversationId, message } = {}) {
   if (!req?.user) throw AppError.unauthorized('authentication required');
   if (!message || !String(message).trim()) throw AppError.badRequest('message is required');
   const tenantId = resolveTenantId({ tenantId: req.tenantId });
+  await assertChatbotEnabled(tenantId);
   const patientUid = req.user.uid;
   const conv = await assertOwnership({ conversationId, tenantId, patientUid, role: req.user.role });
 

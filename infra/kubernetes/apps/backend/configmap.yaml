@@ -68,6 +68,14 @@ data:
   # is unchanged; flip to "false" at the multi-tenant cutover (W7) so a request
   # that resolves no tenant 403s instead of silently acting as the default tenant.
   ALLOW_DEFAULT_TENANT: "true"
+  # W3-H2 (audit 2026-06-22): the base host for per-tenant subdomain resolution.
+  # tenantFromHost() parses "<slug>-api.<TENANT_BASE_HOST>" → tenant slug. If this
+  # is unset it falls back to "localhost", so once W7 wildcard DNS is live every
+  # "<slug>-api.vhhealth.app" host fails to parse and resolves to the DEFAULT
+  # tenant (a cross-tenant exposure path that also silently disables the W4
+  # Host↔token cross-check). validateEnv.js fails closed in production if this is
+  # unset or "localhost".
+  TENANT_BASE_HOST: "vhhealth.app"
   HL7_INBOUND_ENABLED: "false"
   # Tenant-RLS runtime role (roadmap A2): tenant-scoped transactions SET LOCAL
   # ROLE to this non-owner, non-BYPASSRLS role before applying

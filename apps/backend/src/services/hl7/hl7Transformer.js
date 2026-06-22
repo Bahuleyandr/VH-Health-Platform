@@ -76,9 +76,9 @@ export function resultToORU(investigation, patient) {
     if (typeof r === 'object' && r !== null) {
       segments.push(buildOBX(r, i + 1));
     } else {
-      // Simple string result
+      // Simple string result — escape the test name + value (H7).
       segments.push(
-        `OBX|${i + 1}|ST|${investigation.test_name || ''}||${String(r)}||||||F`
+        `OBX|${i + 1}|ST|${encodeHL7Field(investigation.test_name)}||${encodeHL7Field(r)}||||||F`
       );
     }
   }
@@ -183,24 +183,52 @@ export function parseORMToOrder(hl7Message) {
 // SEGMENT BUILDERS
 // =============================================================================
 
+/**
+ * Escape HL7v2 delimiter characters in an interpolated TEXT field (audit
+ * 2026-06-22 H7). Without this, a patient-editable value containing `|`, `^`,
+ * `~`, `&`, `\`, CR, or LF forges extra fields/components/segments in the
+ * outbound message (HL7 injection into downstream EHRs). The escape char `\`
+ * MUST be encoded first so the escapes we introduce are not re-escaped. CR/LF
+ * (segment terminators) are hex-escaped (`\X0D\`/`\X0A\`) so they cannot inject
+ * a new segment. This is the exact inverse of hl7Parser.decodeHL7Escapes, so an
+ * encode→decode round-trip is lossless. Apply ONLY to data values — never to the
+ * structural separators in MSH or the field/segment joins themselves.
+ *
+ * @param {*} value raw field value (coerced to string; null/undefined → '')
+ * @returns {string} HL7-safe encoded value
+ */
+export function encodeHL7Field(value) {
+  if (value == null) return '';
+  return String(value)
+    .replace(/\\/g, '\\E\\') // escape char — MUST be first
+    .replace(/\|/g, '\\F\\') // field separator
+    .replace(/\^/g, '\\S\\') // component separator
+    .replace(/&/g, '\\T\\') // subcomponent separator
+    .replace(/~/g, '\\R\\') // repetition separator
+    .replace(/\r/g, '\\X0D\\') // CR — segment terminator, must not pass through
+    .replace(/\n/g, '\\X0A\\'); // LF
+}
+
 function buildPID(patient) {
   if (!patient) return 'PID|||||||||||||||';
-  const name = patient.name || '';
+  // Text fields are HL7-escaped (H7) — name/address/phone are patient-editable.
+  const name = encodeHL7Field(patient.name);
   const dob = formatHL7Date(patient.birthday) || '';
   const gender = mapGender(patient.gender);
-  const address = patient.address || '';
-  const phone = patient.phone || '';
+  const address = encodeHL7Field(patient.address);
+  const phone = encodeHL7Field(patient.phone);
   // PID|1||patientId||name||birthDate|gender|||address|||phone
-  return `PID|||${patient.uid || ''}||${name}||${dob}|${gender}|||${address}|||${phone}`;
+  return `PID|||${encodeHL7Field(patient.uid)}||${name}||${dob}|${gender}|||${address}|||${phone}`;
 }
 
 function buildPV1(admission, defaultClass) {
   if (!admission) return `PV1||${defaultClass || 'I'}`;
-  const ward = admission.ward || '';
-  const bed = admission.bed_number || '';
+  // Encode each text component SEPARATELY, then join with the structural `^`.
+  const ward = encodeHL7Field(admission.ward);
+  const bed = encodeHL7Field(admission.bed_number);
   const location = ward || bed ? `${ward}^${bed}` : '';
   const priority = admission.priority === 'emergent' ? 'E' : 'R';
-  const doctor = admission.admitting_doctor || admission.attending_doctor || '';
+  const doctor = encodeHL7Field(admission.admitting_doctor || admission.attending_doctor || '');
   const encounterId = admission.encounter_id || admission.id || '';
   const admitDate = formatHL7Date(admission.admitted_at) || '';
   const dischargeDate = formatHL7Date(admission.discharged_at) || '';
@@ -214,7 +242,7 @@ function buildPV1(admission, defaultClass) {
   fields[3] = location;
   fields[5] = priority;
   fields[7] = doctor;
-  fields[19] = String(encounterId);
+  fields[19] = encodeHL7Field(encounterId);
   fields[44] = admitDate;
   fields[45] = dischargeDate;
   return fields.join('|');
@@ -222,9 +250,9 @@ function buildPV1(admission, defaultClass) {
 
 function buildOBR(order) {
   if (!order) return 'OBR|1';
-  const placerOrder = order.placer_order_number || order.id || '';
-  const fillerOrder = order.filler_order_number || '';
-  const testCode = order.test_name || order.investigation_type || '';
+  const placerOrder = encodeHL7Field(order.placer_order_number || order.id || '');
+  const fillerOrder = encodeHL7Field(order.filler_order_number);
+  const testCode = encodeHL7Field(order.test_name || order.investigation_type || '');
   const orderDate = formatHL7Date(order.ordered_at || order.created_at) || '';
   const resultStatus = order.status === 'COMPLETED' ? 'F' : (order.status === 'PENDING' ? 'O' : 'I');
 
@@ -232,8 +260,8 @@ function buildOBR(order) {
   const fields = new Array(26).fill('');
   fields[0] = 'OBR';
   fields[1] = '1';
-  fields[2] = String(placerOrder);
-  fields[3] = String(fillerOrder);
+  fields[2] = placerOrder;
+  fields[3] = fillerOrder;
   fields[4] = testCode;
   fields[7] = orderDate;
   fields[25] = resultStatus;
@@ -241,12 +269,14 @@ function buildOBR(order) {
 }
 
 function buildOBX(result, setId) {
+  // valueType/status are constrained code values; the rest are free-text data and
+  // are HL7-escaped (H7) — lab `value`/`observationId` can carry delimiters.
   const valueType = result.value_type || 'ST';
-  const obsId = result.name || result.observation_id || '';
-  const value = result.value || '';
-  const units = result.unit || result.units || '';
-  const refRange = result.reference_range || '';
-  const abnFlag = result.abnormal_flag || '';
+  const obsId = encodeHL7Field(result.name || result.observation_id || '');
+  const value = encodeHL7Field(result.value);
+  const units = encodeHL7Field(result.unit || result.units || '');
+  const refRange = encodeHL7Field(result.reference_range);
+  const abnFlag = encodeHL7Field(result.abnormal_flag);
   const status = result.status || 'F';
 
   // OBX|setId|valueType|observationId||value|units|referenceRange|abnormalFlag|||resultStatus
@@ -255,7 +285,7 @@ function buildOBX(result, setId) {
   fields[1] = String(setId || 1);
   fields[2] = valueType;
   fields[3] = obsId;
-  fields[5] = String(value);
+  fields[5] = value;
   fields[6] = units;
   fields[7] = refRange;
   fields[8] = abnFlag;

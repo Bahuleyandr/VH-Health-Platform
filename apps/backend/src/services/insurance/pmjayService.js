@@ -4,7 +4,8 @@
 // the private-TPA flow in claimsService.js: HBP fixed-rate packages,
 // beneficiary verification, and a unified preauth+claim case row.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 
 function fiscalYearOf(d = new Date()) {
@@ -219,60 +220,108 @@ export async function transition({
   tenantId, id, status, scheme_reference_id, query_text, denial_reason,
   approved_amount, paid_amount, payment_reference,
 }) {
+  // Fast pre-check (UX): reject an obviously-invalid transition before opening a
+  // tx. The AUTHORITATIVE check re-runs against the FOR UPDATE-locked row below.
   const current = await getCase({ tenantId, id });
-  const allowed = STATUS_TRANSITIONS[current.status] ?? [];
-  if (!allowed.includes(status)) {
-    throw AppError.invalidTransition(current.status, status, allowed);
+  const preAllowed = STATUS_TRANSITIONS[current.status] ?? [];
+  if (!preAllowed.includes(status)) {
+    throw AppError.invalidTransition(current.status, status, preAllowed);
   }
 
-  // Compose the SET clause based on which transition we're doing.
-  const sets = ['status = $1', 'updated_at = NOW()'];
-  const params = [status];
-  function set(col, value) {
-    if (value === undefined || value === null) return;
-    params.push(value);
-    sets.push(`${col} = $${params.length}`);
-  }
-  set('scheme_reference_id', scheme_reference_id || null);
-  set('query_text', query_text || null);
-  set('denial_reason', denial_reason || null);
-  set('approved_amount', approved_amount ? Number(approved_amount) : null);
-
-  // Bookkeeping per status.
-  if (status === 'preauth_submitted' && !current.preauth_submitted_at) {
-    sets.push('preauth_submitted_at = NOW()');
-  }
-  if (status === 'claim_submitted' && !current.claim_submitted_at) {
-    sets.push('claim_submitted_at = NOW()');
-  }
-  if (status === 'claim_paid') {
-    if (paid_amount != null) {
-      params.push(Number(paid_amount));
-      sets.push(`paid_amount = $${params.length}`);
-    }
-    if (payment_reference) {
-      params.push(payment_reference);
-      sets.push(`payment_reference = $${params.length}`);
-    }
-    sets.push('paid_at = NOW()');
-  }
-
-  params.push(Number(id), tenantId);
-  await prisma.$executeRawUnsafe(
-    `UPDATE pmjay_cases SET ${sets.join(', ')}
-      WHERE id = $${params.length - 1}::int AND tenant_id = $${params.length}::uuid`,
-    ...params,
-  );
-
-  // Update beneficiary cumulative on payment.
-  if (status === 'claim_paid' && paid_amount != null) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE pmjay_beneficiaries
-          SET cumulative_used = cumulative_used + $1::numeric, updated_at = NOW()
-        WHERE id = $2::int`,
-      Number(paid_amount), Number(current.beneficiary_id),
+  // H3 (audit 2026-06-22) — the claim_paid status flip and the beneficiary
+  // family-floater increment were two independent statements on plain `prisma`:
+  // no transaction (a failed 2nd statement left the case paid but the floater
+  // un-incremented → silent under-count), no FOR UPDATE (two concurrent
+  // claim_approved→claim_paid transitions both bumped → double-count), and no
+  // paid≤approved guard. Run the whole critical section inside one tenant-scoped
+  // tx with the case row locked; re-validate the transition against the LOCKED
+  // status (this is what makes claim_paid idempotent — a concurrent replay finds
+  // the status already claim_paid and is rejected by the state machine).
+  const tid = requireTenantId(tenantId);
+  await setTenantTx(tid, async (tx) => {
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT status, beneficiary_id, approved_amount, preauth_submitted_at, claim_submitted_at
+         FROM pmjay_cases
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        LIMIT 1
+        FOR UPDATE`,
+      Number(id), tid,
     );
-  }
+    const locked = lockedRows[0];
+    if (!locked) throw AppError.notFound('Case not found');
+    const allowed = STATUS_TRANSITIONS[locked.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw AppError.invalidTransition(locked.status, status, allowed);
+    }
+
+    // Compose the SET clause based on which transition we're doing.
+    const sets = ['status = $1', 'updated_at = NOW()'];
+    const params = [status];
+    function set(col, value) {
+      if (value === undefined || value === null) return;
+      params.push(value);
+      sets.push(`${col} = $${params.length}`);
+    }
+    set('scheme_reference_id', scheme_reference_id || null);
+    set('query_text', query_text || null);
+    set('denial_reason', denial_reason || null);
+    set('approved_amount', approved_amount ? Number(approved_amount) : null);
+
+    // Bookkeeping per status.
+    if (status === 'preauth_submitted' && !locked.preauth_submitted_at) {
+      sets.push('preauth_submitted_at = NOW()');
+    }
+    if (status === 'claim_submitted' && !locked.claim_submitted_at) {
+      sets.push('claim_submitted_at = NOW()');
+    }
+
+    let paidNum = null;
+    if (status === 'claim_paid') {
+      if (paid_amount != null) {
+        paidNum = Number(paid_amount);
+        // A scheme settlement must never exceed the approved package amount — an
+        // over-pay is a payer-recovery / audit exposure. The effective approved
+        // amount is the value being set this call, else the value on the row.
+        const effectiveApproved = approved_amount != null
+          ? Number(approved_amount)
+          : (locked.approved_amount != null ? Number(locked.approved_amount) : null);
+        if (effectiveApproved != null && paidNum > effectiveApproved) {
+          throw AppError.badRequest(
+            `paid_amount ${paidNum} exceeds approved_amount ${effectiveApproved}`,
+            'PMJAY_PAYMENT_EXCEEDS_APPROVED',
+            { approved_amount: effectiveApproved, paid_amount: paidNum },
+          );
+        }
+        params.push(paidNum);
+        sets.push(`paid_amount = $${params.length}`);
+      }
+      if (payment_reference) {
+        params.push(payment_reference);
+        sets.push(`payment_reference = $${params.length}`);
+      }
+      sets.push('paid_at = NOW()');
+    }
+
+    params.push(Number(id), tid);
+    await tx.$executeRawUnsafe(
+      `UPDATE pmjay_cases SET ${sets.join(', ')}
+        WHERE id = $${params.length - 1}::int AND tenant_id = $${params.length}::uuid`,
+      ...params,
+    );
+
+    // Floater cumulative bump — now ATOMIC with the status flip and applied only
+    // on the approved→paid edge (the locked status was claim_approved), so it
+    // happens exactly once per claim.
+    if (status === 'claim_paid' && paidNum != null) {
+      await tx.$executeRawUnsafe(
+        `UPDATE pmjay_beneficiaries
+            SET cumulative_used = cumulative_used + $1::numeric, updated_at = NOW()
+          WHERE id = $2::int`,
+        paidNum, Number(locked.beneficiary_id),
+      );
+    }
+  });
+
   return getCase({ tenantId, id });
 }
 

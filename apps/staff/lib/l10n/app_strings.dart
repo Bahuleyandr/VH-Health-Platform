@@ -1167,6 +1167,22 @@ class AppStrings {
   String get vitalsChartRecordedSuccess => _t('vitals_chart.recorded_success');
   String vitalsChartRecordFailed(String e) =>
       '${_t('vitals_chart.record_failed_prefix')} $e';
+  // NEWS2 deterioration banner (audit 2026-06-22 W2-H2 — surface the early
+  // warning score + escalation response after a vitals save).
+  String news2BannerTitle(int score, String band) =>
+      '${_t('vitals_chart.news2.title_prefix')} $score · $band';
+  String get news2BandCritical => _t('vitals_chart.news2.band.critical');
+  String get news2BandHigh => _t('vitals_chart.news2.band.high');
+  String get news2BandMedium => _t('vitals_chart.news2.band.medium');
+  String get news2BandLow => _t('vitals_chart.news2.band.low');
+  String get news2BannerNotified => _t('vitals_chart.news2.notified');
+  String get news2BannerEscalate => _t('vitals_chart.news2.escalate');
+  String get news2BannerDismiss => _t('vitals_chart.news2.dismiss');
+  String get news2GuidanceTitle => _t('vitals_chart.news2.guidance_title');
+  String get news2GuidanceCritical => _t('vitals_chart.news2.guidance.critical');
+  String get news2GuidanceHigh => _t('vitals_chart.news2.guidance.high');
+  String get news2GuidanceMedium => _t('vitals_chart.news2.guidance.medium');
+  String get news2GuidanceLow => _t('vitals_chart.news2.guidance.low');
   String get vitalsChartRecordIo => _t('vitals_chart.record_io');
   String get vitalsChartIntake => _t('vitals_chart.intake');
   String get vitalsChartOutput => _t('vitals_chart.output');
@@ -1968,6 +1984,11 @@ class AppStrings {
   String get marScanScanAgain => _t('mar_scan.scan_again');
   String get marScanTryAgain => _t('mar_scan.try_again');
   String get marScanUnknownMedication => _t('mar_scan.unknown_medication');
+  // Wrong-patient / wrong-drug hard-stop (audit 2026-06-22 F-H1).
+  String get marScanHardStopTitle => _t('mar_scan.hardstop.title');
+  String get marScanHardStopPatient => _t('mar_scan.hardstop.patient');
+  String get marScanHardStopDrug => _t('mar_scan.hardstop.drug');
+  String get marScanHardStopBody => _t('mar_scan.hardstop.body');
 
   // ── EMR / Discharge Summary ───────────────────────────────────────
   String get dischargeTitlePrefix => _t('discharge.title_prefix');
@@ -3567,6 +3588,26 @@ class AppStrings {
       'vitals_chart.at_least_one': 'Please enter at least one vital sign',
       'vitals_chart.recorded_success': 'Vitals recorded successfully',
       'vitals_chart.record_failed_prefix': 'Failed to record vitals:',
+      'vitals_chart.news2.title_prefix': 'NEWS2',
+      'vitals_chart.news2.band.critical': 'Critical — high risk',
+      'vitals_chart.news2.band.high': 'Elevated — medium risk',
+      'vitals_chart.news2.band.medium': 'Low–medium risk',
+      'vitals_chart.news2.band.low': 'Low risk',
+      'vitals_chart.news2.notified': 'Care team alerted automatically.',
+      'vitals_chart.news2.escalate': 'Escalation response',
+      'vitals_chart.news2.dismiss': 'Dismiss',
+      'vitals_chart.news2.guidance_title': 'NEWS2 escalation response',
+      'vitals_chart.news2.guidance.critical':
+          'Emergency assessment by a clinical team with critical-care '
+          'competencies. Continuous monitoring of vital signs.',
+      'vitals_chart.news2.guidance.high':
+          'Urgent review by a clinician able to escalate to critical care. '
+          'Monitor vital signs at least hourly.',
+      'vitals_chart.news2.guidance.medium':
+          'Review by a registered nurse who decides whether to escalate. '
+          'Monitor vital signs at least 4–6 hourly.',
+      'vitals_chart.news2.guidance.low':
+          'Continue routine monitoring (12-hourly) and reassess.',
       'vitals_chart.record_io': 'Record I/O',
       'vitals_chart.intake': 'Intake',
       'vitals_chart.output': 'Output',
@@ -4282,6 +4323,14 @@ class AppStrings {
       'mar_scan.scan_again': 'Scan again',
       'mar_scan.try_again': 'Try again',
       'mar_scan.unknown_medication': '(unknown medication)',
+      'mar_scan.hardstop.title': 'Cannot administer — re-scan required',
+      'mar_scan.hardstop.patient':
+          'The scanned wristband does not match this order (wrong patient).',
+      'mar_scan.hardstop.drug':
+          'The scanned barcode does not match the ordered medication (wrong drug).',
+      'mar_scan.hardstop.body':
+          'Patient- and drug-identity mismatches cannot be overridden. Confirm '
+          'you have the correct patient and medication, then scan again.',
       // Discharge Summary
       'discharge.title_prefix': 'Discharge —',
       'discharge.save_draft': 'Save Draft',

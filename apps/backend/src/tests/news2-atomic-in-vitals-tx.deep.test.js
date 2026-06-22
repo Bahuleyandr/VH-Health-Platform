@@ -56,6 +56,12 @@ const recordCanonicalSpy = jest.fn(async (input, options) => {
 
 jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalSpy,
+  // The NEWS2 >=5 escalation now routes through the results-inbox producer
+  // (audit 2026-06-22 W1-H4), which lazily imports startWorkflowSla from this
+  // same module to start the critical_result_ack SLA clock. Stub it so the
+  // producer can create the assigned task without a real SLA-rule lookup; this
+  // test is about vitals/news2 atomicity, not the SLA instance.
+  startWorkflowSla: jest.fn(async () => ({ id: 'sla-mock' })),
 }));
 
 const prismaModule = await import('../lib/prisma.js');
@@ -86,6 +92,7 @@ async function vitalsCount() {
 }
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});

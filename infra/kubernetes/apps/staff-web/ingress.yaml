@@ -22,15 +22,11 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
     nginx.ingress.kubernetes.io/enable-cors: "false"
-    # Security headers also set in the upstream nginx-staff-web.conf.
-    # Belt-and-braces at the ingress so a misconfigured upstream still
-    # serves a hardened first byte.
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+    # Security headers are NOT set here (audit 2026-06-22 W3-H1): the controller
+    # has allow-snippet-annotations="false", so a configuration-snippet would be
+    # REJECTED at admission. The transport headers are applied controller-wide via
+    # base/ingress-nginx, and the upstream nginx-staff-web.conf still sets them on
+    # the pod side, so the first byte stays hardened.
   labels:
     app.kubernetes.io/name: vhhealth-staff-web
     app.kubernetes.io/component: staff-web

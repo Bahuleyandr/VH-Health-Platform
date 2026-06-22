@@ -220,23 +220,25 @@ describe('recordPayment', () => {
   });
 
   it('404s when the invoice is not found', async () => {
-    mockPrisma.invoices.findFirst.mockResolvedValueOnce(null);
+    // H2: the invoice is now read via the FOR UPDATE lock (tx.$queryRawUnsafe)
+    // INSIDE the tx, not findFirst outside it. An empty lock result → not found.
+    txClient.$queryRawUnsafe.mockResolvedValueOnce([]);
     await expect(billingService.recordPayment(1, 100, 'cash'))
       .rejects.toThrow(/Invoice not found/i);
   });
 
   it('rejects a payment that would exceed the remaining balance', async () => {
-    mockPrisma.invoices.findFirst.mockResolvedValueOnce({
+    txClient.$queryRawUnsafe.mockResolvedValueOnce([{
       id: 1, total_amount: '100.00', paid_amount: '90.00', payment_status: 'partial',
-    });
+    }]);
     await expect(billingService.recordPayment(1, 50, 'cash'))
       .rejects.toThrow(/exceed the remaining balance of 10\.00/i);
   });
 
   it('records a partial payment (status partial, paid_at null) and runs both writes in the tx', async () => {
-    mockPrisma.invoices.findFirst.mockResolvedValueOnce({
+    txClient.$queryRawUnsafe.mockResolvedValueOnce([{
       id: 1, total_amount: '100.00', paid_amount: '0', payment_status: 'pending',
-    });
+    }]);
     txClient.invoices.update.mockResolvedValueOnce({ id: 1, payment_status: 'partial' });
     txClient.payment_transactions.create.mockResolvedValueOnce({ id: 11 });
 
@@ -244,6 +246,8 @@ describe('recordPayment', () => {
 
     expect(setTenantTx).toHaveBeenCalledWith(TENANT, expect.any(Function));
     expect(txClient.payment_transactions.create).toHaveBeenCalledTimes(1);
+    // The row is locked FOR UPDATE before the balance check + writes (H2).
+    expect(txClient.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FOR UPDATE/i);
     const updateArg = txClient.invoices.update.mock.calls[0][0].data;
     expect(updateArg.payment_status).toBe('partial');
     expect(updateArg.paid_amount).toBe(50);
@@ -252,10 +256,11 @@ describe('recordPayment', () => {
   });
 
   it('records a final payment (status paid, paid_at set) when it clears the balance', async () => {
-    mockPrisma.invoices.findFirst.mockResolvedValueOnce({
+    txClient.$queryRawUnsafe.mockResolvedValueOnce([{
       id: 2, total_amount: '100.00', paid_amount: '40.00', payment_status: 'partial',
-    });
+    }]);
     txClient.invoices.update.mockResolvedValueOnce({ id: 2, payment_status: 'paid' });
+    txClient.payment_transactions.create.mockResolvedValueOnce({ id: 12 });
 
     await billingService.recordPayment(2, 60, 'card');
 

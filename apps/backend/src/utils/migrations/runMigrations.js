@@ -130,24 +130,70 @@ function statementPreview(stmt) {
   return stripSqlComments(stmt).replace(/\s+/g, ' ').trim().slice(0, 180);
 }
 
-async function executeMigrationFile(file, statements) {
+// Per-file scale-safety escape hatch (audit 2026-06-22 H5). Heavy DDL at real
+// hospital data volume — CREATE INDEX CONCURRENTLY, full-table backfills — can't
+// run inside the default single transaction (CONCURRENTLY is rejected in a tx
+// block) or under the hard 120s statement_timeout (a long build aborts → the pod
+// crashloops on the cutover deploy). A migration opts out with header comments:
+//   -- @no-transaction            run statements on the session (no wrapping tx)
+//   -- @statement_timeout: 0      raise/disable the per-statement timeout ('0' = off)
+// Both are optional and independent. Without them, behavior is unchanged.
+function parseMigrationDirectives(sql) {
+  const noTransaction = /^[ \t]*--[ \t]*@no-transaction\b/im.test(sql);
+  const m = sql.match(/^[ \t]*--[ \t]*@statement_timeout:[ \t]*(\S+)/im);
+  return { noTransaction, statementTimeout: m ? m[1].trim() : null };
+}
+
+// A Postgres time/interval value we are willing to inject into SET. Files are
+// repo-authored, but validate anyway (defense-in-depth): a bare integer (ms),
+// '0' (disabled), or an integer with a ms/s/min unit.
+function safeStatementTimeout(value, fallback = '120s') {
+  if (value == null) return fallback;
+  if (value === '0' || /^\d+(ms|s|min)?$/i.test(value)) return value;
+  logger.warn(`runMigrations: ignoring invalid @statement_timeout '${value}'; using ${fallback}`);
+  return fallback;
+}
+
+async function runStatements(client, statements) {
+  for (let index = 0; index < statements.length; index += 1) {
+    const stmt = statements[index];
+    if (isTransactionBoundaryStatement(stmt)) continue;
+    try {
+      await client.$executeRawUnsafe(stmt);
+    } catch (err) {
+      err.migrationStatementIndex = index + 1;
+      err.migrationStatementPreview = statementPreview(stmt);
+      throw err;
+    }
+  }
+}
+
+async function executeMigrationFile(file, statements, directives = {}) {
+  const timeout = safeStatementTimeout(directives.statementTimeout);
+
+  if (directives.noTransaction) {
+    // No wrapping transaction: statements run on the session so CONCURRENTLY /
+    // VACUUM / etc. are legal. There is NO atomic rollback — a mid-file failure
+    // leaves the file partially applied and UNRECORDED, so a @no-transaction
+    // migration MUST be written re-runnable (IF NOT EXISTS / CONCURRENTLY). The
+    // file is recorded only after every statement succeeds.
+    await prisma.$executeRawUnsafe("SET lock_timeout = '15s'");
+    await prisma.$executeRawUnsafe(`SET statement_timeout = '${timeout}'`);
+    try {
+      await runStatements(prisma, statements);
+      await prisma.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+    } finally {
+      // Restore the runner's session default so later files aren't left uncapped.
+      await prisma.$executeRawUnsafe("SET statement_timeout = '120s'").catch(() => {});
+      await prisma.$executeRawUnsafe("SET lock_timeout = '15s'").catch(() => {});
+    }
+    return;
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '15s'");
-    await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '120s'");
-
-    for (let index = 0; index < statements.length; index += 1) {
-      const stmt = statements[index];
-      if (isTransactionBoundaryStatement(stmt)) continue;
-
-      try {
-        await tx.$executeRawUnsafe(stmt);
-      } catch (err) {
-        err.migrationStatementIndex = index + 1;
-        err.migrationStatementPreview = statementPreview(stmt);
-        throw err;
-      }
-    }
-
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${timeout}'`);
+    await runStatements(tx, statements);
     await tx.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
   }, MIGRATION_TRANSACTION_OPTIONS);
 }
@@ -234,6 +280,7 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
 
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
     const statements = splitStatements(sql);
+    const directives = parseMigrationDirectives(sql);
 
     if (statements.length === 0) {
       logger.warn(`Migration ${file} contained no executable statements (comments-only file?). Recording as applied.`);
@@ -241,10 +288,12 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
       continue;
     }
 
-    logger.info(`Running migration: ${file} (${statements.length} statement${statements.length === 1 ? '' : 's'})`);
+    const mode = directives.noTransaction ? ' [no-transaction]' : '';
+    const timeoutNote = directives.statementTimeout ? ` [statement_timeout=${directives.statementTimeout}]` : '';
+    logger.info(`Running migration: ${file} (${statements.length} statement${statements.length === 1 ? '' : 's'})${mode}${timeoutNote}`);
 
     try {
-      await executeMigrationFile(file, statements);
+      await executeMigrationFile(file, statements, directives);
       ran += 1;
       logger.info(`✅ Migration completed: ${file}`);
     } catch (err) {

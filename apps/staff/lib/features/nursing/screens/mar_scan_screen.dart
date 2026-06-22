@@ -34,6 +34,16 @@ class MarScanScreen extends StatefulWidget {
 
 enum _Step { scanWristband, scanDrug, verify, done }
 
+/// Wrong-patient / wrong-drug are non-overridable BCMA never-events (audit
+/// 2026-06-22 F-H1). When `/clinical/mar/verify` explicitly fails the patient
+/// or drug right, the nurse must RE-SCAN — there is no justify-and-proceed. The
+/// backend enforces the same with a MAR_PATIENT_MISMATCH / MAR_DRUG_MISMATCH
+/// hard-stop; this client guard avoids leading the nurse into an override box
+/// the server will refuse. Only the soft rights (dose/route/time) are overridable.
+bool marIsIdentityMismatch(Map<String, dynamic> rights) {
+  return rights['patient'] == false || rights['drug'] == false;
+}
+
 class _MarScanScreenState extends State<MarScanScreen> {
   _Step _step = _Step.scanWristband;
   String? _patientUid;
@@ -251,6 +261,9 @@ class _MarScanScreenState extends State<MarScanScreen> {
                 label: Text(_busy ? s.marScanRecording : s.marScanAdminister),
               ),
             )
+          else if (marIsIdentityMismatch(rights))
+            // Wrong-patient / wrong-drug: hard-stop, no override (audit F-H1).
+            _marHardStopPanel(s, rights)
           else
             _OverrideSection(
               onOverride: (reason) => _administer(overrideReason: reason),
@@ -261,6 +274,70 @@ class _MarScanScreenState extends State<MarScanScreen> {
             Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
           ],
           TextButton(onPressed: _reset, child: Text(s.marScanScanAgain)),
+        ],
+      ),
+    );
+  }
+
+  Widget _marHardStopPanel(AppStrings s, Map<String, dynamic> rights) {
+    final reasons = <String>[
+      if (rights['patient'] == false) s.marScanHardStopPatient,
+      if (rights['drug'] == false) s.marScanHardStopDrug,
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.errorRed.withValues(alpha: 0.10),
+        border: Border.all(color: AppTheme.errorRed),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.block, color: AppTheme.errorRed),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.marScanHardStopTitle,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.errorRed,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final r in reasons)
+            Padding(
+              padding: const EdgeInsets.only(left: 32, bottom: 4),
+              child: Text('• $r', style: const TextStyle(fontSize: 13)),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 2),
+            child: Text(
+              s.marScanHardStopBody,
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.errorRed,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: _reset,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(s.marScanScanAgain),
+            ),
+          ),
         ],
       ),
     );
