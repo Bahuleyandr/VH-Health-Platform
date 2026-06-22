@@ -389,8 +389,13 @@ seed_patient AS (
   RETURNING uid
 ),
 seed_admission AS (
-  INSERT INTO admissions (id, patient_uid, status, department, ward, bed_number, chief_complaint, admitting_diagnosis, admission_type, admitted_at, created_at, updated_at)
-  VALUES ($AdmissionId, '$patientSql'::uuid, 'admitted', 'General Medicine', 'Ward A', 'A-12', 'Hypertension review before discharge', 'Hypertension with medication reconciliation pending', 'inpatient', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', NOW())
+  -- admitting_doctor/attending_doctor MUST be the reviewer: a DOCTOR-role actor
+  -- is scoped to their OWN patients (ownDoctorWhere = admitting/attending = uid)
+  -- by resolveInpatientAdmissionScope, so getAdmissionDetail 404s for an
+  -- admission this doctor is not assigned to. Without this the deep-tier route
+  -- returns "Admission not found" before any AI generation runs.
+  INSERT INTO admissions (id, patient_uid, status, department, ward, bed_number, chief_complaint, admitting_diagnosis, admission_type, admitting_doctor, attending_doctor, admitted_at, created_at, updated_at)
+  VALUES ($AdmissionId, '$patientSql'::uuid, 'admitted', 'General Medicine', 'Ward A', 'A-12', 'Hypertension review before discharge', 'Hypertension with medication reconciliation pending', 'inpatient', '$reviewerSql'::uuid, '$reviewerSql'::uuid, NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', NOW())
   ON CONFLICT (id) DO UPDATE
     SET patient_uid = '$patientSql'::uuid,
         status = 'admitted',
@@ -400,6 +405,8 @@ seed_admission AS (
         chief_complaint = 'Hypertension review before discharge',
         admitting_diagnosis = 'Hypertension with medication reconciliation pending',
         admission_type = 'inpatient',
+        admitting_doctor = '$reviewerSql'::uuid,
+        attending_doctor = '$reviewerSql'::uuid,
         admitted_at = NOW() - INTERVAL '1 day',
         updated_at = NOW()
   RETURNING id
@@ -497,7 +504,7 @@ SELECT concat_ws('|',
   COALESCE(metadata->>'provider_status', ''),
   used_ai::text,
   COALESCE(metadata->>'output_defenses_ran', ''),
-  COALESCE(metadata->>'defenses_passed', '')
+  COALESCE(metadata->>'no_heuristic_flags', '')
 )
 FROM clinical_ai_generations
 WHERE tenant_id = '$tenantSql'::uuid
@@ -516,11 +523,14 @@ LIMIT 1;
   $dbProviderStatus = if ($parts.Length -gt 5) { $parts[5] } else { "" }
   $dbUsedAi = if ($parts.Length -gt 6) { $parts[6] } else { "" }
   $dbOutputDefensesRan = if ($parts.Length -gt 7) { $parts[7] } else { "" }
-  $dbDefensesPassed = if ($parts.Length -gt 8) { $parts[8] } else { "" }
+  # Renamed from defenses_passed → no_heuristic_flags (AI-4c): "no heuristic
+  # output-defense flag fired", not a safety proof. Backend writes it in
+  # clinicalAiWorkflowService persist_generation metadata.
+  $dbNoHeuristicFlags = if ($parts.Length -gt 8) { $parts[8] } else { "" }
 
   Add-ContractResult $results "db_labels_local_ollama" (($dbProvider -eq "ollama") -and ($dbModel -eq $DeepModel) -and ($dbTier -eq "deep") -and ($dbModelTier -eq "deep")) "provider=$dbProvider model=$dbModel tier=$dbTier modelTier=$dbModelTier"
   Add-ContractResult $results "db_labels_ai_used" (($dbUsedAi -eq "true") -and ($dbMode -eq "ai") -and ($dbProviderStatus -eq "used")) "usedAi=$dbUsedAi mode=$dbMode providerStatus=$dbProviderStatus"
-  Add-ContractResult $results "db_output_defenses_visible" (($dbOutputDefensesRan -eq "true") -and ($dbDefensesPassed -eq "true")) "outputDefensesRan=$dbOutputDefensesRan defensesPassed=$dbDefensesPassed"
+  Add-ContractResult $results "db_output_defenses_visible" (($dbOutputDefensesRan -eq "true") -and ($dbNoHeuristicFlags -eq "true")) "outputDefensesRan=$dbOutputDefensesRan noHeuristicFlags=$dbNoHeuristicFlags"
 } finally {
   if ($null -ne $mockServer) {
     try {

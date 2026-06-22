@@ -271,7 +271,7 @@ $recentGenerationRow = Invoke-Psql @"
 SELECT concat_ws('|',
   COUNT(*)::text,
   COUNT(*) FILTER (WHERE metadata ? 'output_defenses_ran')::text,
-  COUNT(*) FILTER (WHERE metadata->>'defenses_passed' = 'true')::text
+  COUNT(*) FILTER (WHERE metadata->>'no_heuristic_flags' = 'true')::text
 )
 FROM clinical_ai_generations
 WHERE tenant_id = '$tenantSql'::uuid

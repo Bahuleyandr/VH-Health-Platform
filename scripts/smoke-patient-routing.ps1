@@ -298,7 +298,7 @@ ON CONFLICT (uid) DO UPDATE SET
 
 INSERT INTO departments (name, description, is_active, updated_at)
 VALUES ('Smoke Medicine', 'Local patient smoke department', true, NOW())
-ON CONFLICT (name) DO UPDATE SET
+ON CONFLICT (tenant_id, name) DO UPDATE SET
   description = EXCLUDED.description,
   is_active = true,
   updated_at = NOW();

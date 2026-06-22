@@ -467,6 +467,15 @@ export async function assemblePilotEvidencePack(options = {}) {
     options.moduleKeys ?? options.module_keys ?? options.moduleKey ?? options.module_key,
   );
   const { from, to, windowDays } = resolveWindow(options);
+  // Bind the window bounds as explicit UTC ISO strings, NOT JS Date objects.
+  // $queryRawUnsafe sends a Date as a zoneless wall-clock that `::timestamptz`
+  // then re-reads in the DB session timezone — on a non-UTC server (prod is
+  // India/IST) that silently shifts the window and drops in-window generations,
+  // so the evidence pack under-counts and reports false "blockers". An ISO
+  // string carries the `Z`, so `::timestamptz` parses the same instant in any
+  // session timezone. (UTC servers — e.g. CI — are unaffected either way.)
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
   const minReviewedPerModule = clampInt(
     options.minReviewedPerModule ?? options.min_reviewed_per_module,
     { min: 1, max: 20, fallback: 1 },
@@ -533,8 +542,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        LIMIT $5`,
       tid,
       moduleKeys,
-      from,
-      to,
+      fromIso,
+      toIso,
       ROW_LIMIT,
     )),
     safeQuery('reviews', () => prisma.$queryRawUnsafe(
@@ -556,8 +565,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        LIMIT $5`,
       tid,
       moduleKeys,
-      from,
-      to,
+      fromIso,
+      toIso,
       ROW_LIMIT,
     )),
     safeQuery('safety_reviews', () => prisma.$queryRawUnsafe(
@@ -571,8 +580,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        LIMIT $5`,
       tid,
       moduleKeys,
-      from,
-      to,
+      fromIso,
+      toIso,
       ROW_LIMIT,
     )),
     safeQuery('approvals', () => prisma.$queryRawUnsafe(
@@ -588,8 +597,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        LIMIT $5`,
       tid,
       moduleKeys,
-      from,
-      to,
+      fromIso,
+      toIso,
       ROW_LIMIT,
     )),
     safeQuery('eval_runs', () => prisma.$queryRawUnsafe(
@@ -606,8 +615,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        LIMIT $5`,
       tid,
       moduleKeys,
-      from,
-      to,
+      fromIso,
+      toIso,
       ROW_LIMIT,
     )),
     safeQuery('audit_events', () => prisma.$queryRawUnsafe(
@@ -620,8 +629,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        ORDER BY created_at DESC
        LIMIT 250`,
       tid,
-      from,
-      to,
+      fromIso,
+      toIso,
     )),
   ]);
 
@@ -889,10 +898,15 @@ export async function decidePilotSignoff(signoffId, decision, actorUid = null, r
   };
 
   const rows = await prisma.$queryRawUnsafe(
+    // $2 (the decision) is compared against string literals AND assigned to the
+    // varchar `status` column, so Postgres deduces conflicting types for it
+    // ("text versus character varying", 42P08) unless every use is cast to one
+    // type. Cast `$2::text` at all three usages — mirrors decideApproval() in
+    // clinicalAiWorkflowService.js, which was already fixed the same way.
     `UPDATE clinical_ai_approvals
-     SET status = $2,
-         approved_by = CASE WHEN $2 = 'approved' THEN $3::uuid ELSE approved_by END,
-         rejected_by = CASE WHEN $2 IN ('hold', 'rejected') THEN $3::uuid ELSE rejected_by END,
+     SET status = $2::text,
+         approved_by = CASE WHEN $2::text = 'approved' THEN $3::uuid ELSE approved_by END,
+         rejected_by = CASE WHEN $2::text IN ('hold', 'rejected') THEN $3::uuid ELSE rejected_by END,
          reason = $4,
          payload = $5::jsonb,
          decided_at = NOW(),
