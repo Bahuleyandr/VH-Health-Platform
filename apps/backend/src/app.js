@@ -1220,6 +1220,20 @@ app.use('/exports', requireRole(...ADMIN_ROUTE_ROLES), express.static('exports')
 // Fallback rate limiter
 app.use(genericLimiter);
 
+// Terminal 404 (M19 — audit 2026-06-22). Any request that matched no route
+// reaches here; without this it falls through to Express's default HTML
+// "Cannot GET /x", breaking the JSON envelope every client expects. Returns the
+// standard envelope. Must sit AFTER all route mounts and BEFORE the error
+// handlers (a plain (req,res) middleware, not an error handler).
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'The requested resource was not found.',
+    code: 'NOT_FOUND',
+    ...(req.id ? { requestId: req.id } : {}),
+  });
+});
+
 // CORS error handler
 app.use(corsErrorHandler);
 
