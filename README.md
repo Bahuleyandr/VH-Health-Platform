@@ -216,7 +216,7 @@ Smoke journey coverage is documented in
 | Canonical clinical timeline | [`docs/CANONICAL_CLINICAL_TIMELINE.md`](docs/CANONICAL_CLINICAL_TIMELINE.md) |
 | Deployment | [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) |
 | Release gate | [`docs/RELEASE_READINESS.md`](docs/RELEASE_READINESS.md) |
-| Remediation tracker | [`docs/PLATFORM_REMEDIATION_PLAN.md`](docs/PLATFORM_REMEDIATION_PLAN.md) |
+| Roadmap (pending work) | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 | DB guardrails | [`docs/DB_SCHEMA_GUARDRAILS.md`](docs/DB_SCHEMA_GUARDRAILS.md) |
 | Translation review | [`docs/TRANSLATION_REVIEW_TRACKER.md`](docs/TRANSLATION_REVIEW_TRACKER.md) |
 | Staff language state | [`apps/staff/docs/LANGUAGE_HEALTH.md`](apps/staff/docs/LANGUAGE_HEALTH.md) |

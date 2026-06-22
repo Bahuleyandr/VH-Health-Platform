@@ -63,4 +63,4 @@ or government engagement. No code or config changes are pending on those items
 - [`docs/SECURITY_CONTROLS_SELFASSESSMENT.md`](../SECURITY_CONTROLS_SELFASSESSMENT.md) — Self-assessment status register
 - [`docs/india-deployment-readiness.md`](../india-deployment-readiness.md) — Go-live operator checklist
 - [`docs/PLATFORM_AUDIT_2026-06-13.md`](../PLATFORM_AUDIT_2026-06-13.md) — Source audit (read-only)
-- [`docs/S_TIER_ROADMAP.md`](../S_TIER_ROADMAP.md) — Roadmap and batch definitions (read-only)
+- [`docs/S_TIER_ROADMAP.md`](../archive/S_TIER_ROADMAP.md) — Roadmap and batch definitions (read-only)

@@ -1,9 +1,9 @@
 # Security Hardening Checklist (Roadmap A7 + A8)
 
 Owner-executable list closing the two items left unchecked in
-`PLATFORM_REMEDIATION_PLAN.md` ("rotate any real secrets that appeared in
+`archive/PLATFORM_REMEDIATION_PLAN.md` ("rotate any real secrets that appeared in
 local ignored .env or log files", "purge or regenerate local logs") plus
-the pre-pilot security actions from `EPIC_LEVEL_ROADMAP.md`.
+the pre-pilot security actions now consolidated in [`ROADMAP.md`](ROADMAP.md) §2.
 
 ## A7 — Secret rotation (do once, then on a calendar)
 

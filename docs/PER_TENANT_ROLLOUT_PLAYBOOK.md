@@ -5,10 +5,10 @@ VH Health platform, *or* the platform admin enabling new clinical-AI
 modules for an existing tenant.
 
 **Companion docs:**
-- [`CLINICAL_AI_ROLLOUT_PLAN.md`](CLINICAL_AI_ROLLOUT_PLAN.md) — the
+- [`CLINICAL_AI_ROLLOUT_PLAN.md`](archive/CLINICAL_AI_ROLLOUT_PLAN.md) — the
   *engineering* rollout plan (network split, Flutter web build,
   Ollama deep tier). Per-phase status + commits live there.
-- [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) — the
+- [`AI_FEATURE_GAP_BACKLOG.md`](archive/AI_FEATURE_GAP_BACKLOG.md) — the
   full ~250-feature catalogue with per-module status. Use it to look
   up "do we have AI feature X?".
 - [`HEALTHCARE_AI_SPEC_AUDIT.md`](HEALTHCARE_AI_SPEC_AUDIT.md) —

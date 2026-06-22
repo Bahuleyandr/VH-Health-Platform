@@ -18,16 +18,16 @@ operations.
 
 ## Milestone / Roadmap
 
-Active milestone and execution tracking. Check these first when deciding what to work on.
+**[`ROADMAP.md`](ROADMAP.md) is the single source of truth for pending work.** The
+older planning docs (the 2026-06-16 goal, S-tier, epic roadmap, execution log,
+remediation trackers, AI-gap backlog, clinical-AI plans, tenant-RLS gap analysis)
+were consolidated into it on 2026-06-22 and moved to [`archive/`](archive/).
 
 | Topic | Document | Notes |
 | --- | --- | --- |
-| Active milestone (11 journeys, 2026-06-16) | [`GOAL_2026-06-16.md`](GOAL_2026-06-16.md) | Current sprint gate; read before new work |
-| S-tier roadmap | [`S_TIER_ROADMAP.md`](S_TIER_ROADMAP.md) | Point-in-time; do not edit |
-| Epic roadmap | [`EPIC_LEVEL_ROADMAP.md`](EPIC_LEVEL_ROADMAP.md) | Long-horizon feature plan |
-| Execution log | [`ROADMAP_EXECUTION_LOG.md`](ROADMAP_EXECUTION_LOG.md) | Running record of completed milestones |
-| Platform remediation tracker | [`PLATFORM_REMEDIATION_PLAN.md`](PLATFORM_REMEDIATION_PLAN.md) | Active security + quality remediations |
+| Pending work (consolidated) | [`ROADMAP.md`](ROADMAP.md) | What's left + links to the live runbooks; **start here** |
 | Pilot staff workflow scenarios | [`PILOT_STAFF_WORKFLOW_SCENARIOS.md`](PILOT_STAFF_WORKFLOW_SCENARIOS.md) | Real-world workflow coverage for pilot |
+| Archived planning docs | [`archive/`](archive/) | Point-in-time roadmaps / logs (provenance only) |
 
 ## Architecture
 
@@ -49,7 +49,7 @@ Active milestone and execution tracking. Check these first when deciding what to
 | Production DB hardening | [`PRODUCTION_DB_HARDENING.md`](PRODUCTION_DB_HARDENING.md) |
 | Downtime procedure | [`DOWNTIME_PROCEDURE.md`](DOWNTIME_PROCEDURE.md) |
 | DR restore drill evidence | [`DR_RESTORE_DRILL.md`](DR_RESTORE_DRILL.md) |
-| Live Dalekdefender drift remediation | [`LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md`](LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md) |
+| Live Dalekdefender drift remediation | [`LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md`](archive/LIVE_DALEKDEFENDER_DRIFT_REMEDIATION.md) |
 | Per-tenant rollout playbook | [`PER_TENANT_ROLLOUT_PLAYBOOK.md`](PER_TENANT_ROLLOUT_PLAYBOOK.md) |
 
 ## Security And Compliance
@@ -59,18 +59,18 @@ Active milestone and execution tracking. Check these first when deciding what to
 | Security hardening checklist | [`SECURITY_HARDENING_CHECKLIST.md`](SECURITY_HARDENING_CHECKLIST.md) | Authoritative gate checklist |
 | Operator-only remediation steps | [`PHASE0_OPERATOR_ACTIONS_2026-06-10.md`](PHASE0_OPERATOR_ACTIONS_2026-06-10.md) | Infrastructure-side actions |
 | ABDM readiness | [`ABDM_READINESS.md`](ABDM_READINESS.md) | ABDM / NDHM compliance |
-| Tenant/RLS gap analysis | [`GAP_ANALYSIS_TENANT_RLS.md`](GAP_ANALYSIS_TENANT_RLS.md) | Row-level security coverage |
+| Tenant/RLS gap analysis | [`GAP_ANALYSIS_TENANT_RLS.md`](archive/GAP_ANALYSIS_TENANT_RLS.md) | Row-level security coverage |
 | Pentest readiness | [`PENTEST_READINESS.md`](PENTEST_READINESS.md) | Point-in-time; do not edit |
 | Security controls self-assessment | [`SECURITY_CONTROLS_SELFASSESSMENT.md`](SECURITY_CONTROLS_SELFASSESSMENT.md) | Point-in-time; do not edit |
 | Security audit snapshot (2026-06-10) | [`PLATFORM_SECURITY_AUDIT_2026-06-10.md`](PLATFORM_SECURITY_AUDIT_2026-06-10.md) | Snapshot; evidence only |
-| Remediation work order snapshot | [`REMEDIATION_WORK_ORDER_2026-06-10.md`](REMEDIATION_WORK_ORDER_2026-06-10.md) | Snapshot; evidence only |
+| Remediation work order snapshot | [`REMEDIATION_WORK_ORDER_2026-06-10.md`](archive/REMEDIATION_WORK_ORDER_2026-06-10.md) | Snapshot; evidence only |
 
 ## Clinical AI And Product
 
 | Topic | Document |
 | --- | --- |
-| Clinical AI rollout plan | [`CLINICAL_AI_ROLLOUT_PLAN.md`](CLINICAL_AI_ROLLOUT_PLAN.md) |
-| AI feature gap backlog | [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) |
+| Clinical AI rollout plan | [`CLINICAL_AI_ROLLOUT_PLAN.md`](archive/CLINICAL_AI_ROLLOUT_PLAN.md) |
+| AI feature gap backlog | [`AI_FEATURE_GAP_BACKLOG.md`](archive/AI_FEATURE_GAP_BACKLOG.md) |
 | Healthcare AI spec audit | [`HEALTHCARE_AI_SPEC_AUDIT.md`](HEALTHCARE_AI_SPEC_AUDIT.md) |
 
 ## Smoke, QA, And Evidence

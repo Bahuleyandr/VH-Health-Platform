@@ -3,7 +3,7 @@
 - **Date:** 2026-06-19
 - **Status:** Design — program spec (umbrella). Each wave gets its own `spec → plan → implement` cycle.
 - **Decision (confirmed):** Approach **A** — foundation-first, flag-gated, wave-by-wave. Target = **full SaaS-grade**, **fail-closed** tenant resolution, **all four layers** (backend, admin, Flutter, infra).
-- **Supersedes / extends:** [`docs/GAP_ANALYSIS_TENANT_RLS.md`](../../GAP_ANALYSIS_TENANT_RLS.md) (Path B, Phases 0–3 shipped) and operationalises [`docs/PER_TENANT_ROLLOUT_PLAYBOOK.md`](../../PER_TENANT_ROLLOUT_PLAYBOOK.md). This program is "Path B, Phases 4+ → full SaaS."
+- **Supersedes / extends:** [`docs/GAP_ANALYSIS_TENANT_RLS.md`](../../archive/GAP_ANALYSIS_TENANT_RLS.md) (Path B, Phases 0–3 shipped) and operationalises [`docs/PER_TENANT_ROLLOUT_PLAYBOOK.md`](../../PER_TENANT_ROLLOUT_PLAYBOOK.md). This program is "Path B, Phases 4+ → full SaaS."
 
 ---
 
@@ -248,7 +248,7 @@ All six forks were decided by the product owner. They are binding for the waves 
 
 ## 10. References
 
-- [`docs/GAP_ANALYSIS_TENANT_RLS.md`](../../GAP_ANALYSIS_TENANT_RLS.md) — predecessor (Path B, Phases 0–3 shipped). This program is Phases 4+.
+- [`docs/GAP_ANALYSIS_TENANT_RLS.md`](../../archive/GAP_ANALYSIS_TENANT_RLS.md) — predecessor (Path B, Phases 0–3 shipped). This program is Phases 4+.
 - [`docs/PER_TENANT_ROLLOUT_PLAYBOOK.md`](../../PER_TENANT_ROLLOUT_PLAYBOOK.md) — per-tenant clinical-AI enablement ops (assumes multi-tenant live).
 - [`docs/GO_LIVE_ACTIVATION_CHECKLIST.md`](../../GO_LIVE_ACTIVATION_CHECKLIST.md) — Phase E runtime RLS verification (W7 precondition); B6 SUPER_ADMIN 2FA step-up.
 - Key code seams: `src/lib/prisma.js` (`setTenant`/`evaluateTenantRlsPosture`), `src/middleware/tenantContextMiddleware.js` (the floor to replace), `src/services/tenant/tenantService.js` (`resolveTenantForRequest`, `DEFAULT_TENANT_ID`), `src/utils/scheduler.js` + `revenueCycleTrackerService.js` (`runRevenueCycleSweepAllTenants` cron template), `src/utils/signedRequest.js` (HMAC verify/replay), `packages/vhhealth_core/lib/services/http_client.dart` (client header seam), `infra/kubernetes/base/cloudflare-tunnel/cloudflared.yaml` + `apps/backend/src/services/tenant/tenantService.js` (edge routing seam).

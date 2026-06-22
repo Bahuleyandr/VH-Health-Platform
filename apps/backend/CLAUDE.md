@@ -459,9 +459,9 @@ SQL, JWT auth, or test infrastructure:
 
 ## Future Directions
 
-Use [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md),
-[`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md), and
-[`../../docs/DB_SCHEMA_GUARDRAILS.md`](../../docs/DB_SCHEMA_GUARDRAILS.md)
+Use [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md) (the single consolidated
+list of pending work), [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md),
+and [`../../docs/DB_SCHEMA_GUARDRAILS.md`](../../docs/DB_SCHEMA_GUARDRAILS.md)
 for current priorities and gates. [`../../AUDIT.md`](../../AUDIT.md) and
 [`../../SESSION_HANDOFF.md`](../../SESSION_HANDOFF.md) are useful historical
 snapshots, but verify current state before acting.
