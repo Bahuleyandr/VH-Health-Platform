@@ -359,4 +359,70 @@ COMMIT;`;
       calls.some((sql) => typeof sql === 'string' && sql.includes('INSERT INTO _migrations')),
     ).toBe(false);
   });
+
+  // ---- scale-safety escape hatch (audit 2026-06-22 H5) ----------------------
+
+  it('runs a @no-transaction migration OUTSIDE a transaction (so CONCURRENTLY is legal)', async () => {
+    const file = '999_test_concurrently.sql';
+    fs.writeFileSync(
+      path.join(tmpDir, file),
+      `-- @no-transaction
+-- @statement_timeout: 0
+CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_ix ON _test_x (id);`,
+    );
+
+    await runMigrations({ migrationsDir: tmpDir });
+
+    // The whole point: this file must NOT be wrapped in prisma.$transaction.
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
+    // The heavy DDL ran on the plain session client (splitStatements keeps the
+    // leading directive comments as a prefix, so match on substring)...
+    expect(calls.some((s) => typeof s === 'string' && s.includes('CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_ix ON _test_x (id)'))).toBe(true);
+    // ...with the timeout raised to the directive value (0 = uncapped, session-level)...
+    expect(calls).toContain("SET statement_timeout = '0'");
+    // ...and the runner default restored afterwards so later files stay capped.
+    expect(calls).toContain("SET statement_timeout = '120s'");
+    // ...and the file recorded.
+    const trackerInsert = executeRawUnsafeMock.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO _migrations'),
+    );
+    expect(trackerInsert?.[1]).toBe(file);
+  });
+
+  it('honors @statement_timeout inside the transactional path (SET LOCAL)', async () => {
+    const file = '999_test_timeout.sql';
+    fs.writeFileSync(
+      path.join(tmpDir, file),
+      `-- @statement_timeout: 600s
+UPDATE _test_x SET id = id;`,
+    );
+
+    await runMigrations({ migrationsDir: tmpDir });
+
+    // Still transactional (no @no-transaction), but the per-statement cap is raised.
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
+    expect(calls).toContain("SET LOCAL statement_timeout = '600s'");
+  });
+
+  it('ignores an invalid @statement_timeout and falls back to 120s', async () => {
+    const file = '999_test_bad_timeout.sql';
+    fs.writeFileSync(
+      path.join(tmpDir, file),
+      `-- @statement_timeout: ; DROP TABLE users
+CREATE TABLE _test_safe (id int);`,
+    );
+
+    await runMigrations({ migrationsDir: tmpDir });
+
+    const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
+    // The malformed value is rejected — the runner uses its safe default, and the
+    // injected DROP never reaches a SET statement (it only survives as an inert
+    // SQL comment prefixed onto the CREATE).
+    expect(calls).toContain("SET LOCAL statement_timeout = '120s'");
+    const setCalls = calls.filter((s) => typeof s === 'string' && s.startsWith('SET '));
+    expect(setCalls.some((s) => /DROP TABLE/i.test(s))).toBe(false);
+  });
 });
