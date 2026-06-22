@@ -2111,6 +2111,29 @@ function isPatientSurface(module) {
   return moduleSurface(module) === 'patient';
 }
 
+// Safety-classification settings that describe WHAT a module is — its audience
+// and risk posture. They are declared in code (the base module catalog) and are
+// the source of truth for the enablement guards (assertPatientSurfaceEnablement
+// reads settings.surface). A tenant override must NEVER be able to reclassify a
+// module — e.g. flip a patient-facing module's surface to 'staff' to slip past
+// the patient-surface clearance, or downgrade its risk (audit 2026-06-22 M14).
+// These keys are stripped from any caller-supplied settings and always resolved
+// from the base definition.
+const IMMUTABLE_MODULE_SETTING_KEYS = Object.freeze([
+  'surface',
+  'risk',
+  'patientFacing',
+  'decisionSupportOnly',
+  'rulesAuthoritative',
+]);
+
+function stripImmutableModuleSettings(settings) {
+  if (!settings || typeof settings !== 'object') return settings;
+  const out = { ...settings };
+  for (const key of IMMUTABLE_MODULE_SETTING_KEYS) delete out[key];
+  return out;
+}
+
 /**
  * Patient-surface enablement guard (audit 2026-06-18 §3 /
  * CLINICAL_AI_ENABLEMENT_PLAN.md). Patient-facing AI must stay OFF until it is
@@ -2790,7 +2813,9 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
       ? currentOverride.temperature ?? null
       : (isNil(data.temperature) || data.temperature === '' ? null : Number(data.temperature)),
     settings: data.settings && typeof data.settings === 'object'
-      ? { ...(currentOverride.settings || {}), ...data.settings }
+      // M14: strip immutable safety-classification keys so a tenant override can
+      // never persist a reclassification (e.g. surface 'patient' → 'staff').
+      ? { ...(currentOverride.settings || {}), ...stripImmutableModuleSettings(data.settings) }
       : currentOverride.settings || {},
   };
   const nextEffective = normalizeModule({
@@ -2803,7 +2828,12 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
     temperature: hasOverrideValue(next.temperature) ? next.temperature : base.temperature,
     settings: {
       ...(base.settings || {}),
-      ...(next.settings || {}),
+      // M14: overlay the override settings with immutable safety-classification
+      // keys stripped, so surface/risk/patientFacing/decisionSupportOnly always
+      // resolve from the code-defined base — even if a stale pre-fix override
+      // persisted one. This is what assertPatientSurfaceEnablement reads, so the
+      // patient-surface clearance can no longer be evaded by a settings override.
+      ...stripImmutableModuleSettings(next.settings || {}),
     },
   });
   // Patient-surface enablement guard — reject an OFF→ON flip of a patient-facing

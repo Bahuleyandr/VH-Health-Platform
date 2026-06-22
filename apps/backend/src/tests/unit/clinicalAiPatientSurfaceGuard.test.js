@@ -190,6 +190,26 @@ describe('Clinical AI patient-surface enablement guard', () => {
       expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO clinical_ai_approvals/i.test(String(sql)))).toBe(false);
     });
 
+    it('cannot dodge the patient guard by overriding settings.surface (M14)', async () => {
+      installMock(moduleRow());
+
+      // Attempt to reclassify the patient-facing module as 'clinical' via a
+      // settings override while enabling it. The immutable surface must be
+      // stripped and resolved from the base ('patient'), so the guard still fires
+      // and nothing is written.
+      await expect(updateClinicalAiTenantModule(
+        'patient_aftercare_instructions',
+        { enabled: true, settings: { surface: 'clinical', risk: 'low' } },
+        ACTOR,
+        { tenantId: TENANT },
+      )).rejects.toMatchObject({
+        statusCode: 403,
+        code: 'CLINICAL_AI_PATIENT_SURFACE_FORBIDDEN',
+      });
+
+      expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO clinical_ai_tenant_modules/i.test(String(sql)))).toBe(false);
+    });
+
     it('allows enabling a patient-surface module with the explicit override flag', async () => {
       installMock(moduleRow());
 
