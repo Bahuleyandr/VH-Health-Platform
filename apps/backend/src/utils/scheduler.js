@@ -244,6 +244,8 @@ import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.j
 import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
 import { expiryRadarSweep } from '../services/staff/credentialingService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
+import { runCanaryChecks } from './canaryHealthCheck.js';
+import { expireOldIdempotencyKeys } from '../services/idempotency/idempotencyService.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 
 // Notification outbox drain (audit C-6). The outbox persists notification
@@ -444,6 +446,24 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('0 0 * * *', withJobLock('purge-logs', async () => {
     logger.info('Scheduled Task: Purging old logs...');
     await purgeLogs();
+  }));
+
+  // 🗓️ Every 5 minutes - synthetic canary health checks (audit 2026-06-22 M9).
+  // runCanaryChecks tests DB read/write, stuck notifications, and unacknowledged
+  // CRITICAL alerts. It was implemented but wired to NO tick, so the early-warning
+  // signal it produces ran nowhere. withJobLock → exactly one runner across the
+  // worker×replica fleet.
+  registerCron('*/5 * * * *', withJobLock('canary-checks', async () => {
+    await runCanaryChecks();
+  }));
+
+  // 🗓️ Hourly at :15 - idempotency-key retention sweep (audit 2026-06-22 M11).
+  // expireOldIdempotencyKeys is implemented ("run from a cron tick") but was wired
+  // to no scheduler, so the hot money-path idempotency_keys table grew unbounded.
+  // Hourly keeps it bounded; the sweep is self-batched (LIMIT) + missing-schema-safe.
+  registerCron('15 * * * *', withJobLock('idempotency-keys-sweep', async () => {
+    const { expired } = await expireOldIdempotencyKeys();
+    if (expired) logger.info(`Scheduled Task: expired ${expired} idempotency keys`);
   }));
 
   // 🗓️ Daily at 00:00 - Swagger validation
