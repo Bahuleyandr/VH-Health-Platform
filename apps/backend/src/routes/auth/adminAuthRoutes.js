@@ -10,6 +10,7 @@ import * as adminAuthController from '../../controllers/auth/adminAuthController
 import { logout as authLogout } from '../../controllers/auth/authController.js';
 import jwtAuth, { requireSetupScope, enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { requireSuperAdminStepUp } from '../../middleware/rbacMiddleware.js';
 
 // Use the dedicated admin validators
 import {
@@ -174,17 +175,24 @@ wrapRoutesWithValidation(
 );
 
 /* -------------------------- super-admin only ----------------------- */
+// SUPER_ADMIN 2FA step-up (audit 2026-06-22 H1). wrapAutoRBAC injects rbac(roles)
+// only — never the step-up gate — and rbacMiddleware grants SUPER_ADMIN an
+// unconditional bypass, so these highest-privilege identity-mutation endpoints
+// were reachable by a SUPER_ADMIN whose token had mfa!==true (unlike the /admin,
+// /system, /logs dashboard mounts, which DO carry requireSuperAdminStepUp).
+// Prepend it to every route in this group so a non-stepped-up SUPER_ADMIN 403s.
 wrapAutoRBAC(
   router,
   'adminManagement',
   {
     post: [
       // Create another admin
-      ['/create-admin', ...createAdminValidator, handleValidation, passwordComplexityMiddleware, adminAuthController.createAdmin],
+      ['/create-admin', requireSuperAdminStepUp, ...createAdminValidator, handleValidation, passwordComplexityMiddleware, adminAuthController.createAdmin],
 
       // Deactivate admin
       [
         '/deactivate',
+        requireSuperAdminStepUp,
         body('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         body('reason').notEmpty().withMessage('Reason is required'),
         handleValidation,
@@ -194,6 +202,7 @@ wrapAutoRBAC(
       // Reactivate admin
       [
         '/reactivate',
+        requireSuperAdminStepUp,
         body('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         handleValidation,
         adminAuthController.reactivateAdmin,
@@ -202,6 +211,7 @@ wrapAutoRBAC(
       // Revoke all sessions for a user (force-logout compromised accounts)
       [
         '/revoke-all-sessions/:userId',
+        requireSuperAdminStepUp,
         param('userId').isInt({ min: 1 }).withMessage('Invalid user ID').toInt(),
         handleValidation,
         adminAuthController.revokeAllSessions,
@@ -209,11 +219,12 @@ wrapAutoRBAC(
     ],
     get: [
       // List admins
-      ['/list', adminAuthController.listAdmins],
+      ['/list', requireSuperAdminStepUp, adminAuthController.listAdmins],
 
       // Activity logs for a specific admin
       [
         '/activity-logs/:adminId',
+        requireSuperAdminStepUp,
         param('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         handleValidation,
         adminAuthController.getAdminActivityLogs,
@@ -223,6 +234,7 @@ wrapAutoRBAC(
       // Update permissions
       [
         '/update-permissions',
+        requireSuperAdminStepUp,
         body('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         body('permissions').isArray().withMessage('Permissions must be an array'),
         handleValidation,

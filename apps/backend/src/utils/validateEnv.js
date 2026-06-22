@@ -79,6 +79,23 @@ const envSchema = Joi.object({
     otherwise: Joi.string().valid('true', 'false').allow('').optional(),
   }).label('ALLOW_DEV_OTP'),
 
+  // Base host for per-tenant subdomain resolution (audit 2026-06-22 W3-H2).
+  // tenantFromHost() parses "<slug>-api.<TENANT_BASE_HOST>" → tenant slug; when
+  // unset it falls back to "localhost", so any real per-tenant host fails to
+  // parse and resolves to the DEFAULT tenant — a cross-tenant exposure path that
+  // also silently disables the W4 Host↔token cross-check. FAIL-CLOSED: under
+  // NODE_ENV=production this MUST be set to a real host (not localhost). Dev/test
+  // may leave it unset (localhost fallback is correct there).
+  TENANT_BASE_HOST: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().min(1).invalid('localhost').required().messages({
+      'any.required': 'TENANT_BASE_HOST must be set in production (e.g. "vhhealth.app") so per-tenant subdomains resolve correctly instead of defaulting cross-tenant',
+      'string.empty': 'TENANT_BASE_HOST must be set in production (e.g. "vhhealth.app")',
+      'any.invalid': 'TENANT_BASE_HOST must not be "localhost" in production',
+    }),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('TENANT_BASE_HOST'),
+
   // Storage credentials — optional but warn if missing
   CF_ACCOUNT_ID: Joi.string().optional().label('CF_ACCOUNT_ID'),
   CF_R2_BUCKET: Joi.string().optional().label('CF_R2_BUCKET'),

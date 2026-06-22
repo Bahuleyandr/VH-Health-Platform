@@ -18,6 +18,7 @@ function runValidateEnv(extraEnv = {}) {
         FIELD_ENCRYPTION_KEY: 'test-field-encryption-key-32chars!!',
         TOTP_ENCRYPTION_KEY: 'test-totp-encryption-key-32chars!!!!',
         BACKUP_ENCRYPTION_KEY: 'test-backup-encryption-key-32chars!!',
+        TENANT_BASE_HOST: 'vhhealth.app',
         ...extraEnv,
       },
       encoding: 'utf8',
@@ -89,6 +90,30 @@ describe('validateEnv dev-OTP opt-in', () => {
 
   it('allows production boot when ALLOW_DEV_OTP is unset', () => {
     const result = runValidateEnv();
+
+    expect(result.status).toBe(0);
+  });
+});
+
+// W3-H2 (audit 2026-06-22): per-tenant subdomain routing must not silently fall
+// back to the localhost default (→ DEFAULT tenant cross-tenant exposure).
+describe('validateEnv TENANT_BASE_HOST', () => {
+  it('fails closed in production when TENANT_BASE_HOST is unset/empty', () => {
+    const result = runValidateEnv({ TENANT_BASE_HOST: '' });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('TENANT_BASE_HOST');
+  });
+
+  it('fails closed in production when TENANT_BASE_HOST is "localhost"', () => {
+    const result = runValidateEnv({ TENANT_BASE_HOST: 'localhost' });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('TENANT_BASE_HOST');
+  });
+
+  it('allows production boot with a real TENANT_BASE_HOST', () => {
+    const result = runValidateEnv({ TENANT_BASE_HOST: 'vhhealth.app' });
 
     expect(result.status).toBe(0);
   });
