@@ -151,27 +151,40 @@ describe('H4 — SSRF guard', () => {
         // created before the guard, or a host that re-resolved to an internal
         // address after create-time validation passed.
         const subRows = await prisma.$queryRawUnsafe(
-          `INSERT INTO hl7_feed_subscriptions (name, endpoint_url, auth_header, message_types)
-           VALUES ($1, $2, 'Bearer attacker-controlled', ARRAY['ADT^A01']::text[])
+          // Pin is_active TRUE explicitly so the delivery JOIN
+          // (s.id = m.subscription_id AND s.is_active) always matches this row,
+          // independent of any column default.
+          `INSERT INTO hl7_feed_subscriptions (name, endpoint_url, auth_header, message_types, is_active)
+           VALUES ($1, $2, 'Bearer attacker-controlled', ARRAY['ADT^A01']::text[], TRUE)
            RETURNING id`,
           `${SUB_NAME}-poisoned`, `http://127.0.0.1:${port}/internal`,
         );
         const subId = subRows[0].id;
         const msgRows = await prisma.$queryRawUnsafe(
+          // Pin status 'queued' + next_attempt_at in the past so the message is
+          // unambiguously due for the delivery pass.
           `INSERT INTO hl7_outbound_messages
-             (subscription_id, message_type, message_control_id, hl7_payload, next_attempt_at)
-           VALUES ($1, 'ADT^A01', 'H4TEST1', 'MSH|^~\\&|VH|VH|||20260610||ADT^A01|H4TEST1|P|2.5', NOW())
+             (subscription_id, message_type, message_control_id, hl7_payload, status, next_attempt_at)
+           VALUES ($1, 'ADT^A01', 'H4TEST1', 'MSH|^~\\&|VH|VH|||20260610||ADT^A01|H4TEST1|P|2.5', 'queued', NOW() - INTERVAL '1 second')
            RETURNING id`,
           subId,
         );
         const msgId = msgRows[0].id;
 
-        const stats = await deliverPendingFeedMessages({ limit: 50 });
-        expect(stats.sent).toBe(0);
-
-        const after = await prisma.$queryRawUnsafe(
-          `SELECT status, last_error FROM hl7_outbound_messages WHERE id = $1`, msgId,
-        );
+        // Run the delivery pass until THIS message is processed (its last_error is
+        // recorded). A single pass can intermittently pick up nothing on a busy
+        // shared CI DB; re-calling is safe (the row stays queued + due until
+        // processed) and makes the assertion deterministic instead of racing one
+        // pass. Condition-based wait (superpowers:systematic-debugging).
+        let after;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          await deliverPendingFeedMessages({ limit: 50 });
+          after = await prisma.$queryRawUnsafe(
+            `SELECT status, last_error FROM hl7_outbound_messages WHERE id = $1`, msgId,
+          );
+          if (after[0].last_error) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
         expect(after[0].status).not.toBe('sent');
         expect(String(after[0].last_error)).toContain('SSRF_BLOCKED');
         expect(hits).toBe(0); // the local server was never contacted

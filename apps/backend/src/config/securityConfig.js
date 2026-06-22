@@ -36,6 +36,14 @@ export const SECURITY_CONFIG = {
     resendCooldownMinutes: parseInt(process.env.OTP_RESEND_COOLDOWN || '1'),
   },
 
+  // Login 2FA (TOTP) challenge settings.
+  mfa: {
+    // Per-challenge verify cap (M3). A single totp_challenges token may be tried
+    // at most this many times before it is burned and the admin must re-login —
+    // bounds brute-force of the 6-digit TOTP within the challenge's expiry window.
+    challengeMaxAttempts: parseInt(process.env.MFA_CHALLENGE_MAX_ATTEMPTS || '5'),
+  },
+
   // JWT settings — role-specific expiry for principle of least privilege.
   // Audit finding L1 (2026-06-10): patient access tokens defaulted to 7d and
   // staff to 8h — a stolen token outlived any shift. Access tokens are now

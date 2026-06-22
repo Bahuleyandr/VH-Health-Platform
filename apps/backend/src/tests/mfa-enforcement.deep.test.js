@@ -324,6 +324,57 @@ d('MFA enforcement for SUPER_ADMIN — deep integration', () => {
   });
 
   // ---------------------------------------------------------------------
+  // M3 (audit 2026-06-22): the login 2FA challenge must cap verify attempts
+  //    per challenge and burn the token at the cap — a failed verify previously
+  //    left the token usable for unlimited code guesses within its window.
+  // ---------------------------------------------------------------------
+  it('caps the login 2FA challenge at challengeMaxAttempts and burns the token (M3)', async () => {
+    // Isolate the APPLICATION attempt-cap from the auth rate limiter (failed
+    // verifies count against it); restore after.
+    const prevRl = process.env.RATE_LIMIT_DISABLED;
+    process.env.RATE_LIMIT_DISABLED = 'true';
+    try {
+      // USERNAME_SUPER_WITH_TOTP is seeded totp_enabled, so a fresh login issues
+      // a challenge token. We send wrong codes (a non-matching "backup code") so
+      // every verify deterministically fails.
+      const login = await request(app)
+        .post('/api/v1/auth/admin/login')
+        .set('x-api-key', API_KEY)
+        .send({ username: USERNAME_SUPER_WITH_TOTP, password: PASSWORD });
+      const challengeToken = (login.body?.data ?? login.body).challengeToken;
+      expect(challengeToken).toEqual(expect.any(String));
+
+      const cap = 5; // SECURITY_CONFIG.mfa.challengeMaxAttempts default
+      for (let i = 0; i < cap; i++) {
+        const r = await request(app)
+          .post('/api/v1/auth/admin/mfa/challenge/verify')
+          .set('x-api-key', API_KEY)
+          .send({ challengeToken, code: 'NOT-A-REAL-BACKUP-CODE', useBackupCode: true });
+        expect(r.statusCode).toBe(401);
+        expect(`${r.body?.error ?? r.body?.message ?? ''}`).toMatch(/invalid mfa code/i);
+      }
+
+      // Cap reached → the token is burned and rejected with a distinct message.
+      const capped = await request(app)
+        .post('/api/v1/auth/admin/mfa/challenge/verify')
+        .set('x-api-key', API_KEY)
+        .send({ challengeToken, code: 'NOT-A-REAL-BACKUP-CODE', useBackupCode: true });
+      expect(capped.statusCode).toBe(401);
+      expect(`${capped.body?.error ?? capped.body?.message ?? ''}`).toMatch(/too many attempts/i);
+
+      // The challenge row is gone — it can never be replayed, even with a valid code.
+      const remaining = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS c FROM totp_challenges WHERE challenge_token = $1`,
+        challengeToken,
+      );
+      expect(remaining[0].c).toBe(0);
+    } finally {
+      if (prevRl === undefined) delete process.env.RATE_LIMIT_DISABLED;
+      else process.env.RATE_LIMIT_DISABLED = prevRl;
+    }
+  });
+
+  // ---------------------------------------------------------------------
   // 8. Wiring: requireSuperAdminStepUp is mounted on the sensitive admin
   //    control planes — a SUPER_ADMIN token WITHOUT a 2FA session is blocked
   //    there (403 SUPER_ADMIN_MFA_REQUIRED), while a normal ADMIN is not.
