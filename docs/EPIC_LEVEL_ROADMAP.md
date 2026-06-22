@@ -17,6 +17,31 @@ domains, 100+ staff screens, and a 99-module governed AI substrate. The gaps
 are depth, closure of loops, operational trust, and taking the AI from
 `enabled=false` to measured production use.
 
+> **Status reconciliation (2026-06-22).** Authored 2026-06-09; the per-item
+> "State / Today" columns below are now **partly stale** — much of the Phase 0–1
+> work listed as *Missing / To-do* has since shipped. Verified delivered against
+> the repo + [`ROADMAP_EXECUTION_LOG.md`](ROADMAP_EXECUTION_LOG.md): BCMA
+> closed-loop, lab ASTM/analyzer interfaces, PACS (Orthanc) + OHIF + DICOM MWL
+> manifests, transfusion safety, oncology/chemo, problem list, terminology
+> service, real drug-KB engine, formal med-rec, downtime packs, k6 load profiles,
+> canonical doctor resolver, the **E1 staff CPOE composer** (`0a2341cc`), **E2
+> staff i18n** (`6d6c6a1f`), the **F1/F2 analytics warehouse + dbt marts**
+> (`9eb448d8`, `dbt build 52/52`), and the **G3 per-module AI outcome scoreboard**
+> (`54084db6`). The S-tier (WS0–WS8) and multi-tenancy programs are code-complete;
+> GitHub CI (Backend + Smoke E2E + Canonical) is green on main `502fc033`.
+>
+> **What genuinely remains is tracked in the active successor docs, not here:**
+> - **Operator go-live execution** → [`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIVATION_CHECKLIST.md): seal the non-superuser/NOBYPASSRLS DB role + flip RLS enforcement live (confirm `/health/metrics tenant_rls.ok=true`), Kyverno Audit→Enforce, timed DR restore drill, monitoring activation, secret rotation ([`SECURITY_HARDENING_CHECKLIST.md`](SECURITY_HARDENING_CHECKLIST.md)), first R2-backup verify, downtime LAN-mirror volume.
+> - **External engagements** → ABDM M1/M2/M3 certification ([`ABDM_READINESS.md`](ABDM_READINESS.md)), external pen test ([`PENTEST_READINESS.md`](PENTEST_READINESS.md)), NABH / DPDP / CERT-In ([`india-deployment-readiness.md`](india-deployment-readiness.md) — the one concrete *platform* gap there is CERT-In **180-day** log retention vs the current ~30-day Loki).
+> - **Procurement** → GPU node (deep-tier AI), commercial drug-KB license, label/barcode printers + analyzer drivers, eSign provider.
+> - **Deferred-by-design code** → FHIR R4 **write** endpoints (C3, only read/export today), provider credentialing & privileging (D3), NABH indicator-pack exporter (D4), the ~21 unbuilt single-module AI wrappers ([`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md)), plus minor hardening (M-5 `text/*` upload allowlist, ADM-2 admin CSP `unsafe-eval`).
+> - **AI productionization (Pillar G)** → all 99 modules still ship `enabled=false`; flipping them on is gated behind the GPU + stage-1 ward pilot + outcome-scoreboard sequence.
+>
+> Treat this file as a **living vision doc**, not a punch-list. The Phase 2–3
+> strategic items below (live HL7 interface engine, credentialing, NABH pack,
+> warehouse-backed exec dashboards, patient-facing multilingual AI) remain the
+> genuine long-horizon roadmap.
+
 ---
 
 ## 1. Honest position today
