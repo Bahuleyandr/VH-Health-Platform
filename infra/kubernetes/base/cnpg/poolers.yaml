@@ -39,12 +39,20 @@ spec:
   pgbouncer:
     poolMode: session
     parameters:
-      default_pool_size: "100"
+      # Audit 2026-06-22: max_db_connections is the HARD cap on server
+      # connections PER pooler instance. At 150 * instances(2) = 300 it could
+      # exceed the cluster's max_connections=200 and cause "too many connections"
+      # 503s on the primary under load. Sized so instances(2) * 80 = 160 < 200,
+      # leaving ~40 headroom for replication + superuser_reserved + direct
+      # connections (boot migrations, canary CronJob, admin portal). The app's
+      # real demand is ~60-80 concurrent server conns, so 160 is ample.
+      # default_pool_size <= max_db_connections for coherence.
+      default_pool_size: "70"
       min_pool_size: "10"
-      reserve_pool_size: "20"
+      reserve_pool_size: "10"
       reserve_pool_timeout: "3"
       max_client_conn: "500"
-      max_db_connections: "150"
+      max_db_connections: "80"
       server_idle_timeout: "120"
       server_lifetime: "3600"
       query_wait_timeout: "30"
