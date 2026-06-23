@@ -18,6 +18,7 @@ import { istDateString } from '../../utils/dateUtils.js';
 import {
   postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
+  postRefundApproveEntry, postRefundPaidEntry,
 } from './ledger/ledgerPostings.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -728,7 +729,8 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
   // surfaces an alert at issuance. recomputeInvoiceTotals only fires
   // on item / discount mutations.
   const meta = await prisma.$queryRawUnsafe(
-    `SELECT admission_id, patient_uid, tenant_id, total_amount
+    `SELECT admission_id, patient_uid, tenant_id, total_amount,
+            (COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(igst_amount,0)) AS tax_amount
        FROM billing_invoices WHERE id = $1::int`,
     Number(invoiceId),
   );
@@ -755,7 +757,7 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
   if (meta.length && meta[0].patient_uid) {
     try {
       await postInvoiceIssueEntry({
-        invoice: { id: invoiceId, patient_uid: meta[0].patient_uid, total_amount: meta[0].total_amount },
+        invoice: { id: invoiceId, patient_uid: meta[0].patient_uid, total_amount: meta[0].total_amount, tax_amount: meta[0].tax_amount },
         tenantId: meta[0].tenant_id,
       });
     } catch (ledgerErr) {
@@ -1558,7 +1560,15 @@ export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
     ...params,
   );
   if (!rows.length) throw AppError.notFound('Refund not found or not pending');
-  return rows[0];
+  const refund = rows[0];
+  // Ledger (Phase 3b): post-commit best-effort REFUND_APPROVE (credit
+  // REFUNDS_PAYABLE / debit PATIENT_AR|PATIENT_ADVANCE). Non-blocking.
+  try {
+    await postRefundApproveEntry({ refund, tenantId: requireTenantId(tenantId) });
+  } catch (ledgerErr) {
+    logger.error('Ledger REFUND_APPROVE post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+  }
+  return refund;
 }
 
 export async function rejectRefund(refundId, { rejected_by, rejection_reason, tenantId } = {}) {
@@ -1582,7 +1592,7 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
 }
 
 export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
-  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+  const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
     // double "mark paid" affects zero rows on the second call (already PAID),
     // so the ledger-reducing writes below run exactly once.
@@ -1648,6 +1658,14 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
     }
     return refund;
   });
+  // Ledger (Phase 3b): post-commit best-effort REFUND_PAID (debit
+  // REFUNDS_PAYABLE / credit CASH|BANK). Non-blocking.
+  try {
+    await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId) });
+  } catch (ledgerErr) {
+    logger.error('Ledger REFUND_PAID post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+  }
+  return refund;
 }
 
 export async function listRefunds({ tenantId, approval_status, patient_uid } = {}) {
