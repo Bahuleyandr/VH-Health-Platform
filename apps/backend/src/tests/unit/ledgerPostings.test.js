@@ -79,3 +79,52 @@ describe('postPaymentEntry', () => {
     expect(postLedgerEntry).not.toHaveBeenCalled();
   });
 });
+
+describe('postAdvanceCollectEntry', () => {
+  it('posts debit CASH / credit PATIENT_ADVANCE for a cash advance', async () => {
+    const { postAdvanceCollectEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    await postAdvanceCollectEntry({ advance: { id: 3, patient_uid: PATIENT, amount: '1000.00', mode: 'CASH' }, tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('ADVANCE_COLLECT');
+    expect(arg.idempotencyKey).toBe('advance-3');
+    expect(arg.lines).toEqual(expect.arrayContaining([
+      { accountCode: 'CASH', amountPaise: 100000 },
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: -100000, advance_id: 3, patient_uid: PATIENT },
+    ]));
+  });
+});
+
+describe('postAdvanceSettleEntry', () => {
+  it('posts debit PATIENT_ADVANCE / credit PATIENT_AR', async () => {
+    const { postAdvanceSettleEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    await postAdvanceSettleEntry({ settlement: { id: 8, advance_id: 3, invoice_id: 42, amount: '400.00' }, patientUid: PATIENT, tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('ADVANCE_SETTLE');
+    expect(arg.idempotencyKey).toBe('advance-settle-8');
+    expect(arg.lines).toEqual(expect.arrayContaining([
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: 40000, advance_id: 3, patient_uid: PATIENT },
+      { accountCode: 'PATIENT_AR', amountPaise: -40000, patient_uid: PATIENT, invoice_id: 42 },
+    ]));
+  });
+});
+
+describe('postPaymentReversalEntry', () => {
+  it('posts credit CASH / debit PATIENT_AR for a reversed cash payment', async () => {
+    const { postPaymentReversalEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    await postPaymentReversalEntry({ payment: { id: 9, patient_uid: PATIENT, invoice_id: 42, amount: '400.00', mode: 'CASH' }, tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('PAYMENT_REVERSAL');
+    expect(arg.idempotencyKey).toBe('payment-reversal-9');
+    expect(arg.lines).toEqual(expect.arrayContaining([
+      { accountCode: 'CASH', amountPaise: -40000 },
+      { accountCode: 'PATIENT_AR', amountPaise: 40000, patient_uid: PATIENT, invoice_id: 42 },
+    ]));
+  });
+
+  it('skips reversal for an INSURANCE payment (its original was never posted)', async () => {
+    const { postPaymentReversalEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    const before = postLedgerEntry.mock.calls.length;
+    await postPaymentReversalEntry({ payment: { id: 10, patient_uid: PATIENT, invoice_id: 42, amount: '400.00', mode: 'INSURANCE' }, tenantId: TENANT });
+    expect(postLedgerEntry.mock.calls.length).toBe(before);
+  });
+});
