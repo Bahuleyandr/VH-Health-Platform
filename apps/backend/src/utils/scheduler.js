@@ -198,6 +198,7 @@ import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChai
 // Fans out per-tenant (audit §3): the bare runRevenueCycleSweep({}) collapsed to
 // the default tenant only, so every other tenant's queue went untracked.
 import { runRevenueCycleSweepAllTenants } from '../services/billing/revenueCycleTrackerService.js';
+import { reconcileLedger } from '../services/billing/ledger/ledgerReconciliation.js';
 
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
 import { dispatchPendingDeliveries, reapStaleInFlightDeliveries } from '../services/integrations/webhookDeliveryService.js';
@@ -464,6 +465,26 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('15 * * * *', withJobLock('idempotency-keys-sweep', async () => {
     const { expired } = await expireOldIdempotencyKeys();
     if (expired) logger.info(`Scheduled Task: expired ${expired} idempotency keys`);
+  }));
+
+  // 🗓️ Every 30 min - ledger reconciliation (T2 money-ledger Phase 2b). Per
+  // active tenant, assert ledger AR == legacy amount_due + trial balance == 0.
+  // During the strangler this is informational (logs/metrics drift); it becomes
+  // a hard alert when the ledger is flipped authoritative (Phase 4). withJobLock
+  // already runs the fn under runWithSuperAdmin, so the tenant enumeration reads
+  // cross-tenant and reconcileLedger() re-scopes per tenant via setTenantTx.
+  registerCron('*/30 * * * *', withJobLock('ledger-reconciliation', async () => {
+    const tenants = await prisma.$queryRawUnsafe('SELECT id FROM tenants');
+    let drift = 0;
+    for (const t of tenants) {
+      try {
+        const r = await reconcileLedger(String(t.id));
+        drift += r.mismatches.length + r.unwired.length + (r.trialBalancePaise !== 0 ? 1 : 0);
+      } catch (err) {
+        logger.error('ledger-reconciliation tenant failed', { tenantId: String(t.id), error: err.message });
+      }
+    }
+    logger.info('ledger-reconciliation sweep complete', { tenants: tenants.length, driftSignals: drift });
   }));
 
   // 🗓️ Daily at 00:00 - Swagger validation
