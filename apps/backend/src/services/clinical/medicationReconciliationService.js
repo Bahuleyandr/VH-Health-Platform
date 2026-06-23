@@ -371,11 +371,15 @@ export async function gatherMedicationSources(patientUid, { tenantId = null } = 
       ...patientParams,
     ),
     prisma.$queryRawUnsafe(
+      // M7 (audit 2026-06-22): include 'administered'. A currently-running med
+      // (already given, with no future scheduled dose in the window) was excluded,
+      // so med-rec read it as an omission / missed dose. Reconciliation must
+      // reflect what the patient is actually ON — which includes administered doses.
       `SELECT DISTINCT ON (lower(medication_name)) id, medication_name, dose, route
          FROM medication_administrations
         WHERE patient_uid = $1::uuid
           ${marTenantFilter}
-          AND status IN ('scheduled', 'held')
+          AND status IN ('scheduled', 'held', 'administered')
           AND scheduled_time >= NOW() - INTERVAL '7 days'
         ORDER BY lower(medication_name), scheduled_time DESC`,
       ...patientParams,
