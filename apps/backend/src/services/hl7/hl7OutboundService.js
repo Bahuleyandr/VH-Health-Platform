@@ -13,7 +13,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
-import { assertSafeFeedUrl } from '../../utils/ssrfGuard.js';
+import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
 
@@ -249,7 +249,10 @@ async function deliverOne(message, subscription) {
     const headers = { 'Content-Type': 'x-application/hl7-v2+er7' };
     const authHeader = decryptOptionalSecret(subscription.auth_header);
     if (authHeader) headers.Authorization = authHeader;
-    const response = await fetch(subscription.endpoint_url, {
+    // safeFetch (M17): re-validates AND pins the socket to the validated IPs so
+    // a DNS-rebind host cannot pass assertSafeFeedUrl above on a public IP then
+    // re-resolve to an internal one at connect time.
+    const response = await safeFetch(subscription.endpoint_url, {
       method: 'POST',
       headers,
       body: message.hl7_payload,

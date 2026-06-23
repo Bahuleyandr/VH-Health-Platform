@@ -21,6 +21,7 @@
 
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { Agent } from 'undici';
 import { AppError } from './AppError.js';
 
 function ipv4ToInt(ip) {
@@ -100,12 +101,17 @@ function privateTargetsAllowedForTests(envName = 'HL7_FEED_ALLOW_PRIVATE_TARGETS
 }
 
 /**
- * Validates an outbound feed URL. Throws AppError (400-class, code
- * SSRF_BLOCKED) when the URL is unsafe; resolves with the parsed URL
- * otherwise. MUST be called both at subscription-create AND immediately
- * before every delivery fetch (DNS-rebinding defence).
+ * Validate an outbound URL AND return the exact set of public addresses it
+ * resolved to, so the *connection* can be pinned to that same resolution
+ * (closing the DNS-rebinding TOCTOU — audit M17). Throws AppError (400-class,
+ * code SSRF_BLOCKED) when the URL is unsafe.
+ *
+ * @returns {Promise<{ url: URL, addresses: Array<{address:string, family:number}> }>}
+ *   `addresses` is the validated, pinnable resolution. It is EMPTY when there
+ *   is nothing to pin — an IP-literal host (the connection already targets a
+ *   verified literal, no DNS in the loop) or the test-only private hatch.
  */
-export async function assertSafeOutboundUrl(rawUrl, {
+export async function resolveSafeOutboundTarget(rawUrl, {
   label = 'endpoint_url',
   allowlistEnv = 'HL7_FEED_HOST_ALLOWLIST',
   allowPrivateEnv = 'HL7_FEED_ALLOW_PRIVATE_TARGETS',
@@ -134,10 +140,11 @@ export async function assertSafeOutboundUrl(rawUrl, {
   }
 
   if (privateTargetsAllowedForTests(allowPrivateEnv)) {
-    return url; // test-only; impossible in production (see above)
+    return { url, addresses: [] }; // test-only; impossible in production (see above)
   }
 
-  // IP-literal host: check directly, no DNS involved.
+  // IP-literal host: check directly, no DNS involved. Nothing to pin — the
+  // connection will dial the literal we just verified.
   if (net.isIP(hostname)) {
     if (isBlockedAddress(hostname)) {
       throw AppError.badRequest(
@@ -145,7 +152,7 @@ export async function assertSafeOutboundUrl(rawUrl, {
         'SSRF_BLOCKED',
       );
     }
-    return url;
+    return { url, addresses: [] };
   }
 
   // DNS name: resolve and require EVERY address to be publicly routable.
@@ -165,6 +172,23 @@ export async function assertSafeOutboundUrl(rawUrl, {
       'SSRF_BLOCKED',
     );
   }
+  // Return the validated addresses so the caller can pin the socket to them.
+  return { url, addresses: records.map((r) => ({ address: r.address, family: r.family })) };
+}
+
+/**
+ * Validates an outbound feed URL. Throws AppError (400-class, code
+ * SSRF_BLOCKED) when the URL is unsafe; resolves with the parsed URL
+ * otherwise. MUST be called both at subscription-create AND immediately
+ * before every delivery fetch (DNS-rebinding defence).
+ *
+ * NOTE: validate-only. It does NOT pin the connection, so a caller that
+ * validates with this and then `fetch()`es by hostname still has a (small)
+ * DNS-rebind window between the two independent resolutions. For the actual
+ * delivery fetch use {@link safeFetch}, which validates AND pins atomically.
+ */
+export async function assertSafeOutboundUrl(rawUrl, opts = {}) {
+  const { url } = await resolveSafeOutboundTarget(rawUrl, opts);
   return url;
 }
 
@@ -172,4 +196,85 @@ export function assertSafeFeedUrl(rawUrl) {
   return assertSafeOutboundUrl(rawUrl);
 }
 
-export default { isBlockedAddress, assertSafeFeedUrl, assertSafeOutboundUrl };
+/**
+ * Build a `dns.lookup`-compatible function that resolves EVERY hostname to the
+ * supplied pre-validated addresses and nothing else. Handed to an undici
+ * connector so the TCP connection cannot re-resolve to an address the SSRF
+ * guard never saw. Re-asserts each pinned address is still routable (defensive;
+ * they were validated moments ago) and fails closed otherwise.
+ */
+export function makePinnedLookup(addresses) {
+  const safe = (addresses || []).filter((a) => a && !isBlockedAddress(a.address));
+  return (hostname, options, callback) => {
+    // `options`/`callback` follow node's dns.lookup contract; undici may call
+    // with (hostname, options, cb) and reads options.all.
+    if (!safe.length) {
+      const err = Object.assign(
+        new Error('SSRF_BLOCKED: no safe pinned address for outbound connection'),
+        { code: 'SSRF_BLOCKED' },
+      );
+      callback(err);
+      return;
+    }
+    if (options && options.all) {
+      callback(null, safe.map((a) => ({ address: a.address, family: a.family })));
+    } else {
+      callback(null, safe[0].address, safe[0].family);
+    }
+  };
+}
+
+/**
+ * An undici dispatcher whose socket layer is pinned to `addresses`. Use as the
+ * `dispatcher` of a single `fetch()`; close it (graceful) once the response is
+ * in flight so the socket frees after the body completes.
+ */
+export function buildPinnedDispatcher(addresses) {
+  return new Agent({ connect: { lookup: makePinnedLookup(addresses) } });
+}
+
+/**
+ * The ONE outbound fetch for every user/operator-supplied URL (HL7 feeds,
+ * webhooks, ABDM data-push). It validates the URL AND pins the TCP connection
+ * to the addresses that validation resolved — so a DNS-rebinding host cannot
+ * pass the check on a public IP and then have `fetch()` re-resolve to an
+ * internal one (audit M17 TOCTOU). TLS SNI / cert validation and the Host
+ * header still use the original hostname, so HTTPS is unaffected.
+ *
+ * Throws AppError SSRF_BLOCKED for an unsafe URL (same contract as
+ * assertSafeOutboundUrl); otherwise returns the `fetch` Response.
+ *
+ * @param {string} rawUrl
+ * @param {RequestInit} [fetchOptions] passed through to `fetch` (method, headers, body, signal…)
+ * @param {object} [guardOptions] { label, allowlistEnv, allowPrivateEnv }
+ */
+export async function safeFetch(rawUrl, fetchOptions = {}, guardOptions = {}) {
+  const { url, addresses } = await resolveSafeOutboundTarget(rawUrl, guardOptions);
+  if (!addresses.length) {
+    // IP-literal host (already a verified literal) or the test-private hatch —
+    // no DNS in the loop, nothing to rebind; a plain fetch is safe.
+    return fetch(url, fetchOptions);
+  }
+  const agent = buildPinnedDispatcher(addresses);
+  try {
+    const response = await fetch(url, { ...fetchOptions, dispatcher: agent });
+    // Graceful close waits for the in-flight request (incl. the streaming body)
+    // to finish before tearing the socket down, then frees it — no leak, no
+    // truncated body. Fire-and-forget so we don't block returning the response.
+    agent.close().catch(() => agent.destroy().catch(() => {}));
+    return response;
+  } catch (err) {
+    agent.close().catch(() => agent.destroy().catch(() => {}));
+    throw err;
+  }
+}
+
+export default {
+  isBlockedAddress,
+  assertSafeFeedUrl,
+  assertSafeOutboundUrl,
+  resolveSafeOutboundTarget,
+  makePinnedLookup,
+  buildPinnedDispatcher,
+  safeFetch,
+};
