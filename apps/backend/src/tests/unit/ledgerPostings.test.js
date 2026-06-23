@@ -82,9 +82,21 @@ describe('postPaymentEntry', () => {
     ]));
   });
 
-  it('skips (no post) for an INSURANCE payment (Phase 3)', async () => {
-    await postPaymentEntry({ payment: { id: 10, patient_uid: PATIENT, invoice_id: 42, amount: '400.00', mode: 'INSURANCE' }, tenantId: TENANT });
-    expect(postLedgerEntry).not.toHaveBeenCalled();
+  it('INSURANCE payment posts debit BANK / credit INSURANCE_AR (not PATIENT_AR)', async () => {
+    await postPaymentEntry({ payment: { id: 12, patient_uid: PATIENT, invoice_id: 42, amount: '800.00', mode: 'INSURANCE' }, tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('INSURANCE_SETTLE');
+    expect(arg.idempotencyKey).toBe('payment-12');
+    expect(arg.lines).toEqual([
+      { accountCode: 'BANK', amountPaise: 80000 },
+      { accountCode: 'INSURANCE_AR', amountPaise: -80000, invoice_id: 42 },
+    ]);
+  });
+
+  it('INSURANCE payment with no invoice is skipped (needs the invoice dimension)', async () => {
+    const before = postLedgerEntry.mock.calls.length;
+    await postPaymentEntry({ payment: { id: 13, patient_uid: PATIENT, invoice_id: null, amount: '800.00', mode: 'INSURANCE' }, tenantId: TENANT });
+    expect(postLedgerEntry.mock.calls.length).toBe(before);
   });
 
   it('skips a reversed payment', async () => {
@@ -176,5 +188,26 @@ describe('postRefundPaidEntry', () => {
       { accountCode: 'REFUNDS_PAYABLE', amountPaise: 40000, patient_uid: PATIENT },
       { accountCode: 'CASH', amountPaise: -40000 },
     ]));
+  });
+});
+
+describe('postInsuranceShiftEntry', () => {
+  it('debit INSURANCE_AR(invoice) / credit PATIENT_AR(patient,invoice) for the approved amount', async () => {
+    const { postInsuranceShiftEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    await postInsuranceShiftEntry({ claim: { id: 4, invoice_id: 42, patient_uid: PATIENT, approved_amount: '800.00' }, tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('INSURANCE_SHIFT');
+    expect(arg.idempotencyKey).toBe('claim-shift-4');
+    expect(arg.lines).toEqual([
+      { accountCode: 'INSURANCE_AR', amountPaise: 80000, invoice_id: 42 },
+      { accountCode: 'PATIENT_AR', amountPaise: -80000, patient_uid: PATIENT, invoice_id: 42 },
+    ]);
+  });
+  it('skips when approved_amount is 0 or invoice missing', async () => {
+    const { postInsuranceShiftEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    const before = postLedgerEntry.mock.calls.length;
+    await postInsuranceShiftEntry({ claim: { id: 5, invoice_id: 42, patient_uid: PATIENT, approved_amount: '0.00' }, tenantId: TENANT });
+    await postInsuranceShiftEntry({ claim: { id: 6, invoice_id: null, patient_uid: PATIENT, approved_amount: '800.00' }, tenantId: TENANT });
+    expect(postLedgerEntry.mock.calls.length).toBe(before);
   });
 });
