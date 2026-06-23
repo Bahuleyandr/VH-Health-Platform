@@ -27,7 +27,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField } from '../../utils/fieldEncryption.js';
-import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
+import { assertSafeOutboundUrl, safeFetch } from '../../utils/ssrfGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { writeIntegrationLog } from './integrationService.js';
 import {
@@ -177,7 +177,15 @@ export async function dispatchPendingDeliveries({
   fetchImpl = null,
 } = {}) {
   const cap = Math.min(Math.max(Number.parseInt(batchSize, 10) || DEFAULT_BATCH, 1), MAX_BATCH);
-  const fetcher = fetchImpl || globalThis.fetch;
+  // M17: default to the SSRF-pinned fetch so the actual delivery connection is
+  // pinned to the validated IPs (closes the DNS-rebind TOCTOU). Tests still
+  // inject fetchImpl. The assertSafeOutboundUrl preflight below stays for the
+  // early structured "preflight failed" path.
+  const fetcher = fetchImpl || ((u, o) => safeFetch(u, o, {
+    label: 'endpoint_url',
+    allowlistEnv: 'WEBHOOK_DELIVERY_HOST_ALLOWLIST',
+    allowPrivateEnv: 'WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS',
+  }));
 
   let claimed;
   const claimSql = tenantId

@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
+import { assertSafeOutboundUrl, safeFetch } from '../../utils/ssrfGuard.js';
 
 // Token cache
 let cachedToken = null;
@@ -207,11 +207,18 @@ async function sendHealthData(transactionId, entries, senderKeyMaterial, { dataP
         allowlistEnv: 'ABDM_DATA_PUSH_HOST_ALLOWLIST',
         allowPrivateEnv: 'ABDM_DATA_PUSH_ALLOW_PRIVATE_TARGETS',
       });
-      response = await fetch(dataPushUrl, {
+      // safeFetch (M17): pin the HIU data-push connection to the validated IPs —
+      // PHI egress must not be redirectable by a DNS-rebind between check and
+      // connect.
+      response = await safeFetch(dataPushUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30000),
+      }, {
+        label: 'dataPushUrl',
+        allowlistEnv: 'ABDM_DATA_PUSH_HOST_ALLOWLIST',
+        allowPrivateEnv: 'ABDM_DATA_PUSH_ALLOW_PRIVATE_TARGETS',
       });
     } catch (err) {
       logger.error('ABDM data push to HIU endpoint failed (network)', {
