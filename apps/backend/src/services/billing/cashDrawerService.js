@@ -131,6 +131,27 @@ export async function closeSession({
   }
 
   const countedTotal = sumDenominations(counted_denominations);
+  // Reconciliation window — system_total = every non-reversed CASH payment by
+  // this cashier, this shift, collected at/after the session opened. The lower
+  // bound has NO matching upper bound by design, and that is SOUND (not the
+  // "cross-session double-count" that audit M5 conjectured — verified a false
+  // positive 2026-06-23). The soundness is load-bearing on two invariants:
+  //   1. `uq_cash_drawer_sessions_open` UNIQUE (tenant_id, cashier_uid, shift)
+  //      WHERE status='open' (migration 198) ⇒ at most ONE open session per
+  //      (cashier, shift), so two sessions that could both match a payment are
+  //      strictly SEQUENTIAL — the earlier must close before the later opens.
+  //   2. `billing_payments.collected_at` is insert-time CURRENT_TIMESTAMP
+  //      (collectPaymentTx never sets it) ⇒ a later same-(cashier,shift)
+  //      session's payments have collected_at > the earlier session's close
+  //      time, so they did not exist at the earlier (one-and-only) close; and
+  //      the earlier session's payments are < the later opened_at, excluded
+  //      here by `collected_at >= opened_at`. Hence no payment is summed twice.
+  // If you ever relax invariant 1 (e.g. shared multi-cashier drawers) you MUST
+  // add explicit per-payment session membership (a cash_drawer_session_id stamp)
+  // before trusting this window. Caveat: a CASH payment with NULL collected_by
+  // or NULL shift matches no session and is invisible here (an under-count, the
+  // separate residual the M5 verifiers flagged) — collectPayment requires shift
+  // for CASH; a collected_by audit query can surface any legacy orphans.
   const [systemRow] = await prisma.$queryRawUnsafe(
     `SELECT COALESCE(SUM(CASE WHEN reversed THEN 0 ELSE amount END), 0)::numeric AS system_total
        FROM billing_payments

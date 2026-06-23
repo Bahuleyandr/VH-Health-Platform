@@ -72,7 +72,7 @@ The backend is genuinely strong: the prior-audit remediations (full tenant RLS, 
 | M2 | auth | OTP legacy fallback uses non-constant-time `===` on the secret | `otpService.js:115-117`, `authService.js:537-539` |
 | M3 | auth | Login 2FA challenge has no per-challenge attempt counter; not consumed on failed verify | `controllers/auth/adminAuthController.js:597-668` |
 | M4 | money | `claimsService.recordClaimPayment/Decision` read-then-write without `FOR UPDATE` (distinct-ref last-writer-wins) | `services/insurance/claimsService.js:1872-2045` |
-| M5 | money | `cashDrawerService.closeSession` sums CASH with no upper time bound → cross-session double-count | `services/billing/cashDrawerService.js:106-194` |
+| ~~M5~~ | money | ~~`cashDrawerService.closeSession` sums CASH with no upper time bound → cross-session double-count~~ **FALSE POSITIVE** (verified 2026-06-23, 2 independent adversarial verifiers) — the double-count is unreachable: `uq_cash_drawer_sessions_open` (mig 198) caps open sessions at one per (cashier,shift) so same-key sessions are strictly sequential, and `collected_at` is insert-time `CURRENT_TIMESTAMP`, so an earlier session's payments are always `< opened_at` of any later same-key session and never counted twice. No code change beyond a load-bearing-invariant comment in closeSession. Separate residual (NOT M5): a CASH payment with NULL `collected_by`/`shift` is invisible to reconciliation (under-count) — minor, deferred. | `services/billing/cashDrawerService.js:106-194` |
 | M6 | clinical | Order state transitions (verify/complete/cancel/discontinue) TOCTOU — no status guard in UPDATE WHERE | `services/emr/orderEntryService.js:1066-1285` |
 | M7 | clinical | Med-rec snapshot excludes `administered` doses — running meds read as omissions or missed | `services/clinical/medicationReconciliationService.js:373-382` |
 | M8 | data/RLS | `registerDevice`/`claimUserSession` write FORCE-RLS tables with no explicit tenant_id (default-tenant mis-attribution post-cutover) | `controllers/deviceController.js`, `services/auth/userActiveSession.js` |
@@ -119,7 +119,7 @@ The backend is genuinely strong: the prior-audit remediations (full tenant RLS, 
 **Money — the biggest structural upgrade**
 - **O-money-1: retire V1 billing, consolidate on billingV2** (removes H2 + halves the money attack surface) `[L]`.
 - **Double-entry ledger as money source-of-truth** with DB-enforced invariants (postings net to balance, no negative advance) + integer minor-units (paise) to kill float rounding → overpayment/lost-update/negative classes impossible at the DB layer (Epic-grade) `[L]`.
-- Stamp `billing_payments` with `cash_drawer_session_id`; reconcile by session id (fixes M5 exactly) `[M]`.
+- Stamp `billing_payments` with `cash_drawer_session_id`; reconcile by session id `[M]`. **(NB: M5 itself was a false positive — see the Medium table. This stamp is still worthwhile defense-in-depth/future-proofing IF shared multi-cashier drawers are ever introduced, since that would relax the `uq_cash_drawer_sessions_open` invariant the current time-window reconciliation leans on. Not needed for today's single-cashier-per-(shift) model. Pair it with requiring `collected_by` for CASH to also close the NULL-collected_by under-count residual.)**
 - AI (governed, enabled=false): auto-match bank NEFT advice → claims; pre-submission denial/short-pay risk score from cap-utilization + missing-doc profile `[M]`.
 
 **Clinical safety**
