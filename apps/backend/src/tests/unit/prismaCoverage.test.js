@@ -316,6 +316,45 @@ describe('src/lib/prisma.js coverage completion', () => {
       await expect(prisma.$queryRawUnsafe('q')).rejects.toBe('plain string error');
       expect(mod.circuitBreakerStatus().consecutiveFailures).toBe(1);
     });
+
+    // M12 (audit 2026-06-22): the breaker state must be PER-CLIENT. Before the
+    // fix, consecutiveFailures/circuitOpen were module-global and shared by the
+    // primary AND read-replica clients, so a replica outage browned out primary
+    // queries (and vice versa). Infra failures are global per CLIENT, not
+    // global across clients — the meaningful fault boundary is primary vs
+    // replica.
+    it('opens ONLY the failing client breaker — a replica outage leaves primary available', async () => {
+      process.env.DATABASE_READ_URL = 'postgresql://test@replica/test';
+      const mod = await freshImport();
+      const primary = mod.default;
+      const replica = mod.prismaReadOnly;
+      expect(replica).not.toBe(primary);
+
+      const primaryStub = allStubs[0];
+      const replicaStub = allStubs[1];
+      primaryStub.$queryRawUnsafe = jest.fn(async () => [{ ok: 1 }]); // healthy
+      replicaStub.$queryRawUnsafe = jest.fn(() => Promise.reject(new Error('replica down')));
+
+      // Trip the replica breaker with 5 consecutive infra failures.
+      for (let i = 0; i < 5; i += 1) {
+        await expect(replica.$queryRawUnsafe('q')).rejects.toThrow('replica down');
+      }
+      // Replica now fails fast (breaker open) WITHOUT touching the client.
+      replicaStub.$queryRawUnsafe.mockClear();
+      await expect(replica.$queryRawUnsafe('q')).rejects.toThrow(/circuit breaker is open/i);
+      expect(replicaStub.$queryRawUnsafe).not.toHaveBeenCalled();
+
+      // PRIMARY breaker is untouched — primary queries still execute.
+      await expect(primary.$queryRawUnsafe('SELECT 1')).resolves.toEqual([{ ok: 1 }]);
+
+      // Status reports per-tag: aggregate open true; only readOnly is open.
+      const status = mod.circuitBreakerStatus();
+      expect(status.open).toBe(true); // back-compat aggregate = ANY open
+      expect(status.byTag.readOnly.open).toBe(true);
+      expect(status.byTag.primary.open).toBe(false);
+
+      delete process.env.DATABASE_READ_URL;
+    });
   });
 
   // ── Phase-2 auto-wrap: raw-SQL methods (maybeRunUnderTenant) ───────────
@@ -589,6 +628,8 @@ describe('src/lib/prisma.js coverage completion', () => {
         consecutiveFailures: 0,
         openedAt: null,
         resetInMs: 0,
+        // M12: per-client breakdown — empty until a client is exercised.
+        byTag: {},
       });
     });
   });

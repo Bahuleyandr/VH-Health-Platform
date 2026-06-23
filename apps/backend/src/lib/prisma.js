@@ -127,9 +127,25 @@ function isIgnoredBreakerError(err) {
   return typeof code === 'string' && BREAKER_IGNORED_PG_ERROR_CODES.has(code);
 }
 
-let consecutiveFailures = 0;
-let circuitOpen = false;
-let circuitOpenedAt = null;
+// M12 (audit 2026-06-22): circuit-breaker state is PER-CLIENT, keyed by the
+// client tag ('primary' / 'readOnly'). Before this, the three counters were
+// module-global and shared by BOTH the primary and the read-replica clients —
+// so a read-replica outage incremented the same budget that gates primary
+// queries and browned out the primary (and vice versa). Infra failures are
+// global per CLIENT, NOT across clients; the meaningful fault-isolation
+// boundary is primary vs replica. (Deliberately NOT per-tenant: the breaker
+// already excludes query-shape errors via isIgnoredBreakerError, so it only
+// ever counts true infrastructure failures, which are not tenant-specific.)
+const breakers = new Map();
+
+function getBreaker(tag) {
+  let b = breakers.get(tag);
+  if (!b) {
+    b = { consecutiveFailures: 0, circuitOpen: false, circuitOpenedAt: null };
+    breakers.set(tag, b);
+  }
+  return b;
+}
 
 /**
  * Append `?options=-c statement_timeout=<ms>` (URL-encoded) to a Postgres
@@ -220,13 +236,14 @@ async function maybeRunUnderTenant(baseClient, methodName, args) {
 /** Internal — wraps a Prisma raw-SQL method with circuit-breaker bookkeeping. */
 function wrapWithCircuitBreaker(fn, methodName, tag) {
   return async function wrapped(...args) {
-    if (circuitOpen) {
-      const elapsed = Date.now() - circuitOpenedAt;
+    const breaker = getBreaker(tag);
+    if (breaker.circuitOpen) {
+      const elapsed = Date.now() - breaker.circuitOpenedAt;
       if (elapsed < CIRCUIT_BREAKER_RESET_MS) {
         throw new Error('Database circuit breaker is open — service temporarily unavailable');
       }
       // Half-open: let one request through. Success → closes; failure → re-opens.
-      circuitOpen = false;
+      breaker.circuitOpen = false;
       logger.info(`Prisma[${tag}] circuit breaker half-open — testing connection`);
     }
     try {
@@ -234,11 +251,11 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
       // route the call through setTenant so RLS policies actually fire.
       const tenantWrapped = await maybeRunUnderTenant(this, methodName, args);
       if (tenantWrapped !== null) {
-        consecutiveFailures = 0;
+        breaker.consecutiveFailures = 0;
         return tenantWrapped;
       }
       const result = await fn.apply(this, args);
-      consecutiveFailures = 0;
+      breaker.consecutiveFailures = 0;
       return result;
     } catch (err) {
       // Known-bad-query errors (relation/schema not found, undefined column,
@@ -263,12 +280,12 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
         }
         throw err;
       }
-      consecutiveFailures += 1;
-      if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-        circuitOpen = true;
-        circuitOpenedAt = Date.now();
+      breaker.consecutiveFailures += 1;
+      if (breaker.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        breaker.circuitOpen = true;
+        breaker.circuitOpenedAt = Date.now();
         logger.error(
-          `Prisma[${tag}] circuit breaker OPEN after ${consecutiveFailures} consecutive failures`,
+          `Prisma[${tag}] circuit breaker OPEN after ${breaker.consecutiveFailures} consecutive failures`,
         );
       }
       throw err;
@@ -560,20 +577,50 @@ export async function setTenant(tenantId, fn, { superAdmin = false, readOnly = f
 
 /** Reset circuit-breaker state. Test-only. */
 export function __resetCircuitBreakerForTests() {
-  consecutiveFailures = 0;
-  circuitOpen = false;
-  circuitOpenedAt = null;
+  breakers.clear();
 }
 
-/** Current circuit-breaker status. Ops / health probes can read this. */
+/**
+ * Current circuit-breaker status. Ops / health probes can read this.
+ *
+ * Top-level fields are the AGGREGATE across all clients (back-compat: `open`
+ * = ANY client breaker open; `consecutiveFailures` = the worst client;
+ * `openedAt`/`resetInMs` = the longest-remaining open client). `byTag` exposes
+ * the per-client breakdown (primary vs readOnly) so /health/metrics and the
+ * self-healing middleware can see which client is degraded, not just "something
+ * is" — the observability half of M12.
+ */
 export function circuitBreakerStatus() {
+  const byTag = {};
+  let anyOpen = false;
+  let worstFailures = 0;
+  let earliestOpenedAt = null;
+  let maxResetInMs = 0;
+  for (const [tag, b] of breakers) {
+    const resetInMs = b.circuitOpen && b.circuitOpenedAt
+      ? Math.max(0, CIRCUIT_BREAKER_RESET_MS - (Date.now() - b.circuitOpenedAt))
+      : 0;
+    byTag[tag] = {
+      open: b.circuitOpen,
+      consecutiveFailures: b.consecutiveFailures,
+      openedAt: b.circuitOpenedAt,
+      resetInMs,
+    };
+    if (b.circuitOpen) {
+      anyOpen = true;
+      if (earliestOpenedAt === null || (b.circuitOpenedAt && b.circuitOpenedAt < earliestOpenedAt)) {
+        earliestOpenedAt = b.circuitOpenedAt;
+      }
+      if (resetInMs > maxResetInMs) maxResetInMs = resetInMs;
+    }
+    if (b.consecutiveFailures > worstFailures) worstFailures = b.consecutiveFailures;
+  }
   return {
-    open: circuitOpen,
-    consecutiveFailures,
-    openedAt: circuitOpenedAt,
-    resetInMs: circuitOpen && circuitOpenedAt
-      ? Math.max(0, CIRCUIT_BREAKER_RESET_MS - (Date.now() - circuitOpenedAt))
-      : 0,
+    open: anyOpen,
+    consecutiveFailures: worstFailures,
+    openedAt: earliestOpenedAt,
+    resetInMs: maxResetInMs,
+    byTag,
   };
 }
 
