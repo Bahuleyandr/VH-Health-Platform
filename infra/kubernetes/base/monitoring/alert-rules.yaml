@@ -165,3 +165,49 @@ spec:
           annotations:
             summary: "Harbor registry component down: {{ $labels.instance }}"
             description: "Image pulls/pushes may fail. Check {{ $labels.job }}."
+
+    # Audit 2026-06-22 (observability): the synthetic-outage signals were
+    # themselves unmonitored — if the canary CronJob or the CNPG backup-verify
+    # CronJob silently stops scheduling (controller wedged, namespace/RBAC
+    # defect, suspended) or starts failing, the very check that would surface a
+    # real outage / a bad backup goes dark with no alert. These watch the
+    # watchers via kube-state-metrics.
+    - name: synthetic-checks
+      interval: 1m
+      rules:
+        - alert: CanaryHealthCheckStale
+          # canary-health-check runs every 5m; >30m without a new schedule =
+          # the CronJob controller isn't firing it.
+          expr: time() - max(kube_cronjob_status_last_schedule_time{namespace="vhhealth", cronjob="canary-health-check"}) > 1800
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Canary health-check CronJob has not run in >30m"
+            description: "The synthetic DB read/write + stuck-notification + unacked-critical-alert check is not scheduling. The platform may be degraded with no signal. Check the canary-health-check CronJob in ns vhhealth."
+        - alert: CanaryHealthCheckFailing
+          expr: max(kube_job_status_failed{namespace="vhhealth", job_name=~"^canary-health-check.*"}) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Canary health-check job is failing"
+            description: "The most recent canary-health-check Job reported a failure — either the canary itself is broken or it is detecting a real fault. Inspect the Job logs in ns vhhealth."
+        - alert: CnpgBackupVerifyStale
+          # cnpg-backup-verify runs weekly (Sun 21:30); >8d without a schedule =
+          # the backup-restorability check is dark.
+          expr: time() - max(kube_cronjob_status_last_schedule_time{namespace="vhhealth-platform", cronjob="cnpg-backup-verify"}) > 691200
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "CNPG backup-verify CronJob has not run in >8 days"
+            description: "Backup restorability is no longer being verified — a 'WAL with no good base backup' failure could go undetected until a real restore. Check the cnpg-backup-verify CronJob in ns vhhealth-platform."
+        - alert: CnpgBackupVerifyFailing
+          expr: max(kube_job_status_failed{namespace="vhhealth-platform", job_name=~"^cnpg-backup-verify.*"}) > 0
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "CNPG backup-verify job is failing"
+            description: "The latest cnpg-backup-verify Job failed — the R2 base backup may be missing or unrestorable. Treat as a DR-readiness incident. Inspect the Job logs in ns vhhealth-platform."

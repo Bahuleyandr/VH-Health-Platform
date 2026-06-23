@@ -51,6 +51,9 @@ resources:
   # clinical-AI deep tier. Run this Job after model pull (see Job comments
   # for the full operator checklist).
   - deep-tier-preflight-job.yaml
+  # Audit 2026-06-22: PDB so the single-replica deep-AI SPOF isn't silently
+  # evicted on node drain / autoscale / reboot (see pdb.yaml rationale).
+  - pdb.yaml
   # Note: PVC lives on the StatefulSet's volumeClaimTemplates. An empty
   # pvc.yaml exists in this dir for overlays that want to patch storage
   # class / size separately, but it's NOT included in resources because

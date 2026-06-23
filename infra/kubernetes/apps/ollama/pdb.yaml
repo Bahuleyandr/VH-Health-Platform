@@ -1,0 +1,27 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ollama
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/component: deep-tier-llm
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  # Audit 2026-06-22 (infra observability): Ollama is the single-replica,
+  # GPU-pinned deep-AI tier — a PHI SPOF that previously had NO PDB, so any
+  # voluntary disruption (node drain, cluster-autoscaler, kured reboot) could
+  # silently evict it and black out the deep tier mid-inference.
+  #
+  # With replicas=1, minAvailable=1 means disruptionsAllowed=0: the eviction
+  # API will REFUSE to voluntarily evict the healthy pod, forcing node
+  # maintenance to consciously acknowledge taking the deep tier down (and
+  # schedule it) rather than killing it by accident. unhealthyPodEvictionPolicy:
+  # AlwaysAllow keeps a BROKEN pod evictable so it can still be rescheduled —
+  # avoids the classic single-replica PDB deadlock.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+  unhealthyPodEvictionPolicy: AlwaysAllow
