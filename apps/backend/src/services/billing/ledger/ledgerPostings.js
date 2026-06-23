@@ -40,13 +40,28 @@ export async function postInvoiceIssueEntry({ invoice, tenantId }) {
   }));
 }
 
-/** Post PAYMENT: debit CASH|BANK / credit PATIENT_AR. */
+/** Post PAYMENT: non-insurance → debit CASH|BANK / credit PATIENT_AR; INSURANCE → debit BANK / credit INSURANCE_AR. */
 export async function postPaymentEntry({ payment, tenantId }) {
   if (payment.reversed) return null;
-  const debit = paymentDebitAccount(payment.mode);
-  if (!debit) return null;              // INSURANCE etc. deferred
   const paise = toPaise(payment.amount);
   if (paise <= 0) return null;
+  const mode = String(payment.mode || '').toUpperCase();
+  if (mode === 'INSURANCE') {
+    // Insurer settlement. The receivable already moved PATIENT_AR -> INSURANCE_AR
+    // at claim approval (postInsuranceShiftEntry), so the payment clears
+    // INSURANCE_AR, NOT PATIENT_AR (avoids double-crediting AR).
+    if (payment.invoice_id == null) return null; // INSURANCE_AR is keyed by invoice
+    return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+      entryType: 'INSURANCE_SETTLE',
+      idempotencyKey: `payment-${payment.id}`,
+      lines: [
+        { accountCode: 'BANK', amountPaise: paise },
+        { accountCode: 'INSURANCE_AR', amountPaise: -paise, invoice_id: Number(payment.invoice_id) },
+      ],
+    }));
+  }
+  const debit = paymentDebitAccount(mode);
+  if (!debit) return null;
   const debitLine = { accountCode: debit, amountPaise: paise };
   if (debit === 'CASH' && payment.cash_drawer_session_id != null) {
     debitLine.cash_drawer_session_id = Number(payment.cash_drawer_session_id);
@@ -148,8 +163,23 @@ export async function postRefundPaidEntry({ refund, tenantId }) {
   }));
 }
 
+/** Post INSURANCE_SHIFT: on claim approval move the receivable PATIENT_AR -> INSURANCE_AR. */
+export async function postInsuranceShiftEntry({ claim, tenantId }) {
+  if (claim.invoice_id == null) return null;
+  const paise = claim.approved_amount != null ? toPaise(claim.approved_amount) : 0;
+  if (paise <= 0) return null;
+  return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+    entryType: 'INSURANCE_SHIFT',
+    idempotencyKey: `claim-shift-${claim.id}`,
+    lines: [
+      { accountCode: 'INSURANCE_AR', amountPaise: paise, invoice_id: Number(claim.invoice_id) },
+      { accountCode: 'PATIENT_AR', amountPaise: -paise, patient_uid: claim.patient_uid, invoice_id: Number(claim.invoice_id) },
+    ],
+  }));
+}
+
 export default {
   paymentDebitAccount, postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
-  postRefundApproveEntry, postRefundPaidEntry,
+  postRefundApproveEntry, postRefundPaidEntry, postInsuranceShiftEntry,
 };

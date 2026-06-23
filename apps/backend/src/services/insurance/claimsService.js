@@ -11,6 +11,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import { postInsuranceShiftEntry } from '../billing/ledger/ledgerPostings.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import logger from '../../logging/logger.js';
 
@@ -1974,7 +1975,24 @@ export async function recordClaimDecision({
     );
   });
 
-  return getClaim({ tenantId, id });
+  const updated = await getClaim({ tenantId, id });
+  // Ledger (Phase 3c): on insurer approval, shift the receivable
+  // PATIENT_AR -> INSURANCE_AR for the approved amount. Post-commit best-effort;
+  // a ledger problem never blocks the claim decision. Only meaningful when the
+  // claim is invoice-linked and the insurer committed an amount.
+  if ((decision === 'approved' || decision === 'partially_approved') && updated && updated.invoice_id) {
+    try {
+      await postInsuranceShiftEntry({
+        claim: {
+          id: updated.id, invoice_id: updated.invoice_id, patient_uid: updated.patient_uid, approved_amount: updated.approved_amount,
+        },
+        tenantId: requireTenantId(tenantId),
+      });
+    } catch (ledgerErr) {
+      logger.error('Ledger INSURANCE_SHIFT post failed (non-blocking)', { claim_id: updated.id, error: ledgerErr.message });
+    }
+  }
+  return updated;
 }
 
 export async function recordClaimPayment({
