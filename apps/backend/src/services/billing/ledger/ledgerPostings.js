@@ -60,4 +60,59 @@ export async function postPaymentEntry({ payment, tenantId }) {
   }));
 }
 
-export default { paymentDebitAccount, postInvoiceIssueEntry, postPaymentEntry };
+/** Post ADVANCE_COLLECT: debit CASH|BANK / credit PATIENT_ADVANCE. */
+export async function postAdvanceCollectEntry({ advance, tenantId }) {
+  const debit = paymentDebitAccount(advance.mode);
+  if (!debit) return null;              // INSURANCE-mode advance — skip
+  const paise = toPaise(advance.amount);
+  if (paise <= 0) return null;
+  return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+    entryType: 'ADVANCE_COLLECT',
+    idempotencyKey: `advance-${advance.id}`,
+    lines: [
+      { accountCode: debit, amountPaise: paise },
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: -paise, advance_id: Number(advance.id), patient_uid: advance.patient_uid },
+    ],
+  }));
+}
+
+/** Post ADVANCE_SETTLE: debit PATIENT_ADVANCE / credit PATIENT_AR. */
+export async function postAdvanceSettleEntry({ settlement, patientUid, tenantId }) {
+  const paise = toPaise(settlement.amount);
+  if (paise <= 0) return null;
+  return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+    entryType: 'ADVANCE_SETTLE',
+    idempotencyKey: `advance-settle-${settlement.id}`,
+    lines: [
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: paise, advance_id: Number(settlement.advance_id), patient_uid: patientUid },
+      { accountCode: 'PATIENT_AR', amountPaise: -paise, patient_uid: patientUid, invoice_id: Number(settlement.invoice_id) },
+    ],
+  }));
+}
+
+/** Post PAYMENT_REVERSAL: the inverse of the original payment — credit CASH|BANK / debit PATIENT_AR. */
+export async function postPaymentReversalEntry({ payment, tenantId }) {
+  const credit = paymentDebitAccount(payment.mode); // the account the original debited
+  if (!credit) return null;             // INSURANCE — original was never posted
+  const paise = toPaise(payment.amount);
+  if (paise <= 0) return null;
+  return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+    entryType: 'PAYMENT_REVERSAL',
+    idempotencyKey: `payment-reversal-${payment.id}`,
+    metadata: { payment_id: Number(payment.id) },
+    lines: [
+      { accountCode: credit, amountPaise: -paise },
+      {
+        accountCode: 'PATIENT_AR',
+        amountPaise: paise,
+        patient_uid: payment.patient_uid,
+        ...(payment.invoice_id != null ? { invoice_id: Number(payment.invoice_id) } : {}),
+      },
+    ],
+  }));
+}
+
+export default {
+  paymentDebitAccount, postInvoiceIssueEntry, postPaymentEntry,
+  postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
+};

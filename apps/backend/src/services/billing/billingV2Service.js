@@ -15,7 +15,10 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { postInvoiceIssueEntry, postPaymentEntry } from './ledger/ledgerPostings.js';
+import {
+  postInvoiceIssueEntry, postPaymentEntry,
+  postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
+} from './ledger/ledgerPostings.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
@@ -1265,7 +1268,7 @@ export async function collectPayment({
 
 export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required');
-  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+  const reversed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Flip the reversal flag first (guarded by reversed = false so a double
     // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
     // lock so a concurrent collectPayment can't interleave with the recompute.
@@ -1292,6 +1295,14 @@ export async function reversePayment(paymentId, { reversed_by, reason, tenantId 
     }
     return rows[0];
   });
+  // Ledger (Phase 3a): post-commit best-effort PAYMENT_REVERSAL (credit
+  // CASH|BANK / debit PATIENT_AR — the inverse of the original receipt).
+  try {
+    await postPaymentReversalEntry({ payment: reversed, tenantId: requireTenantId(tenantId) });
+  } catch (ledgerErr) {
+    logger.error('Ledger PAYMENT_REVERSAL post failed (non-blocking)', { payment_id: reversed?.id, error: ledgerErr.message });
+  }
+  return reversed;
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -1316,7 +1327,15 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     Number(amount), mode, reference || null,
     collected_by ? String(collected_by) : null, notes || null, tenant,
   );
-  return rows[0];
+  const advance = rows[0];
+  // Ledger (Phase 3a): post-commit best-effort ADVANCE_COLLECT (debit CASH|BANK
+  // / credit PATIENT_ADVANCE). Non-blocking — the advance is already recorded.
+  try {
+    await postAdvanceCollectEntry({ advance, tenantId: tenant });
+  } catch (ledgerErr) {
+    logger.error('Ledger ADVANCE_COLLECT post failed (non-blocking)', { advance_id: advance?.id, error: ledgerErr.message });
+  }
+  return advance;
 }
 
 export async function listAdvances({ tenantId, patient_uid, admission_id, status = 'ACTIVE' } = {}) {
@@ -1334,7 +1353,8 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
-  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+  let settledPatientUid = null;
+  const settlement = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Lock the advance row FOR UPDATE before reading its balance — without the
     // lock two concurrent settlements both read the same balance and both
     // succeed (the classic lost update that overdraws the advance).
@@ -1365,11 +1385,12 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
         'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
       );
     }
+    settledPatientUid = inv.patient_uid; // captured for the post-commit ledger entry
     if (Number(amount) > Number(inv.amount_due) + 0.01) {
       throw AppError.badRequest(`Amount exceeds invoice due ${inv.amount_due}`);
     }
 
-    const settlement = await tx.$queryRawUnsafe(
+    const settlementRow = await tx.$queryRawUnsafe(
       `INSERT INTO billing_advance_settlements (advance_id, invoice_id, amount, settled_by)
        VALUES ($1::int, $2::int, $3::numeric, $4::uuid)
        RETURNING *`,
@@ -1408,8 +1429,16 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
         WHERE id = $2::int`,
       Number(amount), Number(invoice_id),
     );
-    return settlement[0];
+    return settlementRow[0];
   });
+  // Ledger (Phase 3a): post-commit best-effort ADVANCE_SETTLE (debit
+  // PATIENT_ADVANCE / credit PATIENT_AR). Non-blocking.
+  try {
+    await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: requireTenantId(tenantId) });
+  } catch (ledgerErr) {
+    logger.error('Ledger ADVANCE_SETTLE post failed (non-blocking)', { settlement_id: settlement?.id, error: ledgerErr.message });
+  }
+  return settlement;
 }
 
 // ───────────────────────────────────────────────────────────────────────
