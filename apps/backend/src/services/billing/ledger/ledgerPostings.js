@@ -20,17 +20,23 @@ export function paymentDebitAccount(mode) {
   return 'BANK';                         // default electronic-style receipt
 }
 
-/** Post INVOICE_ISSUE: debit PATIENT_AR (receivable up) / credit REVENUE. */
+/** Post INVOICE_ISSUE: debit PATIENT_AR=total / credit REVENUE=(total−tax) / credit TAX_PAYABLE=tax. */
 export async function postInvoiceIssueEntry({ invoice, tenantId }) {
-  const paise = toPaise(invoice.total_amount);
-  if (paise <= 0) return null;          // nothing to post for a zero invoice
+  const totalPaise = toPaise(invoice.total_amount);
+  if (totalPaise <= 0) return null;     // nothing to post for a zero invoice
+  const taxPaise = invoice.tax_amount != null ? toPaise(invoice.tax_amount) : 0;
+  const revenuePaise = totalPaise - taxPaise;
+  const lines = [
+    { accountCode: 'PATIENT_AR', amountPaise: totalPaise, patient_uid: invoice.patient_uid, invoice_id: Number(invoice.id) },
+    { accountCode: 'REVENUE', amountPaise: -revenuePaise },
+  ];
+  // Omit the tax line when there is no GST — postLedgerEntry rejects zero lines,
+  // and a no-tax invoice stays identical to the Phase-2a posting.
+  if (taxPaise > 0) lines.push({ accountCode: 'TAX_PAYABLE', amountPaise: -taxPaise });
   return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
     entryType: 'INVOICE_ISSUE',
     idempotencyKey: `issue-inv-${invoice.id}`,
-    lines: [
-      { accountCode: 'PATIENT_AR', amountPaise: paise, patient_uid: invoice.patient_uid, invoice_id: Number(invoice.id) },
-      { accountCode: 'REVENUE', amountPaise: -paise },
-    ],
+    lines,
   }));
 }
 
@@ -112,7 +118,38 @@ export async function postPaymentReversalEntry({ payment, tenantId }) {
   }));
 }
 
+/** Post REFUND_APPROVE: credit REFUNDS_PAYABLE / debit PATIENT_AR (invoice) | PATIENT_ADVANCE (advance). */
+export async function postRefundApproveEntry({ refund, tenantId }) {
+  const paise = toPaise(refund.amount);
+  if (paise <= 0) return null;
+  const debit = refund.advance_id != null
+    ? { accountCode: 'PATIENT_ADVANCE', amountPaise: paise, advance_id: Number(refund.advance_id), patient_uid: refund.patient_uid }
+    : { accountCode: 'PATIENT_AR', amountPaise: paise, patient_uid: refund.patient_uid, invoice_id: Number(refund.invoice_id) };
+  return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+    entryType: 'REFUND_APPROVE',
+    idempotencyKey: `refund-approve-${refund.id}`,
+    lines: [debit, { accountCode: 'REFUNDS_PAYABLE', amountPaise: -paise, patient_uid: refund.patient_uid }],
+  }));
+}
+
+/** Post REFUND_PAID: debit REFUNDS_PAYABLE / credit CASH|BANK. */
+export async function postRefundPaidEntry({ refund, tenantId }) {
+  const credit = paymentDebitAccount(refund.mode);
+  if (!credit) return null;             // INSURANCE-mode refund — Phase 3c
+  const paise = toPaise(refund.amount);
+  if (paise <= 0) return null;
+  return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+    entryType: 'REFUND_PAID',
+    idempotencyKey: `refund-paid-${refund.id}`,
+    lines: [
+      { accountCode: 'REFUNDS_PAYABLE', amountPaise: paise, patient_uid: refund.patient_uid },
+      { accountCode: credit, amountPaise: -paise },
+    ],
+  }));
+}
+
 export default {
   paymentDebitAccount, postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
+  postRefundApproveEntry, postRefundPaidEntry,
 };
