@@ -7185,6 +7185,7 @@ model payment_transactions {
   tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_transactions_tenant")
   invoices        invoices? @relation(fields: [invoice_id], references: [id])
 
+  @@unique([tenant_id, transaction_ref], map: "ux_payment_transactions_tenant_ref", where: raw("(transaction_ref IS NOT NULL)"))
   @@index([created_at])
   @@index([invoice_id])
   @@index([tenant_id], map: "idx_payment_transactions_tenant_id")
@@ -14987,6 +14988,7 @@ model totp_challenges {
   challenge_token String   @unique(map: "uniq_totp_challenges_token") @db.VarChar(255)
   expires_at      DateTime @db.Timestamptz(6)
   created_at      DateTime @default(now()) @db.Timestamptz(6)
+  attempts        Int      @default(0)
 
   @@index([admin_id], map: "idx_totp_challenges_admin_id")
   @@index([expires_at], map: "idx_totp_challenges_expires_at")
@@ -15006,4 +15008,77 @@ model tenant_interop_secrets {
 
   @@unique([kind, sender_identifier], map: "uniq_tenant_interop_secrets_kind_sender")
   @@index([tenant_id], map: "idx_tenant_interop_secrets_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ledger_accounts {
+  id              BigInt            @id @default(autoincrement())
+  tenant_id       String            @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  code            String            @db.VarChar(40)
+  type            String            @db.VarChar(20)
+  description     String?
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  ledger_balances ledger_balances[]
+  ledger_postings ledger_postings[]
+
+  @@unique([tenant_id, code])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ledger_balances {
+  id              BigInt          @id @default(autoincrement())
+  tenant_id       String          @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  account_id      BigInt
+  patient_uid     String?         @db.Uuid
+  invoice_id      Int?
+  advance_id      Int?
+  balance_paise   BigInt          @default(0)
+  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
+  ledger_accounts ledger_accounts @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, account_id, patient_uid, invoice_id, advance_id])
+  @@index([tenant_id, account_id], map: "idx_ledger_balances_account")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ledger_entries {
+  id                   BigInt            @id @default(autoincrement())
+  tenant_id            String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  entry_type           String            @db.VarChar(30)
+  occurred_at          DateTime          @default(now()) @db.Timestamptz(6)
+  created_by           String?           @db.Uuid
+  idempotency_key      String?           @db.VarChar(120)
+  reverses_entry_id    BigInt?
+  metadata             Json              @default("{}")
+  created_at           DateTime          @default(now()) @db.Timestamptz(6)
+  ledger_entries       ledger_entries?   @relation("ledger_entriesToledger_entries", fields: [reverses_entry_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_ledger_entries ledger_entries[]  @relation("ledger_entriesToledger_entries")
+  ledger_postings      ledger_postings[]
+
+  @@unique([tenant_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ledger_postings {
+  id                     BigInt          @id @default(autoincrement())
+  entry_id               BigInt
+  tenant_id              String          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  account_id             BigInt
+  amount_paise           BigInt
+  patient_uid            String?         @db.Uuid
+  invoice_id             Int?
+  advance_id             Int?
+  payment_id             Int?
+  cash_drawer_session_id BigInt?
+  created_at             DateTime        @default(now()) @db.Timestamptz(6)
+  ledger_accounts        ledger_accounts @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ledger_entries         ledger_entries  @relation(fields: [entry_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, account_id], map: "idx_ledger_postings_account")
+  @@index([tenant_id, advance_id], map: "idx_ledger_postings_advance", where: raw("(advance_id IS NOT NULL)"))
+  @@index([entry_id], map: "idx_ledger_postings_entry")
+  @@index([tenant_id, invoice_id], map: "idx_ledger_postings_invoice", where: raw("(invoice_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid], map: "idx_ledger_postings_patient", where: raw("(patient_uid IS NOT NULL)"))
 }
