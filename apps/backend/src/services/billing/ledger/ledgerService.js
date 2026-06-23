@@ -62,7 +62,14 @@ export async function postLedgerEntry(tx, { entryType, lines, idempotencyKey = n
       JSON.stringify(metadata || {}),
     );
   } catch (err) {
-    if (String(err?.meta?.code || err?.code) === '23505') {
+    // 23505 = unique_violation. With the pg driver adapter Prisma surfaces the
+    // raw failure as P2010 and the real pg code lives under
+    // meta.driverAdapterError.cause.originalCode (matches billingV2Service's
+    // isUniqueViolation). Check all three shapes.
+    const pgCode = err?.meta?.code
+      || err?.meta?.driverAdapterError?.cause?.originalCode
+      || err?.code;
+    if (String(pgCode) === '23505') {
       throw AppError.conflict('Duplicate ledger entry (idempotency key already posted)', 'LEDGER_DUPLICATE');
     }
     throw err;
