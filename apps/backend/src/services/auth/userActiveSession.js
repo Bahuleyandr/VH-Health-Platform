@@ -58,6 +58,7 @@ export async function claimUserSession({
   userAgent = null,
   pushRevoked = true,
   enforceSingleSession,
+  tenantId = null,
 }) {
   if (!userUid || !jti || !deviceType || !expiresAt) {
     throw new Error('claimUserSession: userUid, jti, deviceType, expiresAt are required');
@@ -119,9 +120,19 @@ export async function claimUserSession({
   // Step 3: upsert the new session row.
   try {
     await prisma.$executeRawUnsafe(
+      // M8 (audit 2026-06-22): stamp tenant_id EXPLICITLY. user_active_sessions is
+      // a FORCE-RLS table whose tenant_id default reads app.current_tenant_id;
+      // claimUserSession runs OUTSIDE a setTenant context (GUC unset), so without
+      // this the session row fell back to the DEFAULT tenant — post-cutover that
+      // mis-attributes a non-default-tenant user's session. The caller threads the
+      // bearer's resolved tenant; if null we keep the GUC→default behaviour so
+      // single-tenant deployments are unchanged.
       `INSERT INTO user_active_sessions
-         (user_uid, jti, device_type, device_label, ip_address, user_agent, expires_at)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+         (user_uid, jti, device_type, device_label, ip_address, user_agent, expires_at, tenant_id)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7,
+               COALESCE($8::uuid,
+                        (NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass'))::uuid,
+                        '00000000-0000-4000-8000-000000000001'::uuid))
        ON CONFLICT (user_uid) DO UPDATE SET
          jti          = EXCLUDED.jti,
          device_type  = EXCLUDED.device_type,
@@ -129,7 +140,8 @@ export async function claimUserSession({
          ip_address   = EXCLUDED.ip_address,
          user_agent   = EXCLUDED.user_agent,
          issued_at    = NOW(),
-         expires_at   = EXCLUDED.expires_at`,
+         expires_at   = EXCLUDED.expires_at,
+         tenant_id    = EXCLUDED.tenant_id`,
       userUid,
       jti,
       deviceType,
@@ -137,6 +149,7 @@ export async function claimUserSession({
       ipAddress,
       userAgent,
       expiresAt,
+      tenantId,
     );
   } catch (err) {
     // If the insert fails, the new token is still valid (we generated it

@@ -119,6 +119,27 @@ describe('claimUserSession', () => {
       null,
       null,
       EXPIRES_AT,
+      null, // M8: tenant_id — null here (no tenant passed) → column COALESCE default
     );
+  });
+
+  it('stamps the bearer tenant_id on the session row when provided (M8)', async () => {
+    const TENANT = '00000000-0000-4000-8000-0000000000a2';
+    await claimUserSession({
+      userUid: USER_UID,
+      jti: 'tenant-jti',
+      deviceType: 'desktop',
+      expiresAt: EXPIRES_AT,
+      pushRevoked: true,
+      tenantId: TENANT,
+    });
+
+    const insertCall = executeRawUnsafeMock.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO user_active_sessions'),
+    );
+    expect(insertCall).toBeDefined();
+    // tenant_id is the 8th positional param (index 8 after the SQL string).
+    expect(insertCall[8]).toBe(TENANT);
+    expect(insertCall[0]).toMatch(/tenant_id/);
   });
 });

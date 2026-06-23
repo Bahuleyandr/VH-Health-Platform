@@ -16,14 +16,24 @@ export const registerDevice = async (req, res) => {
   }
 
   try {
+    // M8 (audit 2026-06-22): stamp tenant_id explicitly. `devices` is a FORCE-RLS
+    // table whose tenant_id default reads app.current_tenant_id; this public
+    // pre-auth endpoint runs without a tenant context, so the row fell back to
+    // the DEFAULT tenant — post-cutover that mis-attributes the device. Use the
+    // Host-resolved req.tenantId when present; COALESCE keeps the GUC→default
+    // behaviour (single-tenant) when it is not.
     await prisma.$queryRawUnsafe(
-      `INSERT INTO devices (phone, fcm_token, platform)
-       VALUES ($1, $2, $3)
+      `INSERT INTO devices (phone, fcm_token, platform, tenant_id)
+       VALUES ($1, $2, $3,
+               COALESCE($4::uuid,
+                        (NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass'))::uuid,
+                        '00000000-0000-4000-8000-000000000001'::uuid))
        ON CONFLICT (phone) DO UPDATE
        SET fcm_token = EXCLUDED.fcm_token,
            platform = EXCLUDED.platform,
+           tenant_id = EXCLUDED.tenant_id,
            updated_at = NOW()`,
-      phone, fcm_token, platform
+      phone, fcm_token, platform, req.tenantId ?? null
     );
 
     await prisma.$queryRawUnsafe(
