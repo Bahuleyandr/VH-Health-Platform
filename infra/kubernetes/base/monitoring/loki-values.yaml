@@ -45,7 +45,12 @@ loki:
       filesystem:
         directory: /data/loki/chunks
     limits_config:
-      retention_period: 720h   # 30d
+      # Audit 2026-06-22: CERT-In requires 180-day log retention for health
+      # data systems; 30d was non-compliant. (Single-binary Loki on a PVC is
+      # still a SPOF + a capacity concern at 180d — the durable fix is the
+      # object-store Loki on R2 in the T2 observability epic; this raises
+      # retention to compliant in the interim.)
+      retention_period: 4320h  # 180d
       reject_old_samples: true
       reject_old_samples_max_age: 168h
       ingestion_rate_mb: 10
