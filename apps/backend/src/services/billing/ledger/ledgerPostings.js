@@ -111,12 +111,27 @@ export async function postAdvanceSettleEntry({ settlement, patientUid, tenantId 
   }));
 }
 
-/** Post PAYMENT_REVERSAL: the inverse of the original payment — credit CASH|BANK / debit PATIENT_AR. */
+/** Post PAYMENT_REVERSAL: the inverse of the original payment. Non-insurance →
+ * credit CASH|BANK / debit PATIENT_AR; INSURANCE → credit BANK / debit
+ * INSURANCE_AR (inverse of the INSURANCE_SETTLE). */
 export async function postPaymentReversalEntry({ payment, tenantId }) {
-  const credit = paymentDebitAccount(payment.mode); // the account the original debited
-  if (!credit) return null;             // INSURANCE — original was never posted
   const paise = toPaise(payment.amount);
   if (paise <= 0) return null;
+  const mode = String(payment.mode || '').toUpperCase();
+  if (mode === 'INSURANCE') {
+    if (payment.invoice_id == null) return null; // INSURANCE_AR is keyed by invoice
+    return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+      entryType: 'PAYMENT_REVERSAL',
+      idempotencyKey: `payment-reversal-${payment.id}`,
+      metadata: { payment_id: Number(payment.id) },
+      lines: [
+        { accountCode: 'BANK', amountPaise: -paise },
+        { accountCode: 'INSURANCE_AR', amountPaise: paise, invoice_id: Number(payment.invoice_id) },
+      ],
+    }));
+  }
+  const credit = paymentDebitAccount(mode); // the account the original debited
+  if (!credit) return null;
   return setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
     entryType: 'PAYMENT_REVERSAL',
     idempotencyKey: `payment-reversal-${payment.id}`,

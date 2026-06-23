@@ -12,6 +12,7 @@ import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { collectPayment } from './billingV2Service.js';
+import { postPaymentEntry } from './ledger/ledgerPostings.js';
 
 const DEFAULT_EXPIRY_HOURS = 48;
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -274,6 +275,15 @@ export async function markPaymentLinkPaid({
     );
     return createdPayment;
   });
+
+  // Ledger (Phase 3-tail): collectPayment was called with a caller-owned tx, so
+  // its inline post is skipped. Post here post-commit best-effort, after the
+  // link tx commits — keeps the live payment-link path unbreakable by the ledger.
+  try {
+    await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
+  } catch (ledgerErr) {
+    logger.error('Ledger PAYMENT post (payment-link) failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+  }
 
   return { link: await getPaymentLink({ tenantId, link_token }), payment };
 }

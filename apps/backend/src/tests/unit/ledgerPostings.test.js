@@ -146,10 +146,22 @@ describe('postPaymentReversalEntry', () => {
     ]));
   });
 
-  it('skips reversal for an INSURANCE payment (its original was never posted)', async () => {
+  it('reverses an INSURANCE payment by crediting BANK / debiting INSURANCE_AR (the settle inverse)', async () => {
+    const { postPaymentReversalEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    await postPaymentReversalEntry({ payment: { id: 10, patient_uid: PATIENT, invoice_id: 42, amount: '800.00', mode: 'INSURANCE' }, tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('PAYMENT_REVERSAL');
+    expect(arg.idempotencyKey).toBe('payment-reversal-10');
+    expect(arg.lines).toEqual([
+      { accountCode: 'BANK', amountPaise: -80000 },
+      { accountCode: 'INSURANCE_AR', amountPaise: 80000, invoice_id: 42 },
+    ]);
+  });
+
+  it('skips an INSURANCE reversal with no invoice (needs the invoice dimension)', async () => {
     const { postPaymentReversalEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
     const before = postLedgerEntry.mock.calls.length;
-    await postPaymentReversalEntry({ payment: { id: 10, patient_uid: PATIENT, invoice_id: 42, amount: '400.00', mode: 'INSURANCE' }, tenantId: TENANT });
+    await postPaymentReversalEntry({ payment: { id: 11, patient_uid: PATIENT, invoice_id: null, amount: '800.00', mode: 'INSURANCE' }, tenantId: TENANT });
     expect(postLedgerEntry.mock.calls.length).toBe(before);
   });
 });
