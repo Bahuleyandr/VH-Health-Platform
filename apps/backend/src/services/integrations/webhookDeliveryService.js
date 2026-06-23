@@ -382,6 +382,36 @@ export async function dispatchPendingDeliveries({
   return { dispatched: claimed.length, succeeded, failed, dead };
 }
 
+/**
+ * Reaper for stale in_flight deliveries (audit 2026-06-22 M10). dispatchPending
+ * Deliveries claims rows by flipping them to 'in_flight'; if the worker crashes
+ * AFTER the claim but BEFORE marking the row succeeded/failed/dead, the row stays
+ * 'in_flight' forever — the claim only re-picks 'pending'/'failed', so a crashed
+ * delivery never retries and never dead-letters. Reset rows that have been
+ * in_flight longer than `staleMinutes` back to 'failed' + due now, so the next
+ * dispatch pass re-claims them (and they eventually dead-letter via the normal
+ * MAX-attempts path). Run from a cron tick.
+ */
+export async function reapStaleInFlightDeliveries({ staleMinutes = 15 } = {}) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE webhook_deliveries
+          SET status = 'failed',
+              last_error = 'reaped: stale in_flight (worker crashed mid-delivery)',
+              next_retry_at = NOW(),
+              updated_at = NOW()
+        WHERE status = 'in_flight'
+          AND started_at < NOW() - ($1::int * INTERVAL '1 minute')
+        RETURNING id`,
+      Number(staleMinutes) || 15,
+    );
+    return { reaped: rows.length };
+  } catch (err) {
+    if (isMissingSchemaError(err)) return { reaped: 0 };
+    throw err;
+  }
+}
+
 async function markStatus(id, {
   status,
   httpStatus = null,

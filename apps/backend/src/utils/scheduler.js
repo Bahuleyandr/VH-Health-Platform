@@ -200,7 +200,7 @@ import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChai
 import { runRevenueCycleSweepAllTenants } from '../services/billing/revenueCycleTrackerService.js';
 
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
-import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliveryService.js';
+import { dispatchPendingDeliveries, reapStaleInFlightDeliveries } from '../services/integrations/webhookDeliveryService.js';
 
 // Visit-status reaper — A8. Flips stale SCHEDULED appointments to MISSED.
 import { reapStaleScheduledVisits } from '../services/appointment/appointmentReaperService.js';
@@ -779,6 +779,15 @@ if (process.env.NODE_ENV !== 'test') {
   // integration_logs. Bounded at 25 deliveries per tick.
   registerCron('*/30 * * * * *', withJobLock('webhook-delivery-dispatch', async () => {
     await dispatchPendingDeliveries({ batchSize: 25 });
+  }));
+
+  // Every 5 minutes — reap stale in_flight webhook deliveries (audit M10). A
+  // worker crash AFTER claiming a row (status='in_flight') but BEFORE completing
+  // it orphans the delivery forever (the dispatcher only re-picks pending/failed).
+  // Reset rows in_flight > 15 min back to failed+due so they re-dispatch.
+  registerCron('*/5 * * * *', withJobLock('webhook-reap-stale-inflight', async () => {
+    const { reaped } = await reapStaleInFlightDeliveries({ staleMinutes: 15 });
+    if (reaped) logger.warn(`Scheduled Task: reaped ${reaped} stale in_flight webhook deliveries`);
   }));
 
   // Schema drift detection — once at startup

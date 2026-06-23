@@ -45,6 +45,7 @@ const {
   listDeliveries,
   markDeliveryDead,
   redriveDelivery,
+  reapStaleInFlightDeliveries,
   __testing__,
 } = await import('../../services/integrations/webhookDeliveryService.js');
 
@@ -340,5 +341,29 @@ describe('redriveDelivery', () => {
     const row = await redriveDelivery({ tenantId: TENANT, id: 100, redrivenBy: 'admin' });
     expect(row.status).toBe('pending');
     expect(writeLogMock).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reapStaleInFlightDeliveries (M10)
+// ---------------------------------------------------------------------------
+describe('reapStaleInFlightDeliveries (M10)', () => {
+  it('resets stale in_flight rows to failed + due and returns the count', async () => {
+    mockNext([{ id: 10 }, { id: 11 }]);
+    const result = await reapStaleInFlightDeliveries({ staleMinutes: 15 });
+    expect(result).toEqual({ reaped: 2 });
+
+    const [sql, param] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/UPDATE webhook_deliveries/i);
+    expect(sql).toMatch(/status = 'failed'/i);
+    expect(sql).toMatch(/WHERE\s+status = 'in_flight'/i);
+    expect(sql).toMatch(/started_at < NOW\(\) - \(\$1::int \* INTERVAL '1 minute'\)/i);
+    expect(param).toBe(15);
+  });
+
+  it('halts gracefully (reaped:0) when webhook_deliveries is missing', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_deliveries" does not exist'));
+    const result = await reapStaleInFlightDeliveries();
+    expect(result).toEqual({ reaped: 0 });
   });
 });
