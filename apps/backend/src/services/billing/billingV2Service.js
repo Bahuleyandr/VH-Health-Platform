@@ -15,6 +15,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { postInvoiceIssueEntry, postPaymentEntry } from './ledger/ledgerPostings.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
@@ -744,6 +745,21 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
     }
   }
 
+  // Ledger (Phase 2a): post-commit best-effort INVOICE_ISSUE entry (debit
+  // PATIENT_AR / credit REVENUE). The legacy invoice is already ISSUED — a
+  // ledger failure is logged and dropped, never blocking issuance. The ledger
+  // is not yet authoritative; reconciliation (Phase 2b) catches any drift.
+  if (meta.length && meta[0].patient_uid) {
+    try {
+      await postInvoiceIssueEntry({
+        invoice: { id: invoiceId, patient_uid: meta[0].patient_uid, total_amount: meta[0].total_amount },
+        tenantId: meta[0].tenant_id,
+      });
+    } catch (ledgerErr) {
+      logger.error('Ledger INVOICE_ISSUE post failed (non-blocking)', { invoice_id: invoiceId, error: ledgerErr.message });
+    }
+  }
+
   return getInvoice(invoiceId, { tenantId });
 }
 
@@ -1232,10 +1248,19 @@ export async function collectPayment({
     denominations, collected_by, shift, notes, tenantId, normalizedMode,
   };
   // Reuse the caller's transaction when given (e.g. markPaymentLinkPaid) so we
-  // never nest setTenantTx — Postgres cannot nest transactions. Otherwise open
-  // our own tenant-scoped atomic transaction.
+  // never nest setTenantTx — Postgres cannot nest transactions. That caller is
+  // responsible for its own ledger posting (wired in a later phase).
   if (tx) return collectPaymentTx(tx, args);
-  return setTenantTx(requireTenantId(tenantId), (innerTx) => collectPaymentTx(innerTx, args));
+  // Own the tx, then post the ledger entry AFTER it commits (post-commit
+  // best-effort, CLAUDE.md "Phase 1.5" pattern) so a ledger problem can never
+  // roll back the real payment. The ledger is not yet authoritative.
+  const payment = await setTenantTx(requireTenantId(tenantId), (innerTx) => collectPaymentTx(innerTx, args));
+  try {
+    await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
+  } catch (ledgerErr) {
+    logger.error('Ledger PAYMENT post failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+  }
+  return payment;
 }
 
 export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
