@@ -171,6 +171,7 @@ export async function issueAccessTokenAndClaimSession({
     ipAddress: req?.ip ?? null,
     userAgent: req?.headers?.['user-agent'] ?? null,
     pushRevoked,
+    tenantId, // M8: stamp the bearer's resolved tenant on the session row
   });
 
   return { accessToken, jti };

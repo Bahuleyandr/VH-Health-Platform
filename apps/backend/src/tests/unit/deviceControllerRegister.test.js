@@ -53,6 +53,23 @@ describe('registerDevice (M18 — response-helper misuse no longer 500s)', () =>
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
   });
 
+  it('stamps the Host-resolved req.tenantId on the devices row (M8)', async () => {
+    const TENANT = '00000000-0000-4000-8000-0000000000a3';
+    const res = mockRes();
+    await registerDevice(
+      { body: { phone: '+9199', fcm_token: 'tok' }, tenantId: TENANT },
+      res,
+    );
+
+    const devicesInsert = queryRawUnsafeMock.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO devices'),
+    );
+    expect(devicesInsert).toBeDefined();
+    expect(devicesInsert[0]).toMatch(/tenant_id/);
+    // tenant_id is the 4th positional param (after phone, fcm_token, platform).
+    expect(devicesInsert[4]).toBe(TENANT);
+  });
+
   it('returns a 500 envelope (cleanly) when the DB write throws', async () => {
     queryRawUnsafeMock.mockRejectedValueOnce(new Error('db down'));
     const res = mockRes();
