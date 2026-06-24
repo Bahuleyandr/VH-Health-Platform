@@ -34,10 +34,10 @@ router.delete('/:departmentId', checkAdminPermission, departmentController.delet
 router.get('/list', departmentListValidation, departmentController.getDepartmentList);
 router.get('/available/now', getAvailableDepartmentsValidation, departmentController.getAvailableDepartments);
 router.post('/create', createDepartmentValidation, checkDepartmentPermission, departmentController.createDepartment);
-router.put('/:id', updateDepartmentValidation, checkDepartmentPermission, departmentController.updateDepartment);
+router.put('/:departmentId', updateDepartmentValidation, checkDepartmentPermission, departmentController.updateDepartment);
 router.put('/:id/deactivate', deactivateDepartmentValidation, checkAdminPermission, departmentController.deactivateDepartment);
 
 // Get department by ID or name (should be last to avoid conflicts)
-router.get('/:identifier', getDepartmentByIdValidation, departmentController.getDepartmentDetails);
+router.get('/:departmentId', getDepartmentByIdValidation, departmentController.getDepartmentDetails);
 
 export default router;

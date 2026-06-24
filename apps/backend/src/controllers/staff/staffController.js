@@ -96,7 +96,7 @@ export const createStaffProfile = async (req, res) => {
 // Update staff profile
 export const updateStaffProfile = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { identifier: id } = req.params;
     const userRole = req.user?.role;
     const updatedBy = req.user?.uid;
     const updaterName = req.user?.name;

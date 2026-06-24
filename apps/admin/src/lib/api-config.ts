@@ -274,8 +274,8 @@ export const API_ENDPOINTS = {
   departments: {
     list: "/api/v1/departments", // GET
     create: "/api/v1/departments/create", // POST
-    byId: "/api/v1/departments/:identifier", // GET
-    update: "/api/v1/departments/:id", // PUT
+    byId: "/api/v1/departments/:departmentId", // GET
+    update: "/api/v1/departments/:departmentId", // PUT
     delete: "/api/v1/departments/:departmentId", // DELETE
     deactivate: "/api/v1/departments/:id/deactivate", // PUT
 

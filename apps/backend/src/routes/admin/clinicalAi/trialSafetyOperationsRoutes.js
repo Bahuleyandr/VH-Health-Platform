@@ -132,11 +132,11 @@ router.patch('/trials/matches/:id', async (req, res, next) => {
   }
 });
 
-router.post('/rca/:admissionId', async (req, res, next) => {
+router.post('/rca/:id', async (req, res, next) => {
   try {
     const draft = await generateRcaDraft({
       req,
-      admissionId: req.params.admissionId,
+      admissionId: req.params.id,
       caseType: req.body?.case_type || 'mortality',
     });
     return success(res, draft, 'RCA draft generated', 201);
@@ -281,11 +281,11 @@ router.post('/operational/ot/:scheduleId', async (req, res, next) => {
   }
 });
 
-router.post('/operational/charge-capture/:admissionId', async (req, res, next) => {
+router.post('/operational/charge-capture/:id', async (req, res, next) => {
   try {
     const result = await auditChargeCapture({
       tenantId: req.tenantId,
-      admissionId: req.params.admissionId,
+      admissionId: req.params.id,
     });
     return success(res, result, 'Charge capture audit complete');
   } catch (err) {
