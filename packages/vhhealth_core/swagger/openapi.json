@@ -120,6 +120,305 @@
             }
           }
         }
+      },
+      "AgingBucket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bucket",
+          "invoiceCount",
+          "totalPaise",
+          "total"
+        ],
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "0-30",
+              "31-60",
+              "61-90",
+              "90+"
+            ]
+          },
+          "invoiceCount": {
+            "type": "integer",
+            "example": 3
+          },
+          "totalPaise": {
+            "type": "integer",
+            "example": 250000
+          },
+          "total": {
+            "type": "string",
+            "example": "2500.00"
+          }
+        }
+      },
+      "AgingReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "buckets",
+          "grandTotalPaise",
+          "grandTotal"
+        ],
+        "properties": {
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgingBucket"
+            }
+          },
+          "grandTotalPaise": {
+            "type": "integer",
+            "example": 250000
+          },
+          "grandTotal": {
+            "type": "string",
+            "example": "2500.00"
+          }
+        }
+      },
+      "AgingReportResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AgingReport"
+          }
+        }
+      },
+      "CashPosition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cashTotalPaise",
+          "cashTotal",
+          "bankTotalPaise",
+          "bankTotal",
+          "byDrawer"
+        ],
+        "properties": {
+          "cashTotalPaise": {
+            "type": "integer",
+            "example": 50000
+          },
+          "cashTotal": {
+            "type": "string",
+            "example": "500.00"
+          },
+          "bankTotalPaise": {
+            "type": "integer",
+            "example": 0
+          },
+          "bankTotal": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "byDrawer": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DrawerPosition"
+            }
+          }
+        }
+      },
+      "CashPositionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "DailyCollection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "days",
+          "totalPaise",
+          "total"
+        ],
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionDay"
+            }
+          },
+          "totalPaise": {
+            "type": "integer",
+            "example": 75000
+          },
+          "total": {
+            "type": "string",
+            "example": "750.00"
+          }
+        }
+      },
+      "DailyCollectionDay": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "day",
+          "collectedPaise",
+          "collected"
+        ],
+        "properties": {
+          "day": {
+            "type": "string",
+            "example": "2026-06-24"
+          },
+          "collectedPaise": {
+            "type": "integer",
+            "example": 75000
+          },
+          "collected": {
+            "type": "string",
+            "example": "750.00"
+          }
+        }
+      },
+      "DailyCollectionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DailyCollection"
+          }
+        }
+      },
+      "DrawerPosition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "drawerSessionId",
+          "netPaise",
+          "net"
+        ],
+        "properties": {
+          "drawerSessionId": {
+            "type": "integer",
+            "example": 12
+          },
+          "netPaise": {
+            "type": "integer",
+            "example": 50000
+          },
+          "net": {
+            "type": "string",
+            "example": "500.00"
+          }
+        }
+      },
+      "TrialBalance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accounts",
+          "signedTotalPaise",
+          "balanced"
+        ],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceAccount"
+            }
+          },
+          "signedTotalPaise": {
+            "type": "integer",
+            "example": 0
+          },
+          "balanced": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "TrialBalanceAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "type",
+          "balancePaise",
+          "balance"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "PATIENT_AR"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ASSET",
+              "LIABILITY",
+              "REVENUE",
+              "EQUITY",
+              "CONTRA"
+            ]
+          },
+          "balancePaise": {
+            "type": "integer",
+            "example": 100000
+          },
+          "balance": {
+            "type": "string",
+            "example": "1000.00"
+          }
+        }
+      },
+      "TrialBalanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrialBalance"
+          }
+        }
       }
     }
   },
@@ -11331,7 +11630,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AgingReportResponse"
                 }
               }
             }
@@ -11348,7 +11647,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashPositionResponse"
                 }
               }
             }
@@ -11365,7 +11664,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DailyCollectionResponse"
                 }
               }
             }
@@ -11382,7 +11681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AgingReportResponse"
                 }
               }
             }
@@ -11399,7 +11698,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TrialBalanceResponse"
                 }
               }
             }

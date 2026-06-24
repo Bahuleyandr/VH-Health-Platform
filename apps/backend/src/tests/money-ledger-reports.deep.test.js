@@ -5,6 +5,7 @@ import * as billing from '../services/billing/billingV2Service.js';
 import {
   trialBalance, arAging, insurerAging, cashPosition, dailyCollection,
 } from '../services/billing/ledger/ledgerReportsService.js';
+import { assertData } from './helpers/assertSchema.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const cleanup = { invoiceIds: [], patientUids: [] };
@@ -44,6 +45,7 @@ describe('Phase 5a — GL report functions', () => {
     const patient = await makePatient();
     await makeIssuedInvoice(patient, 1000); // posts AR + REVENUE
     const tb = await trialBalance(TENANT);
+    assertData('TrialBalance', tb);
     expect(tb.balanced).toBe(true);
     expect(tb.signedTotalPaise).toBe(0);
     const ar = tb.accounts.find((a) => a.code === 'PATIENT_AR');
@@ -55,6 +57,7 @@ describe('Phase 5a — GL report functions', () => {
     const patient = await makePatient();
     const invId = await makeIssuedInvoice(patient, 500); // AR 50000, issued now
     const aging = await arAging(TENANT);
+    assertData('AgingReport', aging);
     const b = aging.buckets.find((x) => x.bucket === '0-30');
     expect(b).toBeDefined();
     expect(b.totalPaise).toBeGreaterThanOrEqual(50000);
@@ -68,6 +71,7 @@ describe('Phase 5a — GL report functions', () => {
     const invId = await makeIssuedInvoice(patient, 400);
     await billing.collectPayment({ invoice_id: invId, amount: 400, mode: 'CASH', shift: 'MORNING', collected_by: patient, tenantId: TENANT });
     const cp = await cashPosition(TENANT);
+    assertData('CashPosition', cp);
     expect(cp.cashTotalPaise).toBeGreaterThanOrEqual(40000);
     expect(typeof cp.bankTotalPaise).toBe('number');
   });
@@ -78,6 +82,7 @@ describe('Phase 5a — GL report functions', () => {
     await billing.collectPayment({ invoice_id: invId, amount: 600, mode: 'CASH', shift: 'MORNING', collected_by: patient, tenantId: TENANT });
     const today = (await prisma.$queryRawUnsafe(`SELECT CURRENT_DATE::text AS d`))[0].d;
     const dc = await dailyCollection(TENANT, { from: today, to: today });
+    assertData('DailyCollection', dc);
     const row = dc.days.find((d) => d.day === today);
     expect(row).toBeDefined();
     expect(row.collectedPaise).toBeGreaterThanOrEqual(60000);
@@ -85,6 +90,7 @@ describe('Phase 5a — GL report functions', () => {
 
   it('insurerAging returns the four buckets (empty-safe)', async () => {
     const aging = await insurerAging(TENANT);
+    assertData('AgingReport', aging);
     expect(aging.buckets.map((b) => b.bucket)).toEqual(['0-30', '31-60', '61-90', '90+']);
     expect(typeof aging.grandTotalPaise).toBe('number');
   });
