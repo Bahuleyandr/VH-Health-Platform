@@ -1,0 +1,78 @@
+// apps/backend/scripts/generate-openapi.mjs
+// Boots the Express app, captures the live routes by patching the shared Router
+// prototype, composes full paths, and writes a deterministic openapi.json.
+//   Usage: node scripts/generate-openapi.mjs [--out=<path>]
+import 'dotenv/config'; // populate process.env from .env BEFORE app.js (-> prisma) loads
+import { writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+import { composeRoutes, buildOpenApiDocument, findEquivalentPathCollisions } from './openapi/buildSpec.mjs';
+import { OPENAPI_BASE } from './openapi/base.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Express 5 gives each router a fresh empty proto chaining up to the shared
+// methods object — walk up to the object that actually OWNS `route`.
+function protoOwning(obj, prop) {
+  let o = obj;
+  while (o && !Object.getOwnPropertyDescriptor(o, prop)) o = Object.getPrototypeOf(o);
+  return o;
+}
+const proto = protoOwning(express.Router(), 'route');
+
+const routerRoutes = new Map();
+const edges = new Map();
+const isRouter = (h) => typeof h === 'function' && h && Array.isArray(h.stack);
+const normPrefix = (p) =>
+  typeof p === 'string' ? p : Array.isArray(p) ? p.find((x) => typeof x === 'string') ?? '/' : '/';
+
+const origRoute = proto.route;
+proto.route = function patchedRoute(path) {
+  const r = origRoute.call(this, path);
+  if (!routerRoutes.has(this)) routerRoutes.set(this, []);
+  routerRoutes.get(this).push({ relPath: typeof path === 'string' ? path : '/', route: r });
+  return r;
+};
+const origUse = proto.use;
+proto.use = function patchedUse(first, ...rest) {
+  let prefix = '/';
+  let handlers;
+  if (typeof first === 'string' || Array.isArray(first) || first instanceof RegExp) {
+    prefix = normPrefix(first);
+    handlers = rest;
+  } else {
+    handlers = [first, ...rest];
+  }
+  for (const h of handlers) {
+    if (isRouter(h)) {
+      if (!edges.has(this)) edges.set(this, []);
+      edges.get(this).push({ prefix, child: h });
+    }
+  }
+  return origUse.call(this, first, ...rest);
+};
+
+const app = (await import('../src/app.js')).default;
+proto.route = origRoute;
+proto.use = origUse;
+
+const root = app.router || app._router;
+const routes = composeRoutes({ routerRoutes, edges, root });
+
+// Param-equivalent paths (same URL template, different param names) shadow each
+// other at the URL level and can't both live in one OpenAPI doc — report them
+// (they're a real follow-up finding) before collapsing.
+const collisions = findEquivalentPathCollisions(routes);
+if (collisions.length) {
+  console.log(`openapi: ${collisions.length} param-equivalent path collision(s) collapsed (URL-shadowing routes):`);
+  for (const c of collisions.slice(0, 20)) console.log(`  ${c.signature}  <-  ${c.paths.join(' , ')}`);
+}
+
+const doc = buildOpenApiDocument(routes, OPENAPI_BASE);
+
+const outArg = process.argv.find((a) => a.startsWith('--out='));
+const outPath = outArg ? resolve(outArg.slice('--out='.length)) : resolve(__dirname, '../src/docs/openapi.json');
+writeFileSync(outPath, `${JSON.stringify(doc, null, 2)}\n`);
+console.log(`openapi: wrote ${routes.length} operations / ${Object.keys(doc.paths).length} paths -> ${outPath}`);
+process.exit(0);

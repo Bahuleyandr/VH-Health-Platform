@@ -1,19 +1,26 @@
 name: OpenAPI and Client Drift
 
+# Phase 1 (canonical spec + path-set drift gate): this workflow validates that
+# the committed canonical spec apps/backend/src/docs/openapi.json is well-formed.
+# The authoritative live-router drift gate (regenerate + diff) runs in
+# schema-policy-drift.yml (which has the Postgres service the boot-based
+# generator needs). The generated-CLIENT drift checks (admin-TS via
+# openapi-typescript, shared Dart via swagger_dart_code_generator + the
+# vhhealth_core spec-copy) return in Phases 2-4 of the OpenAPI contract pipeline
+# epic — see docs/superpowers/specs/2026-06-24-openapi-contract-pipeline-design.md.
+
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'apps/backend/src/**'
-      - 'apps/backend/all-514-routes-clean.json'
+      - 'apps/backend/src/docs/openapi.json'
       - 'apps/admin/src/lib/api-types.generated.ts'
       - 'packages/vhhealth_core/**'
       - '.forgejo/workflows/openapi-client-drift.yml'
   push:
     branches: [main]
     paths:
-      - 'apps/backend/src/**'
-      - 'apps/backend/all-514-routes-clean.json'
+      - 'apps/backend/src/docs/openapi.json'
       - 'apps/admin/src/lib/api-types.generated.ts'
       - 'packages/vhhealth_core/**'
       - '.forgejo/workflows/openapi-client-drift.yml'
@@ -28,11 +35,10 @@ concurrency:
 
 jobs:
   openapi:
-    name: Backend spec + generated-client smoke
+    name: Backend spec well-formedness
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     env:
-      PUB_CACHE: /cache/vh-health-platform/pub
       npm_config_cache: /cache/vh-health-platform/npm
       npm_config_audit: 'false'
       npm_config_fund: 'false'
@@ -40,7 +46,6 @@ jobs:
       npm_config_progress: 'false'
       npm_config_production: 'false'
       NODE_ENV: development
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
         with:
@@ -52,87 +57,12 @@ jobs:
           cache: npm
           cache-dependency-path: |
             apps/backend/package-lock.json
-            apps/admin/package-lock.json
-
-      - uses: https://github.com/subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
 
       - name: Install backend dependencies
         timeout-minutes: 20
         run: |
           npm --prefix apps/backend ci --include=dev --no-audit --no-fund --prefer-offline --progress=false
 
-      - name: Install admin dependencies
-        timeout-minutes: 20
-        run: |
-          npm --prefix apps/admin ci --include=dev --no-audit --no-fund --prefer-offline --progress=false
-
-      - name: Prepare OpenAPI output directory
-        run: |
-          mkdir -p output/openapi
-
-      - name: Regenerate backend OpenAPI
+      - name: Lint canonical OpenAPI spec with Spectral
         working-directory: apps/backend
-        run: |
-          if [ -f all-514-routes-clean.json ]; then
-            npm run swagger:generate-complete
-          else
-            echo "::warning::apps/backend/all-514-routes-clean.json is not committed; validating committed swagger-complete.yaml instead of regenerating it."
-          fi
-          npm run swagger:validate
-          npx spectral lint src/docs/swagger-complete.yaml
-
-      - name: Report shared Dart spec-copy drift
-        run: |
-          if cmp -s apps/backend/src/docs/swagger-complete.yaml packages/vhhealth_core/swagger/api.yaml; then
-            echo "Shared Dart OpenAPI spec copy is synced." | tee output/openapi/spec-copy-status.txt
-          else
-            {
-              echo "packages/vhhealth_core/swagger/api.yaml is not synced with apps/backend/src/docs/swagger-complete.yaml"
-              echo "Current mode: warning only, because the existing Dart client migration is still in progress."
-              echo "Strict mode can be enabled after the generated client is deliberately refreshed."
-            } | tee output/openapi/spec-copy-status.txt
-          fi
-
-      - name: Generate Admin OpenAPI types artifact
-        working-directory: apps/admin
-        run: >
-          npx openapi-typescript
-          ../backend/src/docs/swagger-complete.yaml
-          -o ../../output/openapi/admin-openapi-types.generated.ts
-
-      - name: Smoke shared Dart OpenAPI client generation in temp workspace
-        run: |
-          tmp="$(mktemp -d)"
-          mkdir -p "$tmp/repo"
-          tar \
-            --exclude='./.git' \
-            --exclude='./apps/backend/node_modules' \
-            --exclude='./apps/admin/node_modules' \
-            --exclude='*/.dart_tool' \
-            --exclude='*/build' \
-            -cf - . | tar -xf - -C "$tmp/repo"
-          cd "$tmp/repo"
-          dart pub get
-          dart run melos bootstrap
-          cd packages/vhhealth_core
-          dart run build_runner build --delete-conflicting-outputs
-
-      - name: Fail on backend OpenAPI drift
-        run: |
-          git diff -- \
-            apps/backend/src/docs/swagger-complete.yaml \
-            apps/backend/src/docs/swagger-complete.json
-          git diff --exit-code -- \
-            apps/backend/src/docs/swagger-complete.yaml \
-            apps/backend/src/docs/swagger-complete.json
-
-      - name: Upload generated OpenAPI artifacts
-        if: always()
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
-        with:
-          name: openapi-generated-artifacts
-          path: output/openapi
-          if-no-files-found: ignore
+        run: npx spectral lint src/docs/openapi.json

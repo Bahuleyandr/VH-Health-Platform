@@ -28,7 +28,7 @@ snapshots and are labelled below.
 
 | Source | Purpose |
 | --- | --- |
-| [`../src/docs/swagger.yaml`](../src/docs/swagger.yaml) | Current API contract source; validate with `npm run swagger:validate`. |
+| [`../src/docs/openapi.json`](../src/docs/openapi.json) | Canonical API contract, generated from the live router (`npm run openapi:generate`) and drift-gated (`npm run openapi:check`). |
 | [`../src/migrations`](../src/migrations) | Raw SQL migrations. |
 | [`../prisma/migrations`](../prisma/migrations) | Prisma migrations. |
 
