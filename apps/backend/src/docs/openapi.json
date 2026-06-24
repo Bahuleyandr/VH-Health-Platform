@@ -43936,31 +43936,6 @@
             }
           }
         ]
-      },
-      "get": {
-        "operationId": "get_api_v1_notifications_by_id",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/v1/notifications/{id}/acknowledge": {
@@ -44008,33 +43983,6 @@
         "parameters": [
           {
             "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/{phone}/mark-all-read": {
-      "patch": {
-        "operationId": "patch_api_v1_notifications_by_phone_mark_all_read",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "phone",
             "in": "path",
             "required": true,
             "schema": {

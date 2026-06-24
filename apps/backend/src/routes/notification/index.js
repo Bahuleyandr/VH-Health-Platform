@@ -47,9 +47,9 @@ wrapRoutesWithValidation(
 // router which matches its own internal route definitions to find the final handler.
 wrapAutoRBAC(router, 'notificationRoutes', {
   get: [
-    // Get notifications by phone or user ID
+    // Self-service (JWT-derived) + authorized staff by user id. The legacy
+    // by-phone route was removed (PII-in-URL; collided with by-id).
     ['/my', notificationRoutes],
-    ['/:phone', notificationRoutes],
     ['/user/:user_id', notificationRoutes],
     ['/detail/:id', notificationRoutes],
     ['/detail/:id/events', notificationRoutes],
@@ -60,7 +60,6 @@ wrapAutoRBAC(router, 'notificationRoutes', {
     ['/my/mark-all-read', notificationRoutes],
     ['/:id/read', notificationRoutes],
     ['/:id/acknowledge', notificationRoutes],
-    ['/:phone/mark-all-read', notificationRoutes],
     ['/user/:user_id/read-all', notificationRoutes]
   ]
 });
