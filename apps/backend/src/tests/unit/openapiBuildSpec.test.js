@@ -1,6 +1,6 @@
 import {
   expressPathToOpenApi, joinPath, pathParamNames, operationId,
-  composeRoutes, buildOpenApiDocument,
+  composeRoutes, buildOpenApiDocument, pathSignature, findEquivalentPathCollisions,
 } from '../../../scripts/openapi/buildSpec.mjs';
 
 describe('openapi buildSpec helpers', () => {
@@ -59,5 +59,33 @@ describe('openapi buildSpec helpers', () => {
     ]);
     expect(doc.paths['/users/{id}'].get.responses['200'].content['application/json'].schema)
       .toEqual({ $ref: '#/components/schemas/Success' });
+  });
+
+  test('pathSignature strips param names', () => {
+    expect(pathSignature('/d/{id}')).toBe('/d/{}');
+    expect(pathSignature('/d/{deptId}/x/{y}')).toBe('/d/{}/x/{}');
+    expect(pathSignature('/d/plain')).toBe('/d/plain');
+  });
+
+  test('buildOpenApiDocument collapses param-equivalent paths to one canonical', () => {
+    const routes = [
+      { method: 'get', path: '/d/{id}' },
+      { method: 'post', path: '/d/{deptId}' },
+    ];
+    const doc = buildOpenApiDocument(routes, { paths: {} });
+    // '{deptId}' < '{id}' lexicographically -> canonical, union of methods
+    expect(Object.keys(doc.paths)).toEqual(['/d/{deptId}']);
+    expect(Object.keys(doc.paths['/d/{deptId}']).sort()).toEqual(['get', 'post']);
+  });
+
+  test('findEquivalentPathCollisions reports param-equivalent groups', () => {
+    const routes = [
+      { method: 'get', path: '/d/{id}' },
+      { method: 'get', path: '/d/{deptId}' },
+      { method: 'get', path: '/x' },
+    ];
+    expect(findEquivalentPathCollisions(routes)).toEqual([
+      { signature: '/d/{}', paths: ['/d/{deptId}', '/d/{id}'] },
+    ]);
   });
 });

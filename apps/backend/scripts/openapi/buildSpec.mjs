@@ -2,6 +2,11 @@
 // Pure, side-effect-free helpers: captured Express routes -> OpenAPI 3.0.3.
 // No app boot here — unit-testable in isolation. Deterministic output.
 
+// Locale-INDEPENDENT code-unit comparator. localeCompare() varies by the host
+// locale (e.g. '-' vs '_' ordering) which would make the spec — and therefore
+// the drift gate — flap between machines. Sort everything with this instead.
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 /** Convert Express path param syntax to OpenAPI: ':id'->'{id}', '*splat'->'{splat}'. */
 export function expressPathToOpenApi(p) {
   return String(p)
@@ -79,12 +84,47 @@ export function composeRoutes({ routerRoutes, edges, root }) {
     }
   };
   visit(root, '', 0);
-  out.sort((a, b) => (a.path === b.path ? a.method.localeCompare(b.method) : a.path.localeCompare(b.path)));
+  out.sort((a, b) => (a.path === b.path ? cmp(a.method, b.method) : cmp(a.path, b.path)));
   return out;
 }
 
-/** Build the full OpenAPI document: base + deterministically-sorted paths. */
+/** Path "template signature": param names removed, so two paths that differ
+ * only in param NAMES (e.g. /d/{id} vs /d/{deptId}) share a signature. */
+export function pathSignature(p) {
+  return p.replace(/\{[^}]+\}/g, '{}');
+}
+
+/** Find param-equivalent path groups (same signature, >1 distinct path). These
+ * routes shadow each other at the URL-template level — OpenAPI forbids keeping
+ * both, so buildOpenApiDocument collapses them; this reports them for follow-up. */
+export function findEquivalentPathCollisions(routes) {
+  const bySig = new Map();
+  for (const { path } of routes) {
+    const s = pathSignature(path);
+    if (!bySig.has(s)) bySig.set(s, new Set());
+    bySig.get(s).add(path);
+  }
+  const collisions = [];
+  for (const [signature, paths] of bySig) {
+    if (paths.size > 1) collisions.push({ signature, paths: [...paths].sort() });
+  }
+  return collisions.sort((a, b) => cmp(a.signature, b.signature));
+}
+
+/** Build the full OpenAPI document: base + deterministically-sorted paths.
+ * Param-equivalent paths are collapsed to one canonical path (lexicographically
+ * smallest) carrying the UNION of methods, so the document is valid OpenAPI. */
 export function buildOpenApiDocument(routes, base) {
+  // Group by template signature; pick the smallest path string as canonical.
+  const bySig = new Map(); // signature -> { canonical, methods:Set }
+  for (const { method, path } of routes) {
+    const s = pathSignature(path);
+    if (!bySig.has(s)) bySig.set(s, { canonical: path, methods: new Set() });
+    const e = bySig.get(s);
+    if (path < e.canonical) e.canonical = path;
+    e.methods.add(method);
+  }
+
   const usedIds = new Set();
   const uniqueOpId = (method, path) => {
     const baseId = operationId(method, path);
@@ -94,20 +134,16 @@ export function buildOpenApiDocument(routes, base) {
     usedIds.add(id);
     return id;
   };
-  // `routes` is pre-sorted by composeRoutes; iterate in that order so opId
-  // collision suffixes are deterministic.
-  const paths = {};
-  for (const { method, path } of routes) {
-    if (!paths[path]) paths[path] = {};
-    paths[path][method] = buildOperation(method, path, uniqueOpId(method, path));
-  }
-  // Re-key in sorted order (defensive determinism).
+
+  // Deterministic: iterate canonical paths sorted, methods sorted.
+  const entries = [...bySig.values()].sort((a, b) => cmp(a.canonical, b.canonical));
   const sortedPaths = {};
-  for (const p of Object.keys(paths).sort()) {
-    const methods = paths[p];
-    const sorted = {};
-    for (const m of Object.keys(methods).sort()) sorted[m] = methods[m];
-    sortedPaths[p] = sorted;
+  for (const { canonical, methods } of entries) {
+    const ops = {};
+    for (const method of [...methods].sort()) {
+      ops[method] = buildOperation(method, canonical, uniqueOpId(method, canonical));
+    }
+    sortedPaths[canonical] = ops;
   }
   return { ...base, paths: sortedPaths };
 }
