@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import * as money from '../../../scripts/openapi/schemas/money.mjs';
+import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const spec = JSON.parse(readFileSync(resolve(__dirname, '../../docs/openapi.json'), 'utf8'));
@@ -32,7 +33,7 @@ describe('OpenAPI money contract overlay (static gate)', () => {
   it('every components.schemas entry compiles under ajv (valid + resolvable $refs)', () => {
     const ajv = new Ajv({ strict: false, allErrors: true });
     addFormats(ajv);
-    ajv.addSchema(spec, 'openapi.json');
+    ajv.addSchema(ajvReadySpec(spec), 'openapi.json');
     for (const name of Object.keys(spec.components.schemas)) {
       expect(ajv.getSchema(`openapi.json#/components/schemas/${name}`)).toBeTruthy();
     }

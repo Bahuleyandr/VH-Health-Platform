@@ -15,6 +15,22 @@ export function envelope(payloadSchemaName) {
   };
 }
 
+/** List response envelope: `data` is an array of $ref(item); pagination (when
+ * present) lives in the envelope `meta` (this codebase's success(res,data,…,meta)
+ * convention), typed loosely so the exact meta shape can't break the contract. */
+export function listEnvelope(itemSchemaName) {
+  return {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: { type: 'array', items: { $ref: `#/components/schemas/${itemSchemaName}` } },
+      meta: { type: 'object', additionalProperties: true },
+    },
+  };
+}
+
 /** Paginated response envelope: data.items[] of $ref(item) + data.pagination. */
 export function paginatedEnvelope(itemSchemaName) {
   return {

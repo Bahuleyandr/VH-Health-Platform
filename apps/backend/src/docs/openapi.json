@@ -252,6 +252,73 @@
           }
         }
       },
+      "CreateInvoiceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient_uid",
+          "type",
+          "items",
+          "subtotal",
+          "total_amount"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "consultation",
+              "investigation",
+              "pharmacy",
+              "procedure",
+              "room_charge"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "subtotal": {
+            "type": "number"
+          },
+          "tax_amount": {
+            "type": "number"
+          },
+          "discount_amount": {
+            "type": "number"
+          },
+          "total_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "card",
+              "upi",
+              "insurance",
+              "cheque"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
       "DailyCollection": {
         "type": "object",
         "additionalProperties": false,
@@ -342,6 +409,1020 @@
           }
         }
       },
+      "EnhancementClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enhancement_amount"
+        ],
+        "properties": {
+          "enhancement_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "justification": {
+            "type": "string"
+          },
+          "clinical_justification": {}
+        }
+      },
+      "InsuranceClaim": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "status",
+          "submitted_at",
+          "created_at",
+          "updated_at",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "string"
+          },
+          "approved_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "non_payable_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "disallowed_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent_claim_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "under_review",
+              "approved",
+              "partially_approved",
+              "rejected",
+              "paid",
+              "settled_partial",
+              "settled_full"
+            ]
+          },
+          "documents": {
+            "nullable": true
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InsuranceClaimListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "status",
+          "submitted_at",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "string"
+          },
+          "approved_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InsuranceClaimResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InsuranceClaim"
+          }
+        }
+      },
+      "InsuranceClaimSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "status",
+          "submitted_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string",
+            "example": "CLM-202606-0001"
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "string",
+            "example": "5000.00"
+          },
+          "approved_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InsuranceClaimsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InsuranceClaimListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Invoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "type",
+          "items",
+          "subtotal",
+          "tax_amount",
+          "discount_amount",
+          "total_amount",
+          "paid_amount",
+          "payment_status",
+          "issued_at",
+          "created_at",
+          "updated_at",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "example": "INV-202606-0001"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "consultation",
+              "investigation",
+              "pharmacy",
+              "procedure",
+              "room_charge"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "subtotal": {
+            "type": "string",
+            "example": "1000.00"
+          },
+          "tax_amount": {
+            "type": "string",
+            "example": "180.00"
+          },
+          "discount_amount": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "total_amount": {
+            "type": "string",
+            "example": "1180.00"
+          },
+          "paid_amount": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "payment_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "partial",
+              "paid",
+              "refunded",
+              "written_off"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "cash",
+              "card",
+              "upi",
+              "insurance",
+              "cheque"
+            ]
+          },
+          "insurance_claim_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "issued_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InvoiceDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "type",
+          "total_amount",
+          "payment_status",
+          "payment_transactions"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "type": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "tax_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "paid_amount": {
+            "type": "string"
+          },
+          "payment_status": {
+            "type": "string"
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "insurance_claim_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "issued_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payment_transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentTransaction"
+            }
+          },
+          "insurance_claim": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InsuranceClaimSummary"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceDetail"
+          }
+        }
+      },
+      "InvoiceListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "type",
+          "subtotal",
+          "tax_amount",
+          "discount_amount",
+          "total_amount",
+          "paid_amount",
+          "payment_status",
+          "issued_at",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "tax_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "paid_amount": {
+            "type": "string"
+          },
+          "payment_status": {
+            "type": "string"
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InvoiceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Invoice"
+          }
+        }
+      },
+      "PatientInvoicesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PaymentInvoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "total_amount",
+          "paid_amount",
+          "payment_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "paid_amount": {
+            "type": "string"
+          },
+          "payment_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "partial",
+              "paid",
+              "refunded",
+              "written_off"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PaymentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice",
+          "transaction"
+        ],
+        "properties": {
+          "invoice": {
+            "$ref": "#/components/schemas/PaymentInvoice"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/PaymentTransaction"
+          }
+        }
+      },
+      "PaymentResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentResult"
+          }
+        }
+      },
+      "PaymentTransaction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "amount",
+          "payment_method",
+          "status",
+          "created_at",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string",
+            "example": "500.00"
+          },
+          "payment_method": {
+            "type": "string"
+          },
+          "transaction_ref": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "example": "completed"
+          },
+          "processed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "RecordPaymentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "amount",
+          "payment_method"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "CARD",
+              "UPI",
+              "INSURANCE",
+              "CHEQUE"
+            ]
+          },
+          "transaction_ref": {
+            "type": "string",
+            "maxLength": 255
+          }
+        }
+      },
+      "RevenueByPaymentMethod": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payment_method",
+          "transaction_count"
+        ],
+        "properties": {
+          "payment_method": {
+            "type": "string"
+          },
+          "transaction_count": {
+            "type": "integer"
+          },
+          "total_amount": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RevenueByType": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "invoice_count",
+          "outstanding"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "invoice_count": {
+            "type": "integer"
+          },
+          "total_billed": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_collected": {
+            "type": "string",
+            "nullable": true
+          },
+          "outstanding": {
+            "type": "string"
+          }
+        }
+      },
+      "RevenueDailyTotal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "invoice_count"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-06-24"
+          },
+          "invoice_count": {
+            "type": "integer"
+          },
+          "billed": {
+            "type": "string",
+            "nullable": true
+          },
+          "collected": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RevenueStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "by_type",
+          "by_payment_method",
+          "daily_totals"
+        ],
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/RevenueSummary"
+          },
+          "by_type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueByType"
+            }
+          },
+          "by_payment_method": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueByPaymentMethod"
+            }
+          },
+          "daily_totals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueDailyTotal"
+            }
+          }
+        }
+      },
+      "RevenueStatsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RevenueStats"
+          }
+        }
+      },
+      "RevenueSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total_invoices",
+          "total_outstanding",
+          "paid_count",
+          "pending_count",
+          "partial_count"
+        ],
+        "properties": {
+          "total_invoices": {
+            "type": "integer"
+          },
+          "total_billed": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_collected": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_outstanding": {
+            "type": "string"
+          },
+          "total_discounts": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_taxes": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_count": {
+            "type": "integer"
+          },
+          "pending_count": {
+            "type": "integer"
+          },
+          "partial_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "SubmitClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "claim_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "documents": {}
+        }
+      },
       "TrialBalance": {
         "type": "object",
         "additionalProperties": false,
@@ -417,6 +1498,47 @@
           },
           "data": {
             "$ref": "#/components/schemas/TrialBalance"
+          }
+        }
+      },
+      "UpdateClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "under_review",
+              "approved",
+              "partially_approved",
+              "rejected",
+              "paid",
+              "settled_partial",
+              "settled_full"
+            ]
+          },
+          "approved_amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "rejection_reason": {
+            "type": "string"
+          },
+          "documents": {},
+          "payment_reference": {
+            "type": "string"
+          },
+          "non_payable_amount": {
+            "type": "number"
+          },
+          "disallowed_reason": {
+            "type": "string"
           }
         }
       }
@@ -19994,8 +21116,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InsuranceClaimResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitClaimRequest"
               }
             }
           }
@@ -20011,7 +21143,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InsuranceClaimResponse"
                 }
               }
             }
@@ -20026,7 +21158,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateClaimRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/insurance/claim/{id}/enhancement": {
@@ -20053,7 +21195,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnhancementClaimRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/insurance/claims": {
@@ -20065,7 +21217,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InsuranceClaimsResponse"
                 }
               }
             }
@@ -20082,8 +21234,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceRequest"
               }
             }
           }
@@ -20099,7 +21261,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceDetailResponse"
                 }
               }
             }
@@ -20126,7 +21288,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentResultResponse"
                 }
               }
             }
@@ -20141,7 +21303,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPaymentRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/invoices/patient/{patientUid}": {
@@ -20153,7 +21325,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientInvoicesResponse"
                 }
               }
             }
@@ -20180,7 +21352,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RevenueStatsResponse"
                 }
               }
             }
