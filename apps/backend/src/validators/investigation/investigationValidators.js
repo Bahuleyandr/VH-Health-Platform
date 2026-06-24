@@ -47,11 +47,11 @@ export const investigationRequestValidator = [
 ];
 
 export const idValidator = [
-  param('id').isInt({ min: 1 }).withMessage('Valid ID required')
+  param('id').isInt({ min: 1, max: 2147483647 }).withMessage('Valid ID required')
 ];
 
 export const updateStatusValidator = [
-  param('id').isInt({ min: 1 }).withMessage('Valid ID required'),
+  param('id').isInt({ min: 1, max: 2147483647 }).withMessage('Valid ID required'),
   body('status')
     .customSanitizer((v) => v?.toString().trim().toUpperCase())
     .isIn(Object.values(INVESTIGATION_STATUS))
@@ -60,7 +60,7 @@ export const updateStatusValidator = [
 ];
 
 export const addResultsValidator = [
-  param('id').isInt({ min: 1 }).withMessage('Valid ID required'),
+  param('id').isInt({ min: 1, max: 2147483647 }).withMessage('Valid ID required'),
   body('results').notEmpty().withMessage('Results are required'),
   body('interpretation').optional().trim().isLength({ max: 2000 }).withMessage('Interpretation too long'),
   body('technician_notes').optional().trim().isLength({ max: 1000 }).withMessage('Technician notes too long'),

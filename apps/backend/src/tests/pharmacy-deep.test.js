@@ -215,22 +215,6 @@ describe('Pharmacy order lifecycle — deep integration', () => {
     });
   });
 
-  describe('getOrdersByPhone', () => {
-    it('returns orders for the patient with canonical columns', async () => {
-      const res = await admin.get(`/api/v1/pharmacy-orders/orders/${RAW_PHONE}`);
-      expect(res.statusCode).toBe(200);
-      const orders = res.body.data.orders;
-      expect(orders.length).toBeGreaterThanOrEqual(3);
-      for (const o of orders) {
-        expect(o.phone).toBe(PATIENT_PHONE);
-        expect(Object.values(ORDER_STATUS)).toContain(o.status);
-        expect(['normal', 'urgent']).toContain(o.priority);
-      }
-    });
-
-    it('enforces IDOR — patient cannot query another phone', async () => {
-      const res = await patient.get('/api/v1/pharmacy-orders/orders/9999999999');
-      expect(res.statusCode).toBe(403);
-    });
-  });
+  // getOrdersByPhone (GET /orders/:phone) was removed — phone-in-URL PHI, no
+  // live caller. Patient order lookup is GET /orders/my + GET /orders/uid/:uid.
 });

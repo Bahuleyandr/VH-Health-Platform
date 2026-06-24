@@ -148,7 +148,7 @@ export const getAvailableDepartments = async (req, res) => {
 
 export const getDepartmentDetails = async (req, res) => {
   try {
-    const { identifier } = req.params;
+    const { departmentId: identifier } = req.params;
     const department = await departmentService.getDepartmentById(identifier);
     
     if (!department) {
@@ -199,7 +199,7 @@ export const updateDepartment = async (req, res) => {
       return error(res, DEPARTMENT_MESSAGES.INSUFFICIENT_PERMISSIONS, HTTP_STATUS.FORBIDDEN);
     }
     
-    const { id } = req.params;
+    const { departmentId: id } = req.params;
     const department = await departmentService.updateDepartment(id, req.body, req.user?.id);
     
     if (!department) {

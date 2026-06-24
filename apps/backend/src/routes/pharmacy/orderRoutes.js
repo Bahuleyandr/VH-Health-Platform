@@ -7,12 +7,10 @@ import * as pharmacyVerificationController from '../../controllers/pharmacy/phar
 import { sanitizePharmacyFields } from '../../middleware/sanitizeMiddleware.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
-import { 
+import {
   placeOrderValidation,
   updateOrderStatusValidation,
-  getOrdersValidation,
-  phoneParamValidation,
-  uidParamValidation 
+  uidParamValidation
 } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();
@@ -38,28 +36,10 @@ wrapAutoRBAC(router, 'pharmacyPatientOrderRoutes', {
   ]
 });
 
-// Stage-4-C — GET /:id was previously shadowed by the legacy
-// GET /:phone block below, so any integer path segment was
-// misinterpreted as a phone number and returned {orders:[], phone:"5"}
-// instead of the order. We can't use Express-style :id(\d+) in path
-// strings under Express 5 / path-to-regexp v8, so we register /:id in
-// the lifecycle block (declared before /:phone) and guard the handler:
-// if the param isn't a plain integer (or LOOKS like a phone — 10+
-// digits) it calls next('route') to fall through to the legacy
-// /:phone matcher, preserving back-compat for patient-app callers
-// still using phone-keyed lookups. Phone numbers in India are exactly
-// 10 digits; pharmacy_orders.id is SERIAL — even at hospital scale we
-// won't hit 9 digits (one billion orders), so the cutoff cleanly
-// separates the two namespaces.
-// Findings:
-//   2026-05-09-walk-in-opd-pharmacy-order-route-shadowed
-//   pharmacy-deep.test.js getOrdersByPhone — 9000040001 was being
-//   matched as an order id under the original digits-only guard.
-function orderIdGuard(req, res, next) {
-  const param = req.params.id || '';
-  if (!/^\d{1,9}$/.test(param)) return next('route');
-  next();
-}
+// The legacy phone-keyed lookup (GET /:phone) was removed (phone-in-URL PHI;
+// no live caller — patient app uses /orders/my + /orders/uid/:uid), so the
+// digit-count orderIdGuard that existed only to fall through to it is gone too.
+// GET /:id now handles every single-segment id directly.
 
 // Pharmacist lifecycle actions
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
@@ -68,7 +48,7 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     // a staff queue alias rather than falling through to the legacy :phone route.
     ['/', [], pharmacyOrderController.getOrderQueue],
     ['/:id/detail', [], pharmacyOrderController.getOrderDetail],
-    ['/:id', [orderIdGuard], pharmacyOrderController.getOrderDetail],
+    ['/:id', [], pharmacyOrderController.getOrderDetail],
     // Dispense label / receipt for printing or in-app display. Available
     // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
     ['/:id/label', [], pharmacyOrderController.getDispenseLabel],
@@ -101,8 +81,7 @@ wrapAutoRBAC(router, 'pharmacyOrderRoutes', {
   ],
   
   get: [
-    ['/uid/:uid', uidParamValidation, orderController.getOrdersByUID],
-    ['/:phone', phoneParamValidation, getOrdersValidation, orderController.getOrdersByPhone]
+    ['/uid/:uid', uidParamValidation, orderController.getOrdersByUID]
   ]
 });
 

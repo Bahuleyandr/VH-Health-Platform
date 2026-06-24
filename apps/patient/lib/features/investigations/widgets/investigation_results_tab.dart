@@ -8,7 +8,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -29,7 +28,6 @@ class InvestigationResultsTab extends StatefulWidget {
 
 class InvestigationResultsTabState extends State<InvestigationResultsTab>
     with AutomaticKeepAliveClientMixin {
-  static final _secureStorage = VHSecureStorage.instance;
 
   List<dynamic> _investigations = [];
   bool _isLoadingResults = true;
@@ -40,7 +38,6 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
   final Set<String> _expandedIds = {};
   final Set<String> _loadingFiles = {};
 
-  String? _patientId;
   late final bool _isGuest;
   late final String _phone;
 
@@ -53,7 +50,7 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
     _phone = context.read<UserProvider>().phone;
     _isGuest = _phone.toLowerCase() == 'guest' || _phone.trim().isEmpty;
     if (!_isGuest) {
-      _loadPatientIdAndFetch();
+      _fetchInvestigations();
     } else {
       _isLoadingResults = false;
     }
@@ -63,10 +60,6 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
   /// after a new upload on the Upload tab.
   void refresh() => _fetchInvestigations();
 
-  Future<void> _loadPatientIdAndFetch() async {
-    _patientId = await _secureStorage.read(key: 'user_id');
-    _fetchInvestigations();
-  }
 
   Future<void> _fetchInvestigations() async {
     if (!mounted) return;
@@ -75,10 +68,9 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
       _resultsError = null;
     });
 
-    // Prefer patient_id-based fetch; fall back to phone-based
-    final path = _patientId != null
-        ? '/investigations/patient/$_patientId'
-        : '/investigations/$_phone';
+    // Self-service: the backend derives the patient from the JWT — no
+    // patient_id or phone in the URL.
+    const path = '/investigations/my';
 
     try {
       final response = await ApiClient.get(path);

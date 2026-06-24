@@ -24,7 +24,7 @@ const guardProfileCreate = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROF
   allowNoTarget: true,
 });
 const guardProfileUpdate = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROFILE_WRITE, {
-  targetParam: 'id',
+  targetParam: 'identifier',
   requireTarget: true,
 });
 
@@ -43,7 +43,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
   ],
   
   put: [
-    ['/:id', updateStaffValidation, guardProfileUpdate, staffController.updateStaffProfile]
+    ['/:identifier', updateStaffValidation, guardProfileUpdate, staffController.updateStaffProfile]
   ]
 });
 

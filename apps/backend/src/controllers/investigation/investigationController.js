@@ -1,5 +1,5 @@
 import { PAGINATION, INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
@@ -7,7 +7,6 @@ import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js
 import { AppError } from '../../utils/AppError.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // List investigations with filtering
@@ -82,6 +81,14 @@ export const getInvestigationById = async (req, res) => {
     const { id } = req.params;
     const userRole = req.user?.role?.toUpperCase();
     const userId = req.user?.uid;
+
+    // An id outside int4 range (e.g. a phone-shaped path segment, now that the
+    // legacy GET /:phone route is gone) can never match a SERIAL id — return
+    // 404 instead of letting the DB raise a 22003 out-of-range 500.
+    const idNum = Number(id);
+    if (!Number.isInteger(idNum) || idNum < 1 || idNum > 2147483647) {
+      return error(res, 'Investigation not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     const investigation = await investigationService.getInvestigationById(
       id,
@@ -382,78 +389,12 @@ export const addInvestigationResults = async (req, res) => {
   }
 };
 
-// Legacy: Get investigations by phone
-export const getInvestigationsByPhone = async (req, res) => {
-  try {
-    const phone = normalizePhone(req.params.phone);
-    const userRole = req.user?.role?.toUpperCase();
-    const requestedBy = req.user?.uid;
-    
-    // Access control FIRST
-    if (userRole === 'PATIENT') {
-      const userResult = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1', req.user.uid);
-      if (userResult.length === 0 || userResult[0].phone !== phone) {
-        return error(res, 'Access denied: Cannot view other patient records', 403);
-      }
-    }
-    
-    // Pagination
-    const { page, limit, offset } = parseListQuery(req.query, {
-      defaultLimit: 20,
-      maxLimit: 100,
-      defaultSortBy: 'created_at',
-    });
-
-    // Get paginated results
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT i.id, i.uid, i.phone,
-        p.name AS patient_name,
-        d.name AS requested_by_name,
-        d.role AS requested_by_role,
-        CASE WHEN doc.id IS NOT NULL THEN d.name ELSE NULL END AS doctor_name,
-        doc.id AS doctor_id,
-        i.test_name,
-        i.investigation_type AS test_category,
-        i.status, i.priority, i.notes, i.result_summary,
-        NULL::text AS lab_name,
-        i.collected_at AS sample_collected_at,
-        i.sample_barcode,
-        i.result_uploaded_at AS report_ready_at,
-        i.created_at, i.updated_at
-       FROM investigations i
-       LEFT JOIN users p ON i.patient_id = p.id
-       LEFT JOIN users d ON i.requested_by = d.uid
-       LEFT JOIN doctors doc ON d.id = doc.user_id
-       WHERE i.phone = $1
-       ORDER BY i.created_at DESC
-       LIMIT $2 OFFSET $3`, phone, limit, offset);
-
-    // Get total count for pagination
-    const countResult = await prisma.$queryRawUnsafe(
-      'SELECT COUNT(*) FROM investigations WHERE phone = $1',
-      phone
-    );
-    
-    const totalInvestigations = parseInt(countResult[0].count);
-    const pagination = buildPagination(totalInvestigations, page, limit);
-    
-    await logAudit(req, 'investigations-phone-lookup', { 
-      phone, 
-      count: result.length,
-      page,
-      limit 
-    });
-    
-    success(res, {
-      investigations: result,
-      pagination,
-      requestedBy
-    }, 'Investigations fetched successfully');
-    
-  } catch (err) {
-    logger.error('Get by Phone Error:', err);
-    error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-  }
+// GET /investigations/my — the caller's own investigations, with the patient
+// derived from the JWT (no phone / patient_id / uid in the URL). Delegates to
+// the by-UID handler with the authenticated uid.
+export const getMyInvestigations = async (req, res) => {
+  req.params = { ...req.params, uid: req.user?.uid };
+  return getInvestigationsByUID(req, res);
 };
 
 // Legacy: Get investigations by UID

@@ -274,8 +274,8 @@ export const API_ENDPOINTS = {
   departments: {
     list: "/api/v1/departments", // GET
     create: "/api/v1/departments/create", // POST
-    byId: "/api/v1/departments/:identifier", // GET
-    update: "/api/v1/departments/:id", // PUT
+    byId: "/api/v1/departments/:departmentId", // GET
+    update: "/api/v1/departments/:departmentId", // PUT
     delete: "/api/v1/departments/:departmentId", // DELETE
     deactivate: "/api/v1/departments/:id/deactivate", // PUT
 
@@ -350,11 +350,11 @@ export const API_ENDPOINTS = {
 
   // Notifications
   notifications: {
-    list: "/api/v1/notifications/:phone", // GET
+    list: "/api/v1/notifications/my", // GET
     byUserId: "/api/v1/notifications/user/:user_id", // GET
     detail: "/api/v1/notifications/detail/:id", // GET
     markRead: "/api/v1/notifications/:id/read", // PATCH
-    markAllRead: "/api/v1/notifications/:phone/mark-all-read", // PATCH
+    markAllRead: "/api/v1/notifications/my/mark-all-read", // PATCH
     markAllReadByUser: "/api/v1/notifications/user/:user_id/read-all", // PATCH
 
     // Admin

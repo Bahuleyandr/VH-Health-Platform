@@ -58,7 +58,7 @@ export const createDepartmentValidation = [
 ];
 
 export const updateDepartmentValidation = [
-  param('id')
+  param('departmentId')
     .isInt({ min: 1 })
     .withMessage(DEPARTMENT_MESSAGES.INVALID_DEPARTMENT_ID),
   
@@ -85,7 +85,7 @@ export const updateDepartmentValidation = [
 ];
 
 export const getDepartmentByIdValidation = [
-  param('identifier')
+  param('departmentId')
     .trim()
     .notEmpty()
     .withMessage('Department ID or name is required'),

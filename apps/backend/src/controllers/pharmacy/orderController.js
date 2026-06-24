@@ -55,37 +55,6 @@ export const placeOrder = async (req, res) => {
   }
 };
 
-// Get orders by phone
-export const getOrdersByPhone = async (req, res) => {
-  try {
-    const phone = normalizePhone(req.params.phone);
-    const { status, limit = 50, offset = 0 } = req.query;
-    const requestedBy = req.user?.uid || 'anonymous';
-    const userRole = req.user?.role;
-    const userPhone = req.user?.phone;
-
-    // Check access permissions
-    if (userRole === 'PATIENT' && userPhone && normalizePhone(userPhone) !== phone) {
-      return error(res, 'Access denied: You can only view your own orders', HTTP_STATUS.FORBIDDEN);
-    }
-
-    const result = await orderService.getOrdersByPhone(phone, {
-      status,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-
-    success(res, {
-      ...result,
-      requestedBy,
-      phone
-    }, 'Pharmacy orders fetched successfully');
-  } catch (err) {
-    logger.error('Get Orders Error:', err);
-    error(res, RESPONSE_MESSAGES.DATABASE_ERROR, HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
 // Get orders by UID
 export const getOrdersByUID = async (req, res) => {
   try {

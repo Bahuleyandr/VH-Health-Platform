@@ -30,7 +30,7 @@ export const staffProfileValidation = [
 ];
 
 export const updateStaffValidation = [
-  param('id').notEmpty().withMessage('Staff identifier required'),
+  param('identifier').notEmpty().withMessage('Staff identifier required'),
   body('position').optional().isLength({ min: 1 }).withMessage('Valid position required'),
   body('department').optional().isLength({ min: 1 }).withMessage('Valid department required'),
   body('shift').optional().isIn(Object.keys(SHIFT_TYPES)).withMessage('Valid shift required'),
