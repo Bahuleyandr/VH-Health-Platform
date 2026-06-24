@@ -66,3 +66,7 @@ jobs:
       - name: Lint canonical OpenAPI spec with Spectral
         working-directory: apps/backend
         run: npx spectral lint src/docs/openapi.json
+
+      - name: vhhealth_core spec-copy sync check
+        working-directory: apps/backend
+        run: node scripts/check-core-spec-sync.mjs
