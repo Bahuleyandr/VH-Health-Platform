@@ -466,6 +466,19 @@ describe('Investigation order workflow — deep integration', () => {
       expect(doctorOrder.booking_number).toBe(`ORDER-${order.body.data.investigation.id}`);
       expect(doctorOrder.collection_location).toBe('Main Laboratory Sample Collection');
     });
+
+    it('GET /investigations/my resolves the patient from the JWT (no id/phone in URL)', async () => {
+      const patient = patientAs(patientIntId);
+      const res = await patient.get('/api/v1/investigations/my');
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body.data.investigations)).toBe(true);
+    });
+
+    it('legacy GET /investigations/:phone is removed (phone-shaped path no longer lists by phone)', async () => {
+      const patient = patientAs(patientIntId);
+      const res = await patient.get(`/api/v1/investigations/${RAW_PHONE}`);
+      expect(res.statusCode).toBe(404);
+    });
   });
 
   describe('legacyInvestigationRequest', () => {

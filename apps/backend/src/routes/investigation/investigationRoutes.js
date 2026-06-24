@@ -42,6 +42,8 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     ['/bookings/sla', bookingController.getBookingSLADashboard],
     ['/bookings/:id', bookingController.getBookingDetail],
 
+    // Self-service: caller's own investigations, patient derived from the JWT.
+    ['/my', investigationController.getMyInvestigations],
     ['/patient/:patient_id', patientIdValidator, investigationController.getPatientInvestigations],
     ['/doctor/:doctor_id', doctorIdValidator, investigationController.getDoctorInvestigations],
     ['/type/:type', typeValidator, investigationController.getInvestigationsByType],
@@ -49,10 +51,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     ['/:id/files', uploadController.getFiles],
     ['/:id/files/:fileId', uploadController.getFileInfo],
     ['/:id/files/:fileId/download', uploadController.downloadFile],
-    ['/:id', idValidator, investigationController.getInvestigationById],
-    
-    // Legacy routes (parameterized — must be last)
-    ['/:phone', investigationController.getInvestigationsByPhone]
+    ['/:id', idValidator, investigationController.getInvestigationById]
   ],
   
   post: [
