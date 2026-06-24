@@ -62,6 +62,14 @@ pre-push:
           echo "lefthook pre-push: no backend changes — skipping backend lint"
         fi
 
+    openapi-drift:
+      run: |
+        if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^apps/backend/(src/routes/|src/app\.js)'; then
+          (cd apps/backend && node scripts/check-openapi-drift.mjs)
+        else
+          echo "lefthook pre-push: no backend route changes — skipping openapi drift"
+        fi
+
     admin-jest:
       run: |
         if git diff --name-only @{u}..HEAD 2>/dev/null | grep -q '^apps/admin/'; then

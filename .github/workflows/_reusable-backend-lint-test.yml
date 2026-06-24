@@ -79,14 +79,14 @@ jobs:
 
       - run: npm run lint
 
-      - name: Validate Swagger structure
-        run: npm run swagger:validate
-
       - name: Lint OpenAPI with Spectral
-        run: npx spectral lint src/docs/swagger-complete.yaml
+        run: npx spectral lint src/docs/openapi.json
 
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: OpenAPI drift check (regenerate live-router spec + diff)
+        run: node scripts/check-openapi-drift.mjs
 
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
