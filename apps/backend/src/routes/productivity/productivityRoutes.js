@@ -64,7 +64,7 @@ router.get('/phrases', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/phrases/:code', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/phrases/by-code/:code', requireStaffOrAdmin, wrap(async (req) =>
   phrases.lookup({
     tenantId: tenantOf(req),
     owner_uid: req.user?.uid,
