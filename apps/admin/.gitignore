@@ -56,3 +56,7 @@ next-env.d.ts
 /playwright-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# OpenAPI-typescript output — regenerated from the canonical spec; not committed
+# (path-only until Phase 5 attaches payload schemas; no consumer yet).
+/src/lib/openapi.generated.ts

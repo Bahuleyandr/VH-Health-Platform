@@ -73,16 +73,15 @@ export const API_ENDPOINTS = {
     },
 
     // OTP (test/secondary)
-    generateOtp: "/api/v1/auth/generate-test-otp", // POST
-    verifyOtp: "/api/v1/auth/verify-test-otp", // POST
+    generateOtp: "/api/v1/auth/otp/request-otp", // POST
+    verifyOtp: "/api/v1/auth/otp/verify-otp", // POST
     stats: "/api/v1/auth/stats", // GET
 
     // Admin management (if present)
     adminManagement: "/api/v1/auth/admin/list", // GET list of admins (protected)
 
-    // Tokens & verification
+    // Tokens
     refreshToken: "/api/v1/auth/refresh-token", // POST
-    verify: "/api/v1/verify", // GET
   },
 
   // Staff self-service endpoints
@@ -242,7 +241,7 @@ export const API_ENDPOINTS = {
     reactivate: "/api/v1/users/admin/reactivate/:userId", // POST
 
     // Search & lookup
-    search: "/api/v1/staff/search", // GET
+    search: "/api/v1/users/search", // GET
     activity: "/api/v1/users/lookup/activity", // GET
     advancedSearch: "/api/v1/users/lookup/advanced", // GET
     bulkSearch: "/api/v1/users/lookup/bulk-search", // POST
@@ -257,7 +256,7 @@ export const API_ENDPOINTS = {
     updateProfile: "/api/v1/doctors/admin/:id/profile", // PUT
     availability: "/api/v1/doctors/admin/:id/availability", // PUT
     byDepartment: "/api/v1/doctors/department/:department", // GET
-    workloadAnalysis: "/api/v1/doctors/workload-analysis", // GET
+    workloadAnalysis: "/api/v1/doctors/admin/workload-analysis", // GET
     deactivate: "/api/v1/doctors/:id/deactivate", // DELETE
     deleteAccount: "/api/v1/doctors/admin/:id/account", // DELETE
 
@@ -281,18 +280,18 @@ export const API_ENDPOINTS = {
 
     withDoctors: "/api/v1/departments/departments-with-doctors", // GET
     availableNow: "/api/v1/departments/available/now", // GET
-    manage: "/api/v1/departments/manage", // GET
-    overview: "/api/v1/departments/overview", // GET
+    manage: "/api/v1/departments/admin/manage", // GET
+    overview: "/api/v1/departments/admin/overview", // GET
 
     // Analytics & Reports
-    stats: "/api/v1/departments/:id/stats", // GET
-    analytics: "/api/v1/departments/:id/analytics", // GET
-    performance: "/api/v1/departments/:id/performance", // GET
-    trends: "/api/v1/departments/:id/trends", // GET
-    comparison: "/api/v1/departments/comparison", // GET
+    stats: "/api/v1/departments/stats/:id/stats", // GET
+    analytics: "/api/v1/departments/stats/:id/analytics", // GET
+    performance: "/api/v1/departments/stats/:id/performance", // GET
+    trends: "/api/v1/departments/stats/:id/trends", // GET
+    comparison: "/api/v1/departments/stats/comparison", // GET
 
     // Admin ops
-    bulkOperations: "/api/v1/departments/bulk-operations", // POST
+    bulkOperations: "/api/v1/departments/admin/bulk-operations", // POST
     exportCsv: "/api/v1/departments/admin/export/csv", // GET
     exportReport: "/api/v1/departments/admin/:id/export/report", // GET
     recentActivities: "/api/v1/departments/admin/activities/recent", // GET
@@ -342,10 +341,6 @@ export const API_ENDPOINTS = {
     orders:      "/api/v1/pharmacy-orders/orders/queue", // GET
     sla:         "/api/v1/pharmacy-orders/orders/sla",  // GET
     inventory:   "/api/v1/pharmacy-orders/inventory",  // GET
-    medications: {
-      staff: "/api/v1/pharmacy-orders/medications/staff", // GET/PUT
-      admin: "/api/v1/pharmacy-orders/medications/admin", // POST/PUT/DELETE
-    },
   },
 
   // Notifications
@@ -374,7 +369,7 @@ export const API_ENDPOINTS = {
 
   // Medical Records
   records: {
-    list: "/api/v1/records", // GET/POST
+    list: "/api/v1/records/records", // GET/POST
     byId: "/api/v1/records/:id", // GET/PUT
     byPhone: "/api/v1/records/health-records/:phone", // GET
     create: "/api/v1/records/health-records", // POST
@@ -389,13 +384,10 @@ export const API_ENDPOINTS = {
 
   // Staff
   staff: {
-    search: "/api/v1/staff/search", // GET
+    search: "/api/v1/staff/admin/search", // GET
     attendance: "/api/v1/staff/attendance", // GET
     rollCall: "/api/v1/staff/roll-call", // GET
 
-    staffRoutes: "/api/v1/staff/routes", // GET/POST/PUT (protected)
-    attendanceRoutes: "/api/v1/staff/attendance/routes", // GET/POST (protected)
-    hrRoutes: "/api/v1/staff/hr/routes", // GET/POST/PUT (protected)
     medicalRoutes: "/api/v1/staff/medical/investigations", // POST (protected)
     medical: {
       consultations: "/api/v1/staff/medical/consultations", // POST
@@ -419,7 +411,6 @@ export const API_ENDPOINTS = {
 
   // Investigations
   investigations: {
-    routes: "/api/v1/investigations/routes", // GET/POST/PUT/DELETE (protected)
     list: "/api/v1/investigations/list",
     catalog: "/api/v1/investigations/catalog",
     slaDashboard: "/api/v1/investigations/sla-dashboard",
@@ -439,13 +430,6 @@ export const API_ENDPOINTS = {
     verifyAbha: "/api/v1/abdm/verify-abha", // POST
   },
 
-  // SOS/Emergency
-  sos: {
-    routes: "/api/v1/sos/routes", // GET/POST (protected)
-    adminRoutes: "/api/v1/sos/admin/routes", // GET/POST (protected)
-    emergencyRoutes: "/api/v1/sos/emergency/routes", // GET/POST (protected)
-  },
-
   // Analytics (general) — mounted under /api/v1/admin/analytics
   analytics: {
     dashboard: "/api/v1/admin/analytics/dashboard", // GET
@@ -454,15 +438,14 @@ export const API_ENDPOINTS = {
     departmentUtilization: "/api/v1/admin/analytics/departments", // GET
     satisfaction: "/api/v1/admin/analytics/satisfaction", // GET
     usage: "/api/v1/admin/analytics/usage", // GET
-    revenue: "/api/v1/admin/analytics/revenue", // GET
   },
 
   // Devices
   devices: {
-    list: "/api/v1/devices", // GET
+    list: "/api/v1/devices/admin/list", // GET
     register: "/api/v1/devices/register", // POST
-    byId: "/api/v1/devices/:deviceId", // GET/PUT/DELETE
-    userDevices: "/api/v1/devices/user/:userId", // GET
+    byId: "/api/v1/devices/device/:deviceId", // GET/PUT/DELETE
+    userDevices: "/api/v1/devices/my-devices", // GET
   },
 
   // Feedback
@@ -470,8 +453,8 @@ export const API_ENDPOINTS = {
     list: "/api/v1/feedback", // GET
     create: "/api/v1/feedback", // POST
     byId: "/api/v1/feedback/:feedbackId", // GET/PUT
-    byUser: "/api/v1/feedback/user/:userId", // GET
-    statistics: "/api/v1/feedback/statistics", // GET
+    byUser: "/api/v1/feedback/uid/:uid", // GET
+    statistics: "/api/v1/feedback/analytics", // GET
   },
 
   // Billing & Invoicing
@@ -516,7 +499,6 @@ export const API_ENDPOINTS = {
     apiDocs: "/api-docs", // GET
     swagger: "/api-docs", // GET
     debug: "/api/v1/debug/routes", // GET (protected)
-    rbac: "/api/v1/rbac/routes", // GET/POST (protected)
     auditLog: "/api/v1/logs/audit", // GET (protected) - served by logRoutes
     auditLogExport: "/api/v1/logs/audit/export", // GET - CSV export
     systemLog: "/api/v1/logs/system", // GET - system/admin activity logs
