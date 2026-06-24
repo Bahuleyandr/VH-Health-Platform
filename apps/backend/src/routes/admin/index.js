@@ -30,6 +30,7 @@ import billingMastersRoutes from './billingMastersRoutes.js';
 import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
 import clinicalGovernanceRoutes from './clinicalGovernanceRoutes.js';
 import databaseRoutes from './databaseRoutes.js';
+import ledgerReportsRoutes from './ledgerReportsRoutes.js';
 import edRoutes from './edRoutes.js';
 import encryptionKeyRoutes from './encryptionKeyRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
@@ -116,6 +117,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
 
 router.use('/audit', auditRoutes);
 router.use('/database', databaseRoutes);
+router.use('/ledger', ledgerReportsRoutes);
 router.use('/events', eventOutboxRoutes);
 router.use('/appointments', appointmentAdminRoutes);
 router.use('/doctors', adminDoctorRoutes);
