@@ -2,7 +2,6 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YAML from 'yaml';
 import logger from '../../logging/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,17 +13,17 @@ export const loadSwaggerDocument = () => {
   let loadError = null;
   
   try {
-    const swaggerPath = path.join(__dirname, '../../docs/swagger.yaml');
-    
+    const swaggerPath = path.join(__dirname, '../../docs/openapi.json');
+
     if (fs.existsSync(swaggerPath)) {
-      swaggerDocument = YAML.parse(fs.readFileSync(swaggerPath, 'utf8'));
-      logger.info('✅ Swagger documentation loaded successfully from swagger.yaml');
+      swaggerDocument = JSON.parse(fs.readFileSync(swaggerPath, 'utf8'));
+      logger.info('✅ OpenAPI documentation loaded successfully from openapi.json');
     } else {
-      throw new Error('swagger.yaml file not found');
+      throw new Error('openapi.json file not found');
     }
   } catch (err) {
     loadError = err.message;
-    logger.warn(`⚠️ Could not load swagger.yaml: ${err.message}. Using fallback documentation.`);
+    logger.warn(`⚠️ Could not load openapi.json: ${err.message}. Using fallback documentation.`);
     swaggerDocument = generateFallbackSwagger();
   }
   

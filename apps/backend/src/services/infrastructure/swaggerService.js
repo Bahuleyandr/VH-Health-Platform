@@ -2,7 +2,6 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YAML from 'yaml';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
@@ -149,7 +148,7 @@ export class SwaggerService {
           title: swaggerDocument.info?.title,
           version: swaggerDocument.info?.version,
           lastModified: formatDateDDMMYYYY(new Date()),
-          loadSource: loadError ? 'fallback-generated' : 'swagger.yaml',
+          loadSource: loadError ? 'fallback-generated' : 'openapi.json',
           specSize: JSON.stringify(swaggerDocument).length
         }
       };
@@ -157,7 +156,7 @@ export class SwaggerService {
       // Add warnings
       const warnings = [];
       if (loadError) {
-        warnings.push('Original swagger.yaml file could not be loaded, using fallback documentation');
+        warnings.push('Original openapi.json file could not be loaded, using fallback documentation');
       }
       if (health.endpoints.total === 0) {
         warnings.push('No API endpoints documented');
@@ -348,10 +347,10 @@ export class SwaggerService {
       if (source === 'file' || !force) {
         // Try to reload from file
         try {
-          const swaggerPath = path.join(__dirname, '../../docs/swagger.yaml');
-          
+          const swaggerPath = path.join(__dirname, '../../docs/openapi.json');
+
           if (fs.existsSync(swaggerPath)) {
-            const newSwaggerDocument = YAML.parse(fs.readFileSync(swaggerPath, 'utf8'));
+            const newSwaggerDocument = JSON.parse(fs.readFileSync(swaggerPath, 'utf8'));
             
             // Clear cache
             this.swaggerCache = null;
@@ -363,7 +362,7 @@ export class SwaggerService {
             
             logger.info(`📚 Swagger documentation reloaded from file by ${adminInfo.name}`);
           } else {
-            regenerationResult.errors.push('swagger.yaml file not found');
+            regenerationResult.errors.push('openapi.json file not found');
           }
         } catch (fileError) {
           regenerationResult.errors.push(`Failed to load from file: ${fileError.message}`);
