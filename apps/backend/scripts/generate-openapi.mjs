@@ -23,7 +23,15 @@ const proto = protoOwning(express.Router(), 'route');
 
 const routerRoutes = new Map();
 const edges = new Map();
-const isRouter = (h) => typeof h === 'function' && h && Array.isArray(h.stack);
+// A router is either a function with its own .stack, OR a wrapAsync wrapper that
+// tagged the underlying router on __wrappedFn (routeWrapper.js) — the latter
+// happens for sub-routers mounted via wrapAutoRBAC/wrapRoutes `use:` maps.
+const asRouter = (h) => {
+  if (typeof h !== 'function' || !h) return null;
+  if (Array.isArray(h.stack)) return h;
+  if (h.__wrappedFn && Array.isArray(h.__wrappedFn.stack)) return h.__wrappedFn;
+  return null;
+};
 const normPrefix = (p) =>
   typeof p === 'string' ? p : Array.isArray(p) ? p.find((x) => typeof x === 'string') ?? '/' : '/';
 
@@ -45,9 +53,10 @@ proto.use = function patchedUse(first, ...rest) {
     handlers = [first, ...rest];
   }
   for (const h of handlers) {
-    if (isRouter(h)) {
+    const child = asRouter(h);
+    if (child) {
       if (!edges.has(this)) edges.set(this, []);
-      edges.get(this).push({ prefix, child: h });
+      edges.get(this).push({ prefix, child });
     }
   }
   return origUse.call(this, first, ...rest);

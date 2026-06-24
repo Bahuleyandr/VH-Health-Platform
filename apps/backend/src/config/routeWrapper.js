@@ -20,9 +20,14 @@ export function wrapAsync(fn) {
   if (typeof fn !== 'function') return fn;
   // Only wrap if the function looks async (has 2-3 params like a route handler)
   if (fn.length > 3) return fn; // error handler middleware, skip
-  return (req, res, next) => {
+  const wrapped = (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
+  // Keep a reference to the wrapped fn so introspection (the OpenAPI route
+  // enumerator in scripts/generate-openapi.mjs) can see through to a wrapped
+  // sub-router mounted via wrapAutoRBAC/wrapRoutes `use:` maps.
+  wrapped.__wrappedFn = fn;
+  return wrapped;
 }
 
 /**
