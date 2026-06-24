@@ -6,7 +6,7 @@
 ## What this gives you
 
 - **Typed request/response models** for every endpoint in the backend's
-  `swagger-complete.yaml` (628 endpoints at last count, 28 domains).
+  `openapi.json` (generated from the live backend router, synced via openapi:sync-core).
 - **A chopper-based API client** you can instantiate once with the backend
   base URL + JWT interceptor — generated method per endpoint, typed params
   and return type.
@@ -20,7 +20,7 @@
 cd /workspace/VH-Health-Platform/packages/vhhealth_core
 
 # 1. Sync the spec from the backend.
-cp ../../apps/backend/src/docs/swagger-complete.yaml swagger/api.yaml
+npm --prefix ../../apps/backend run openapi:sync-core
 
 # 2. Install build deps (first time only).
 flutter pub get
@@ -37,7 +37,7 @@ friends. The barrel `lib/api/vhhealth_api.dart` re-exports them.
 
 ```bash
 cd /workspace/VH-Health-Platform/packages/vhhealth_core
-cp ../../apps/backend/src/docs/swagger-complete.yaml swagger/api.yaml
+npm --prefix ../../apps/backend run openapi:sync-core
 dart run build_runner build --delete-conflicting-outputs
 ```
 
@@ -112,9 +112,9 @@ route the chopper interceptor stack through `http` directly.
   for legitimately-freeform payloads (e.g., `e_prescriptions.medications`)
   generate as `Object?`. Cast on the call site.
 - **Endpoints that aren't in the spec** (anything added without updating
-  `swagger-complete.yaml`) won't be generated. Sync discipline matters —
+  `openapi.json`) won't be generated. Sync discipline matters —
   the backend team should regenerate the spec on every schema change
-  (`npm run swagger:generate-complete` in the backend).
+  (`npm run openapi:generate` in the backend).
 
 ## Troubleshooting
 
