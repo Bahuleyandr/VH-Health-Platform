@@ -26,7 +26,7 @@
     "clean:unix": "rm -rf node_modules package-lock.json .next",
     "check:clinical-ai-bundle": "node scripts/check-clinical-ai-bundle.mjs",
     "check:no-public-secrets": "node scripts/check-no-public-secrets.mjs",
-    "generate:types": "npx openapi-typescript ../backend/src/docs/openapi.json -o src/lib/api-types.generated.ts"
+    "generate:types": "openapi-typescript ../backend/src/docs/openapi.json -o src/lib/openapi.generated.ts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -89,6 +89,7 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
+    "openapi-typescript": "7.13.0",
     "prettier": "^3.8.3",
     "tailwindcss": "^4.3.0",
     "ts-node": "^10.9.2",
@@ -108,6 +109,9 @@
     },
     "@rollup/plugin-terser": {
       "serialize-javascript": "^7.0.5"
+    },
+    "openapi-typescript": {
+      "typescript": "$typescript"
     }
   },
   "repository": {

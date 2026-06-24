@@ -69,6 +69,9 @@ jobs:
 
       - run: npm run lint
 
+      - name: OpenAPI types codegen smoke (spec stays generatable)
+        run: npm run generate:types
+
       - name: Guard against client-inlinable secrets (NEXT_PUBLIC_*KEY/SECRET)
         run: npm run check:no-public-secrets
 
