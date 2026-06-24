@@ -39,8 +39,9 @@ export function operationId(method, openApiPath) {
   return `${method.toLowerCase()}_${slug || 'root'}`;
 }
 
-/** Build one OpenAPI operation (v1: generic Success-envelope response). */
-function buildOperation(method, openApiPath, opId) {
+/** Build one OpenAPI operation. With an overlay entry (`ov`), attach a typed
+ * requestBody and/or typed 200 response; otherwise the generic Success envelope. */
+function buildOperation(method, openApiPath, opId, ov) {
   const op = {
     operationId: opId,
     responses: {
@@ -54,6 +55,15 @@ function buildOperation(method, openApiPath, opId) {
     name, in: 'path', required: true, schema: { type: 'string' },
   }));
   if (params.length) op.parameters = params;
+  if (ov && ov.response) {
+    op.responses[200].content['application/json'].schema = { $ref: `#/components/schemas/${ov.response}` };
+  }
+  if (ov && ov.request) {
+    op.requestBody = {
+      required: true,
+      content: { 'application/json': { schema: { $ref: `#/components/schemas/${ov.request}` } } },
+    };
+  }
   return op;
 }
 
@@ -114,7 +124,7 @@ export function findEquivalentPathCollisions(routes) {
 /** Build the full OpenAPI document: base + deterministically-sorted paths.
  * Param-equivalent paths are collapsed to one canonical path (lexicographically
  * smallest) carrying the UNION of methods, so the document is valid OpenAPI. */
-export function buildOpenApiDocument(routes, base) {
+export function buildOpenApiDocument(routes, base, overlay = {}) {
   // Group by template signature; pick the smallest path string as canonical.
   const bySig = new Map(); // signature -> { canonical, methods:Set }
   for (const { method, path } of routes) {
@@ -141,7 +151,8 @@ export function buildOpenApiDocument(routes, base) {
   for (const { canonical, methods } of entries) {
     const ops = {};
     for (const method of [...methods].sort()) {
-      ops[method] = buildOperation(method, canonical, uniqueOpId(method, canonical));
+      const ov = overlay[`${method.toUpperCase()} ${canonical}`];
+      ops[method] = buildOperation(method, canonical, uniqueOpId(method, canonical), ov);
     }
     sortedPaths[canonical] = ops;
   }

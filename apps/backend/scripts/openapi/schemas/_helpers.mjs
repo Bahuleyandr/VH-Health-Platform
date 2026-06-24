@@ -1,0 +1,44 @@
+// apps/backend/scripts/openapi/schemas/_helpers.mjs
+// Shared builders for per-subsystem OpenAPI schema overlay modules.
+
+/** Response envelope { success, message, data: $ref(payload) }. Keeping `data`
+ * a direct property makes the admin Data-only alias a trivial ['data'] index. */
+export function envelope(payloadSchemaName) {
+  return {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: { $ref: `#/components/schemas/${payloadSchemaName}` },
+    },
+  };
+}
+
+/** Paginated response envelope: data.items[] of $ref(item) + data.pagination. */
+export function paginatedEnvelope(itemSchemaName) {
+  return {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        required: ['items', 'pagination'],
+        properties: {
+          items: { type: 'array', items: { $ref: `#/components/schemas/${itemSchemaName}` } },
+          pagination: {
+            type: 'object',
+            properties: {
+              page: { type: 'integer', example: 1 },
+              limit: { type: 'integer', example: 20 },
+              total: { type: 'integer', example: 100 },
+              totalPages: { type: 'integer', example: 5 },
+            },
+          },
+        },
+      },
+    },
+  };
+}
