@@ -155,6 +155,17 @@ pages instead of creating long-lived scratch roadmaps.
       [], origins: [] } })` so its redirect assertions fire.
   Currently 5 smoke + 5 authenticated journey tests.
 
+## Generated API types
+
+`src/lib/openapi.generated.ts` is generated from the backend canonical spec
+(`../backend/src/docs/openapi.json`) by `npm run generate:types` and is
+**gitignored**. `npm run dev|build|test|type-check` regenerate it first (via the
+`pre*` hooks). If you run `npx tsc` or your editor directly on a fresh checkout,
+run `npm run generate:types` once. Consumers import spec-derived types via
+`src/lib/openapi-data.ts` — `ApiData<'<path>', '<method>'>` (the unwrapped
+`.data` payload, matching `getJSON<T>`) and `ApiBody<'<path>', '<method>'>` (the
+request body). Don't hand-author response interfaces that the spec already types.
+
 ## Conventions
 - Use `fetchAdminAPI` for dashboard pages (auto-prepends /api/v1)
 - Use `getJSON`/`postJSON` with full paths for auth-related calls
