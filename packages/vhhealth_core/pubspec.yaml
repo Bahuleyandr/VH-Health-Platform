@@ -46,7 +46,7 @@ dev_dependencies:
   # owner-scoping). Already in the workspace lock via apps/staff.
   sqflite_common_ffi: ^2.4.0+3
   # OpenAPI → Dart codegen. Runs via `dart run build_runner build` and reads
-  # swagger/api.yaml, emitting models + chopper client stubs into
+  # swagger/openapi.json, emitting models + chopper client stubs into
   # lib/api/generated/. See docs/API_CODEGEN.md for the migration playbook.
   build_runner: ^2.15.0
   swagger_dart_code_generator: ^4.1.1

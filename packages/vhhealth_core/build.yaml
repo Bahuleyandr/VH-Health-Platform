@@ -1,9 +1,11 @@
 # OpenAPI → Dart codegen driver for vhhealth_core.
 #
 # Run `dart run build_runner build --delete-conflicting-outputs` after
-# refreshing `swagger/api.yaml` from vh-health-backend/src/docs/swagger-complete.yaml.
-# Generated files land in lib/api/generated/ and are exported via
-# lib/api/vhhealth_api.dart.
+# refreshing `swagger/openapi.json` via
+# `npm --prefix apps/backend run openapi:sync-core` — it is synced byte-for-byte
+# from the canonical apps/backend/src/docs/openapi.json (NEVER edit it by hand;
+# the openapi:check-core gate enforces the copy). Generated files land in
+# lib/api/generated/ and are exported via lib/api/vhhealth_api.dart.
 #
 # Why swagger_dart_code_generator (not openapi-generator):
 # - Pure Dart. Plays with build_runner, which both Flutter apps already use.
