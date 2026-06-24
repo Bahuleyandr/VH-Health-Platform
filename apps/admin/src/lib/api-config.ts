@@ -522,9 +522,6 @@ export const PROTECTED_ROUTES: string[] = [
   
   // Staff admin routes
   "/api/v1/staff/admin/*",
-  "/api/v1/staff/routes",
-  "/api/v1/staff/attendance/routes",
-  "/api/v1/staff/hr/routes",
   "/api/v1/staff/medical/*",
   
   // Other protected routes
@@ -534,11 +531,7 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/pharmacy-orders/inventory*",
   "/api/v1/pharmacy-orders/catalog*",
   "/api/v1/pharmacy-orders/sla*",
-  "/api/v1/investigations/routes",
   "/api/v1/investigations/admin/*",
-  "/api/v1/sos/routes",
-  "/api/v1/sos/admin/routes",
-  "/api/v1/sos/emergency/routes",
   "/api/v1/debug/routes",
   "/api/v1/rbac/*",
   "/api/v1/appointments/admin/*",

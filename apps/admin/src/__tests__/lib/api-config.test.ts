@@ -348,7 +348,7 @@ describe("requiresAuth", () => {
   });
 
   it("returns true for exact protected routes", () => {
-    expect(requiresAuth("/api/v1/investigations/routes")).toBe(true);
+    expect(requiresAuth("/api/v1/devices")).toBe(true);
   });
 
   it("returns false for public health-check endpoint", () => {

@@ -221,53 +221,9 @@ function applyAliasesWithQuery(path: string): string {
     return u.pathname + u.search;
   }
 
-  // ---- AUTH ADMIN MANAGEMENT ----
-  if (pathname.startsWith('/auth/adminManagement')) {
-    u.pathname = '/rbac/routes';
-    return u.pathname + u.search;
-  }
-
-  // ---- STAFF ROUTES (normalize) ----
-  if (pathname === '/staffRoutes') {
-    u.pathname = '/staff/routes';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/staffAttendanceRoutes') {
-    u.pathname = '/staff/attendance/routes';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/staffHRRoutes') {
-    u.pathname = '/staff/hr/routes';
-    return u.pathname + u.search;
-  }
+  // ---- STAFF MEDICAL (normalize) ----
   if (pathname === '/staffMedicalRoutes') {
     u.pathname = '/staff/medical/investigations';
-    return u.pathname + u.search;
-  }
-
-  // ---- INVESTIGATIONS ----
-  if (pathname === '/investigationRoutes') {
-    u.pathname = '/investigations/routes';
-    return u.pathname + u.search;
-  }
-
-  // ---- SOS/EMERGENCY ----
-  if (pathname === '/sosRoutes') {
-    u.pathname = '/sos/routes';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/adminSosRoutes') {
-    u.pathname = '/sos/admin/routes';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/emergencyResponderRoutes') {
-    u.pathname = '/sos/emergency/routes';
-    return u.pathname + u.search;
-  }
-
-  // ---- RBAC ----
-  if (pathname === '/rbacRoutes') {
-    u.pathname = '/rbac/routes';
     return u.pathname + u.search;
   }
 
