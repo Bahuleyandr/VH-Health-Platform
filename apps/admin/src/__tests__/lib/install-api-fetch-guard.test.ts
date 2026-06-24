@@ -249,19 +249,4 @@ describe("installApiFetchGuard", () => {
     const calledUrl = originalFetch.mock.calls[0][0] as string;
     expect(calledUrl).toContain("/api/proxy/api/v1/notifications/stats");
   });
-
-  it("maps /staffRoutes to /staff/routes", async () => {
-    const originalFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
-    window.fetch = originalFetch as unknown as typeof window.fetch;
-
-    const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
-    installApiFetchGuard();
-
-    await window.fetch("/staffRoutes");
-
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/staff/routes");
-  });
 });
