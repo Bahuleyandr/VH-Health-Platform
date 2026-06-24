@@ -6001,9 +6001,9 @@
         }
       }
     },
-    "/api/v1/admin/clinical-ai/operational/charge-capture/{admissionId}": {
+    "/api/v1/admin/clinical-ai/operational/charge-capture/{id}": {
       "patch": {
-        "operationId": "patch_api_v1_admin_clinical_ai_operational_charge_capture_by_admissionId",
+        "operationId": "patch_api_v1_admin_clinical_ai_operational_charge_capture_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -6018,7 +6018,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -6028,7 +6028,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_admin_clinical_ai_operational_charge_capture_by_admissionId",
+        "operationId": "post_api_v1_admin_clinical_ai_operational_charge_capture_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -6043,7 +6043,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -7623,9 +7623,9 @@
         }
       }
     },
-    "/api/v1/admin/clinical-ai/rca/{admissionId}": {
+    "/api/v1/admin/clinical-ai/rca/{id}": {
       "patch": {
-        "operationId": "patch_api_v1_admin_clinical_ai_rca_by_admissionId",
+        "operationId": "patch_api_v1_admin_clinical_ai_rca_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -7640,7 +7640,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -7650,7 +7650,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_admin_clinical_ai_rca_by_admissionId",
+        "operationId": "post_api_v1_admin_clinical_ai_rca_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -7665,7 +7665,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -25563,9 +25563,9 @@
         }
       }
     },
-    "/api/v1/clinical-ai/control/operational/charge-capture/{admissionId}": {
+    "/api/v1/clinical-ai/control/operational/charge-capture/{id}": {
       "patch": {
-        "operationId": "patch_api_v1_clinical_ai_control_operational_charge_capture_by_admissionId",
+        "operationId": "patch_api_v1_clinical_ai_control_operational_charge_capture_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -25580,7 +25580,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -25590,7 +25590,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_clinical_ai_control_operational_charge_capture_by_admissionId",
+        "operationId": "post_api_v1_clinical_ai_control_operational_charge_capture_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -25605,7 +25605,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -27185,9 +27185,9 @@
         }
       }
     },
-    "/api/v1/clinical-ai/control/rca/{admissionId}": {
+    "/api/v1/clinical-ai/control/rca/{id}": {
       "patch": {
-        "operationId": "patch_api_v1_clinical_ai_control_rca_by_admissionId",
+        "operationId": "patch_api_v1_clinical_ai_control_rca_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -27202,7 +27202,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -27212,7 +27212,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_clinical_ai_control_rca_by_admissionId",
+        "operationId": "post_api_v1_clinical_ai_control_rca_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -27227,7 +27227,7 @@
         },
         "parameters": [
           {
-            "name": "admissionId",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -40381,6 +40381,23 @@
         }
       }
     },
+    "/api/v1/investigations/my": {
+      "get": {
+        "operationId": "get_api_v1_investigations_my",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/investigations/order": {
       "post": {
         "operationId": "post_api_v1_investigations_order",
@@ -52144,9 +52161,9 @@
         }
       }
     },
-    "/api/v1/productivity/phrases/{code}": {
-      "delete": {
-        "operationId": "delete_api_v1_productivity_phrases_by_code",
+    "/api/v1/productivity/phrases/by-code/{code}": {
+      "get": {
+        "operationId": "get_api_v1_productivity_phrases_by_code_by_code",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -52169,9 +52186,11 @@
             }
           }
         ]
-      },
-      "get": {
-        "operationId": "get_api_v1_productivity_phrases_by_code",
+      }
+    },
+    "/api/v1/productivity/phrases/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_productivity_phrases_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -52186,7 +52205,7 @@
         },
         "parameters": [
           {
-            "name": "code",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
@@ -52196,7 +52215,7 @@
         ]
       },
       "patch": {
-        "operationId": "patch_api_v1_productivity_phrases_by_code",
+        "operationId": "patch_api_v1_productivity_phrases_by_id",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -52211,7 +52230,7 @@
         },
         "parameters": [
           {
-            "name": "code",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
