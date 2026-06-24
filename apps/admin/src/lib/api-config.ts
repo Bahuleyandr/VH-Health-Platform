@@ -161,6 +161,15 @@ export const API_ENDPOINTS = {
         `/api/v1/admin/database/tables/${encodeURIComponent(tableName)}/rows`, // GET
     },
 
+    // General Ledger reports (T2 ledger Phase 5; finance-gated, read-only)
+    ledger: {
+      trialBalance: "/api/v1/admin/ledger/trial-balance", // GET
+      arAging: "/api/v1/admin/ledger/ar-aging", // GET
+      insurerAging: "/api/v1/admin/ledger/insurer-aging", // GET
+      cashPosition: "/api/v1/admin/ledger/cash-position", // GET
+      dailyCollection: "/api/v1/admin/ledger/daily-collection", // GET ?from=&to=
+    },
+
     // Reports (matching reportService.js)
     reports: {
       refreshCache: "/api/v1/admin/refresh-cache", // POST - refreshDashboardCache()

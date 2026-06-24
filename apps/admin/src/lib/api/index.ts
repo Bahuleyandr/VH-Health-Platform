@@ -179,6 +179,18 @@ export {
   submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
 };
 
+// General Ledger reports (T2 ledger Phase 5b)
+import {
+  getTrialBalance, getArAging, getInsurerAging, getCashPosition, getDailyCollection,
+} from "./ledgerReports";
+export type {
+  TrialBalance, TrialBalanceAccount, LedgerAccountType,
+  AgingReport, AgingBucket, AgingBucketLabel,
+  CashPosition, DrawerPosition,
+  DailyCollection, DailyCollectionDay,
+} from "./ledgerReports";
+export { getTrialBalance, getArAging, getInsurerAging, getCashPosition, getDailyCollection };
+
 // EMR (Electronic Medical Records)
 import {
   getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
