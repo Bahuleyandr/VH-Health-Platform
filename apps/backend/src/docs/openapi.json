@@ -155,6 +155,95 @@
           }
         }
       },
+      "Advance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "amount",
+          "balance",
+          "mode",
+          "collected_at",
+          "status",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "balance": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AdvanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Advance"
+          }
+        }
+      },
       "AdvanceSettlement": {
         "type": "object",
         "additionalProperties": false,
@@ -163,8 +252,7 @@
           "advance_id",
           "invoice_id",
           "amount",
-          "tenant_id",
-          "advance_mode"
+          "tenant_id"
         ],
         "properties": {
           "id": {
@@ -195,6 +283,51 @@
           },
           "advance_mode": {
             "type": "string"
+          }
+        }
+      },
+      "AdvanceSettlementResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdvanceSettlement"
+          }
+        }
+      },
+      "AdvancesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Advance"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -339,6 +472,66 @@
           },
           "data": {
             "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "CollectAdvanceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.collectAdvance; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectPaymentRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.collectPayment; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "denominations": {},
+          "shift": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
           }
         }
       },
@@ -537,6 +730,167 @@
           },
           "data": {
             "$ref": "#/components/schemas/DailyCollection"
+          }
+        }
+      },
+      "DailyCollectionV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "summary",
+          "insurer_breakdown",
+          "items"
+        ],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionV2Summary"
+            }
+          },
+          "insurer_breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionV2InsurerRow"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionV2Item"
+            }
+          }
+        }
+      },
+      "DailyCollectionV2InsurerRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payment_count",
+          "net_amount",
+          "gross_amount"
+        ],
+        "properties": {
+          "insurer": {
+            "type": "string",
+            "nullable": true
+          },
+          "policy_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "claim_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_count": {
+            "type": "integer"
+          },
+          "net_amount": {
+            "type": "string"
+          },
+          "gross_amount": {
+            "type": "string"
+          }
+        }
+      },
+      "DailyCollectionV2Item": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "amount",
+          "mode",
+          "reversed"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "denominations": {
+            "nullable": true
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "shift": {
+            "type": "string",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reversed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DailyCollectionV2Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DailyCollectionV2"
+          }
+        }
+      },
+      "DailyCollectionV2Summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "payment_count",
+          "net_amount",
+          "gross_amount"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "payment_count": {
+            "type": "integer"
+          },
+          "net_amount": {
+            "type": "string"
+          },
+          "gross_amount": {
+            "type": "string"
           }
         }
       },
@@ -2015,6 +2369,16 @@
           }
         }
       },
+      "MarkRefundPaidRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.markRefundPaid; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "reference": {
+            "type": "string"
+          }
+        }
+      },
       "NonPayableBreakdown": {
         "type": "object",
         "additionalProperties": false,
@@ -2099,6 +2463,90 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "OutstandingBill": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "days_outstanding"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "days_outstanding": {
+            "type": "integer"
+          }
+        }
+      },
+      "OutstandingResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutstandingBill"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -2261,6 +2709,51 @@
           }
         }
       },
+      "PaymentV2Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceV2Payment"
+          }
+        }
+      },
+      "RaiseRefundRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.raiseRefund; not validator-backed.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "advance_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        }
+      },
       "RecordPaymentRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -2286,6 +2779,171 @@
           "transaction_ref": {
             "type": "string",
             "maxLength": 255
+          }
+        }
+      },
+      "Refund": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "amount",
+          "reason",
+          "mode",
+          "approval_status",
+          "raised_at",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "advance_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "approval_status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "PAID"
+            ]
+          },
+          "raised_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "raised_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "rejected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RefundResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Refund"
+          }
+        }
+      },
+      "RefundsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Refund"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "RejectRefundRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.rejectRefund; not validator-backed.",
+        "properties": {
+          "rejection_reason": {
+            "type": "string"
           }
         }
       },
@@ -2458,6 +3116,16 @@
           }
         }
       },
+      "ReversePaymentRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.reversePayment; not validator-backed.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "ServiceMaster": {
         "type": "object",
         "additionalProperties": false,
@@ -2540,6 +3208,19 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "SettleAdvanceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.settleAdvance; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "number"
           }
         }
       },
@@ -22742,7 +23423,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdvancesListResponse"
                 }
               }
             }
@@ -22757,8 +23438,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdvanceResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectAdvanceRequest"
               }
             }
           }
@@ -22774,7 +23465,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdvanceSettlementResponse"
                 }
               }
             }
@@ -22789,7 +23480,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleAdvanceRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/cash-drawer/sessions": {
@@ -23478,8 +24179,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentV2Response"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectPaymentRequest"
               }
             }
           }
@@ -23495,7 +24206,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentV2Response"
                 }
               }
             }
@@ -23510,7 +24221,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReversePaymentRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/refunds": {
@@ -23522,7 +24243,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundsListResponse"
                 }
               }
             }
@@ -23537,8 +24258,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RaiseRefundRequest"
               }
             }
           }
@@ -23554,7 +24285,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
               }
             }
@@ -23581,7 +24312,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
               }
             }
@@ -23596,7 +24327,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkRefundPaidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/refunds/{id}/reject": {
@@ -23608,7 +24349,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
               }
             }
@@ -23623,7 +24364,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRefundRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/reports/daily-collection": {
@@ -23635,7 +24386,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DailyCollectionV2Response"
                 }
               }
             }
@@ -23652,7 +24403,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/OutstandingResponse"
                 }
               }
             }

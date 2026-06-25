@@ -557,9 +557,11 @@ export const schemas = {
       created_at: { type: 'string', format: 'date-time', nullable: true },
     },
   },
+  // advance_mode is JOIN-only (present in invoice-detail advance_settlements[],
+  // absent from the raw settle-endpoint response) → optional.
   AdvanceSettlement: {
     type: 'object', additionalProperties: false,
-    required: ['id', 'advance_id', 'invoice_id', 'amount', 'tenant_id', 'advance_mode'],
+    required: ['id', 'advance_id', 'invoice_id', 'amount', 'tenant_id'],
     properties: {
       id: { type: 'integer' },
       advance_id: { type: 'integer' },
@@ -804,6 +806,199 @@ export const schemas = {
       reason: { type: 'string' },
     },
   },
+
+  // ---- V2 billing money movement (payments/advances/refunds/reports) ----
+  // Payment response reuses InvoiceV2Payment (billing_payments RETURNING *).
+  PaymentV2Response: envelope('InvoiceV2Payment'),
+
+  Advance: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'patient_uid', 'amount', 'balance', 'mode', 'collected_at', 'status', 'tenant_id', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      admission_id: { type: 'integer', nullable: true },
+      amount: { type: MT },
+      balance: { type: MT },
+      mode: { type: 'string' },
+      reference: { type: 'string', nullable: true },
+      collected_by: { type: 'string', format: 'uuid', nullable: true },
+      collected_at: { type: 'string', format: 'date-time' },
+      status: { type: 'string' },
+      notes: { type: 'string', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  AdvanceResponse: envelope('Advance'),
+  AdvancesListResponse: listEnvelope('Advance'),
+  AdvanceSettlementResponse: envelope('AdvanceSettlement'),
+
+  Refund: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'patient_uid', 'amount', 'reason', 'mode', 'approval_status', 'raised_at', 'tenant_id', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      invoice_id: { type: 'integer', nullable: true },
+      advance_id: { type: 'integer', nullable: true },
+      amount: { type: MT },
+      reason: { type: 'string' },
+      mode: { type: 'string' },
+      reference: { type: 'string', nullable: true },
+      approval_status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAID'] },
+      raised_by: { type: 'string', format: 'uuid', nullable: true },
+      raised_at: { type: 'string', format: 'date-time' },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      rejected_by: { type: 'string', format: 'uuid', nullable: true },
+      rejected_at: { type: 'string', format: 'date-time', nullable: true },
+      rejection_reason: { type: 'string', nullable: true },
+      paid_at: { type: 'string', format: 'date-time', nullable: true },
+      paid_by: { type: 'string', format: 'uuid', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  RefundResponse: envelope('Refund'),
+  RefundsListResponse: listEnvelope('Refund'),
+
+  DailyCollectionV2Summary: {
+    type: 'object', additionalProperties: false,
+    required: ['mode', 'payment_count', 'net_amount', 'gross_amount'],
+    properties: {
+      mode: { type: 'string' },
+      payment_count: { type: 'integer' },
+      net_amount: { type: MT },
+      gross_amount: { type: MT },
+    },
+  },
+  DailyCollectionV2InsurerRow: {
+    type: 'object', additionalProperties: false,
+    required: ['payment_count', 'net_amount', 'gross_amount'],
+    properties: {
+      insurer: { type: 'string', nullable: true },
+      policy_number: { type: 'string', nullable: true },
+      claim_number: { type: 'string', nullable: true },
+      payment_count: { type: 'integer' },
+      net_amount: { type: MT },
+      gross_amount: { type: MT },
+    },
+  },
+  DailyCollectionV2Item: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'amount', 'mode', 'reversed'],
+    properties: {
+      id: { type: 'integer' },
+      invoice_id: { type: 'integer', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      amount: { type: MT },
+      mode: { type: 'string' },
+      reference: { type: 'string', nullable: true },
+      denominations: { nullable: true },
+      collected_by: { type: 'string', format: 'uuid', nullable: true },
+      shift: { type: 'string', nullable: true },
+      collected_at: { type: 'string', format: 'date-time', nullable: true },
+      reversed: { type: 'boolean' },
+    },
+  },
+  DailyCollectionV2: {
+    type: 'object', additionalProperties: false,
+    required: ['date', 'summary', 'insurer_breakdown', 'items'],
+    properties: {
+      date: { type: 'string' },
+      summary: { type: 'array', items: { $ref: '#/components/schemas/DailyCollectionV2Summary' } },
+      insurer_breakdown: { type: 'array', items: { $ref: '#/components/schemas/DailyCollectionV2InsurerRow' } },
+      items: { type: 'array', items: { $ref: '#/components/schemas/DailyCollectionV2Item' } },
+    },
+  },
+  DailyCollectionV2Response: envelope('DailyCollectionV2'),
+
+  OutstandingBill: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'patient_uid', 'total_amount', 'amount_paid', 'amount_due', 'status', 'days_outstanding'],
+    properties: {
+      id: { type: 'integer' },
+      invoice_number: { type: 'string', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      patient_name: { type: 'string', nullable: true },
+      patient_phone: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      total_amount: { type: MT },
+      amount_paid: { type: MT },
+      amount_due: { type: MT },
+      status: { type: 'string' },
+      issued_at: { type: 'string', format: 'date-time', nullable: true },
+      days_outstanding: { type: 'integer' },
+    },
+  },
+  OutstandingResponse: listEnvelope('OutstandingBill'),
+
+  // V2 money-movement request bodies (no validators → permissive, known fields)
+  CollectPaymentRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.collectPayment; not validator-backed. Requires X-Idempotency-Key header.',
+    properties: {
+      invoice_id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      amount: { type: 'number' },
+      mode: { type: 'string' },
+      reference: { type: 'string' },
+      denominations: {},
+      shift: { type: 'string' },
+      notes: { type: 'string' },
+    },
+  },
+  ReversePaymentRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.reversePayment; not validator-backed.',
+    properties: { reason: { type: 'string' } },
+  },
+  CollectAdvanceRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.collectAdvance; not validator-backed. Requires X-Idempotency-Key header.',
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      admission_id: { type: 'integer' },
+      amount: { type: 'number' },
+      mode: { type: 'string' },
+      reference: { type: 'string' },
+      collected_by: { type: 'string', format: 'uuid' },
+      notes: { type: 'string' },
+    },
+  },
+  SettleAdvanceRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.settleAdvance; not validator-backed. Requires X-Idempotency-Key header.',
+    properties: {
+      invoice_id: { type: 'integer' },
+      amount: { type: 'number' },
+    },
+  },
+  RaiseRefundRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.raiseRefund; not validator-backed.',
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      invoice_id: { type: 'integer' },
+      advance_id: { type: 'integer' },
+      amount: { type: 'number' },
+      reason: { type: 'string' },
+      mode: { type: 'string' },
+    },
+  },
+  RejectRefundRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.rejectRefund; not validator-backed.',
+    properties: { rejection_reason: { type: 'string' } },
+  },
+  MarkRefundPaidRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingV2Service.markRefundPaid; not validator-backed. Requires X-Idempotency-Key header.',
+    properties: { reference: { type: 'string' } },
+  },
 };
 
 export const operations = {
@@ -841,4 +1036,18 @@ export const operations = {
   'POST /api/v1/billing/v2/invoices/{id}/discount': { request: 'ApplyDiscountRequest', response: 'InvoiceTotalsResponse' },
   'POST /api/v1/billing/v2/invoices/{id}/issue': { response: 'InvoiceV2DetailResponse' },
   'POST /api/v1/billing/v2/invoices/{id}/void': { request: 'VoidInvoiceRequest', response: 'InvoiceV2DetailResponse' },
+
+  // V2 money movement (payments/advances/refunds/reports)
+  'POST /api/v1/billing/v2/payments': { request: 'CollectPaymentRequest', response: 'PaymentV2Response' },
+  'POST /api/v1/billing/v2/payments/{id}/reverse': { request: 'ReversePaymentRequest', response: 'PaymentV2Response' },
+  'POST /api/v1/billing/v2/advances': { request: 'CollectAdvanceRequest', response: 'AdvanceResponse' },
+  'GET /api/v1/billing/v2/advances': { response: 'AdvancesListResponse' },
+  'POST /api/v1/billing/v2/advances/{id}/settle': { request: 'SettleAdvanceRequest', response: 'AdvanceSettlementResponse' },
+  'POST /api/v1/billing/v2/refunds': { request: 'RaiseRefundRequest', response: 'RefundResponse' },
+  'GET /api/v1/billing/v2/refunds': { response: 'RefundsListResponse' },
+  'POST /api/v1/billing/v2/refunds/{id}/approve': { response: 'RefundResponse' },
+  'POST /api/v1/billing/v2/refunds/{id}/reject': { request: 'RejectRefundRequest', response: 'RefundResponse' },
+  'POST /api/v1/billing/v2/refunds/{id}/pay': { request: 'MarkRefundPaidRequest', response: 'RefundResponse' },
+  'GET /api/v1/billing/v2/reports/daily-collection': { response: 'DailyCollectionV2Response' },
+  'GET /api/v1/billing/v2/reports/outstanding': { response: 'OutstandingResponse' },
 };
