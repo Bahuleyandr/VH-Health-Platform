@@ -810,10 +810,13 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           RETURNING original_id
         `, req.user?.uid, reason, appointment_ids);
 
-        // Delete appointments
-        const placeholders = appointment_ids.map((_, i) => `$${i + 1}`).join(',');
+        // Delete appointments. Use `= ANY($1)` with the id array bound as a
+        // single param (matching the archive INSERT above + the send-reminders
+        // handler) — the prior `id IN (${placeholders})` form passed the array
+        // as one arg, so it bound the whole array to $1 (the (sql, params)
+        // array-as-$1 lint blind-spot) and failed at runtime.
         await prisma.$queryRawUnsafe(
-          `DELETE FROM appointments WHERE id IN (${placeholders})`,
+          `DELETE FROM appointments WHERE id = ANY($1)`,
           appointment_ids
         );
 

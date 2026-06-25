@@ -15082,3 +15082,22 @@ model ledger_postings {
   @@index([tenant_id, invoice_id], map: "idx_ledger_postings_invoice", where: raw("(invoice_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_ledger_postings_patient", where: raw("(patient_uid IS NOT NULL)"))
 }
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model appointment_archive {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  original_id      Int?
+  patient_id       Int?
+  doctor_id        Int?
+  appointment_date DateTime? @db.Date
+  status           String?   @db.VarChar(50)
+  reason           String?
+  notes            String?
+  deleted_by       String?   @db.Uuid
+  deleted_at       DateTime  @default(now()) @db.Timestamptz(6)
+  deletion_reason  String?
+
+  @@index([original_id], map: "idx_appointment_archive_original_id")
+  @@index([tenant_id], map: "idx_appointment_archive_tenant_id")
+}

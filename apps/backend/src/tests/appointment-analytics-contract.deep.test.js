@@ -148,6 +148,9 @@ describe('Appointment admin analytics / operations — contract deep', () => {
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(
+      `DELETE FROM appointment_archive WHERE deletion_reason = $1`, 'P5T4 bulk delete',
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM appointment_status_history WHERE appointment_id IN (
          SELECT id FROM appointments WHERE phone IN ($1,$2,$3,$4))`,
       ADMIN_PHONE, DOCTOR_PHONE, PATIENT1_PHONE, PATIENT2_PHONE,
@@ -291,5 +294,37 @@ describe('Appointment admin analytics / operations — contract deep', () => {
     });
     expect([200, 201]).toContain(res.statusCode);
     assertResponse('POST', '/api/v1/appointments/admin/resolve-conflict', res.body);
+  });
+
+  // bulk-delete archives each row into appointment_archive (created by migration
+  // 346) BEFORE deleting it. Use a dedicated throwaway appointment so the other
+  // fixtures are untouched. ('11:30' is a fresh slot for this doctor/date.)
+  it('DELETE /admin/bulk-delete → BulkDeleteResponse', async () => {
+    const r = await prisma.$queryRawUnsafe(
+      `INSERT INTO appointments
+         (uid, phone, patient_id, patient_name, doctor_id, doctor_name,
+          appointment_date, appointment_time, status, reason, department,
+          admin_override, reminder_sent, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2::int, 'P5T4 Patient One', $3::int,
+          'Dr. P5T4 Analytics', $4::date, '11:30', 'SCHEDULED', 'Bulk-delete seed',
+          $5, false, false, NOW(), NOW())
+       RETURNING id`,
+      PATIENT1_PHONE, patient1IntId, doctorIntId, apptDate, DEPT_NAME);
+    const throwawayId = Number(r[0].id);
+
+    const res = await admin.delete('/api/v1/appointments/admin/bulk-delete').send({
+      appointment_ids: [throwawayId],
+      reason: 'P5T4 bulk delete',
+    });
+    expect(res.statusCode).toBe(200);
+    assertResponse('DELETE', '/api/v1/appointments/admin/bulk-delete', res.body);
+    // Archived (then deleted) — the row should be gone from appointments and
+    // present in appointment_archive.
+    const gone = await prisma.$queryRawUnsafe(
+      `SELECT 1 FROM appointments WHERE id = $1`, throwawayId);
+    expect(gone.length).toBe(0);
+    const archived = await prisma.$queryRawUnsafe(
+      `SELECT original_id FROM appointment_archive WHERE original_id = $1`, throwawayId);
+    expect(archived.length).toBe(1);
   });
 });
