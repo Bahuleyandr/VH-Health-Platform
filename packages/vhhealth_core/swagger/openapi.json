@@ -421,6 +421,162 @@
           }
         }
       },
+      "CancelPaymentLinkRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.cancelPaymentLink; not validator-backed.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "CashDrawerSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "cashier_uid",
+          "shift",
+          "opened_at",
+          "opening_float",
+          "short_count",
+          "over_count",
+          "requires_review",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cashier_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shift": {
+            "type": "string"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opening_float": {
+            "type": "string"
+          },
+          "closed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "counted_total": {
+            "type": "string",
+            "nullable": true
+          },
+          "counted_denominations": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "system_total": {
+            "type": "string",
+            "nullable": true
+          },
+          "variance": {
+            "type": "string",
+            "nullable": true
+          },
+          "short_count": {
+            "type": "boolean"
+          },
+          "over_count": {
+            "type": "boolean"
+          },
+          "requires_review": {
+            "type": "boolean"
+          },
+          "variance_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "review_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CashDrawerSessionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CashDrawerSession"
+          }
+        }
+      },
+      "CashDrawerSessionsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CashDrawerSession"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "CashPosition": {
         "type": "object",
         "additionalProperties": false,
@@ -472,6 +628,20 @@
           },
           "data": {
             "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "CloseDrawerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from cashDrawerService.closeSession; not validator-backed.",
+        "properties": {
+          "counted_denominations": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "variance_reason": {
+            "type": "string"
           }
         }
       },
@@ -638,6 +808,35 @@
           "due_date": {
             "type": "string",
             "format": "date"
+          }
+        }
+      },
+      "CreatePaymentLinkRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.createPaymentLink; not validator-backed.",
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "expires_in_hours": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
           }
         }
       },
@@ -932,6 +1131,37 @@
             "type": "string"
           },
           "clinical_justification": {}
+        }
+      },
+      "ExpireStaleResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ExpireStaleResult"
+          }
+        }
+      },
+      "ExpireStaleResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expired"
+        ],
+        "properties": {
+          "expired": {
+            "type": "integer"
+          }
         }
       },
       "InsuranceClaim": {
@@ -2369,6 +2599,54 @@
           }
         }
       },
+      "MarkLinkPaidRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.markPaymentLinkPaid; not validator-backed. Requires Idempotency-Key header.",
+        "properties": {
+          "paid_via": {
+            "type": "string"
+          },
+          "paid_reference": {
+            "type": "string"
+          }
+        }
+      },
+      "MarkLinkPaidResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MarkLinkPaidResult"
+          }
+        }
+      },
+      "MarkLinkPaidResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "link",
+          "payment"
+        ],
+        "properties": {
+          "link": {
+            "$ref": "#/components/schemas/PaymentLink"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/InvoiceV2Payment"
+          }
+        }
+      },
       "MarkRefundPaidRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -2463,6 +2741,23 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "OpenDrawerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from cashDrawerService.openSession; not validator-backed.",
+        "properties": {
+          "shift": {
+            "type": "string"
+          },
+          "opening_float": {
+            "type": "number"
+          },
+          "cashier_uid": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -2622,6 +2917,261 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "PaymentLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "link_token",
+          "patient_uid",
+          "amount",
+          "currency",
+          "provider",
+          "status",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "link_token": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "upi_payee_vpa": {
+            "type": "string",
+            "nullable": true
+          },
+          "upi_payee_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "upi_transaction_ref": {
+            "type": "string",
+            "nullable": true
+          },
+          "upi_deep_link": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider": {
+            "type": "string"
+          },
+          "provider_invoice_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider_payment_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "linked_payment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_via": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_whatsapp_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_sms_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_email_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentLinkListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "link_token",
+          "patient_uid",
+          "amount",
+          "currency",
+          "provider",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "link_token": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "upi_deep_link": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_via": {
+            "type": "string",
+            "nullable": true
+          },
+          "sent_via_whatsapp_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_sms_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_email_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentLinkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentLink"
+          }
+        }
+      },
+      "PaymentLinksListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentLinkListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -3122,6 +3672,35 @@
         "description": "Reverse-engineered from billingV2Service.reversePayment; not validator-backed.",
         "properties": {
           "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewDrawerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from cashDrawerService.reviewSession; not validator-backed.",
+        "properties": {
+          "review_notes": {
+            "type": "string"
+          }
+        }
+      },
+      "SendPaymentLinkRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.sendPaymentLink; not validator-backed.",
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "patient_phone": {
+            "type": "string"
+          },
+          "patient_email": {
             "type": "string"
           }
         }
@@ -23502,7 +24081,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionsListResponse"
                 }
               }
             }
@@ -23519,8 +24098,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenDrawerRequest"
               }
             }
           }
@@ -23536,7 +24125,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
               }
             }
@@ -23563,7 +24152,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
               }
             }
@@ -23578,7 +24167,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseDrawerRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/cash-drawer/sessions/{id}/review": {
@@ -23590,7 +24189,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
               }
             }
@@ -23605,7 +24204,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDrawerRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices": {
@@ -24022,7 +24631,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinksListResponse"
                 }
               }
             }
@@ -24037,8 +24646,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentLinkRequest"
               }
             }
           }
@@ -24054,7 +24673,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ExpireStaleResponse"
                 }
               }
             }
@@ -24071,7 +24690,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
               }
             }
@@ -24098,7 +24717,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
               }
             }
@@ -24113,7 +24732,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelPaymentLinkRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payment-links/{token}/mark-paid": {
@@ -24125,7 +24754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarkLinkPaidResponse"
                 }
               }
             }
@@ -24140,7 +24769,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkLinkPaidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payment-links/{token}/send": {
@@ -24152,7 +24791,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
               }
             }
@@ -24167,7 +24806,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendPaymentLinkRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payments": {

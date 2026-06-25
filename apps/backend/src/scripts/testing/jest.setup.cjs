@@ -62,6 +62,18 @@ process.env.REQUIRE_MFA_FOR_SUPER_ADMIN ||= 'false';
 // unless a test (e.g. the fail-closed suite) overrides it.
 process.env.ALLOW_DEFAULT_TENANT ||= 'true';
 
+// BigInt JSON serialization. Prod sets this in bin/www.js, but tests import
+// app.js directly (bin/www.js never runs), so any endpoint returning a BIGSERIAL
+// column (e.g. cash_drawer_sessions.id) would throw "Do not know how to serialize
+// a BigInt". Mirror the prod serializer so the test env matches prod behaviour.
+if (typeof BigInt !== 'undefined' && !BigInt.prototype.toJSON) {
+  // eslint-disable-next-line no-extend-native
+  BigInt.prototype.toJSON = function bigIntToJSON() {
+    const n = Number(this);
+    return Number.isSafeInteger(n) ? n : this.toString();
+  };
+}
+
 // Keep Jest output small enough to avoid CI heap blowups from repeated app bootstrap logs.
 console.log = () => {};
 console.info = () => {};
