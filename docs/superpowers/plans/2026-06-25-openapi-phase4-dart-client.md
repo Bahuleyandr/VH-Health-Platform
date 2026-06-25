@@ -85,16 +85,38 @@ Expected: the real emitted filenames (likely `openapi.swagger.dart`, `openapi.en
 
 (No commit — this task changes no tracked files; `lib/api/generated/` is gitignored.)
 
+### Spike outcome (recorded 2026-06-25 — gate CLOSED: FULL-SPEC)
+
+- **Feasibility: PASS.** `build_runner` ran the full 1.8 MB / 2,636-path spec in **2m7s** (generator itself ~2s; the rest is cold AOT + json_serializable). No OOM/timeout. Output is high-quality: **165 typed model classes** (full money cluster present: `Invoice`/`InvoiceV2`/`Payment`/`Advance`/`CashDrawerSession`/`PaymentLink`/`Refund`/`InvoiceTotals`…), **5,954 typed endpoint methods, zero `Response<dynamic>`**, Prisma `Decimal`→`String`, snake_case `@JsonKey`. Fallback (typed-subset) NOT needed.
+- **Actual generated names** (Task 2 uses these): `openapi.swagger.dart` (models + `abstract class Openapi extends ChopperService`, impl `_$Openapi`), `openapi.swagger.g.dart`, `openapi.enums.swagger.dart`, `openapi.metadata.swagger.dart`, `client_index.dart` (`export 'openapi.swagger.dart' show Openapi;`), `client_mapping.dart`. The chopper part `openapi.swagger.chopper.dart` is **NOT written** because of the bug below.
+- **`Openapi.create(...)` signature:** `create({ChopperClient? client, http.Client? httpClient, Authenticator? authenticator, ErrorConverter? errorConverter, Converter? converter, Uri? baseUrl, List<Interceptor>? interceptors})`.
+- **One blocker bug (fixed in T2 Step 0):** the single FHIR path `/api/v1/fhir/Patient/{id}/$everything` is emitted as `@GET(path: '/api/v1/fhir/Patient/{id}/$everything')` — Dart treats `$everything` as interpolation of an undefined variable → `chopper_generator` throws `FormatException: Not an instance of String.`, skips the `.chopper.dart` part → `_$Openapi` undefined → `dart analyze` reports 6 errors, client won't compile. It is the **only** `$`-prefixed op in the entire spec.
+
 ---
 
-## Task 2: Revive — make the barrel + wrapper compile against the regenerated client
+## Task 2: Revive — fix the codegen compile bug, then make the barrel + wrapper compile against the regenerated client
 
-**Goal:** Fix the barrel `export`s + the wrapper to match the **actual** generated filenames/class name from Task 1, so `melos run analyze` is clean.
+**Goal:** Make `melos run codegen` produce a **compiling** chopper client (fix the `$everything` bug), then fix the barrel `export`s + the wrapper to match the actual generated names from Task 1, so `melos run analyze` is clean.
 
 **Files:**
+- Modify: `packages/vhhealth_core/build.yaml` (and/or a small build-local sanitizer + the root `melos run codegen` script) — to fix the `$everything` compile bug.
 - Modify: `packages/vhhealth_core/lib/api/vhhealth_api.dart`
 - Modify: `packages/vhhealth_core/lib/api/vh_auth_interceptor.dart`
 - Modify: `packages/vhhealth_core/.gitignore`
+
+- [ ] **Step 0: Fix the `$everything` codegen compile bug (HARD CONSTRAINTS)**
+
+The generated client doesn't compile because of the single FHIR `$everything` path (see Spike outcome). Make `melos run codegen` produce a **compiling** `Openapi`/`_$Openapi` client (`.chopper.dart` part written; `dart analyze` clean on the generated client).
+
+**HARD CONSTRAINTS — do not violate:**
+1. **Do NOT modify `apps/backend/src/docs/openapi.json` (canonical) or `packages/vhhealth_core/swagger/openapi.json` (byte-synced core).** They must stay byte-identical — the Phase-2 `check-core-spec-sync.mjs` gate enforces it. The FHIR `$everything` op stays in both specs.
+2. The fix must be **local to the Dart codegen pipeline**.
+3. **No silent truncation** — if any operation is dropped from the generated client, `log()`/print it during codegen AND note it in `docs/API_CODEGEN.md` (our convention).
+
+**Approach (use superpowers:systematic-debugging; try in order):**
+1. Try generator-native `build.yaml` `overriden_requests` to neutralize that one operation's path annotation; regenerate; `dart analyze` the generated client. If it compiles, done.
+2. If `overriden_requests` can't escape the `$`-interpolation: add a minimal, documented pre-codegen sanitizer that derives a **build-local, gitignored** codegen input from `swagger/openapi.json` with the single `$`-containing path removed (it has zero Flutter consumers), wire it into the root `melos run codegen` script (sanitize → build_runner), point `build.yaml` at the sanitized input, and `print` the dropped path. `swagger/openapi.json` stays byte-identical to the backend.
+3. Whichever path you take, verify: `lib/api/generated/openapi.swagger.chopper.dart` exists, `_$Openapi` resolves, `dart analyze packages/vhhealth_core/lib/api/generated/` (or a full analyze) is error-free on the generated client.
 
 - [ ] **Step 1: Run analyze to see the drift (expected: barrel export errors)**
 
