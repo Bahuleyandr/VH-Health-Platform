@@ -363,6 +363,92 @@
           }
         }
       },
+      "AdviseAdmissionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "POST /api/v1/appointments/{id}/advise-admission.",
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "AdviseAdmissionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdviseAdmissionResult"
+          }
+        }
+      },
+      "AdviseAdmissionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "advised_for_admission_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "advised_for_admission_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "advised_for_admission_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "CONFIRMED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "RESCHEDULED",
+              "CANCELLED",
+              "NO_SHOW"
+            ]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
       "AgingBucket": {
         "type": "object",
         "additionalProperties": false,
@@ -692,6 +778,248 @@
           }
         }
       },
+      "AppointmentHistoryEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "appointment_id",
+          "to_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "appointment_id": {
+            "type": "integer"
+          },
+          "from_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "to_status": {
+            "type": "string"
+          },
+          "changed_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "changed_by_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "changed_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentHistoryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentHistoryEntry"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AppointmentListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "CONFIRMED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "RESCHEDULED",
+              "CANCELLED",
+              "NO_SHOW"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "visit_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "NEW",
+              "FOLLOW_UP",
+              "EMERGENCY",
+              "TELE",
+              "LAB_ONLY",
+              "PAEDIATRIC_OPD",
+              null
+            ]
+          },
+          "token_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "visit_no": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent_appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "queue_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_queue": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentListResult"
+          }
+        }
+      },
+      "AppointmentListResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointments"
+        ],
+        "properties": {
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentListItem"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "AppointmentResponse": {
         "type": "object",
         "required": [
@@ -708,6 +1036,74 @@
           },
           "data": {
             "$ref": "#/components/schemas/Appointment"
+          }
+        }
+      },
+      "AppointmentWaitTime": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appointmentId",
+          "status",
+          "queuePosition",
+          "patientsAhead",
+          "currentlyConsulting",
+          "estimatedWaitMinutes",
+          "avgConsultationMinutes"
+        ],
+        "properties": {
+          "appointmentId": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "CONFIRMED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "RESCHEDULED",
+              "CANCELLED",
+              "NO_SHOW"
+            ]
+          },
+          "tokenNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "queuePosition": {
+            "type": "integer"
+          },
+          "patientsAhead": {
+            "type": "integer"
+          },
+          "currentlyConsulting": {
+            "type": "integer"
+          },
+          "estimatedWaitMinutes": {
+            "type": "integer"
+          },
+          "avgConsultationMinutes": {
+            "type": "integer"
+          }
+        }
+      },
+      "AppointmentWaitTimeResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentWaitTime"
           }
         }
       },
@@ -1924,6 +2320,182 @@
           },
           "gross_amount": {
             "type": "string"
+          }
+        }
+      },
+      "DoctorAppointmentsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DoctorAppointmentsResult"
+          }
+        }
+      },
+      "DoctorAppointmentsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointments"
+        ],
+        "properties": {
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentListItem"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "requested_doctor_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DoctorOption": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "user_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_row_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "specialization": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_available": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "DoctorOptionsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DoctorOptionsResult"
+          }
+        }
+      },
+      "DoctorOptionsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "doctors"
+        ],
+        "properties": {
+          "doctors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorOption"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DoctorWaitTime": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patientsAhead",
+          "currentlyConsulting",
+          "estimatedWaitMinutes",
+          "avgConsultationMinutes"
+        ],
+        "properties": {
+          "patientsAhead": {
+            "type": "integer"
+          },
+          "currentlyConsulting": {
+            "type": "integer"
+          },
+          "estimatedWaitMinutes": {
+            "type": "integer"
+          },
+          "avgConsultationMinutes": {
+            "type": "integer"
+          }
+        }
+      },
+      "DoctorWaitTimeResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DoctorWaitTime"
           }
         }
       },
@@ -3439,6 +4011,32 @@
           }
         }
       },
+      "LegacyAppointmentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Appointment"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "LinkPayerTariffRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -3869,6 +4467,56 @@
                 "example": 5
               }
             }
+          }
+        }
+      },
+      "PatientAppointmentsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientAppointmentsResult"
+          }
+        }
+      },
+      "PatientAppointmentsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointments"
+        ],
+        "properties": {
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentListItem"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "filter": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -4553,6 +5201,169 @@
           }
         }
       },
+      "PendingAppointment": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "CONFIRMED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "RESCHEDULED",
+              "CANCELLED",
+              "NO_SHOW"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "token_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "sla_target_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sla_breached": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PendingAppointmentsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingAppointment"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "QueueSummary": {
+        "type": "object",
+        "nullable": true,
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "queue_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "queue_kind": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "doctor",
+              "department",
+              "emergency",
+              "walk_in",
+              "op",
+              null
+            ]
+          },
+          "queue_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "open",
+              "paused",
+              "closed",
+              null
+            ]
+          },
+          "queue_date": {
+            "type": "string",
+            "nullable": true
+          },
+          "department_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
       "RaiseRefundRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -4576,6 +5387,58 @@
           },
           "mode": {
             "type": "string"
+          }
+        }
+      },
+      "RecentCompletedAppointment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_name",
+          "appointment_date",
+          "appointment_time"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_name": {
+            "type": "string"
+          },
+          "appointment_date": {
+            "type": "string",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RecentCompletedResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecentCompletedAppointment"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -5231,6 +6094,85 @@
           }
         }
       },
+      "Slot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "time",
+          "available"
+        ],
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SlotsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SlotsResult"
+          }
+        }
+      },
+      "SlotsResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slots"
+        ],
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Slot"
+            }
+          },
+          "day": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer"
+          },
+          "doctor_user_id": {
+            "type": "integer"
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "date": {
+            "type": "string"
+          },
+          "total_slots": {
+            "type": "integer"
+          },
+          "available_slots": {
+            "type": "integer"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "StatusUpdateResponse": {
         "type": "object",
         "required": [
@@ -5545,6 +6487,199 @@
                 "example": 5
               }
             }
+          }
+        }
+      },
+      "TodayAppointmentsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TodayAppointmentsResult"
+          }
+        }
+      },
+      "TodayAppointmentsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointments"
+        ],
+        "properties": {
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentListItem"
+            }
+          },
+          "date": {
+            "type": "string",
+            "nullable": true
+          },
+          "count": {
+            "type": "integer"
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "TodayQueueItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "CONFIRMED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "RESCHEDULED",
+              "CANCELLED",
+              "NO_SHOW"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "token_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "visit_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "NEW",
+              "FOLLOW_UP",
+              "EMERGENCY",
+              "TELE",
+              "LAB_ONLY",
+              "PAEDIATRIC_OPD",
+              null
+            ]
+          },
+          "triage_acuity": {
+            "type": "integer",
+            "nullable": true
+          },
+          "queue_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "doctor_display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "specialization": {
+            "type": "string",
+            "nullable": true
+          },
+          "emergency_visit_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "triage_priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "acuity_rank": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_emergent": {
+            "type": "boolean"
+          },
+          "appointment_queue": {
+            "$ref": "#/components/schemas/QueueSummary"
+          },
+          "gestational_age": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          }
+        }
+      },
+      "TodayQueueResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TodayQueueItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -6244,6 +7379,272 @@
         "properties": {
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "WalkInRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "POST /api/v1/appointments/walk-in. Wide front-desk intake; most fields optional with aliases. patient_phone OR patient_id is required (relaxed for unidentified-ER mode).",
+        "properties": {
+          "patient_id": {
+            "type": "integer"
+          },
+          "patient_phone": {
+            "type": "string"
+          },
+          "patient_name": {
+            "type": "string"
+          },
+          "patient_birthday": {
+            "type": "string"
+          },
+          "date_of_birth": {
+            "type": "string"
+          },
+          "patient_gender": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "patient_address": {
+            "type": "string"
+          },
+          "doctor_id": {
+            "type": "integer"
+          },
+          "department": {
+            "type": "string"
+          },
+          "department_id": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "appointment_time": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "visit_type": {
+            "type": "string",
+            "enum": [
+              "NEW",
+              "FOLLOW_UP",
+              "EMERGENCY",
+              "TELE",
+              "LAB_ONLY",
+              "PAEDIATRIC_OPD"
+            ]
+          },
+          "parent_appointment_id": {
+            "type": "integer"
+          },
+          "guardian_name": {
+            "type": "string"
+          },
+          "guardian_phone": {
+            "type": "string"
+          },
+          "guardian_relationship": {
+            "type": "string"
+          },
+          "chief_complaint": {
+            "type": "string"
+          },
+          "lab_tests": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      },
+      "WalkInResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WalkInResult"
+          }
+        }
+      },
+      "WalkInResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "CONFIRMED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "RESCHEDULED",
+              "CANCELLED",
+              "NO_SHOW"
+            ]
+          },
+          "confirmed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "token_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "visit_no": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "visit_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "NEW",
+              "FOLLOW_UP",
+              "EMERGENCY",
+              "TELE",
+              "LAB_ONLY",
+              "PAEDIATRIC_OPD",
+              null
+            ]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "queue_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_queue": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "er_visit_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "er_visit_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "er_is_mlc": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lab_order_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "lab_orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "returning_patient": {
+            "type": "boolean"
+          },
+          "prior_visit_count": {
+            "type": "integer"
+          },
+          "last_visit_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "is_unidentified": {
+            "type": "boolean"
+          },
+          "has_allergies": {
+            "type": "boolean"
+          },
+          "allergy_flag": {
+            "type": "boolean"
+          },
+          "allergies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "same_day_duplicate_count": {
+            "type": "integer"
+          },
+          "same_day_duplicates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "gestational_age": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
           }
         }
       }
@@ -22929,7 +24330,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentListResponse"
                 }
               }
             }
@@ -23243,7 +24644,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RecentCompletedResponse"
                 }
               }
             }
@@ -23260,7 +24661,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DoctorWaitTimeResponse"
                 }
               }
             }
@@ -23287,7 +24688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DoctorAppointmentsResponse"
                 }
               }
             }
@@ -23314,7 +24715,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DoctorOptionsResponse"
                 }
               }
             }
@@ -23348,7 +24749,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentListResponse"
                 }
               }
             }
@@ -23507,7 +24908,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientAppointmentsResponse"
                 }
               }
             }
@@ -23534,7 +24935,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PendingAppointmentsResponse"
                 }
               }
             }
@@ -23551,7 +24952,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/LegacyAppointmentListResponse"
                 }
               }
             }
@@ -23578,7 +24979,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TodayQueueResponse"
                 }
               }
             }
@@ -23595,7 +24996,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TodayQueueResponse"
                 }
               }
             }
@@ -23612,7 +25013,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SlotsResponse"
                 }
               }
             }
@@ -23646,7 +25047,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TodayAppointmentsResponse"
                 }
               }
             }
@@ -23663,7 +25064,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/LegacyAppointmentListResponse"
                 }
               }
             }
@@ -23690,8 +25091,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/WalkInResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalkInRequest"
               }
             }
           }
@@ -23811,7 +25222,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdviseAdmissionResponse"
                 }
               }
             }
@@ -23826,7 +25237,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdviseAdmissionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/appointments/{id}/cancel": {
@@ -23929,7 +25350,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentHistoryResponse"
                 }
               }
             }
@@ -24057,7 +25478,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentWaitTimeResponse"
                 }
               }
             }
