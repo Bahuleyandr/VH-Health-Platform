@@ -111,7 +111,7 @@ export const schemas = {
       total_amount: { type: 'string', example: '1180.00' },
       paid_amount: { type: 'string', example: '0.00' },
       payment_status: { type: 'string', enum: ['pending', 'partial', 'paid', 'refunded', 'written_off'] },
-      payment_method: { type: 'string', nullable: true, enum: ['cash', 'card', 'upi', 'insurance', 'cheque'] },
+      payment_method: { type: 'string', nullable: true, enum: ['cash', 'card', 'upi', 'insurance', 'cheque', null] },
       insurance_claim_id: { type: 'integer', nullable: true },
       notes: { type: 'string', nullable: true },
       issued_by: { type: 'string', format: 'uuid', nullable: true },
