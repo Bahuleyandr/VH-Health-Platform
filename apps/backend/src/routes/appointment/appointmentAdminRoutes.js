@@ -99,15 +99,24 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, ...params);
 
         // Peak hours analysis
+        // NOTE: the hour-of-day lives in `appointment_time` (VARCHAR, e.g. '10:40'),
+        // NOT in `appointment_date` (a DATE — EXTRACT(HOUR ...) is undefined on it).
+        // Guard the ::time cast with a regex so non-clock values ('Walk-in') fall
+        // into a NULL-hour bucket instead of erroring. appointments has no
+        // consultation-duration column, so avg_duration is surfaced as NULL —
+        // mirroring the /export handler, which models the same absent metric as
+        // `NULL::integer as consultation_duration_minutes`.
         const peakHours = await prisma.$queryRawUnsafe(`
-          SELECT 
-            EXTRACT(HOUR FROM appointment_date) as hour,
+          SELECT
+            EXTRACT(HOUR FROM
+              CASE WHEN a.appointment_time ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+                   THEN a.appointment_time::time END) as hour,
             COUNT(*) as appointments,
-            ROUND(AVG(consultation_duration_minutes)) as avg_duration
+            NULL::integer as avg_duration
           FROM appointments a
           LEFT JOIN doctors d ON a.doctor_id = d.id
           ${whereClause}
-          GROUP BY EXTRACT(HOUR FROM appointment_date)
+          GROUP BY 1
           ORDER BY hour
         `, ...params);
 
@@ -446,12 +455,18 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
       try {
         const { date = new Date().toISOString().split('T')[0], department_id } = req.query;
 
-        let whereClause = 'WHERE DATE(a.appointment_date) = $1';
+        // The date filter belongs in the appointments LEFT JOIN condition (not a
+        // top-level WHERE) so doctors with zero bookings that day still appear —
+        // capacity analysis must list every doctor. $1 (the date) is bound into
+        // each query's `LEFT JOIN appointments a ON ... AND DATE(...) = $1`. The
+        // optional department filter restricts which doctors appear, so it is a
+        // trailing WHERE on the driving `doctors` table.
         const params = [date];
+        let deptWhere = '';
 
         if (department_id) {
           params.push(department_id);
-          whereClause += ` AND doc.department_id = $${params.length}`;
+          deptWhere = `WHERE doc.department_id = $${params.length}`;
         }
 
         const capacity = await prisma.$queryRawUnsafe(`
@@ -473,8 +488,9 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           FROM doctors doc
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
-          LEFT JOIN appointments a ON doc.id = a.doctor_id ${whereClause}
+          LEFT JOIN appointments a ON doc.id = a.doctor_id AND DATE(a.appointment_date) = $1
           LEFT JOIN users p ON a.patient_id = p.id
+          ${deptWhere}
           GROUP BY d.id, d.name, dept.name, doc.max_appointments_per_day
           ORDER BY utilization_percentage DESC
         `, ...params);
@@ -487,7 +503,8 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             SUM(doc.max_appointments_per_day) - COUNT(a.id) as total_available,
             ROUND(COUNT(a.id)::numeric / NULLIF(SUM(doc.max_appointments_per_day), 0) * 100, 2) as overall_utilization
           FROM doctors doc
-          LEFT JOIN appointments a ON doc.id = a.doctor_id ${whereClause}
+          LEFT JOIN appointments a ON doc.id = a.doctor_id AND DATE(a.appointment_date) = $1
+          ${deptWhere}
         `, ...params);
 
         success(res, {
@@ -519,11 +536,14 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           return error(res, 'Invalid status. Must be completed, cancelled, or no_show', HTTP_STATUS.BAD_REQUEST);
         }
 
-        const placeholders = appointment_ids.map((_, i) => `$${i + 3}`).join(',');
-        
+        // Args are ($1 status, $2 reason, $3 updated_by uuid, $4.. ids), so the
+        // id IN-list must start at $4 — starting at $3 collided with the uuid
+        // updated_by and bound a uuid into an integer id slot (42804).
+        const placeholders = appointment_ids.map((_, i) => `$${i + 4}`).join(',');
+
         const result = await prisma.$queryRawUnsafe(`
-          UPDATE appointments 
-          SET status = $1, 
+          UPDATE appointments
+          SET status = $1,
               notes = COALESCE(notes || E'\n', '') || 'Admin update: ' || $2,
               updated_at = NOW(),
               updated_by = $3
@@ -563,8 +583,8 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           const conflictCheck = await prisma.$queryRawUnsafe(`
             SELECT id FROM appointments 
             WHERE doctor_id = $1 
-              AND appointment_date = $2 
-              AND status = 'scheduled'
+              AND appointment_date = $2
+              AND status = 'SCHEDULED'
           `, doctor_id, appointment_date);
 
           if (conflictCheck.length > 0) {
@@ -572,16 +592,37 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           }
         }
 
+        // The appointments table requires phone/appointment_time/updated_at (NOT
+        // NULL, no default) plus uid/doctor_name — none of which the override
+        // payload carries, so the original INSERT 23502'd. Mirror the main book
+        // path: resolve phone + names from the patient/doctor users rows, derive
+        // appointment_time from the appointment_date timestamp, gen_random_uuid()
+        // for uid and NOW() for created_at/updated_at.
+        const [patientRow] = await prisma.$queryRawUnsafe(
+          'SELECT phone, name FROM users WHERE id = $1', patient_id);
+        const [doctorRow] = await prisma.$queryRawUnsafe(
+          'SELECT name FROM users WHERE id = $1', doctor_id);
+        const patientPhone = patientRow?.phone ?? '';
+        const patientName = patientRow?.name ?? null;
+        const doctorName = doctorRow?.name ?? '';
+
         // Create appointment with admin override
         const result = await prisma.$queryRawUnsafe(`
           INSERT INTO appointments (
-            patient_id, doctor_id, appointment_date, reason,
-            status, created_at, created_by, 
+            uid, patient_id, doctor_id, phone, doctor_name, patient_name,
+            appointment_date, appointment_time, reason,
+            status, created_at, updated_at, created_by,
             notes, admin_override, override_reason
-          ) VALUES ($1, $2, $3, $4, 'scheduled', NOW(), $5, $6, true, $7)
+          ) VALUES (
+            gen_random_uuid(), $1, $2, $3, $4, $5,
+            $6::timestamp::date, to_char($6::timestamp, 'HH24:MI'), $7,
+            'SCHEDULED', NOW(), NOW(), $8,
+            $9, true, $10
+          )
           RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, created_at, created_by, updated_at
-        `, 
-          patient_id, doctor_id, appointment_date, reason,
+        `,
+          patient_id, doctor_id, patientPhone, doctorName, patientName,
+          appointment_date, reason,
           req.user?.uid,
           `Admin override booking by ${req.user?.name}`,
           override_reason
@@ -615,14 +656,14 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         switch (resolution_action) {
           case 'cancel_first':
             result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
+              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
               'cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]
             );
             break;
 
           case 'cancel_second':
             result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
+              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
               'cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]
             );
             break;
@@ -632,7 +673,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
             result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
+              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
               new_time, `Rescheduled by admin due to conflict`, conflict_appointments[0]
             );
             break;
@@ -642,7 +683,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
             result = await prisma.$queryRawUnsafe(
-              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
+              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
               new_time, `Rescheduled by admin due to conflict`, conflict_appointments[1]
             );
             break;
@@ -769,10 +810,13 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           RETURNING original_id
         `, req.user?.uid, reason, appointment_ids);
 
-        // Delete appointments
-        const placeholders = appointment_ids.map((_, i) => `$${i + 1}`).join(',');
+        // Delete appointments. Use `= ANY($1)` with the id array bound as a
+        // single param (matching the archive INSERT above + the send-reminders
+        // handler) — the prior `id IN (${placeholders})` form passed the array
+        // as one arg, so it bound the whole array to $1 (the (sql, params)
+        // array-as-$1 lint blind-spot) and failed at runtime.
         await prisma.$queryRawUnsafe(
-          `DELETE FROM appointments WHERE id IN (${placeholders})`,
+          `DELETE FROM appointments WHERE id = ANY($1)`,
           appointment_ids
         );
 

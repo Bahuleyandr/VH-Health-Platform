@@ -8,6 +8,7 @@ import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
 import { istDateString } from '../utils/dateUtils.js';
+import { assertResponse } from './helpers/assertSchema.js';
 
 const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
 const OTHER_PATIENT_UID = 'a7777777-7777-4777-8777-777777777a02';
@@ -189,6 +190,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         reason: 'Annual checkup',
       });
       expect(res.statusCode).toBe(201);
+      assertResponse('POST', '/api/v1/appointments/book', res.body);
       const a = res.body.data.appointment;
       expect(a.id).toBeDefined();
       expect(a.status).toBe('SCHEDULED');
@@ -395,6 +397,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         appointment_time: '15:00',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}', res.body);
       expect(res.body.data.appointment.appointment_time).toBe('15:00');
     });
 
@@ -425,6 +428,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         status: 'IN_PROGRESS',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}/status', res.body);
       expect(res.body.data.appointment.status).toBe('IN_PROGRESS');
     });
 
@@ -434,6 +438,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         notes: 'Follow-up progress note test',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}', res.body);
       expect(res.body.data.addendum).toBe(true);
       expect(res.body.data.appointment.reason).toBe('Follow-up progress note test');
       expect(res.body.data.appointment.notes).toBe('Follow-up progress note test');
@@ -445,6 +450,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         notes: 'Consult done, no follow-up',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}/status', res.body);
       expect(res.body.data.appointment.status).toBe('COMPLETED');
 
       const row = await prisma.$queryRawUnsafe(
@@ -473,6 +479,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         reason: 'Follow-up of seasonal allergy',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}', res.body);
       expect(res.body.data.addendum).toBe(true);
       expect(res.body.data.appointment.notes).toMatch(/Late addendum/);
 
@@ -530,6 +537,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         });
 
       expect(res.statusCode).toBe(200);
+      assertResponse('POST', '/api/v1/appointments/{id}/reschedule', res.body);
       expect(res.body.data.original.status).toBe('RESCHEDULED');
       expect(res.body.data.appointment.status).toBe('SCHEDULED');
       expect(res.body.data.appointment.parent_appointment_id).toBe(originalId);
@@ -538,12 +546,14 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       const todayList = await receptionist
         .get(`/api/v1/appointments/list?date=${apptDate}&page=1&limit=100`);
       expect(todayList.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/list', todayList.body);
       const todayRow = todayList.body.data.appointments.find((row) => row.id === originalId);
       expect(todayRow?.status).toBe('RESCHEDULED');
 
       const futureList = await receptionist
         .get(`/api/v1/appointments/list?date=${targetDate}&page=1&limit=100`);
       expect(futureList.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/list', futureList.body);
       const futureRow = futureList.body.data.appointments.find(
         (row) => row.id === res.body.data.appointment.id,
       );
@@ -557,12 +567,14 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       const list = await receptionist.get('/api/v1/appointments/list?limit=5');
       expect(list.statusCode).toBe(200);
       expect(Array.isArray(list.body.data?.appointments)).toBe(true);
+      assertResponse('GET', '/api/v1/appointments/list', list.body);
 
       const inchargeList = await receptionIncharge.get('/api/v1/appointments/list?limit=5');
       expect(inchargeList.statusCode).toBe(200);
 
       const options = await receptionist.get('/api/v1/appointments/doctors/options?search=Appointment%20Tester&limit=5');
       expect(options.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/doctors/options', options.body);
       const doctorOption = options.body.data?.doctors?.find((row) => row.id === doctorIntId);
       expect(doctorOption).toMatchObject({
         id: doctorIntId,
@@ -610,6 +622,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
 
       const res = await admin.get('/api/v1/appointments?advised_for_admission=true&limit=20');
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments', res.body);
       const ids = res.body.data.appointments.map((a) => a.id);
       expect(ids).toContain(advised[0].id);
       expect(ids).not.toContain(routine[0].id);
@@ -676,12 +689,14 @@ describe('Appointment booking + lifecycle — deep integration', () => {
 
       const history = await doctor.get(`/api/v1/appointments/patient/${patientIntId}`);
       expect(history.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/patient/{patient_id}', history.body);
       const historyRow = history.body.data.appointments.find((a) => a.id === insertedId);
       expect(historyRow).toBeDefined();
       expect(historyRow.visit_type).toBe('FOLLOW_UP');
 
       const queue = await doctor.get(`/api/v1/appointments/queue/today?doctor_id=${doctorIntId}`);
       expect(queue.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/queue/today', queue.body);
       const queueRow = queue.body.data.find((a) => a.id === insertedId);
       expect(queueRow).toBeDefined();
       expect(queueRow.visit_type).toBe('FOLLOW_UP');
@@ -742,6 +757,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
 
       const detail = await doctor.get(`/api/v1/appointments/${followUp[0].id}`);
       expect(detail.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/{id}', detail.body);
       const context = detail.body.data.appointment.follow_up_context;
       expect(context.empty).toBe(false);
       expect(context.parent_appointment.id).toBe(prior[0].id);
@@ -880,6 +896,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       const res = await doctor.get(`/api/v1/appointments/queue/today?doctor_id=${doctorIntId}`);
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
+      assertResponse('GET', '/api/v1/appointments/queue/today', res.body);
 
       const queue = res.body.data;
       const emergent = queue.find((a) => a.id === emergentApptId);

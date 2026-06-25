@@ -21,8 +21,16 @@ export function toAjv(node) {
     }
   }
   if (node.nullable === true) {
-    if (typeof mapped.type === 'string') return { ...mapped, type: [mapped.type, 'null'] };
-    return { anyOf: [mapped, { type: 'null' }] };
+    // ajv treats `enum` as an INDEPENDENT constraint from `type`, so a nullable
+    // field whose enum omits `null` would reject null even with the null type
+    // union. Add null to the enum HERE (test-only) so the COMMITTED spec can keep
+    // enums null-free — Spectral 6.x (nimma) crashes on a null enum *value*, so a
+    // `null` in a committed enum array breaks `npx spectral lint`.
+    const withNull = Array.isArray(mapped.enum) && !mapped.enum.includes(null)
+      ? { ...mapped, enum: [...mapped.enum, null] }
+      : mapped;
+    if (typeof withNull.type === 'string') return { ...withNull, type: [withNull.type, 'null'] };
+    return { anyOf: [withNull, { type: 'null' }] };
   }
   return mapped;
 }
