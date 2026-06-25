@@ -67,7 +67,6 @@ process.env.ALLOW_DEFAULT_TENANT ||= 'true';
 // column (e.g. cash_drawer_sessions.id) would throw "Do not know how to serialize
 // a BigInt". Mirror the prod serializer so the test env matches prod behaviour.
 if (typeof BigInt !== 'undefined' && !BigInt.prototype.toJSON) {
-  // eslint-disable-next-line no-extend-native
   BigInt.prototype.toJSON = function bigIntToJSON() {
     const n = Number(this);
     return Number.isSafeInteger(n) ? n : this.toString();
