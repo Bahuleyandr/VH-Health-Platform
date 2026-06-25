@@ -526,6 +526,70 @@
           }
         }
       },
+      "AiExtractionSummary": {
+        "type": "object",
+        "nullable": true,
+        "additionalProperties": true,
+        "properties": {
+          "intake_id": {
+            "nullable": true
+          },
+          "extraction_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "document_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewer_decision": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reviewer_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "decision_support_only": {
+            "type": "boolean"
+          },
+          "extracted_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "normalized_sections": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "source_citations": {
+            "type": "array",
+            "items": {}
+          },
+          "safety_flags": {
+            "type": "array",
+            "items": {}
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "raw_text": {
+            "type": "string"
+          }
+        }
+      },
       "ApplyDiscountRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -1113,6 +1177,121 @@
           "appointment_time": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "AppointmentDocumentUploadResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentDocumentUploadResult"
+          }
+        }
+      },
+      "AppointmentDocumentUploadResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "appointment_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "appointment_id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "uploaded_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "upload_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "document_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_size": {
+            "type": "integer",
+            "nullable": true
+          },
+          "file_mime": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentDocumentsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatientRecordDocItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -5441,6 +5620,55 @@
           }
         }
       },
+      "PatientAllRecordsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientAllRecordsResult"
+          }
+        }
+      },
+      "PatientAllRecordsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "hospital_records",
+          "my_uploads",
+          "total"
+        ],
+        "properties": {
+          "hospital_records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatientRecordDocItem"
+            }
+          },
+          "my_uploads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatientRecordDocItem"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
       "PatientAppointmentsResponse": {
         "type": "object",
         "required": [
@@ -5514,6 +5742,424 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "PatientRecordDeleteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientRecordDeleteResult"
+          }
+        }
+      },
+      "PatientRecordDeleteResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PatientRecordDocItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "appointment_id"
+        ],
+        "properties": {
+          "id": {},
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "uploaded_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "uploaded_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "upload_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "document_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_size": {
+            "type": "integer",
+            "nullable": true
+          },
+          "file_mime": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_hospital": {
+            "type": "string",
+            "nullable": true
+          },
+          "record_date": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "nullable": true
+          },
+          "prescription_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_department": {
+            "type": "string",
+            "nullable": true
+          },
+          "ai_extraction": {
+            "$ref": "#/components/schemas/AiExtractionSummary"
+          }
+        }
+      },
+      "PatientRecordExtractionProcessResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientRecordExtractionProcessResult"
+          }
+        }
+      },
+      "PatientRecordExtractionProcessResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "record"
+        ],
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/PatientRecordDocItem"
+          },
+          "ai_extraction": {
+            "$ref": "#/components/schemas/AiExtractionSummary"
+          },
+          "processed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PatientRecordExtractionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientRecordExtractionResult"
+          }
+        }
+      },
+      "PatientRecordExtractionResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "record"
+        ],
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/PatientRecordDocItem"
+          },
+          "ai_extraction": {
+            "$ref": "#/components/schemas/AiExtractionSummary"
+          }
+        }
+      },
+      "PatientRecordReviewRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "decision"
+        ],
+        "description": "PATCH /api/v1/appointments/patient/records/{id}/extraction-review. decision must be accepted|rejected|needs_revision (case-insensitive).",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected",
+              "needs_revision"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "PatientRecordReviewResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientRecordReviewResult"
+          }
+        }
+      },
+      "PatientRecordReviewResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "review"
+        ],
+        "properties": {
+          "review": {
+            "$ref": "#/components/schemas/PatientRecordReviewRow"
+          },
+          "ai_extraction": {
+            "$ref": "#/components/schemas/AiExtractionSummary"
+          }
+        }
+      },
+      "PatientRecordReviewRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "reviewer_decision"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "source_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "document_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "extraction_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "generation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "reviewer_decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected",
+              "needs_revision"
+            ]
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reviewer_note": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PatientRecordUploadResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientRecordUploadResult"
+          }
+        }
+      },
+      "PatientRecordUploadResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "document_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_size": {
+            "type": "integer",
+            "nullable": true
+          },
+          "file_mime": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_hospital": {
+            "type": "string",
+            "nullable": true
+          },
+          "record_date": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "ai_extraction": {
+            "$ref": "#/components/schemas/AiExtractionSummary"
           }
         }
       },
@@ -26055,7 +26701,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentDocumentUploadResponse"
                 }
               }
             }
@@ -26089,7 +26735,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientAllRecordsResponse"
                 }
               }
             }
@@ -26106,7 +26752,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientRecordUploadResponse"
                 }
               }
             }
@@ -26123,7 +26769,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientRecordDeleteResponse"
                 }
               }
             }
@@ -26150,7 +26796,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientRecordExtractionResponse"
                 }
               }
             }
@@ -26177,7 +26823,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientRecordReviewResponse"
                 }
               }
             }
@@ -26192,7 +26838,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatientRecordReviewRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/appointments/patient/records/{id}/extraction/process": {
@@ -26204,7 +26860,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientRecordExtractionProcessResponse"
                 }
               }
             }
@@ -26441,7 +27097,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentDocumentsListResponse"
                 }
               }
             }

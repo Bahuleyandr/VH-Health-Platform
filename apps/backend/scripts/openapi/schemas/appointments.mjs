@@ -1302,6 +1302,287 @@ export const schemas = {
       reason: { type: 'string' },
     },
   },
+
+  // ======================================================================
+  // T5 — DOCUMENT / PATIENT-RECORDS sub-domain (BOUNDED, RESPONSE-ONLY).
+  // Source: src/controllers/appointment/appointmentDocumentController.js
+  // (handlers) mounted from appointmentWorkflowRoutes.js.
+  //
+  // These endpoints are really a DOCUMENT-MANAGEMENT / PHI-upload sub-domain
+  // (R2-backed multipart upload + AI/OCR extraction jsonb) that happens to be
+  // routed under /appointments/* for historical reasons. We type them at the
+  // ENVELOPE level (response-only) this round, LOOSE wherever the payload is
+  // genuinely freeform:
+  //   * MULTIPART REQUEST bodies (upload/process) are NOT JSON requestBodies —
+  //     wire `response` only, never `request`.
+  //   * AI EXTRACTION results are arbitrary jsonb (extracted_fields /
+  //     normalized_sections / source_citations / safety_flags / metadata are
+  //     model output) → LOOSE so the envelope is still validated but `data`
+  //     stays open.
+  //   * The doc/record ROW shape varies across handlers (patient_records vs
+  //     appointment_documents vs synthesised e_prescriptions rows) → LOOSE row.
+  // A future dedicated "documents/records" slice can tighten these.
+  // ======================================================================
+
+  // ---- Shared doc/record row ---------------------------------------------
+  // The row that appears in getPatientAllRecords' grouped lists AND in
+  // getAppointmentDocuments' combined array. LOOSE, and `id` is INTENTIONALLY
+  // untyped (oneOf integer|string): getAppointmentDocuments synthesises
+  // e_prescription entries with a STRING id `rx-<n>` (so the PDF CTA can't
+  // collide with the BigInt appointment_documents.id), alongside real integer
+  // ids from appointment_documents/patient_records. The row also varies by
+  // source — appointment_documents carries upload_role/appointment_date/
+  // doctor_department; patient_records carries title/source_hospital/
+  // record_date + an attached ai_extraction; e_prescription synth rows carry
+  // source/prescription_id + null file_size. We keep a real minimal core
+  // (appointment_id is universal; file_name/created_at near-universal) and
+  // stay open. file_size is integer|null (BigInt column, but the live return
+  // is a small JS number or null for synth rows).
+  PatientRecordDocItem: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'appointment_id'],
+    properties: {
+      // integer (appointment_documents/patient_records) OR `rx-<n>` (synth).
+      id: {},
+      appointment_id: { type: 'integer', nullable: true },
+      patient_id: { type: 'integer', nullable: true },
+      doctor_id: { type: 'integer', nullable: true },
+      uploaded_by: { type: 'integer', nullable: true },
+      uploaded_by_name: { type: 'string', nullable: true },
+      upload_role: { type: 'string', nullable: true },
+      document_type: { type: 'string', nullable: true },
+      title: { type: 'string', nullable: true },
+      file_key: { type: 'string', nullable: true },
+      file_url: { type: 'string', nullable: true },
+      file_name: { type: 'string', nullable: true },
+      file_size: { type: 'integer', nullable: true },
+      file_mime: { type: 'string', nullable: true },
+      source_hospital: { type: 'string', nullable: true },
+      record_date: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      // getPatientAllRecords tags each row with its origin; synth rows add
+      // `source: 'e_prescription'` + prescription_id.
+      source: { type: 'string', nullable: true },
+      prescription_id: { type: 'integer', nullable: true },
+      // Display joins (getPatientAllRecords appointment side).
+      appointment_date: { type: 'string', format: 'date-time', nullable: true },
+      appointment_time: { type: 'string', nullable: true },
+      doctor_name: { type: 'string', nullable: true },
+      doctor_department: { type: 'string', nullable: true },
+      // Attached AI/OCR extraction draft (patient-uploaded records only).
+      ai_extraction: { $ref: '#/components/schemas/AiExtractionSummary' },
+    },
+  },
+
+  // ---- AI/OCR extraction draft -------------------------------------------
+  // buildPatientRecordExtractionSummary() output OR extractionUnavailable()
+  // fallback. LOOSE: extracted_fields / normalized_sections / source_citations
+  // / safety_flags / metadata are arbitrary model jsonb; the unavailable
+  // branch returns a different small object ({ intake_id:null,
+  // extraction_status:'unavailable', reason, ... }). Nullable: the helper
+  // returns null when there's no linked intake. Keep the stable scalar keys
+  // typed, allow the rest.
+  AiExtractionSummary: {
+    type: 'object',
+    nullable: true,
+    additionalProperties: true,
+    properties: {
+      intake_id: { nullable: true },
+      extraction_status: { type: 'string', nullable: true },
+      document_type: { type: 'string', nullable: true },
+      reviewer_decision: { type: 'string', nullable: true },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      reviewer_note: { type: 'string', nullable: true },
+      reason: { type: 'string', nullable: true },
+      decision_support_only: { type: 'boolean' },
+      // Freeform model output.
+      extracted_fields: { type: 'object', additionalProperties: true, nullable: true },
+      normalized_sections: { type: 'object', additionalProperties: true, nullable: true },
+      source_citations: { type: 'array', items: {} },
+      safety_flags: { type: 'array', items: {} },
+      metadata: { type: 'object', additionalProperties: true, nullable: true },
+      raw_text: { type: 'string' },
+    },
+  },
+
+  // ---- GET /patient/records/all ------------------------------------------
+  // getPatientAllRecords → success(res, grouped) where grouped =
+  // { hospital_records[], my_uploads[], total, patient_id }. The two arrays
+  // hold the LOOSE PatientRecordDocItem (hospital_records = appointment_documents
+  // rows, my_uploads = patient_records rows w/ optional ai_extraction).
+  PatientAllRecordsResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['hospital_records', 'my_uploads', 'total'],
+    properties: {
+      hospital_records: { type: 'array', items: { $ref: '#/components/schemas/PatientRecordDocItem' } },
+      my_uploads: { type: 'array', items: { $ref: '#/components/schemas/PatientRecordDocItem' } },
+      total: { type: 'integer' },
+      patient_id: { type: 'integer', nullable: true },
+    },
+  },
+  PatientAllRecordsResponse: envelope('PatientAllRecordsResult'),
+
+  // ---- POST /patient/records/upload (multipart — response only) ----------
+  // uploadPatientRecord → success(res, { ...patient_records RETURNING row,
+  // ai_extraction }). The RETURNING row is a fixed column list, but the
+  // attached ai_extraction is freeform jsonb → LOOSE result. The request is
+  // multipart/form-data (file + metadata) — NOT a JSON requestBody, so we wire
+  // response only.
+  PatientRecordUploadResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id'],
+    properties: {
+      id: { type: 'integer' },
+      patient_id: { type: 'integer', nullable: true },
+      document_type: { type: 'string', nullable: true },
+      title: { type: 'string', nullable: true },
+      file_key: { type: 'string', nullable: true },
+      file_url: { type: 'string', nullable: true },
+      file_name: { type: 'string', nullable: true },
+      file_size: { type: 'integer', nullable: true },
+      file_mime: { type: 'string', nullable: true },
+      source_hospital: { type: 'string', nullable: true },
+      record_date: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      ai_extraction: { $ref: '#/components/schemas/AiExtractionSummary' },
+    },
+  },
+  PatientRecordUploadResponse: envelope('PatientRecordUploadResult'),
+
+  // ---- DELETE /patient/records/{id} --------------------------------------
+  // deletePatientRecord → success(res, { deleted: true }). Strict.
+  PatientRecordDeleteResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['deleted'],
+    properties: {
+      deleted: { type: 'boolean' },
+    },
+  },
+  PatientRecordDeleteResponse: envelope('PatientRecordDeleteResult'),
+
+  // ---- GET /patient/records/{id}/extraction ------------------------------
+  // getPatientRecordExtraction → success(res, { record, ai_extraction }).
+  // `record` is the LOOSE PatientRecordDocItem (with ai_extraction attached);
+  // ai_extraction is the freeform AiExtractionSummary.
+  PatientRecordExtractionResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['record'],
+    properties: {
+      record: { $ref: '#/components/schemas/PatientRecordDocItem' },
+      ai_extraction: { $ref: '#/components/schemas/AiExtractionSummary' },
+    },
+  },
+  PatientRecordExtractionResponse: envelope('PatientRecordExtractionResult'),
+
+  // ---- POST /patient/records/{id}/extraction/process (response only) -----
+  // processPatientRecordExtraction → success(res, { record, ai_extraction,
+  // processed }). Same shape as the GET plus a `processed` boolean. No JSON
+  // request body of note (the record id is in the path).
+  PatientRecordExtractionProcessResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['record'],
+    properties: {
+      record: { $ref: '#/components/schemas/PatientRecordDocItem' },
+      ai_extraction: { $ref: '#/components/schemas/AiExtractionSummary' },
+      processed: { type: 'boolean' },
+    },
+  },
+  PatientRecordExtractionProcessResponse: envelope('PatientRecordExtractionProcessResult'),
+
+  // ---- PATCH /patient/records/{id}/extraction-review ---------------------
+  // reviewPatientRecordExtraction → success(res, { review, ai_extraction }).
+  // `review` is the decideClinicalDocumentIntake RETURNING row (fixed columns,
+  // but reviewer_decision drives the workflow); ai_extraction is the freeform
+  // summary with the new decision merged in. LOOSE review row.
+  PatientRecordReviewRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'reviewer_decision'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      admission_id: { type: 'integer', nullable: true },
+      source_type: { type: 'string', nullable: true },
+      document_type: { type: 'string', nullable: true },
+      extraction_status: { type: 'string', nullable: true },
+      generation_id: { type: 'integer', nullable: true },
+      reviewer_decision: { type: 'string', enum: ['accepted', 'rejected', 'needs_revision'] },
+      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      reviewer_note: { type: 'string', nullable: true },
+    },
+  },
+  PatientRecordReviewResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['review'],
+    properties: {
+      review: { $ref: '#/components/schemas/PatientRecordReviewRow' },
+      ai_extraction: { $ref: '#/components/schemas/AiExtractionSummary' },
+    },
+  },
+  PatientRecordReviewResponse: envelope('PatientRecordReviewResult'),
+  // PATCH body — only { decision, note }. The decision enum is the load-bearing
+  // field (validated server-side in decideClinicalDocumentIntake).
+  PatientRecordReviewRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['decision'],
+    description: 'PATCH /api/v1/appointments/patient/records/{id}/extraction-review. '
+      + 'decision must be accepted|rejected|needs_revision (case-insensitive).',
+    properties: {
+      decision: { type: 'string', enum: ['accepted', 'rejected', 'needs_revision'] },
+      note: { type: 'string' },
+    },
+  },
+
+  // ---- POST /documents/upload (multipart — response only) ----------------
+  // uploadAppointmentDocument → success(res, result[0]) — the bare
+  // appointment_documents RETURNING row (fixed column list). The request is
+  // multipart/form-data — response only. Strict-ish: the RETURNING columns are
+  // fixed, but file_size is a BigInt column (small JS number here) → integer,
+  // nullable. Open for forward-compat.
+  AppointmentDocumentUploadResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'appointment_id'],
+    properties: {
+      id: { type: 'integer' },
+      appointment_id: { type: 'integer' },
+      patient_id: { type: 'integer', nullable: true },
+      doctor_id: { type: 'integer', nullable: true },
+      uploaded_by: { type: 'integer', nullable: true },
+      upload_role: { type: 'string', nullable: true },
+      document_type: { type: 'string', nullable: true },
+      file_key: { type: 'string', nullable: true },
+      file_url: { type: 'string', nullable: true },
+      file_name: { type: 'string', nullable: true },
+      file_size: { type: 'integer', nullable: true },
+      file_mime: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  AppointmentDocumentUploadResponse: envelope('AppointmentDocumentUploadResult'),
+
+  // ---- GET /{appointment_id}/documents -----------------------------------
+  // getAppointmentDocuments → success(res, combined) — `data` IS a bare ARRAY
+  // of the LOOSE PatientRecordDocItem: appointment_documents rows (signed
+  // file_url) PLUS synthesised e_prescription entries (string `rx-<n>` id,
+  // source:'e_prescription', null file_size). Reuse PatientRecordDocItem (id
+  // untyped to allow both the integer and the rx-string).
+  AppointmentDocumentsListResponse: listEnvelope('PatientRecordDocItem'),
 };
 
 export const operations = {
@@ -1466,5 +1747,43 @@ export const operations = {
   'DELETE /api/v1/appointments/admin/bulk-delete': {
     request: 'BulkDeleteRequest',
     response: 'BulkDeleteResponse',
+  },
+
+  // ======================================================================
+  // T5: DOCUMENT / PATIENT-RECORDS sub-domain (BOUNDED, response-only).
+  // Multipart upload endpoints wire `response` ONLY (the request body is
+  // multipart/form-data, not JSON). AI-extraction `data` stays LOOSE; only the
+  // success/data/message envelope is contract-asserted. NOTE: the plan listed a
+  // bare `GET /patient/records/{id}` — there is NO such route in
+  // appointmentWorkflowRoutes.js (only DELETE on that path + the /extraction
+  // sub-paths), so it is intentionally absent here.
+  // ======================================================================
+  'GET /api/v1/appointments/patient/records/all': {
+    response: 'PatientAllRecordsResponse',
+  },
+  // Multipart upload — response only.
+  'POST /api/v1/appointments/patient/records/upload': {
+    response: 'PatientRecordUploadResponse',
+  },
+  'DELETE /api/v1/appointments/patient/records/{id}': {
+    response: 'PatientRecordDeleteResponse',
+  },
+  'GET /api/v1/appointments/patient/records/{id}/extraction': {
+    response: 'PatientRecordExtractionResponse',
+  },
+  // Path-param only (record id in URL) — response only.
+  'POST /api/v1/appointments/patient/records/{id}/extraction/process': {
+    response: 'PatientRecordExtractionProcessResponse',
+  },
+  'PATCH /api/v1/appointments/patient/records/{id}/extraction-review': {
+    request: 'PatientRecordReviewRequest',
+    response: 'PatientRecordReviewResponse',
+  },
+  // Multipart upload — response only.
+  'POST /api/v1/appointments/documents/upload': {
+    response: 'AppointmentDocumentUploadResponse',
+  },
+  'GET /api/v1/appointments/{appointment_id}/documents': {
+    response: 'AppointmentDocumentsListResponse',
   },
 };
