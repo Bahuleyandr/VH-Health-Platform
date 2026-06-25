@@ -19,16 +19,18 @@ import 'package:vhhealth_core/api/vhhealth_api.dart';
 
 void main() {
   group('generated client + VHAuthInterceptor compose', () {
-    test('Openapi.create accepts the interceptor and yields a ChopperService',
-        () {
-      // No network: a base URL + interceptor list, never a request.
-      final client = Openapi.create(
-        baseUrl: Uri.parse('http://localhost:5000/api/v1'),
-        interceptors: const [VHAuthInterceptor()],
-      );
+    test(
+      'Openapi.create accepts the interceptor and yields a ChopperService',
+      () {
+        // No network: a base URL + interceptor list, never a request.
+        final client = Openapi.create(
+          baseUrl: Uri.parse('http://localhost:5000/api/v1'),
+          interceptors: const [VHAuthInterceptor()],
+        );
 
-      expect(client, isA<ChopperService>());
-    });
+        expect(client, isA<ChopperService>());
+      },
+    );
 
     test('VHAuthInterceptor satisfies chopper\'s Interceptor contract', () {
       expect(const VHAuthInterceptor(), isA<Interceptor>());

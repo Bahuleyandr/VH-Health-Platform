@@ -1179,7 +1179,8 @@ class AppStrings {
   String get news2BannerEscalate => _t('vitals_chart.news2.escalate');
   String get news2BannerDismiss => _t('vitals_chart.news2.dismiss');
   String get news2GuidanceTitle => _t('vitals_chart.news2.guidance_title');
-  String get news2GuidanceCritical => _t('vitals_chart.news2.guidance.critical');
+  String get news2GuidanceCritical =>
+      _t('vitals_chart.news2.guidance.critical');
   String get news2GuidanceHigh => _t('vitals_chart.news2.guidance.high');
   String get news2GuidanceMedium => _t('vitals_chart.news2.guidance.medium');
   String get news2GuidanceLow => _t('vitals_chart.news2.guidance.low');
