@@ -6717,6 +6717,11 @@
             "type": "string",
             "nullable": true
           },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "status": {
             "type": "string",
             "nullable": true

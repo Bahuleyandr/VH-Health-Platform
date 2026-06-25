@@ -814,7 +814,9 @@ export const schemas = {
       trends: { type: 'array', items: { type: 'object', additionalProperties: true } },
       // Per-department rows — avg_wait_time_minutes is ROUND(AVG(...)) Decimal.
       departmentBreakdown: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      // Per-hour rows — avg_duration is ROUND(AVG(...)) Decimal.
+      // Per-hour rows — { hour, appointments, avg_duration }. avg_duration is
+      // NULL::integer (appointments has no consultation-duration column; the
+      // /export handler models the same absent metric as NULL too).
       peakHours: { type: 'array', items: { type: 'object', additionalProperties: true } },
       generatedAt: { type: 'string', format: 'date-time', nullable: true },
       requestedBy: { type: 'string', nullable: true },
@@ -1161,11 +1163,9 @@ export const schemas = {
 
   // ---- POST /admin/resolve-conflict --------------------------------------
   // data = { resolution, updatedAppointment:<RETURNING row>, resolvedBy }.
-  // The UPDATE RETURNs id, uid, phone, patient_name, doctor_name, date(!),
-  // status, notes, created_at, updated_at. NOTE: `date` is selected (the
-  // legacy column alias), not appointment_date. LOOSE item — keep id/uid/status
-  // typed, allow the rest (the RETURNING list is fixed but `date` is an odd
-  // column so we don't over-constrain).
+  // The UPDATE RETURNs id, uid, phone, patient_name, doctor_name,
+  // appointment_date, status, notes, created_at, updated_at. LOOSE item — keep
+  // id/uid/status typed, allow the rest.
   ResolveConflictAppointment: {
     type: 'object',
     additionalProperties: true,
@@ -1176,6 +1176,7 @@ export const schemas = {
       phone: { type: 'string', nullable: true },
       patient_name: { type: 'string', nullable: true },
       doctor_name: { type: 'string', nullable: true },
+      appointment_date: { type: 'string', format: 'date-time', nullable: true },
       status: { type: 'string', nullable: true },
       notes: { type: 'string', nullable: true },
       created_at: { type: 'string', format: 'date-time', nullable: true },

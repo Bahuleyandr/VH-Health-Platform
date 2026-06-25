@@ -225,49 +225,53 @@ describe('Appointment admin analytics / operations — contract deep', () => {
   });
 
   // ========================================================================
-  // TYPED-BUT-NOT-LIVE-ASSERTED endpoints.
-  // Each of the following five admin handlers carries a PRE-EXISTING bug in
-  // its raw SQL that makes it return 500 against the real (current) schema, so
-  // its 200 body cannot be exercised. The response SCHEMAS are still authored
-  // from the handler's intended `success(res, ...)` payload (the typed clients
-  // get the contract); these tests pin the *current* 500 so the breakage is
-  // documented and a future fix flips them to assertResponse(200). Bugs:
-  //   * /analytics     — peakHours SELECT references a non-existent column
-  //                      `consultation_duration_minutes` on appointments (42703)
-  //   * /capacity      — `${whereClause}` is interpolated in the MIDDLE of the
+  // FORMERLY-500 endpoints — now LIVE-ASSERTED.
+  // Each of these five admin handlers carried a pre-existing bug in its raw
+  // SQL that made it return 500 against the real schema. The bugs (and fixes,
+  // in appointmentAdminRoutes.js) are:
+  //   * /analytics     — peakHours SELECT referenced a non-existent column
+  //                      `consultation_duration_minutes` (42703). Fixed: model
+  //                      avg_duration as NULL::integer, mirroring /export.
+  //   * /capacity      — `${whereClause}` was interpolated in the MIDDLE of the
   //                      JOIN chain → `... ON ... WHERE ... LEFT JOIN ...`
-  //                      syntax error (42601)
-  //   * /bulk-update-status — placeholder offset bug: the id IN-list starts at
-  //                      `$3`, which collides with `updated_by = $3` (uuid),
-  //                      so an id slot binds the uuid → uuid-vs-int (42804)
-  //   * /override-book — INSERT omits the NOT NULL columns phone/uid/
-  //                      appointment_time/doctor_name (23502)
-  //   * /resolve-conflict — UPDATE ... RETURNING references a non-existent
-  //                      `date` column (should be appointment_date) (42703)
+  //                      syntax error (42601). Fixed: the date filter moves into
+  //                      the `LEFT JOIN appointments a ON ... AND DATE(...)=$1`
+  //                      condition; the optional dept filter is a trailing WHERE.
+  //   * /bulk-update-status — placeholder offset bug: the id IN-list started at
+  //                      `$3`, colliding with `updated_by = $3` (uuid), so an id
+  //                      slot bound the uuid → uuid-vs-int (42804). Fixed: ids
+  //                      start at `$4`.
+  //   * /override-book — INSERT omitted the NOT NULL columns phone/appointment_
+  //                      time/updated_at (+ uid/doctor_name) (23502). Fixed:
+  //                      resolve phone/doctor_name from the patient/doctor, derive
+  //                      appointment_time from appointment_date, gen_random_uuid()
+  //                      for uid, NOW() for updated_at.
+  //   * /resolve-conflict — UPDATE ... RETURNING referenced a non-existent
+  //                      `date` column (42703). Fixed: RETURNING appointment_date.
   // ========================================================================
-  it('GET /admin/analytics → 500 (pre-existing: consultation_duration_minutes column missing)', async () => {
+  it('GET /admin/analytics → AppointmentAnalyticsResponse', async () => {
     const res = await admin.get('/api/v1/appointments/admin/analytics?timeframe=90d');
-    expect(res.statusCode).toBe(500);
-    expect(res.body.success).toBe(false);
+    expect(res.statusCode).toBe(200);
+    assertResponse('GET', '/api/v1/appointments/admin/analytics', res.body);
   });
 
-  it('GET /admin/capacity → 500 (pre-existing: WHERE interpolated mid-JOIN)', async () => {
+  it('GET /admin/capacity → CapacityAnalysisResponse', async () => {
     const res = await admin.get(`/api/v1/appointments/admin/capacity?date=${apptDate}`);
-    expect(res.statusCode).toBe(500);
-    expect(res.body.success).toBe(false);
+    expect(res.statusCode).toBe(200);
+    assertResponse('GET', '/api/v1/appointments/admin/capacity', res.body);
   });
 
-  it('POST /admin/bulk-update-status → 500 (pre-existing: $3 placeholder collision)', async () => {
+  it('POST /admin/bulk-update-status → BulkUpdateStatusResponse', async () => {
     const res = await admin.post('/api/v1/appointments/admin/bulk-update-status').send({
       appointment_ids: [appt1Id, appt2Id],
       status: 'completed',
       reason: 'P5T4 bulk update',
     });
-    expect(res.statusCode).toBe(500);
-    expect(res.body.success).toBe(false);
+    expect([200, 201]).toContain(res.statusCode);
+    assertResponse('POST', '/api/v1/appointments/admin/bulk-update-status', res.body);
   });
 
-  it('POST /admin/override-book → 500 (pre-existing: INSERT omits NOT NULL phone/uid)', async () => {
+  it('POST /admin/override-book → OverrideBookResponse', async () => {
     const res = await admin.post('/api/v1/appointments/admin/override-book').send({
       patient_id: patient1IntId,
       doctor_id: doctorIntId,
@@ -276,16 +280,16 @@ describe('Appointment admin analytics / operations — contract deep', () => {
       override_reason: 'analytics contract test',
       ignore_conflicts: true,
     });
-    expect(res.statusCode).toBe(500);
-    expect(res.body.success).toBe(false);
+    expect([200, 201]).toContain(res.statusCode);
+    assertResponse('POST', '/api/v1/appointments/admin/override-book', res.body);
   });
 
-  it('POST /admin/resolve-conflict → 500 (pre-existing: RETURNING non-existent `date`)', async () => {
+  it('POST /admin/resolve-conflict → ResolveConflictResponse', async () => {
     const res = await admin.post('/api/v1/appointments/admin/resolve-conflict').send({
       conflict_appointments: [appt1Id, appt2Id],
       resolution_action: 'cancel_second',
     });
-    expect(res.statusCode).toBe(500);
-    expect(res.body.success).toBe(false);
+    expect([200, 201]).toContain(res.statusCode);
+    assertResponse('POST', '/api/v1/appointments/admin/resolve-conflict', res.body);
   });
 });
