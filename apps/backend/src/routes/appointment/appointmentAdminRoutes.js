@@ -109,7 +109,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         const peakHours = await prisma.$queryRawUnsafe(`
           SELECT
             EXTRACT(HOUR FROM
-              CASE WHEN a.appointment_time ~ '^[0-9]{1,2}:[0-9]{2}'
+              CASE WHEN a.appointment_time ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
                    THEN a.appointment_time::time END) as hour,
             COUNT(*) as appointments,
             NULL::integer as avg_duration
@@ -583,8 +583,8 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           const conflictCheck = await prisma.$queryRawUnsafe(`
             SELECT id FROM appointments 
             WHERE doctor_id = $1 
-              AND appointment_date = $2 
-              AND status = 'scheduled'
+              AND appointment_date = $2
+              AND status = 'SCHEDULED'
           `, doctor_id, appointment_date);
 
           if (conflictCheck.length > 0) {
@@ -616,7 +616,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, $5,
             $6::timestamp::date, to_char($6::timestamp, 'HH24:MI'), $7,
-            'scheduled', NOW(), NOW(), $8,
+            'SCHEDULED', NOW(), NOW(), $8,
             $9, true, $10
           )
           RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, created_at, created_by, updated_at
