@@ -8,6 +8,7 @@ import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
 import { istDateString } from '../utils/dateUtils.js';
+import { assertResponse } from './helpers/assertSchema.js';
 
 const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
 const OTHER_PATIENT_UID = 'a7777777-7777-4777-8777-777777777a02';
@@ -189,6 +190,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         reason: 'Annual checkup',
       });
       expect(res.statusCode).toBe(201);
+      assertResponse('POST', '/api/v1/appointments/book', res.body);
       const a = res.body.data.appointment;
       expect(a.id).toBeDefined();
       expect(a.status).toBe('SCHEDULED');
@@ -395,6 +397,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         appointment_time: '15:00',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}', res.body);
       expect(res.body.data.appointment.appointment_time).toBe('15:00');
     });
 
@@ -425,6 +428,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         status: 'IN_PROGRESS',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}/status', res.body);
       expect(res.body.data.appointment.status).toBe('IN_PROGRESS');
     });
 
@@ -434,6 +438,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         notes: 'Follow-up progress note test',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}', res.body);
       expect(res.body.data.addendum).toBe(true);
       expect(res.body.data.appointment.reason).toBe('Follow-up progress note test');
       expect(res.body.data.appointment.notes).toBe('Follow-up progress note test');
@@ -445,6 +450,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         notes: 'Consult done, no follow-up',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}/status', res.body);
       expect(res.body.data.appointment.status).toBe('COMPLETED');
 
       const row = await prisma.$queryRawUnsafe(
@@ -473,6 +479,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         reason: 'Follow-up of seasonal allergy',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/appointments/{id}', res.body);
       expect(res.body.data.addendum).toBe(true);
       expect(res.body.data.appointment.notes).toMatch(/Late addendum/);
 
@@ -530,6 +537,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         });
 
       expect(res.statusCode).toBe(200);
+      assertResponse('POST', '/api/v1/appointments/{id}/reschedule', res.body);
       expect(res.body.data.original.status).toBe('RESCHEDULED');
       expect(res.body.data.appointment.status).toBe('SCHEDULED');
       expect(res.body.data.appointment.parent_appointment_id).toBe(originalId);
@@ -742,6 +750,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
 
       const detail = await doctor.get(`/api/v1/appointments/${followUp[0].id}`);
       expect(detail.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/appointments/{id}', detail.body);
       const context = detail.body.data.appointment.follow_up_context;
       expect(context.empty).toBe(false);
       expect(context.parent_appointment.id).toBe(prior[0].id);
