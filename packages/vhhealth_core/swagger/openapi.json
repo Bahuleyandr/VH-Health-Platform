@@ -121,6 +121,83 @@
           }
         }
       },
+      "AddInvoiceItemRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.addInvoiceItem; not validator-backed.",
+        "properties": {
+          "service_code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "source_ref_type": {
+            "type": "string"
+          },
+          "source_ref_id": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdvanceSettlement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "advance_id",
+          "invoice_id",
+          "amount",
+          "tenant_id",
+          "advance_mode"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "advance_id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "settled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "settled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "advance_mode": {
+            "type": "string"
+          }
+        }
+      },
       "AgingBucket": {
         "type": "object",
         "additionalProperties": false,
@@ -198,6 +275,19 @@
           }
         }
       },
+      "ApplyDiscountRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.applyDiscount; not validator-backed.",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "CashPosition": {
         "type": "object",
         "additionalProperties": false,
@@ -249,6 +339,45 @@
           },
           "data": {
             "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "CreateDraftInvoiceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.createDraftInvoice; not validator-backed.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string"
+          },
+          "patient_phone": {
+            "type": "string"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "department": {
+            "type": "string"
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "patient_state": {
+            "type": "string"
+          },
+          "hospital_state": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
           }
         }
       },
@@ -316,6 +445,31 @@
           "due_date": {
             "type": "string",
             "format": "date"
+          }
+        }
+      },
+      "CreateServiceMasterRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.createServiceMaster; not validator-backed.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "hsn_sac": {
+            "type": "string"
           }
         }
       },
@@ -954,6 +1108,129 @@
           }
         }
       },
+      "InvoiceItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_id",
+          "description",
+          "quantity",
+          "unit_price",
+          "gst_rate",
+          "line_subtotal",
+          "cgst_amount",
+          "sgst_amount",
+          "igst_amount",
+          "line_total",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "hsn_sac": {
+            "type": "string",
+            "nullable": true
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit_price": {
+            "type": "string"
+          },
+          "gst_rate": {
+            "type": "string"
+          },
+          "line_subtotal": {
+            "type": "string"
+          },
+          "cgst_amount": {
+            "type": "string"
+          },
+          "sgst_amount": {
+            "type": "string"
+          },
+          "igst_amount": {
+            "type": "string"
+          },
+          "line_total": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "source_ref_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_ref_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tpa_decision": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_non_payable_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tpa_decided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InvoiceItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceItem"
+          }
+        }
+      },
       "InvoiceListItem": {
         "type": "object",
         "additionalProperties": false,
@@ -1033,6 +1310,795 @@
           },
           "data": {
             "$ref": "#/components/schemas/Invoice"
+          }
+        }
+      },
+      "InvoiceTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subtotal",
+          "cgst",
+          "sgst",
+          "igst",
+          "discount",
+          "total",
+          "paid",
+          "due"
+        ],
+        "properties": {
+          "subtotal": {
+            "type": "number"
+          },
+          "cgst": {
+            "type": "number"
+          },
+          "sgst": {
+            "type": "number"
+          },
+          "igst": {
+            "type": "number"
+          },
+          "discount": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "due": {
+            "type": "number"
+          }
+        }
+      },
+      "InvoiceTotalsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceTotals"
+          }
+        }
+      },
+      "InvoiceV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "invoice_type",
+          "subtotal",
+          "cgst_amount",
+          "sgst_amount",
+          "igst_amount",
+          "discount_amount",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "patient_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "cgst_amount": {
+            "type": "string"
+          },
+          "sgst_amount": {
+            "type": "string"
+          },
+          "igst_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "discount_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "discount_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InvoiceV2Detail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "invoice_type",
+          "subtotal",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "tenant_id",
+          "items",
+          "payments",
+          "advance_settlements"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "patient_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "cgst_amount": {
+            "type": "string"
+          },
+          "sgst_amount": {
+            "type": "string"
+          },
+          "igst_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "discount_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "discount_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceItem"
+            }
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceV2Payment"
+            }
+          },
+          "advance_settlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdvanceSettlement"
+            }
+          },
+          "tpa_utilisation": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TpaUtilisation"
+              }
+            ]
+          },
+          "tpa_preauth": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TpaPreauth"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceV2DetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceV2Detail"
+          }
+        }
+      },
+      "InvoiceV2ListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "invoice_type",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tpa_utilisation": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TpaUtilisation"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceV2Payment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "amount",
+          "mode",
+          "reversed",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "denominations": {
+            "nullable": true
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "shift": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "reversed": {
+            "type": "boolean"
+          },
+          "reversed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reversed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reversal_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InvoiceV2Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceV2"
+          }
+        }
+      },
+      "InvoicesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceV2ListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ItemizeRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.itemizeAdmissionInvoice; not validator-backed.",
+        "properties": {
+          "emit_package": {
+            "type": "boolean"
+          },
+          "emit_pharmacy": {
+            "type": "boolean"
+          },
+          "emit_ward_indents": {
+            "type": "boolean"
+          },
+          "emit_lab": {
+            "type": "boolean"
+          },
+          "emit_consults": {
+            "type": "boolean"
+          },
+          "emit_theatre": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ItemizeResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice_id",
+          "admission_id",
+          "summary"
+        ],
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "package_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ItemizeSummary"
+          }
+        }
+      },
+      "ItemizeResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ItemizeResult"
+          }
+        }
+      },
+      "ItemizeSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "package",
+          "pharmacy",
+          "ward_indents",
+          "lab",
+          "consults",
+          "theatre",
+          "room_upgrade",
+          "skipped_existing"
+        ],
+        "properties": {
+          "package": {
+            "type": "integer"
+          },
+          "pharmacy": {
+            "type": "integer"
+          },
+          "ward_indents": {
+            "type": "integer"
+          },
+          "lab": {
+            "type": "integer"
+          },
+          "consults": {
+            "type": "integer"
+          },
+          "theatre": {
+            "type": "integer"
+          },
+          "room_upgrade": {
+            "type": "integer"
+          },
+          "skipped_existing": {
+            "type": "integer"
+          }
+        }
+      },
+      "NonPayableBreakdown": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice_id",
+          "non_payable_total",
+          "line_count",
+          "lines"
+        ],
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "non_payable_total": {
+            "type": "number"
+          },
+          "line_count": {
+            "type": "integer"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NonPayableLine"
+            }
+          }
+        }
+      },
+      "NonPayableBreakdownResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NonPayableBreakdown"
+          }
+        }
+      },
+      "NonPayableLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "line_total",
+          "tpa_decision"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "source_ref_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_ref_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "line_total": {
+            "type": "string"
+          },
+          "tpa_decision": {
+            "type": "string"
+          },
+          "tpa_non_payable_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -1392,6 +2458,91 @@
           }
         }
       },
+      "ServiceMaster": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "code",
+          "description",
+          "category",
+          "default_price",
+          "gst_rate"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_price": {
+            "type": "string"
+          },
+          "gst_rate": {
+            "type": "string"
+          },
+          "hsn_sac": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "ServiceMasterResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ServiceMaster"
+          }
+        }
+      },
+      "ServicesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceMaster"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "SubmitClaimRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -1421,6 +2572,149 @@
             "minimum": 0
           },
           "documents": {}
+        }
+      },
+      "TpaDecisionItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_id",
+          "description",
+          "line_total",
+          "tpa_decision"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "line_total": {
+            "type": "string"
+          },
+          "tpa_decision": {
+            "type": "string"
+          },
+          "tpa_non_payable_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tpa_decided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "TpaDecisionItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TpaDecisionItem"
+          }
+        }
+      },
+      "TpaDecisionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.recordInvoiceItemTpaDecision; not validator-backed.",
+        "properties": {
+          "decision": {
+            "type": "string"
+          },
+          "non_payable_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "TpaPreauth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "preauth_id",
+          "preauth_number",
+          "tpa_status"
+        ],
+        "properties": {
+          "preauth_id": {
+            "type": "integer"
+          },
+          "preauth_number": {
+            "type": "string"
+          },
+          "tpa_status": {
+            "type": "string"
+          },
+          "denial_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "sanctioned_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "policy_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "TpaUtilisation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "root_preauth_id",
+          "root_preauth_number",
+          "cumulative_approved",
+          "total_charged",
+          "remaining",
+          "utilisation_pct",
+          "status"
+        ],
+        "properties": {
+          "root_preauth_id": {
+            "type": "integer"
+          },
+          "root_preauth_number": {
+            "type": "string"
+          },
+          "cumulative_approved": {
+            "type": "string"
+          },
+          "total_charged": {
+            "type": "string"
+          },
+          "remaining": {
+            "type": "string"
+          },
+          "utilisation_pct": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
         }
       },
       "TrialBalance": {
@@ -1538,6 +2832,41 @@
             "type": "number"
           },
           "disallowed_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateServiceMasterRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.updateServiceMaster; not validator-backed.",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "hsn_sac": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VoidInvoiceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.voidInvoice; not validator-backed.",
+        "properties": {
+          "reason": {
             "type": "string"
           }
         }
@@ -21587,7 +22916,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoicesListResponse"
                 }
               }
             }
@@ -21602,8 +22931,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2Response"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDraftInvoiceRequest"
               }
             }
           }
@@ -21619,7 +22958,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2DetailResponse"
                 }
               }
             }
@@ -21646,7 +22985,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceTotalsResponse"
                 }
               }
             }
@@ -21661,7 +23000,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyDiscountRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/issue": {
@@ -21673,7 +23022,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2DetailResponse"
                 }
               }
             }
@@ -21700,7 +23049,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ItemizeResultResponse"
                 }
               }
             }
@@ -21715,7 +23064,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemizeRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/items": {
@@ -21727,7 +23086,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceItemResponse"
                 }
               }
             }
@@ -21742,7 +23101,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddInvoiceItemRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/items/{itemId}": {
@@ -21754,7 +23123,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceTotalsResponse"
                 }
               }
             }
@@ -21789,7 +23158,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TpaDecisionItemResponse"
                 }
               }
             }
@@ -21812,7 +23181,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TpaDecisionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/non-payable": {
@@ -21824,7 +23203,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/NonPayableBreakdownResponse"
                 }
               }
             }
@@ -21905,7 +23284,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2DetailResponse"
                 }
               }
             }
@@ -21920,7 +23299,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidInvoiceRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payment-links": {
@@ -22280,7 +23669,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ServicesListResponse"
                 }
               }
             }
@@ -22295,8 +23684,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ServiceMasterResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceMasterRequest"
               }
             }
           }
@@ -22312,7 +23711,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ServiceMasterResponse"
                 }
               }
             }
@@ -22327,7 +23726,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceMasterRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/{claimId}/denial-risk": {
