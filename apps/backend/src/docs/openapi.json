@@ -690,8 +690,7 @@
               "EMERGENCY",
               "TELE",
               "LAB_ONLY",
-              "PAEDIATRIC_OPD",
-              null
+              "PAEDIATRIC_OPD"
             ]
           },
           "token_number": {
@@ -1584,8 +1583,7 @@
               "EMERGENCY",
               "TELE",
               "LAB_ONLY",
-              "PAEDIATRIC_OPD",
-              null
+              "PAEDIATRIC_OPD"
             ]
           },
           "token_number": {
@@ -3861,8 +3859,7 @@
               "card",
               "upi",
               "insurance",
-              "cheque",
-              null
+              "cheque"
             ]
           },
           "insurance_claim_id": {
@@ -6947,8 +6944,7 @@
               "department",
               "emergency",
               "walk_in",
-              "op",
-              null
+              "op"
             ]
           },
           "queue_label": {
@@ -6963,8 +6959,7 @@
               "open",
               "paused",
               "closed",
-              "archived",
-              null
+              "archived"
             ]
           },
           "queue_date": {
@@ -8517,8 +8512,7 @@
               "EMERGENCY",
               "TELE",
               "LAB_ONLY",
-              "PAEDIATRIC_OPD",
-              null
+              "PAEDIATRIC_OPD"
             ]
           },
           "triage_acuity": {
@@ -9479,8 +9473,7 @@
               "EMERGENCY",
               "TELE",
               "LAB_ONLY",
-              "PAEDIATRIC_OPD",
-              null
+              "PAEDIATRIC_OPD"
             ]
           },
           "tenant_id": {
