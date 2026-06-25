@@ -262,8 +262,8 @@ News2Banner? extractNews2Banner(Map<String, dynamic>? response) {
       ? scoreRaw.toInt()
       : int.tryParse('${scoreRaw ?? ''}');
   if (score == null) return null;
-  final clinicalRisk =
-      (news2['clinical_risk'] ?? news2['risk_level'] ?? '').toString();
+  final clinicalRisk = (news2['clinical_risk'] ?? news2['risk_level'] ?? '')
+      .toString();
   return News2Banner(
     totalScore: score,
     clinicalRisk: clinicalRisk,

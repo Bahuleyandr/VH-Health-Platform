@@ -1,6 +1,6 @@
 # OpenAPI → Dart codegen driver for vhhealth_core.
 #
-# Run `dart run build_runner build --delete-conflicting-outputs` after
+# Run `melos run codegen` (or `dart run build_runner build` in this package) after
 # refreshing `swagger/openapi.json` via
 # `npm --prefix apps/backend run openapi:sync-core` — it is synced byte-for-byte
 # from the canonical apps/backend/src/docs/openapi.json (NEVER edit it by hand;
@@ -40,6 +40,21 @@ targets:
           default_values_map:
             - type_name: 'bool'
               default_value: 'false'
-          # Rename endpoints that collide or whose generated names are ugly.
-          # Keep empty until codegen runs and we see the output.
-          overriden_requests: []
+          # Drop the single FHIR bulk-export operation whose path contains a
+          # literal `$` (`/api/v1/fhir/Patient/{id}/$everything`). chopper_generator
+          # emits the path verbatim into `@GET(path: '...$everything')`; Dart reads
+          # the unescaped `$everything` as string interpolation of an undefined
+          # variable → `FormatException: Not an instance of String` → the whole
+          # `openapi.swagger.chopper.dart` file is skipped → `_$Openapi` never
+          # resolves → the client does not compile. It is the ONLY `$`-prefixed
+          # operation in the entire 2,636-path spec, has ZERO Flutter consumers
+          # (it is a niche FHIR `$everything` bulk-export op), and dropping it is
+          # the surgical fix. `exclude_paths` is matched as a RegExp against the
+          # path, so `\$everything$` anchors to exactly this one operation.
+          # NOTE: this is a SILENT drop inside the generator — the dropped op is
+          # logged at codegen time by scripts/codegen.mjs and documented in
+          # docs/API_CODEGEN.md (per the no-silent-truncation convention).
+          # The canonical + core specs stay byte-identical; only the Dart client
+          # omits this one method.
+          exclude_paths:
+            - '/api/v1/fhir/Patient/\{id\}/\$everything$'

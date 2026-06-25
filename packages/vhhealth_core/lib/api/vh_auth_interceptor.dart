@@ -7,7 +7,7 @@
 //
 // Install on the generated client:
 //
-//   final api = VhhealthApi.create(
+//   final api = Openapi.create(
 //     baseUrl: Uri.parse(ApiConfig.baseUrl),
 //     interceptors: [VHAuthInterceptor()],
 //   );

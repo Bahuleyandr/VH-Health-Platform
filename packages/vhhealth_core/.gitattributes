@@ -1,0 +1,7 @@
+# The byte-synced OpenAPI spec is the codegen input (Phase 4) AND is gated to be
+# byte-identical to the backend canonical by apps/backend/scripts/check-core-spec-sync.mjs
+# (a raw Buffer.compare). The backend canonical is pinned to LF (apps/backend/.gitattributes
+# pins *.json eol=lf); without the same pin here, core.autocrlf=true checks this file out
+# as CRLF on Windows working trees, so the byte-compare spuriously fails locally even though
+# the stored blobs are identical. Pin it to LF so the gate is stable on every platform.
+swagger/openapi.json text eol=lf

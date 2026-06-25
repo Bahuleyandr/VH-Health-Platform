@@ -25,20 +25,32 @@ npm --prefix ../../apps/backend run openapi:sync-core
 # 2. Install build deps (first time only).
 flutter pub get
 
-# 3. Run codegen. The --delete-conflicting-outputs flag is needed because
-# swagger_dart_code_generator and json_serializable both touch some files.
-dart run build_runner build --delete-conflicting-outputs
+# 3. Run codegen. The pinned build_runner auto-deletes conflicting outputs
+# (swagger_dart_code_generator and json_serializable both touch some files);
+# the old --delete-conflicting-outputs flag has been removed and is now a no-op.
+dart run build_runner build
 ```
 
-Generated output lands in `lib/api/generated/vhhealth_api.swagger.dart` +
-friends. The barrel `lib/api/vhhealth_api.dart` re-exports them.
+Generated output lands in `lib/api/generated/openapi.swagger.dart` +
+friends (named after the input spec `swagger/openapi.json`). The barrel
+`lib/api/vhhealth_api.dart` re-exports them.
 
 ## Every time the backend spec changes
 
 ```bash
-cd /workspace/VH-Health-Platform/packages/vhhealth_core
-npm --prefix ../../apps/backend run openapi:sync-core
-dart run build_runner build --delete-conflicting-outputs
+# From the repo root — sync the spec, then regenerate.
+npm --prefix apps/backend run openapi:sync-core
+melos run codegen          # → node scripts/codegen.mjs (reports drops, then build_runner)
+```
+
+`melos run codegen` runs `scripts/codegen.mjs`, which first prints any
+operations dropped via `exclude_paths` (see "Dropped operations" below — there
+is no silent truncation) and then runs `build_runner` in this package. You can
+also run it directly inside the package:
+
+```bash
+cd packages/vhhealth_core
+dart run build_runner build
 ```
 
 Any breaking changes surface as Dart compile errors at call sites — chase
@@ -52,7 +64,7 @@ import 'package:vhhealth_core/config/api_config.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 
 // Create once, reuse everywhere.
-final api = VhhealthApi.create(
+final api = Openapi.create(
   baseUrl: Uri.parse(ApiConfig.baseUrl),
   interceptors: [
     // Injects Authorization + x-api-key, same headers VHHttpClient produces.
@@ -93,7 +105,7 @@ Both clients live side-by-side during the migration:
 
 - `VHHttpClient` — handwritten, retry / refresh / 401 logic, takes a raw
   path and body. Used by call sites that haven't migrated.
-- `VhhealthApi` (generated) — typed, driven by the spec. Reuses the same
+- `Openapi` (generated) — typed, driven by the spec. Reuses the same
   refresh flow via a chopper interceptor that delegates to
   `VHHttpClient.refreshAuthToken` on 401.
 
@@ -102,6 +114,45 @@ difference is the type safety at call sites.
 
 When every app call site has migrated, we can delete `VHHttpClient` and
 route the chopper interceptor stack through `http` directly.
+
+## Dropped operations (no silent truncation)
+
+A handful of operations in the canonical spec **cannot** be emitted into the
+generated chopper client and are dropped via `exclude_paths` in
+`build.yaml`. This list is the source of truth — `melos run codegen` (which
+runs `scripts/codegen.mjs`) prints the dropped paths on every run, derived
+from `exclude_paths` × the spec, so a drop can never go unnoticed.
+
+| Dropped path | Why | Consumers |
+|---|---|---|
+| `GET /api/v1/fhir/Patient/{id}/$everything` | The literal `$` in the path becomes Dart string interpolation inside `@GET(path: '...$everything')` → `chopper_generator` throws `FormatException: Not an instance of String` and silently skips writing the entire `openapi.swagger.chopper.dart` part, so `_$Openapi` never resolves and the **whole client fails to compile**. It is the only `$`-prefixed op in the entire 2,636-path spec. | None — niche FHIR bulk-export op, zero Flutter call sites. |
+
+**Important:** the canonical spec (`apps/backend/src/docs/openapi.json`) and the
+byte-synced core copy (`packages/vhhealth_core/swagger/openapi.json`) are left
+untouched — the `$everything` operation stays in both (the
+`check-core-spec-sync.mjs` gate enforces byte-identity). Only the generated Dart
+client omits it. If a Flutter consumer ever needs `$everything`, call it through
+`VHHttpClient` with the raw path instead of the typed client.
+
+## Generated-artifact policy (gitignored + CI-gated)
+
+The generated client under `lib/api/generated/` is **gitignored** — it is a
+build product of `swagger/openapi.json`, never committed. There is therefore
+**no committed baseline to diff against**, and no risk of a stale checked-in
+client masking a spec change.
+
+The drift signal is the **CI codegen gate** instead of a file diff: CI
+regenerates the client from the synced spec, runs `dart analyze`, and runs the
+compose smoke test (`test/api_client_compose_test.dart`). That test constructs
+the generated `Openapi` client through the `VHAuthInterceptor` wrapper with no
+network, so any spec change that breaks Dart generation, the `Openapi.create`
+signature, or the chopper `Interceptor` contract fails CI — fast, and without a
+human having to notice a missing baseline.
+
+This does not change the side-by-side migration story above: the generated
+`Openapi` client still **coexists with `VHHttpClient`**, and call sites migrate
+to it one feature at a time. The CI gate just guarantees the generated client
+keeps compiling and composing with the wrapper while that migration proceeds.
 
 ## Known limitations
 
@@ -122,7 +173,7 @@ route the chopper interceptor stack through `http` directly.
 
 ```bash
 dart run build_runner clean
-dart run build_runner build --delete-conflicting-outputs --verbose
+dart run build_runner build --verbose
 ```
 
 ### Generated file references a type that doesn't exist

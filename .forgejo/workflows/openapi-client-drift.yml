@@ -8,6 +8,15 @@ name: OpenAPI and Client Drift
 # openapi-typescript, shared Dart via swagger_dart_code_generator + the
 # vhhealth_core spec-copy) return in Phases 2-4 of the OpenAPI contract pipeline
 # epic — see docs/superpowers/specs/2026-06-24-openapi-contract-pipeline-design.md.
+#
+# Phase 4 (Dart client codegen gate) — scope note: this Forgejo workflow stays
+# Node-only (spec well-formedness + vhhealth_core spec-copy sync). It deliberately
+# does NOT regenerate the Dart client, because that needs the Flutter/Dart
+# toolchain, which this runner does not provision. The AUTHORITATIVE Dart-client
+# codegen gate (a spec change that breaks `melos run codegen` or the
+# barrel/wrapper/compose-test fails CI) is the GitHub `ci-flutter` job —
+# see the `Codegen (regenerate Dart client from synced spec)` step in
+# .github/workflows/_reusable-flutter-workspace.yml. Forgejo keeps spec-sync only.
 
 on:
   pull_request:

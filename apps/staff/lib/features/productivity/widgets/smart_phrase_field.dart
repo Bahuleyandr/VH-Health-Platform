@@ -87,7 +87,9 @@ class _SmartPhraseFieldState extends State<SmartPhraseField> {
       _busy = true;
     });
     try {
-      final response = await ApiClient.get('/productivity/phrases/by-code/$code');
+      final response = await ApiClient.get(
+        '/productivity/phrases/by-code/$code',
+      );
       if (!mounted) return;
       if (!response.isSuccess) {
         _lastFailedCode = code;

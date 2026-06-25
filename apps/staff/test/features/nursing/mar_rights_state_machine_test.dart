@@ -219,18 +219,21 @@ void main() {
       );
     });
 
-    test('false when only SOFT rights (dose/route/time) failed — overridable', () {
-      expect(
-        marIsIdentityMismatch({
-          'patient': true,
-          'drug': true,
-          'dose': true,
-          'route': true,
-          'time': false,
-        }),
-        isFalse,
-      );
-    });
+    test(
+      'false when only SOFT rights (dose/route/time) failed — overridable',
+      () {
+        expect(
+          marIsIdentityMismatch({
+            'patient': true,
+            'drug': true,
+            'dose': true,
+            'route': true,
+            'time': false,
+          }),
+          isFalse,
+        );
+      },
+    );
 
     test('false when all rights pass', () {
       expect(

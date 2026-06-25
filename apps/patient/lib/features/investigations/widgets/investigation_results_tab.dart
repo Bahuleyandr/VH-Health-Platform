@@ -28,7 +28,6 @@ class InvestigationResultsTab extends StatefulWidget {
 
 class InvestigationResultsTabState extends State<InvestigationResultsTab>
     with AutomaticKeepAliveClientMixin {
-
   List<dynamic> _investigations = [];
   bool _isLoadingResults = true;
   String? _resultsError;
@@ -59,7 +58,6 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
   /// Re-fetch the investigations list. Called by the parent (via GlobalKey)
   /// after a new upload on the Upload tab.
   void refresh() => _fetchInvestigations();
-
 
   Future<void> _fetchInvestigations() async {
     if (!mounted) return;

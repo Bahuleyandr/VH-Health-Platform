@@ -169,7 +169,12 @@ void main() {
       expect(extractNews2Banner(null), isNull);
       expect(extractNews2Banner({'vitals': {}}), isNull);
       expect(extractNews2Banner({'news2': 'nope'}), isNull);
-      expect(extractNews2Banner({'news2': {'clinical_risk': 'high'}}), isNull);
+      expect(
+        extractNews2Banner({
+          'news2': {'clinical_risk': 'high'},
+        }),
+        isNull,
+      );
     });
   });
 
