@@ -1953,7 +1953,8 @@
               "card",
               "upi",
               "insurance",
-              "cheque"
+              "cheque",
+              null
             ]
           },
           "insurance_claim_id": {
