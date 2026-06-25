@@ -134,6 +134,26 @@ untouched — the `$everything` operation stays in both (the
 client omits it. If a Flutter consumer ever needs `$everything`, call it through
 `VHHttpClient` with the raw path instead of the typed client.
 
+## Generated-artifact policy (gitignored + CI-gated)
+
+The generated client under `lib/api/generated/` is **gitignored** — it is a
+build product of `swagger/openapi.json`, never committed. There is therefore
+**no committed baseline to diff against**, and no risk of a stale checked-in
+client masking a spec change.
+
+The drift signal is the **CI codegen gate** instead of a file diff: CI
+regenerates the client from the synced spec, runs `dart analyze`, and runs the
+compose smoke test (`test/api_client_compose_test.dart`). That test constructs
+the generated `Openapi` client through the `VHAuthInterceptor` wrapper with no
+network, so any spec change that breaks Dart generation, the `Openapi.create`
+signature, or the chopper `Interceptor` contract fails CI — fast, and without a
+human having to notice a missing baseline.
+
+This does not change the side-by-side migration story above: the generated
+`Openapi` client still **coexists with `VHHttpClient`**, and call sites migrate
+to it one feature at a time. The CI gate just guarantees the generated client
+keeps compiling and composing with the wrapper while that migration proceeds.
+
 ## Known limitations
 
 - **Nullable by default** — the generator treats most fields as optional,
