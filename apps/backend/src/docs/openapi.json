@@ -120,6 +120,5268 @@
             }
           }
         }
+      },
+      "AddInvoiceItemRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.addInvoiceItem; not validator-backed.",
+        "properties": {
+          "service_code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "source_ref_type": {
+            "type": "string"
+          },
+          "source_ref_id": {
+            "type": "integer"
+          }
+        }
+      },
+      "AddPackageItemRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.addPackageItem; service-layer validation.",
+        "properties": {
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "is_included": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Advance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "amount",
+          "balance",
+          "mode",
+          "collected_at",
+          "status",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "balance": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AdvanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Advance"
+          }
+        }
+      },
+      "AdvanceSettlement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "advance_id",
+          "invoice_id",
+          "amount",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "advance_id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "settled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "settled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "advance_mode": {
+            "type": "string"
+          }
+        }
+      },
+      "AdvanceSettlementResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdvanceSettlement"
+          }
+        }
+      },
+      "AdvancesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Advance"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AgingBucket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bucket",
+          "invoiceCount",
+          "totalPaise",
+          "total"
+        ],
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "0-30",
+              "31-60",
+              "61-90",
+              "90+"
+            ]
+          },
+          "invoiceCount": {
+            "type": "integer",
+            "example": 3
+          },
+          "totalPaise": {
+            "type": "integer",
+            "example": 250000
+          },
+          "total": {
+            "type": "string",
+            "example": "2500.00"
+          }
+        }
+      },
+      "AgingReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "buckets",
+          "grandTotalPaise",
+          "grandTotal"
+        ],
+        "properties": {
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgingBucket"
+            }
+          },
+          "grandTotalPaise": {
+            "type": "integer",
+            "example": 250000
+          },
+          "grandTotal": {
+            "type": "string",
+            "example": "2500.00"
+          }
+        }
+      },
+      "AgingReportResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AgingReport"
+          }
+        }
+      },
+      "ApplyDiscountRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.applyDiscount; not validator-backed.",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "BillingPackage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "package_code",
+          "display_name",
+          "currency",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "package_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_procedure_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fixed_price_minor": {
+            "type": "integer",
+            "nullable": true
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "exclusion_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "inclusion_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BillingPackageResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BillingPackage"
+          }
+        }
+      },
+      "CancelPaymentLinkRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.cancelPaymentLink; not validator-backed.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "CashDrawerSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "cashier_uid",
+          "shift",
+          "opened_at",
+          "opening_float",
+          "short_count",
+          "over_count",
+          "requires_review",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cashier_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shift": {
+            "type": "string"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opening_float": {
+            "type": "string"
+          },
+          "closed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "counted_total": {
+            "type": "string",
+            "nullable": true
+          },
+          "counted_denominations": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "system_total": {
+            "type": "string",
+            "nullable": true
+          },
+          "variance": {
+            "type": "string",
+            "nullable": true
+          },
+          "short_count": {
+            "type": "boolean"
+          },
+          "over_count": {
+            "type": "boolean"
+          },
+          "requires_review": {
+            "type": "boolean"
+          },
+          "variance_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "review_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CashDrawerSessionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CashDrawerSession"
+          }
+        }
+      },
+      "CashDrawerSessionsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CashDrawerSession"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "CashPosition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cashTotalPaise",
+          "cashTotal",
+          "bankTotalPaise",
+          "bankTotal",
+          "byDrawer"
+        ],
+        "properties": {
+          "cashTotalPaise": {
+            "type": "integer",
+            "example": 50000
+          },
+          "cashTotal": {
+            "type": "string",
+            "example": "500.00"
+          },
+          "bankTotalPaise": {
+            "type": "integer",
+            "example": 0
+          },
+          "bankTotal": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "byDrawer": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DrawerPosition"
+            }
+          }
+        }
+      },
+      "CashPositionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "CloseDrawerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from cashDrawerService.closeSession; not validator-backed.",
+        "properties": {
+          "counted_denominations": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "variance_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectAdvanceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.collectAdvance; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectPaymentRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.collectPayment; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "denominations": {},
+          "shift": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateDraftInvoiceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.createDraftInvoice; not validator-backed.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string"
+          },
+          "patient_phone": {
+            "type": "string"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "department": {
+            "type": "string"
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "patient_state": {
+            "type": "string"
+          },
+          "hospital_state": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateInvoiceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient_uid",
+          "type",
+          "items",
+          "subtotal",
+          "total_amount"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "consultation",
+              "investigation",
+              "pharmacy",
+              "procedure",
+              "room_charge"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "subtotal": {
+            "type": "number"
+          },
+          "tax_amount": {
+            "type": "number"
+          },
+          "discount_amount": {
+            "type": "number"
+          },
+          "total_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "card",
+              "upi",
+              "insurance",
+              "cheque"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "CreatePaymentLinkRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.createPaymentLink; not validator-backed.",
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "expires_in_hours": {
+            "type": "number"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateServiceMasterRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.createServiceMaster; not validator-backed.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "hsn_sac": {
+            "type": "string"
+          }
+        }
+      },
+      "DailyCollection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "days",
+          "totalPaise",
+          "total"
+        ],
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionDay"
+            }
+          },
+          "totalPaise": {
+            "type": "integer",
+            "example": 75000
+          },
+          "total": {
+            "type": "string",
+            "example": "750.00"
+          }
+        }
+      },
+      "DailyCollectionDay": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "day",
+          "collectedPaise",
+          "collected"
+        ],
+        "properties": {
+          "day": {
+            "type": "string",
+            "example": "2026-06-24"
+          },
+          "collectedPaise": {
+            "type": "integer",
+            "example": 75000
+          },
+          "collected": {
+            "type": "string",
+            "example": "750.00"
+          }
+        }
+      },
+      "DailyCollectionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DailyCollection"
+          }
+        }
+      },
+      "DailyCollectionV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "summary",
+          "insurer_breakdown",
+          "items"
+        ],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionV2Summary"
+            }
+          },
+          "insurer_breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionV2InsurerRow"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyCollectionV2Item"
+            }
+          }
+        }
+      },
+      "DailyCollectionV2InsurerRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payment_count",
+          "net_amount",
+          "gross_amount"
+        ],
+        "properties": {
+          "insurer": {
+            "type": "string",
+            "nullable": true
+          },
+          "policy_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "claim_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "payment_count": {
+            "type": "integer"
+          },
+          "net_amount": {
+            "type": "string"
+          },
+          "gross_amount": {
+            "type": "string"
+          }
+        }
+      },
+      "DailyCollectionV2Item": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "amount",
+          "mode",
+          "reversed"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "denominations": {
+            "nullable": true
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "shift": {
+            "type": "string",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reversed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DailyCollectionV2Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DailyCollectionV2"
+          }
+        }
+      },
+      "DailyCollectionV2Summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "payment_count",
+          "net_amount",
+          "gross_amount"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "payment_count": {
+            "type": "integer"
+          },
+          "net_amount": {
+            "type": "string"
+          },
+          "gross_amount": {
+            "type": "string"
+          }
+        }
+      },
+      "DrawerPosition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "drawerSessionId",
+          "netPaise",
+          "net"
+        ],
+        "properties": {
+          "drawerSessionId": {
+            "type": "integer",
+            "example": 12
+          },
+          "netPaise": {
+            "type": "integer",
+            "example": 50000
+          },
+          "net": {
+            "type": "string",
+            "example": "500.00"
+          }
+        }
+      },
+      "EnhancementClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enhancement_amount"
+        ],
+        "properties": {
+          "enhancement_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "justification": {
+            "type": "string"
+          },
+          "clinical_justification": {}
+        }
+      },
+      "ExpireStaleResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ExpireStaleResult"
+          }
+        }
+      },
+      "ExpireStaleResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expired"
+        ],
+        "properties": {
+          "expired": {
+            "type": "integer"
+          }
+        }
+      },
+      "InsuranceClaim": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "status",
+          "submitted_at",
+          "created_at",
+          "updated_at",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "string"
+          },
+          "approved_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "non_payable_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "disallowed_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent_claim_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "under_review",
+              "approved",
+              "partially_approved",
+              "rejected",
+              "paid",
+              "settled_partial",
+              "settled_full"
+            ]
+          },
+          "documents": {
+            "nullable": true
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InsuranceClaimListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "status",
+          "submitted_at",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "string"
+          },
+          "approved_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InsuranceClaimResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InsuranceClaim"
+          }
+        }
+      },
+      "InsuranceClaimSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "status",
+          "submitted_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string",
+            "example": "CLM-202606-0001"
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "string",
+            "example": "5000.00"
+          },
+          "approved_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InsuranceClaimsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InsuranceClaimListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Invoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "type",
+          "items",
+          "subtotal",
+          "tax_amount",
+          "discount_amount",
+          "total_amount",
+          "paid_amount",
+          "payment_status",
+          "issued_at",
+          "created_at",
+          "updated_at",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "example": "INV-202606-0001"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "consultation",
+              "investigation",
+              "pharmacy",
+              "procedure",
+              "room_charge"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "subtotal": {
+            "type": "string",
+            "example": "1000.00"
+          },
+          "tax_amount": {
+            "type": "string",
+            "example": "180.00"
+          },
+          "discount_amount": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "total_amount": {
+            "type": "string",
+            "example": "1180.00"
+          },
+          "paid_amount": {
+            "type": "string",
+            "example": "0.00"
+          },
+          "payment_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "partial",
+              "paid",
+              "refunded",
+              "written_off"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "cash",
+              "card",
+              "upi",
+              "insurance",
+              "cheque"
+            ]
+          },
+          "insurance_claim_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "issued_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InvoiceDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "type",
+          "total_amount",
+          "payment_status",
+          "payment_transactions"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "type": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "tax_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "paid_amount": {
+            "type": "string"
+          },
+          "payment_status": {
+            "type": "string"
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "insurance_claim_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "issued_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payment_transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentTransaction"
+            }
+          },
+          "insurance_claim": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InsuranceClaimSummary"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceDetail"
+          }
+        }
+      },
+      "InvoiceItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_id",
+          "description",
+          "quantity",
+          "unit_price",
+          "gst_rate",
+          "line_subtotal",
+          "cgst_amount",
+          "sgst_amount",
+          "igst_amount",
+          "line_total",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "hsn_sac": {
+            "type": "string",
+            "nullable": true
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit_price": {
+            "type": "string"
+          },
+          "gst_rate": {
+            "type": "string"
+          },
+          "line_subtotal": {
+            "type": "string"
+          },
+          "cgst_amount": {
+            "type": "string"
+          },
+          "sgst_amount": {
+            "type": "string"
+          },
+          "igst_amount": {
+            "type": "string"
+          },
+          "line_total": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "source_ref_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_ref_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tpa_decision": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_non_payable_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tpa_decided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InvoiceItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceItem"
+          }
+        }
+      },
+      "InvoiceListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "type",
+          "subtotal",
+          "tax_amount",
+          "discount_amount",
+          "total_amount",
+          "paid_amount",
+          "payment_status",
+          "issued_at",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "tax_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "paid_amount": {
+            "type": "string"
+          },
+          "payment_status": {
+            "type": "string"
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InvoiceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Invoice"
+          }
+        }
+      },
+      "InvoiceTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subtotal",
+          "cgst",
+          "sgst",
+          "igst",
+          "discount",
+          "total",
+          "paid",
+          "due"
+        ],
+        "properties": {
+          "subtotal": {
+            "type": "number"
+          },
+          "cgst": {
+            "type": "number"
+          },
+          "sgst": {
+            "type": "number"
+          },
+          "igst": {
+            "type": "number"
+          },
+          "discount": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "due": {
+            "type": "number"
+          }
+        }
+      },
+      "InvoiceTotalsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceTotals"
+          }
+        }
+      },
+      "InvoiceV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "invoice_type",
+          "subtotal",
+          "cgst_amount",
+          "sgst_amount",
+          "igst_amount",
+          "discount_amount",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "patient_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "cgst_amount": {
+            "type": "string"
+          },
+          "sgst_amount": {
+            "type": "string"
+          },
+          "igst_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "discount_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "discount_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InvoiceV2Detail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "invoice_type",
+          "subtotal",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "tenant_id",
+          "items",
+          "payments",
+          "advance_settlements"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "patient_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_state": {
+            "type": "string",
+            "nullable": true
+          },
+          "subtotal": {
+            "type": "string"
+          },
+          "cgst_amount": {
+            "type": "string"
+          },
+          "sgst_amount": {
+            "type": "string"
+          },
+          "igst_amount": {
+            "type": "string"
+          },
+          "discount_amount": {
+            "type": "string"
+          },
+          "discount_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "discount_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceItem"
+            }
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceV2Payment"
+            }
+          },
+          "advance_settlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdvanceSettlement"
+            }
+          },
+          "tpa_utilisation": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TpaUtilisation"
+              }
+            ]
+          },
+          "tpa_preauth": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TpaPreauth"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceV2DetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceV2Detail"
+          }
+        }
+      },
+      "InvoiceV2ListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "invoice_type",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tpa_utilisation": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TpaUtilisation"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceV2Payment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "amount",
+          "mode",
+          "reversed",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "denominations": {
+            "nullable": true
+          },
+          "collected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "shift": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "reversed": {
+            "type": "boolean"
+          },
+          "reversed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reversed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reversal_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InvoiceV2Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceV2"
+          }
+        }
+      },
+      "InvoicesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceV2ListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ItemizeRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.itemizeAdmissionInvoice; not validator-backed.",
+        "properties": {
+          "emit_package": {
+            "type": "boolean"
+          },
+          "emit_pharmacy": {
+            "type": "boolean"
+          },
+          "emit_ward_indents": {
+            "type": "boolean"
+          },
+          "emit_lab": {
+            "type": "boolean"
+          },
+          "emit_consults": {
+            "type": "boolean"
+          },
+          "emit_theatre": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ItemizeResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice_id",
+          "admission_id",
+          "summary"
+        ],
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "package_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ItemizeSummary"
+          }
+        }
+      },
+      "ItemizeResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ItemizeResult"
+          }
+        }
+      },
+      "ItemizeSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "package",
+          "pharmacy",
+          "ward_indents",
+          "lab",
+          "consults",
+          "theatre",
+          "room_upgrade",
+          "skipped_existing"
+        ],
+        "properties": {
+          "package": {
+            "type": "integer"
+          },
+          "pharmacy": {
+            "type": "integer"
+          },
+          "ward_indents": {
+            "type": "integer"
+          },
+          "lab": {
+            "type": "integer"
+          },
+          "consults": {
+            "type": "integer"
+          },
+          "theatre": {
+            "type": "integer"
+          },
+          "room_upgrade": {
+            "type": "integer"
+          },
+          "skipped_existing": {
+            "type": "integer"
+          }
+        }
+      },
+      "LinkPayerTariffRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.linkPayerTariff; service-layer validation.",
+        "properties": {
+          "payer_id": {
+            "type": "integer"
+          },
+          "tpa_id": {
+            "type": "integer"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "effective_to": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MarkLinkPaidRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.markPaymentLinkPaid; not validator-backed. Requires Idempotency-Key header.",
+        "properties": {
+          "paid_via": {
+            "type": "string"
+          },
+          "paid_reference": {
+            "type": "string"
+          }
+        }
+      },
+      "MarkLinkPaidResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MarkLinkPaidResult"
+          }
+        }
+      },
+      "MarkLinkPaidResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "link",
+          "payment"
+        ],
+        "properties": {
+          "link": {
+            "$ref": "#/components/schemas/PaymentLink"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/InvoiceV2Payment"
+          }
+        }
+      },
+      "MarkRefundPaidRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.markRefundPaid; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "reference": {
+            "type": "string"
+          }
+        }
+      },
+      "NonPayableBreakdown": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice_id",
+          "non_payable_total",
+          "line_count",
+          "lines"
+        ],
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "non_payable_total": {
+            "type": "number"
+          },
+          "line_count": {
+            "type": "integer"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NonPayableLine"
+            }
+          }
+        }
+      },
+      "NonPayableBreakdownResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NonPayableBreakdown"
+          }
+        }
+      },
+      "NonPayableLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "line_total",
+          "tpa_decision"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "source_ref_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_ref_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "line_total": {
+            "type": "string"
+          },
+          "tpa_decision": {
+            "type": "string"
+          },
+          "tpa_non_payable_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpenDrawerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from cashDrawerService.openSession; not validator-backed.",
+        "properties": {
+          "shift": {
+            "type": "string"
+          },
+          "opening_float": {
+            "type": "number"
+          },
+          "cashier_uid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "OutstandingBill": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "total_amount",
+          "amount_paid",
+          "amount_due",
+          "status",
+          "days_outstanding"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "amount_paid": {
+            "type": "string"
+          },
+          "amount_due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "days_outstanding": {
+            "type": "integer"
+          }
+        }
+      },
+      "OutstandingResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutstandingBill"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PackageItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "package_id",
+          "service_code",
+          "service_kind",
+          "display_name",
+          "quantity",
+          "is_included",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "package_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_included": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PackageItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PackageItem"
+          }
+        }
+      },
+      "PackageItemsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "count"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PackageItem"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "PackagesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "packages",
+              "count"
+            ],
+            "properties": {
+              "packages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BillingPackage"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "PatientInvoicesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Payer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "payer_code",
+          "display_name",
+          "payer_kind",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payer_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "payer_kind": {
+            "type": "string"
+          },
+          "registration_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PayerResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Payer"
+          }
+        }
+      },
+      "PayerTariffLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "tariff_plan_id",
+          "is_primary",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payer_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tpa_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PayerTariffLinkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayerTariffLink"
+          }
+        }
+      },
+      "PayerTariffLinksListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "links",
+              "count"
+            ],
+            "properties": {
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PayerTariffLink"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "PayersListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "payers",
+              "count"
+            ],
+            "properties": {
+              "payers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Payer"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "PaymentInvoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "total_amount",
+          "paid_amount",
+          "payment_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_amount": {
+            "type": "string"
+          },
+          "paid_amount": {
+            "type": "string"
+          },
+          "payment_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "partial",
+              "paid",
+              "refunded",
+              "written_off"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PaymentLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "link_token",
+          "patient_uid",
+          "amount",
+          "currency",
+          "provider",
+          "status",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "link_token": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "upi_payee_vpa": {
+            "type": "string",
+            "nullable": true
+          },
+          "upi_payee_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "upi_transaction_ref": {
+            "type": "string",
+            "nullable": true
+          },
+          "upi_deep_link": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider": {
+            "type": "string"
+          },
+          "provider_invoice_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider_payment_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "linked_payment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_via": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_whatsapp_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_sms_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_email_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentLinkListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "link_token",
+          "patient_uid",
+          "amount",
+          "currency",
+          "provider",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "link_token": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "upi_deep_link": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_via": {
+            "type": "string",
+            "nullable": true
+          },
+          "sent_via_whatsapp_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_sms_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sent_via_email_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentLinkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentLink"
+          }
+        }
+      },
+      "PaymentLinksListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentLinkListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PaymentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice",
+          "transaction"
+        ],
+        "properties": {
+          "invoice": {
+            "$ref": "#/components/schemas/PaymentInvoice"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/PaymentTransaction"
+          }
+        }
+      },
+      "PaymentResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentResult"
+          }
+        }
+      },
+      "PaymentTransaction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "amount",
+          "payment_method",
+          "status",
+          "created_at",
+          "tenant_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string",
+            "example": "500.00"
+          },
+          "payment_method": {
+            "type": "string"
+          },
+          "transaction_ref": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "example": "completed"
+          },
+          "processed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PaymentV2Response": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceV2Payment"
+          }
+        }
+      },
+      "RaiseRefundRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.raiseRefund; not validator-backed.",
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "advance_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        }
+      },
+      "RecordPaymentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "amount",
+          "payment_method"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "CARD",
+              "UPI",
+              "INSURANCE",
+              "CHEQUE"
+            ]
+          },
+          "transaction_ref": {
+            "type": "string",
+            "maxLength": 255
+          }
+        }
+      },
+      "Refund": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "amount",
+          "reason",
+          "mode",
+          "approval_status",
+          "raised_at",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "advance_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "approval_status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "PAID"
+            ]
+          },
+          "raised_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "raised_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejected_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "rejected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RefundResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Refund"
+          }
+        }
+      },
+      "RefundsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Refund"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "RejectRefundRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.rejectRefund; not validator-backed.",
+        "properties": {
+          "rejection_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ResolvePriceResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedPrice"
+              }
+            ]
+          }
+        }
+      },
+      "ResolvedPrice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tariff_item_id",
+          "tariff_plan_id",
+          "service_code",
+          "service_kind",
+          "display_name",
+          "unit_price_minor",
+          "unit_label",
+          "taxable",
+          "plan_code",
+          "plan_display_name",
+          "is_primary"
+        ],
+        "properties": {
+          "tariff_item_id": {
+            "type": "integer"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "tax_rate_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "plan_code": {
+            "type": "string"
+          },
+          "plan_display_name": {
+            "type": "string"
+          },
+          "payer_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tpa_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "link_effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "link_effective_to": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RevenueByPaymentMethod": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payment_method",
+          "transaction_count"
+        ],
+        "properties": {
+          "payment_method": {
+            "type": "string"
+          },
+          "transaction_count": {
+            "type": "integer"
+          },
+          "total_amount": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RevenueByType": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "invoice_count",
+          "outstanding"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "invoice_count": {
+            "type": "integer"
+          },
+          "total_billed": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_collected": {
+            "type": "string",
+            "nullable": true
+          },
+          "outstanding": {
+            "type": "string"
+          }
+        }
+      },
+      "RevenueDailyTotal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "invoice_count"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-06-24"
+          },
+          "invoice_count": {
+            "type": "integer"
+          },
+          "billed": {
+            "type": "string",
+            "nullable": true
+          },
+          "collected": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RevenueStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "by_type",
+          "by_payment_method",
+          "daily_totals"
+        ],
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/RevenueSummary"
+          },
+          "by_type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueByType"
+            }
+          },
+          "by_payment_method": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueByPaymentMethod"
+            }
+          },
+          "daily_totals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueDailyTotal"
+            }
+          }
+        }
+      },
+      "RevenueStatsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RevenueStats"
+          }
+        }
+      },
+      "RevenueSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total_invoices",
+          "total_outstanding",
+          "paid_count",
+          "pending_count",
+          "partial_count"
+        ],
+        "properties": {
+          "total_invoices": {
+            "type": "integer"
+          },
+          "total_billed": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_collected": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_outstanding": {
+            "type": "string"
+          },
+          "total_discounts": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_taxes": {
+            "type": "string",
+            "nullable": true
+          },
+          "paid_count": {
+            "type": "integer"
+          },
+          "pending_count": {
+            "type": "integer"
+          },
+          "partial_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "ReversePaymentRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.reversePayment; not validator-backed.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewDrawerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from cashDrawerService.reviewSession; not validator-backed.",
+        "properties": {
+          "review_notes": {
+            "type": "string"
+          }
+        }
+      },
+      "SendPaymentLinkRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from paymentLinkService.sendPaymentLink; not validator-backed.",
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "patient_phone": {
+            "type": "string"
+          },
+          "patient_email": {
+            "type": "string"
+          }
+        }
+      },
+      "ServiceMaster": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "code",
+          "description",
+          "category",
+          "default_price",
+          "gst_rate"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_price": {
+            "type": "string"
+          },
+          "gst_rate": {
+            "type": "string"
+          },
+          "hsn_sac": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "ServiceMasterResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ServiceMaster"
+          }
+        }
+      },
+      "ServicesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceMaster"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "SettleAdvanceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.settleAdvance; not validator-backed. Requires X-Idempotency-Key header.",
+        "properties": {
+          "invoice_id": {
+            "type": "integer"
+          },
+          "amount": {
+            "type": "number"
+          }
+        }
+      },
+      "SubmitClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "claim_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "documents": {}
+        }
+      },
+      "TariffItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "tariff_plan_id",
+          "service_code",
+          "service_kind",
+          "display_name",
+          "unit_price_minor",
+          "unit_label",
+          "taxable",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "tax_rate_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TariffItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TariffItem"
+          }
+        }
+      },
+      "TariffItemsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "count"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TariffItem"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "TariffPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "plan_code",
+          "display_name",
+          "is_default",
+          "currency",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TariffPlanResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TariffPlan"
+          }
+        }
+      },
+      "TariffPlansListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "plans",
+              "count"
+            ],
+            "properties": {
+              "plans": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TariffPlan"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "Tpa": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "tpa_code",
+          "display_name",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tpa_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "parent_payer_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "irda_license_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TpaDecisionItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "invoice_id",
+          "description",
+          "line_total",
+          "tpa_decision"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "invoice_id": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "line_total": {
+            "type": "string"
+          },
+          "tpa_decision": {
+            "type": "string"
+          },
+          "tpa_non_payable_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "tpa_decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tpa_decided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "TpaDecisionItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TpaDecisionItem"
+          }
+        }
+      },
+      "TpaDecisionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.recordInvoiceItemTpaDecision; not validator-backed.",
+        "properties": {
+          "decision": {
+            "type": "string"
+          },
+          "non_payable_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "TpaPreauth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "preauth_id",
+          "preauth_number",
+          "tpa_status"
+        ],
+        "properties": {
+          "preauth_id": {
+            "type": "integer"
+          },
+          "preauth_number": {
+            "type": "string"
+          },
+          "tpa_status": {
+            "type": "string"
+          },
+          "denial_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "sanctioned_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "policy_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "TpaResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Tpa"
+          }
+        }
+      },
+      "TpaUtilisation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "root_preauth_id",
+          "root_preauth_number",
+          "cumulative_approved",
+          "total_charged",
+          "remaining",
+          "utilisation_pct",
+          "status"
+        ],
+        "properties": {
+          "root_preauth_id": {
+            "type": "integer"
+          },
+          "root_preauth_number": {
+            "type": "string"
+          },
+          "cumulative_approved": {
+            "type": "string"
+          },
+          "total_charged": {
+            "type": "string"
+          },
+          "remaining": {
+            "type": "string"
+          },
+          "utilisation_pct": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "TpasListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tpas",
+              "count"
+            ],
+            "properties": {
+              "tpas": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Tpa"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "TrialBalance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accounts",
+          "signedTotalPaise",
+          "balanced"
+        ],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceAccount"
+            }
+          },
+          "signedTotalPaise": {
+            "type": "integer",
+            "example": 0
+          },
+          "balanced": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "TrialBalanceAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "type",
+          "balancePaise",
+          "balance"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "PATIENT_AR"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ASSET",
+              "LIABILITY",
+              "REVENUE",
+              "EQUITY",
+              "CONTRA"
+            ]
+          },
+          "balancePaise": {
+            "type": "integer",
+            "example": 100000
+          },
+          "balance": {
+            "type": "string",
+            "example": "1000.00"
+          }
+        }
+      },
+      "TrialBalanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrialBalance"
+          }
+        }
+      },
+      "UpdateClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "under_review",
+              "approved",
+              "partially_approved",
+              "rejected",
+              "paid",
+              "settled_partial",
+              "settled_full"
+            ]
+          },
+          "approved_amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "rejection_reason": {
+            "type": "string"
+          },
+          "documents": {},
+          "payment_reference": {
+            "type": "string"
+          },
+          "non_payable_amount": {
+            "type": "number"
+          },
+          "disallowed_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateServiceMasterRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.updateServiceMaster; not validator-backed.",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_price": {
+            "type": "number"
+          },
+          "gst_rate": {
+            "type": "number"
+          },
+          "hsn_sac": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpsertPackageRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertPackage; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "package_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "base_specialty": {
+            "type": "string"
+          },
+          "base_procedure_code": {
+            "type": "string"
+          },
+          "duration_days": {
+            "type": "integer"
+          },
+          "fixed_price_minor": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "exclusion_notes": {
+            "type": "string"
+          },
+          "inclusion_notes": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertPayerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertPayer; service-layer validation, not express-validator.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payer_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "payer_kind": {
+            "type": "string"
+          },
+          "registration_number": {
+            "type": "string"
+          },
+          "contact_email": {
+            "type": "string"
+          },
+          "contact_phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertTariffItemRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertTariffItem; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "tax_rate_pct": {
+            "type": "number"
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "effective_to": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertTariffPlanRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertTariffPlan; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "plan_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "effective_to": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertTpaRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertTpa; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tpa_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "parent_payer_id": {
+            "type": "integer"
+          },
+          "irda_license_number": {
+            "type": "string"
+          },
+          "contact_email": {
+            "type": "string"
+          },
+          "contact_phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "VoidInvoiceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingV2Service.voidInvoice; not validator-backed.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -1465,7 +6727,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PackagesListResponse"
                 }
               }
             }
@@ -1480,8 +6742,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/BillingPackageResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertPackageRequest"
               }
             }
           }
@@ -1497,7 +6769,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PackageItemsListResponse"
                 }
               }
             }
@@ -1522,7 +6794,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PackageItemResponse"
                 }
               }
             }
@@ -1537,7 +6809,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPackageItemRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/billing-masters/payer-tariff-links": {
@@ -1549,7 +6831,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayerTariffLinksListResponse"
                 }
               }
             }
@@ -1564,8 +6846,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayerTariffLinkResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkPayerTariffRequest"
               }
             }
           }
@@ -1581,7 +6873,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayersListResponse"
                 }
               }
             }
@@ -1596,8 +6888,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayerResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertPayerRequest"
               }
             }
           }
@@ -1613,7 +6915,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ResolvePriceResponse"
                 }
               }
             }
@@ -1630,8 +6932,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffItemResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTariffItemRequest"
               }
             }
           }
@@ -1647,7 +6959,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffPlansListResponse"
                 }
               }
             }
@@ -1662,8 +6974,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffPlanResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTariffPlanRequest"
               }
             }
           }
@@ -1679,7 +7001,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffItemsListResponse"
                 }
               }
             }
@@ -1706,7 +7028,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TpasListResponse"
                 }
               }
             }
@@ -1721,8 +7043,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TpaResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTpaRequest"
               }
             }
           }
@@ -11331,7 +16663,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AgingReportResponse"
                 }
               }
             }
@@ -11348,7 +16680,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashPositionResponse"
                 }
               }
             }
@@ -11365,7 +16697,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DailyCollectionResponse"
                 }
               }
             }
@@ -11382,7 +16714,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AgingReportResponse"
                 }
               }
             }
@@ -11399,7 +16731,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TrialBalanceResponse"
                 }
               }
             }
@@ -19695,8 +25027,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InsuranceClaimResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitClaimRequest"
               }
             }
           }
@@ -19712,7 +25054,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InsuranceClaimResponse"
                 }
               }
             }
@@ -19727,7 +25069,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateClaimRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/insurance/claim/{id}/enhancement": {
@@ -19754,7 +25106,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnhancementClaimRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/insurance/claims": {
@@ -19766,7 +25128,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InsuranceClaimsResponse"
                 }
               }
             }
@@ -19783,8 +25145,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceRequest"
               }
             }
           }
@@ -19800,7 +25172,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceDetailResponse"
                 }
               }
             }
@@ -19827,7 +25199,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentResultResponse"
                 }
               }
             }
@@ -19842,7 +25214,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPaymentRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/invoices/patient/{patientUid}": {
@@ -19854,7 +25236,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PatientInvoicesResponse"
                 }
               }
             }
@@ -19881,7 +25263,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RevenueStatsResponse"
                 }
               }
             }
@@ -19942,7 +25324,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdvancesListResponse"
                 }
               }
             }
@@ -19957,8 +25339,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdvanceResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectAdvanceRequest"
               }
             }
           }
@@ -19974,7 +25366,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AdvanceSettlementResponse"
                 }
               }
             }
@@ -19989,7 +25381,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleAdvanceRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/cash-drawer/sessions": {
@@ -20001,7 +25403,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionsListResponse"
                 }
               }
             }
@@ -20018,8 +25420,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenDrawerRequest"
               }
             }
           }
@@ -20035,7 +25447,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
               }
             }
@@ -20062,7 +25474,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
               }
             }
@@ -20077,7 +25489,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseDrawerRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/cash-drawer/sessions/{id}/review": {
@@ -20089,7 +25511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CashDrawerSessionResponse"
                 }
               }
             }
@@ -20104,7 +25526,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDrawerRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices": {
@@ -20116,7 +25548,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoicesListResponse"
                 }
               }
             }
@@ -20131,8 +25563,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2Response"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDraftInvoiceRequest"
               }
             }
           }
@@ -20148,7 +25590,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2DetailResponse"
                 }
               }
             }
@@ -20175,7 +25617,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceTotalsResponse"
                 }
               }
             }
@@ -20190,7 +25632,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyDiscountRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/issue": {
@@ -20202,7 +25654,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2DetailResponse"
                 }
               }
             }
@@ -20229,7 +25681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ItemizeResultResponse"
                 }
               }
             }
@@ -20244,7 +25696,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemizeRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/items": {
@@ -20256,7 +25718,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceItemResponse"
                 }
               }
             }
@@ -20271,7 +25733,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddInvoiceItemRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/items/{itemId}": {
@@ -20283,7 +25755,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceTotalsResponse"
                 }
               }
             }
@@ -20318,7 +25790,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TpaDecisionItemResponse"
                 }
               }
             }
@@ -20341,7 +25813,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TpaDecisionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/invoices/{id}/non-payable": {
@@ -20353,7 +25835,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/NonPayableBreakdownResponse"
                 }
               }
             }
@@ -20434,7 +25916,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/InvoiceV2DetailResponse"
                 }
               }
             }
@@ -20449,7 +25931,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidInvoiceRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payment-links": {
@@ -20461,7 +25953,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinksListResponse"
                 }
               }
             }
@@ -20476,8 +25968,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentLinkRequest"
               }
             }
           }
@@ -20493,7 +25995,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ExpireStaleResponse"
                 }
               }
             }
@@ -20510,7 +26012,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
               }
             }
@@ -20537,7 +26039,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
               }
             }
@@ -20552,7 +26054,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelPaymentLinkRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payment-links/{token}/mark-paid": {
@@ -20564,7 +26076,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarkLinkPaidResponse"
                 }
               }
             }
@@ -20579,7 +26091,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkLinkPaidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payment-links/{token}/send": {
@@ -20591,7 +26113,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentLinkResponse"
                 }
               }
             }
@@ -20606,7 +26128,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendPaymentLinkRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/payments": {
@@ -20618,8 +26150,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentV2Response"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectPaymentRequest"
               }
             }
           }
@@ -20635,7 +26177,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PaymentV2Response"
                 }
               }
             }
@@ -20650,7 +26192,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReversePaymentRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/refunds": {
@@ -20662,7 +26214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundsListResponse"
                 }
               }
             }
@@ -20677,8 +26229,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RaiseRefundRequest"
               }
             }
           }
@@ -20694,7 +26256,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
               }
             }
@@ -20721,7 +26283,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
               }
             }
@@ -20736,7 +26298,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkRefundPaidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/refunds/{id}/reject": {
@@ -20748,7 +26320,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RefundResponse"
                 }
               }
             }
@@ -20763,7 +26335,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRefundRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/v2/reports/daily-collection": {
@@ -20775,7 +26357,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DailyCollectionV2Response"
                 }
               }
             }
@@ -20792,7 +26374,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/OutstandingResponse"
                 }
               }
             }
@@ -20809,7 +26391,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ServicesListResponse"
                 }
               }
             }
@@ -20824,8 +26406,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ServiceMasterResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceMasterRequest"
               }
             }
           }
@@ -20841,7 +26433,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ServiceMasterResponse"
                 }
               }
             }
@@ -20856,7 +26448,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceMasterRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/billing/{claimId}/denial-risk": {

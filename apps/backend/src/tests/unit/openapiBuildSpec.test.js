@@ -89,3 +89,24 @@ describe('openapi buildSpec helpers', () => {
     ]);
   });
 });
+
+describe('buildOpenApiDocument overlay', () => {
+  const base = { openapi: '3.0.3', components: { schemas: {} } };
+
+  it('attaches request + response $refs from the overlay', () => {
+    const routes = [{ method: 'post', path: '/api/v1/x' }];
+    const overlay = { 'POST /api/v1/x': { request: 'XReq', response: 'XResp' } };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    const op = doc.paths['/api/v1/x'].post;
+    expect(op.requestBody.content['application/json'].schema).toEqual({ $ref: '#/components/schemas/XReq' });
+    expect(op.responses[200].content['application/json'].schema).toEqual({ $ref: '#/components/schemas/XResp' });
+  });
+
+  it('falls back to the generic Success response when no overlay entry exists', () => {
+    const routes = [{ method: 'get', path: '/api/v1/y' }];
+    const doc = buildOpenApiDocument(routes, base, {});
+    const op = doc.paths['/api/v1/y'].get;
+    expect(op.responses[200].content['application/json'].schema).toEqual({ $ref: '#/components/schemas/Success' });
+    expect(op.requestBody).toBeUndefined();
+  });
+});

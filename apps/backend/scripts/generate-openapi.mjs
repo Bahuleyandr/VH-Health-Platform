@@ -9,6 +9,29 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { composeRoutes, buildOpenApiDocument, findEquivalentPathCollisions } from './openapi/buildSpec.mjs';
 import { OPENAPI_BASE } from './openapi/base.mjs';
+import * as money from './openapi/schemas/money.mjs';
+
+const SCHEMA_MODULES = [money];
+
+/** Merge subsystem schema modules: base schemas first (order preserved), then the
+ * union of module schemas sorted by name. Errors on duplicate names so two modules
+ * can't silently clobber each other. Returns { schemas, overlay }. */
+function mergeSchemaModules(baseSchemas) {
+  const added = {};
+  const overlay = {};
+  for (const mod of SCHEMA_MODULES) {
+    for (const [name, schema] of Object.entries(mod.schemas || {})) {
+      if (baseSchemas[name] || added[name]) throw new Error(`openapi: duplicate schema name "${name}"`);
+      added[name] = schema;
+    }
+    for (const [key, ov] of Object.entries(mod.operations || {})) {
+      if (overlay[key]) throw new Error(`openapi: duplicate operation overlay "${key}"`);
+      overlay[key] = ov;
+    }
+  }
+  const sortedAdded = Object.fromEntries(Object.keys(added).sort().map((k) => [k, added[k]]));
+  return { schemas: { ...baseSchemas, ...sortedAdded }, overlay };
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -78,7 +101,12 @@ if (collisions.length) {
   for (const c of collisions.slice(0, 20)) console.log(`  ${c.signature}  <-  ${c.paths.join(' , ')}`);
 }
 
-const doc = buildOpenApiDocument(routes, OPENAPI_BASE);
+const { schemas: mergedSchemas, overlay } = mergeSchemaModules(OPENAPI_BASE.components.schemas);
+const augmentedBase = {
+  ...OPENAPI_BASE,
+  components: { ...OPENAPI_BASE.components, schemas: mergedSchemas },
+};
+const doc = buildOpenApiDocument(routes, augmentedBase, overlay);
 
 const outArg = process.argv.find((a) => a.startsWith('--out='));
 const outPath = outArg ? resolve(outArg.slice('--out='.length)) : resolve(__dirname, '../src/docs/openapi.json');

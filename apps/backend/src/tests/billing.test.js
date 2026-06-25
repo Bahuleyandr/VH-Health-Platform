@@ -1,5 +1,6 @@
 import { authClient } from './testClient.js';
 import prisma from '../lib/prisma.js';
+import { assertResponse } from './helpers/assertSchema.js';
 
 describe('Billing API', () => {
   const admin = authClient('ADMIN');
@@ -123,6 +124,7 @@ describe('Billing API', () => {
         payment_method: 'CASH',
       });
       expect(res.statusCode).toBe(201);
+      assertResponse('POST', '/api/v1/billing/invoice', res.body);
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toEqual(expect.any(Number));
       expect(res.body.data.invoice_number).toMatch(/^INV-\d{6}-\d{4}$/);
@@ -144,6 +146,7 @@ describe('Billing API', () => {
     it('invoice detail includes empty payment history initially', async () => {
       const res = await admin.get(`/api/v1/billing/invoice/${invoiceId}`);
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/invoice/{id}', res.body);
       expect(res.body.data.id).toBe(invoiceId);
       expect(Array.isArray(res.body.data.payment_transactions)).toBe(true);
       expect(res.body.data.payment_transactions.length).toBe(0);
@@ -157,6 +160,7 @@ describe('Billing API', () => {
         transaction_ref: 'TXN-PART-001',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('POST', '/api/v1/billing/invoice/{id}/payment', res.body);
       expect(res.body.data.invoice.payment_status).toBe('partial');
       expect(parseFloat(res.body.data.invoice.paid_amount)).toBe(500);
       expect(res.body.data.invoice.paid_at).toBeNull();
@@ -195,6 +199,7 @@ describe('Billing API', () => {
     it('invoice detail now lists both payment transactions', async () => {
       const res = await admin.get(`/api/v1/billing/invoice/${invoiceId}`);
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/invoice/{id}', res.body);
       expect(res.body.data.payment_transactions.length).toBe(2);
       const refs = res.body.data.payment_transactions.map((t) => t.transaction_ref);
       expect(refs).toEqual(expect.arrayContaining(['TXN-PART-001', 'TXN-FINAL-001']));
@@ -205,6 +210,7 @@ describe('Billing API', () => {
         `/api/v1/billing/invoices/patient/${patientUidA}?limit=10&page=1`
       );
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/invoices/patient/{patientUid}', res.body);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.meta.pagination.total).toBeGreaterThanOrEqual(1);
       const ids = res.body.data.map((i) => i.id);
@@ -243,6 +249,7 @@ describe('Billing API', () => {
         `/api/v1/billing/revenue?date_from=1970-01-01&date_to=${nextYear}`
       );
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/revenue', res.body);
       const s = res.body.data;
       expect(s.summary).toBeDefined();
       expect(s.summary.total_invoices).toBeGreaterThanOrEqual(1);
@@ -327,6 +334,7 @@ describe('Billing API', () => {
         claim_amount: 5000,
       });
       expect(res.statusCode).toBe(201);
+      assertResponse('POST', '/api/v1/billing/insurance/claim', res.body);
       expect(res.body.data.claim_number).toMatch(/^CLM-\d{6}-\d{4}$/);
       expect(res.body.data.status).toBe('submitted');
       expect(parseFloat(res.body.data.claim_amount)).toBe(5000);
@@ -382,6 +390,7 @@ describe('Billing API', () => {
         status: 'under_review',
       });
       expect(res.statusCode).toBe(200);
+      assertResponse('PUT', '/api/v1/billing/insurance/claim/{id}', res.body);
       expect(res.body.data.status).toBe('under_review');
       expect(res.body.data.reviewed_at).toBeNull();
     });
@@ -435,6 +444,7 @@ describe('Billing API', () => {
         `/api/v1/billing/insurance/claims?patient_uid=${patientUidB}&limit=50`
       );
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/insurance/claims', res.body);
       expect(res.body.data.length).toBeGreaterThanOrEqual(3);
       expect(res.body.data.every((c) => c.patient_uid === patientUidB)).toBe(true);
     });
