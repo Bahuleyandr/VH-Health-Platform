@@ -3,12 +3,11 @@
 // Public entry point for the OpenAPI-generated API models + client.
 //
 // The generated files live in `lib/api/generated/` and are re-exported here.
-// Running `dart run build_runner build --delete-conflicting-outputs` from the
-// vhhealth-core package (or a corresponding `melos run codegen` once the
-// monorepo lands) regenerates them from `swagger/openapi.json`.
+// `melos run codegen` (or `dart run build_runner build` inside this package)
+// regenerates them from `swagger/openapi.json`.
 //
-// Until the first codegen run, this file intentionally fails to resolve the
-// exports below — that's the signal to run the generator. See
+// On a fresh clone (before the first codegen run) this file intentionally fails
+// to resolve the exports below — that's the signal to run the generator. See
 // `docs/API_CODEGEN.md` for the full migration playbook.
 
 // The generator names output files after the input — swagger/openapi.json

@@ -1,6 +1,6 @@
 # OpenAPI → Dart codegen driver for vhhealth_core.
 #
-# Run `dart run build_runner build --delete-conflicting-outputs` after
+# Run `melos run codegen` (or `dart run build_runner build` in this package) after
 # refreshing `swagger/openapi.json` via
 # `npm --prefix apps/backend run openapi:sync-core` — it is synced byte-for-byte
 # from the canonical apps/backend/src/docs/openapi.json (NEVER edit it by hand;

@@ -5,6 +5,12 @@
 // "dropped operations" report so no path silently disappears from the
 // generated chopper client (the codebase's no-silent-truncation convention).
 //
+// Scope: targets packages/vhhealth_core ONLY — it is the sole workspace member
+// with a build.yaml / annotated codegen. (apps/patient declares build_runner as a
+// dev-dep but has no build.yaml, so the previous `melos exec --depends-on=build_runner`
+// fan-out was a no-op there.) If another member ever gains real codegen, extend
+// this driver or restore a melos fan-out.
+//
 // Why a wrapper instead of calling build_runner directly:
 //   The single FHIR bulk-export operation `/api/v1/fhir/Patient/{id}/$everything`
 //   cannot be emitted by chopper_generator — the literal `$` is read by Dart as
@@ -68,6 +74,28 @@ function readExcludePaths(yamlText) {
   return patterns;
 }
 
+/**
+ * Cheap presence check used only to guard the drop report: does build.yaml have a
+ * non-empty `exclude_paths` (inline flow list or block entries) regardless of
+ * whether readExcludePaths() managed to parse it? Lets us distinguish "no excludes"
+ * from "excludes exist but the flat-list parser didn't understand the formatting".
+ */
+function excludePathsKeyHasEntries(yamlText) {
+  const lines = yamlText.split(/\r?\n/);
+  const idx = lines.findIndex((l) => /^\s*exclude_paths\s*:/.test(l));
+  if (idx === -1) return false;
+  const inline = lines[idx].replace(/^\s*exclude_paths\s*:/, '').trim();
+  if (inline && inline !== '[]') return true; // flow style: exclude_paths: ['...']
+  const keyIndent = lines[idx].match(/^(\s*)/)[1].length;
+  for (let i = idx + 1; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t === '' || t.startsWith('#')) continue;
+    if (lines[i].match(/^(\s*)/)[1].length <= keyIndent) break; // left the block
+    if (t.startsWith('-')) return true;
+  }
+  return false;
+}
+
 function reportDroppedPaths() {
   if (!existsSync(buildYaml)) {
     console.error(`✗ build.yaml not found at ${buildYaml}`);
@@ -77,9 +105,22 @@ function reportDroppedPaths() {
     console.error(`✗ openapi.json not found at ${specPath}`);
     process.exit(2);
   }
-  const patterns = readExcludePaths(readFileSync(buildYaml, 'utf8'));
+  const yamlText = readFileSync(buildYaml, 'utf8');
+  const patterns = readExcludePaths(yamlText);
   if (patterns.length === 0) {
-    console.log('[codegen] exclude_paths: (none) — every spec path is generated.');
+    // The parser only understands block-style lists. If build.yaml is ever
+    // reformatted (flow list / block scalar) it could return [] while excludes
+    // actually exist — which would make this report falsely claim "every path
+    // generated". Warn loudly rather than mislead. The build itself is unaffected:
+    // the Dart generator reads the real YAML, not this parser.
+    if (excludePathsKeyHasEntries(yamlText)) {
+      console.warn(
+        '[codegen] ⚠ build.yaml has a non-empty exclude_paths but the flat-list parser extracted 0 patterns — ' +
+          'the drop report is unreliable (the build is unaffected). Update readExcludePaths() to match the new formatting.',
+      );
+    } else {
+      console.log('[codegen] exclude_paths: (none) — every spec path is generated.');
+    }
     return;
   }
   const spec = JSON.parse(readFileSync(specPath, 'utf8'));
@@ -118,6 +159,11 @@ reportDroppedPaths();
 if (reportOnly) process.exit(0);
 
 const useShell = process.platform === 'win32';
+// NOTE: do NOT add --delete-conflicting-outputs. The build_runner version pinned
+// in pubspec.lock has REMOVED that flag (auto-deleting conflicting outputs is now
+// the default) — passing it only prints a "removed and were ignored" warning,
+// which is log noise and a hazard if CI is warning-strict. Verified empirically:
+// a non-clean regen (existing lib/api/generated/) rebuilds cleanly without it.
 const args = ['run', 'build_runner', watch ? 'watch' : 'build'];
 console.log(`\n[codegen] running: dart ${args.join(' ')}  (cwd: packages/vhhealth_core)`);
 const result = spawnSync('dart', args, {

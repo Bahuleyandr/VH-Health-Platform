@@ -25,13 +25,15 @@ npm --prefix ../../apps/backend run openapi:sync-core
 # 2. Install build deps (first time only).
 flutter pub get
 
-# 3. Run codegen. The --delete-conflicting-outputs flag is needed because
-# swagger_dart_code_generator and json_serializable both touch some files.
-dart run build_runner build --delete-conflicting-outputs
+# 3. Run codegen. The pinned build_runner auto-deletes conflicting outputs
+# (swagger_dart_code_generator and json_serializable both touch some files);
+# the old --delete-conflicting-outputs flag has been removed and is now a no-op.
+dart run build_runner build
 ```
 
-Generated output lands in `lib/api/generated/vhhealth_api.swagger.dart` +
-friends. The barrel `lib/api/vhhealth_api.dart` re-exports them.
+Generated output lands in `lib/api/generated/openapi.swagger.dart` +
+friends (named after the input spec `swagger/openapi.json`). The barrel
+`lib/api/vhhealth_api.dart` re-exports them.
 
 ## Every time the backend spec changes
 
@@ -48,7 +50,7 @@ also run it directly inside the package:
 
 ```bash
 cd packages/vhhealth_core
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 ```
 
 Any breaking changes surface as Dart compile errors at call sites — chase
@@ -62,7 +64,7 @@ import 'package:vhhealth_core/config/api_config.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 
 // Create once, reuse everywhere.
-final api = VhhealthApi.create(
+final api = Openapi.create(
   baseUrl: Uri.parse(ApiConfig.baseUrl),
   interceptors: [
     // Injects Authorization + x-api-key, same headers VHHttpClient produces.
@@ -103,7 +105,7 @@ Both clients live side-by-side during the migration:
 
 - `VHHttpClient` — handwritten, retry / refresh / 401 logic, takes a raw
   path and body. Used by call sites that haven't migrated.
-- `VhhealthApi` (generated) — typed, driven by the spec. Reuses the same
+- `Openapi` (generated) — typed, driven by the spec. Reuses the same
   refresh flow via a chopper interceptor that delegates to
   `VHHttpClient.refreshAuthToken` on 401.
 
@@ -151,7 +153,7 @@ client omits it. If a Flutter consumer ever needs `$everything`, call it through
 
 ```bash
 dart run build_runner clean
-dart run build_runner build --delete-conflicting-outputs --verbose
+dart run build_runner build --verbose
 ```
 
 ### Generated file references a type that doesn't exist
