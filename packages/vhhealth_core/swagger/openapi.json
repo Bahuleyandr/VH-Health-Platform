@@ -639,7 +639,25 @@
             "additionalProperties": true,
             "nullable": true
           },
-          "gestational_age": {}
+          "gestational_age": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "properties": {
+              "weeks": {
+                "type": "integer"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "total_days": {
+                "type": "integer"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "AppointmentDetailResponse": {

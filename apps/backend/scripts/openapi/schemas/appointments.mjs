@@ -93,7 +93,19 @@ export const schemas = {
       allergies: { type: 'array', items: { type: 'object', additionalProperties: true } },
       follow_up_context: { type: 'object', additionalProperties: true, nullable: true },
       pregnancy_context: { type: 'object', additionalProperties: true, nullable: true },
-      gestational_age: {},
+      // computeGestationalAge (maternityService) returns null or a fixed
+      // { weeks, days, total_days, label } object — never a scalar.
+      gestational_age: {
+        type: 'object',
+        nullable: true,
+        additionalProperties: true,
+        properties: {
+          weeks: { type: 'integer' },
+          days: { type: 'integer' },
+          total_days: { type: 'integer' },
+          label: { type: 'string' },
+        },
+      },
     },
   },
   // GET /{id} wraps the detail in data.appointment (+ accessedBy). NOT a bare
