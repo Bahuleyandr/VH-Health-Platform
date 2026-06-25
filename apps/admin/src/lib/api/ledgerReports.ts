@@ -4,65 +4,26 @@
 
 import { getJSON } from "./core";
 import { API_ENDPOINTS } from "../api-config";
+import type { ApiData } from "@/lib/openapi-data";
 
-// ── Types ──────────────────────────────────────────────────────────
+// ── Types (spec-derived) ───────────────────────────────────────────
+// OpenAPI Phase 5: these are derived from the canonical spec via `ApiData`
+// (the unwrapped `.data` payload) instead of hand-authored, so they can no
+// longer drift from the backend. Sub-types come from indexed access.
 
-export type LedgerAccountType =
-  | "ASSET" | "LIABILITY" | "REVENUE" | "EQUITY" | "CONTRA";
+export type TrialBalance = ApiData<"/api/v1/admin/ledger/trial-balance", "get">;
+export type TrialBalanceAccount = TrialBalance["accounts"][number];
+export type LedgerAccountType = TrialBalanceAccount["type"];
 
-export interface TrialBalanceAccount {
-  code: string;
-  type: LedgerAccountType | string;
-  balancePaise: number;
-  balance: string;
-}
+export type AgingReport = ApiData<"/api/v1/admin/ledger/ar-aging", "get">;
+export type AgingBucket = AgingReport["buckets"][number];
+export type AgingBucketLabel = AgingBucket["bucket"];
 
-export interface TrialBalance {
-  accounts: TrialBalanceAccount[];
-  signedTotalPaise: number;
-  balanced: boolean;
-}
+export type CashPosition = ApiData<"/api/v1/admin/ledger/cash-position", "get">;
+export type DrawerPosition = CashPosition["byDrawer"][number];
 
-export type AgingBucketLabel = "0-30" | "31-60" | "61-90" | "90+";
-
-export interface AgingBucket {
-  bucket: AgingBucketLabel | string;
-  invoiceCount: number;
-  totalPaise: number;
-  total: string;
-}
-
-export interface AgingReport {
-  buckets: AgingBucket[];
-  grandTotalPaise: number;
-  grandTotal: string;
-}
-
-export interface DrawerPosition {
-  drawerSessionId: number;
-  netPaise: number;
-  net: string;
-}
-
-export interface CashPosition {
-  cashTotalPaise: number;
-  cashTotal: string;
-  bankTotalPaise: number;
-  bankTotal: string;
-  byDrawer: DrawerPosition[];
-}
-
-export interface DailyCollectionDay {
-  day: string;
-  collectedPaise: number;
-  collected: string;
-}
-
-export interface DailyCollection {
-  days: DailyCollectionDay[];
-  totalPaise: number;
-  total: string;
-}
+export type DailyCollection = ApiData<"/api/v1/admin/ledger/daily-collection", "get">;
+export type DailyCollectionDay = DailyCollection["days"][number];
 
 // ── API Functions ──────────────────────────────────────────────────
 
