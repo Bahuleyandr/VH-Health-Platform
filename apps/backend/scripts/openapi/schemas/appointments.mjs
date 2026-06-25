@@ -1334,14 +1334,16 @@ export const schemas = {
   // source — appointment_documents carries upload_role/appointment_date/
   // doctor_department; patient_records carries title/source_hospital/
   // record_date + an attached ai_extraction; e_prescription synth rows carry
-  // source/prescription_id + null file_size. We keep a real minimal core
-  // (appointment_id is universal; file_name/created_at near-universal) and
-  // stay open. file_size is integer|null (BigInt column, but the live return
-  // is a small JS number or null for synth rows).
+  // source/prescription_id + null file_size. We keep a real minimal core (only
+  // `id` is universal — appointment_id is absent on patient_records `my_uploads`
+  // rows in /patient/records/all, present on the appointment-docs/synth side;
+  // file_name/created_at near-universal) and stay open. file_size is
+  // integer|null (BigInt column, but the live return is a small JS number or
+  // null for synth rows).
   PatientRecordDocItem: {
     type: 'object',
     additionalProperties: true,
-    required: ['id', 'appointment_id'],
+    required: ['id'],
     properties: {
       // integer (appointment_documents/patient_records) OR `rx-<n>` (synth).
       id: {},

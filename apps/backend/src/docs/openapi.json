@@ -5780,8 +5780,7 @@
         "type": "object",
         "additionalProperties": true,
         "required": [
-          "id",
-          "appointment_id"
+          "id"
         ],
         "properties": {
           "id": {},
