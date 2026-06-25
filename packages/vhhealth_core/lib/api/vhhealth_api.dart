@@ -8,12 +8,13 @@
 // monorepo lands) regenerates them from `swagger/openapi.json`.
 //
 // Until the first codegen run, this file intentionally fails to resolve the
-// export below — that's the signal to run the generator. See
+// exports below — that's the signal to run the generator. See
 // `docs/API_CODEGEN.md` for the full migration playbook.
 
 // The generator names output files after the input — swagger/openapi.json
-// produces generated/api.swagger.dart + api.enums.swagger.dart + the
-// chopper client at client_index.dart.
-export 'generated/api.swagger.dart';
-export 'generated/api.enums.swagger.dart';
+// produces generated/openapi.swagger.dart (models + the `Openapi`
+// ChopperService) + openapi.enums.swagger.dart, and client_index.dart
+// re-exports the `Openapi` client class.
+export 'generated/openapi.swagger.dart';
+export 'generated/openapi.enums.swagger.dart';
 export 'generated/client_index.dart';

@@ -36,8 +36,18 @@ friends. The barrel `lib/api/vhhealth_api.dart` re-exports them.
 ## Every time the backend spec changes
 
 ```bash
-cd /workspace/VH-Health-Platform/packages/vhhealth_core
-npm --prefix ../../apps/backend run openapi:sync-core
+# From the repo root — sync the spec, then regenerate.
+npm --prefix apps/backend run openapi:sync-core
+melos run codegen          # → node scripts/codegen.mjs (reports drops, then build_runner)
+```
+
+`melos run codegen` runs `scripts/codegen.mjs`, which first prints any
+operations dropped via `exclude_paths` (see "Dropped operations" below — there
+is no silent truncation) and then runs `build_runner` in this package. You can
+also run it directly inside the package:
+
+```bash
+cd packages/vhhealth_core
 dart run build_runner build --delete-conflicting-outputs
 ```
 
@@ -102,6 +112,25 @@ difference is the type safety at call sites.
 
 When every app call site has migrated, we can delete `VHHttpClient` and
 route the chopper interceptor stack through `http` directly.
+
+## Dropped operations (no silent truncation)
+
+A handful of operations in the canonical spec **cannot** be emitted into the
+generated chopper client and are dropped via `exclude_paths` in
+`build.yaml`. This list is the source of truth — `melos run codegen` (which
+runs `scripts/codegen.mjs`) prints the dropped paths on every run, derived
+from `exclude_paths` × the spec, so a drop can never go unnoticed.
+
+| Dropped path | Why | Consumers |
+|---|---|---|
+| `GET /api/v1/fhir/Patient/{id}/$everything` | The literal `$` in the path becomes Dart string interpolation inside `@GET(path: '...$everything')` → `chopper_generator` throws `FormatException: Not an instance of String` and silently skips writing the entire `openapi.swagger.chopper.dart` part, so `_$Openapi` never resolves and the **whole client fails to compile**. It is the only `$`-prefixed op in the entire 2,636-path spec. | None — niche FHIR bulk-export op, zero Flutter call sites. |
+
+**Important:** the canonical spec (`apps/backend/src/docs/openapi.json`) and the
+byte-synced core copy (`packages/vhhealth_core/swagger/openapi.json`) are left
+untouched — the `$everything` operation stays in both (the
+`check-core-spec-sync.mjs` gate enforces byte-identity). Only the generated Dart
+client omits it. If a Flutter consumer ever needs `$everything`, call it through
+`VHHttpClient` with the raw path instead of the typed client.
 
 ## Known limitations
 

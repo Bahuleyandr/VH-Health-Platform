@@ -36,12 +36,12 @@ melos:
       run: node scripts/dart-format-check.mjs --write
 
     codegen:
-      description: "build_runner in packages that declare it"
-      run: melos exec --depends-on="build_runner" -- "dart run build_runner build --delete-conflicting-outputs"
+      description: "OpenAPI → Dart codegen for vhhealth_core (reports any exclude_paths drops, then runs build_runner). See docs/API_CODEGEN.md."
+      run: node scripts/codegen.mjs
 
     codegen-watch:
-      description: "watch-mode build_runner"
-      run: melos exec --depends-on="build_runner" -- "dart run build_runner watch --delete-conflicting-outputs"
+      description: "watch-mode OpenAPI → Dart codegen for vhhealth_core"
+      run: node scripts/codegen.mjs --watch
 
     clean:
       description: "flutter clean every package"
