@@ -11,12 +11,13 @@ const APPOINTMENT_STATUS = [
 ];
 const VISIT_TYPE = ['NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE', 'LAB_ONLY', 'PAEDIATRIC_OPD'];
 // Appointment-queue enums (T3). Sources:
-//   queue_kind:   appointmentQueueKindForAppointment() + the
-//                 appointment_queues table CHECK (doctor/department/
-//                 emergency/walk_in/op).
-//   queue status: appointment_queues status CHECK (draft/open/paused/closed).
+//   queue_kind:   the kinds appointmentQueueKindForAppointment() can emit on the
+//                 appointment path — a SUBSET of the appointment_queues CHECK
+//                 (the CHECK also allows lab/imaging/other, unreachable here).
+//   queue status: the full appointment_queues status CHECK
+//                 (draft/open/paused/closed/archived).
 const QUEUE_KIND = ['doctor', 'department', 'emergency', 'walk_in', 'op'];
-const QUEUE_STATUS = ['draft', 'open', 'paused', 'closed'];
+const QUEUE_STATUS = ['draft', 'open', 'paused', 'closed', 'archived'];
 
 export const schemas = {
   // ---- Core appointment object -------------------------------------------
