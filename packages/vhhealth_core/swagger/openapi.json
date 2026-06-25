@@ -673,6 +673,258 @@
           }
         }
       },
+      "AppointmentAnalyticsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentAnalyticsResult"
+          }
+        }
+      },
+      "AppointmentAnalyticsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "timeframe",
+          "overall",
+          "trends",
+          "departmentBreakdown",
+          "peakHours"
+        ],
+        "properties": {
+          "timeframe": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "90d",
+              "1y"
+            ]
+          },
+          "overall": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "trends": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "departmentBreakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "peakHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentAuditTrailEntry": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointment_id",
+          "to_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_id": {
+            "type": "integer"
+          },
+          "from_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "to_status": {
+            "type": "string"
+          },
+          "changed_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "changed_by_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "appointment_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "changed_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentAuditTrailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentAuditTrailEntry"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AppointmentConflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appointment1_id",
+          "appointment2_id"
+        ],
+        "properties": {
+          "appointment1_id": {
+            "type": "integer"
+          },
+          "appointment1_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "patient1_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "appointment2_id": {
+            "type": "integer"
+          },
+          "appointment2_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "patient2_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentConflictsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentConflictsResult"
+          }
+        }
+      },
+      "AppointmentConflictsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "conflicts",
+          "totalConflicts"
+        ],
+        "properties": {
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentConflict"
+            }
+          },
+          "totalConflicts": {
+            "type": "integer"
+          },
+          "date": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "AppointmentDetail": {
         "type": "object",
         "additionalProperties": true,
@@ -775,6 +1027,223 @@
                 "nullable": true
               }
             }
+          }
+        }
+      },
+      "AppointmentDocumentRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "appointment_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "appointment_id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "uploaded_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "upload_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "document_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_size": {
+            "type": "integer",
+            "nullable": true
+          },
+          "file_mime": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "uploaded_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentDocumentsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentDocumentRow"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AppointmentExportResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentExportResult"
+          }
+        }
+      },
+      "AppointmentExportResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointments",
+          "count"
+        ],
+        "properties": {
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentExportRow"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "exportDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AppointmentExportRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "appointment_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "consultation_duration_minutes": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -1036,6 +1505,68 @@
           },
           "data": {
             "$ref": "#/components/schemas/Appointment"
+          }
+        }
+      },
+      "AppointmentSearchResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AppointmentSearchResult"
+          }
+        }
+      },
+      "AppointmentSearchResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointments",
+          "pagination"
+        ],
+        "properties": {
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentListItem"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "totalPages": {
+                "type": "integer"
+              }
+            }
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -1494,6 +2025,184 @@
           }
         }
       },
+      "BulkDeleteRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointment_ids",
+          "reason"
+        ],
+        "description": "DELETE /api/v1/appointments/admin/bulk-delete (body). reason is mandatory (audit trail).",
+        "properties": {
+          "appointment_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "BulkDeleteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BulkDeleteResult"
+          }
+        }
+      },
+      "BulkDeleteResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "deletedCount",
+          "deletedIds",
+          "archived"
+        ],
+        "properties": {
+          "deletedCount": {
+            "type": "integer"
+          },
+          "deletedIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "deletedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BulkUpdateStatusRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointment_ids",
+          "status"
+        ],
+        "description": "POST /api/v1/appointments/admin/bulk-update-status. status must be one of completed|cancelled|no_show.",
+        "properties": {
+          "appointment_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "cancelled",
+              "no_show"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "BulkUpdateStatusResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BulkUpdateStatusResult"
+          }
+        }
+      },
+      "BulkUpdateStatusResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "updatedCount",
+          "updatedAppointments"
+        ],
+        "properties": {
+          "updatedCount": {
+            "type": "integer"
+          },
+          "updatedAppointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkUpdatedAppointment"
+            }
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BulkUpdatedAppointment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "CancelAppointmentRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -1511,6 +2220,58 @@
         "properties": {
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "CapacityAnalysisResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CapacityAnalysisResult"
+          }
+        }
+      },
+      "CapacityAnalysisResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "summary",
+          "doctorCapacity"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "doctorCapacity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "department_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -4127,6 +4888,86 @@
           }
         }
       },
+      "NoShowPatient": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_appointment": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "NoShowReportResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NoShowReportResult"
+          }
+        }
+      },
+      "NoShowReportResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "noShowPatients",
+          "totalPatientsWithNoShows"
+        ],
+        "properties": {
+          "noShowPatients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoShowPatient"
+            }
+          },
+          "timeframe": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "90d"
+            ]
+          },
+          "threshold": {},
+          "totalPatientsWithNoShows": {
+            "type": "integer"
+          },
+          "requestedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "NonPayableBreakdown": {
         "type": "object",
         "additionalProperties": false,
@@ -4312,6 +5153,136 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "OverrideBookRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "patient_id",
+          "doctor_id",
+          "appointment_date"
+        ],
+        "description": "POST /api/v1/appointments/admin/override-book.",
+        "properties": {
+          "patient_id": {
+            "type": "integer"
+          },
+          "doctor_id": {
+            "type": "integer"
+          },
+          "appointment_date": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "override_reason": {
+            "type": "string"
+          },
+          "ignore_conflicts": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OverrideBookResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OverrideBookResult"
+          }
+        }
+      },
+      "OverrideBookResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointment",
+          "override"
+        ],
+        "properties": {
+          "appointment": {
+            "$ref": "#/components/schemas/OverrideBookedAppointment"
+          },
+          "override": {
+            "type": "boolean"
+          },
+          "bookedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OverrideBookedAppointment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "admin_override": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "override_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -5636,6 +6607,31 @@
           }
         }
       },
+      "ReminderAppointment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor": {
+            "type": "string",
+            "nullable": true
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "RescheduleAppointmentRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -5691,6 +6687,121 @@
           },
           "appointment": {
             "$ref": "#/components/schemas/Appointment"
+          }
+        }
+      },
+      "ResolveConflictAppointment": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ResolveConflictRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "conflict_appointments",
+          "resolution_action"
+        ],
+        "description": "POST /api/v1/appointments/admin/resolve-conflict. conflict_appointments must be exactly 2 ids.",
+        "properties": {
+          "conflict_appointments": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "resolution_action": {
+            "type": "string",
+            "enum": [
+              "cancel_first",
+              "cancel_second",
+              "reschedule_first",
+              "reschedule_second"
+            ]
+          },
+          "new_time": {
+            "type": "string"
+          }
+        }
+      },
+      "ResolveConflictResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ResolveConflictResult"
+          }
+        }
+      },
+      "ResolveConflictResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "resolution",
+          "updatedAppointment"
+        ],
+        "properties": {
+          "resolution": {
+            "type": "string"
+          },
+          "updatedAppointment": {
+            "$ref": "#/components/schemas/ResolveConflictAppointment"
+          },
+          "resolvedBy": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -5997,6 +7108,67 @@
           }
         }
       },
+      "SendRemindersRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "POST /api/v1/appointments/admin/send-reminders.",
+        "properties": {
+          "hours_before": {
+            "type": "integer"
+          },
+          "include_departments": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "exclude_cancelled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SendRemindersResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SendRemindersResult"
+          }
+        }
+      },
+      "SendRemindersResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "remindersSent",
+          "appointments"
+        ],
+        "properties": {
+          "remindersSent": {
+            "type": "integer"
+          },
+          "appointments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReminderAppointment"
+            }
+          },
+          "sentBy": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "ServiceMaster": {
         "type": "object",
         "additionalProperties": false,
@@ -6092,6 +7264,101 @@
           },
           "amount": {
             "type": "number"
+          }
+        }
+      },
+      "SlaDashboardResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SlaDashboardResult"
+          }
+        }
+      },
+      "SlaDashboardResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "summary",
+          "sla",
+          "by_status",
+          "by_department",
+          "pending_confirmation"
+        ],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "confirmed": {
+                "type": "integer"
+              },
+              "completed": {
+                "type": "integer"
+              },
+              "cancelled": {
+                "type": "integer"
+              },
+              "no_show": {
+                "type": "integer"
+              },
+              "pending_confirmation": {
+                "type": "integer"
+              }
+            }
+          },
+          "sla": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "by_status": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "by_department": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "pending_confirmation": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "date_range": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "from": {
+                "type": "string",
+                "nullable": true
+              },
+              "to": {
+                "type": "string",
+                "nullable": true
+              }
+            }
           }
         }
       },
@@ -24363,7 +25630,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentAnalyticsResponse"
                 }
               }
             }
@@ -24380,7 +25647,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentAuditTrailResponse"
                 }
               }
             }
@@ -24397,8 +25664,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/BulkDeleteResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkDeleteRequest"
               }
             }
           }
@@ -24414,8 +25691,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/BulkUpdateStatusResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkUpdateStatusRequest"
               }
             }
           }
@@ -24431,7 +25718,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/CapacityAnalysisResponse"
                 }
               }
             }
@@ -24448,7 +25735,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentConflictsResponse"
                 }
               }
             }
@@ -24465,7 +25752,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentDocumentsResponse"
                 }
               }
             }
@@ -24482,7 +25769,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentExportResponse"
                 }
               }
             }
@@ -24499,7 +25786,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/NoShowReportResponse"
                 }
               }
             }
@@ -24516,8 +25803,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/OverrideBookResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideBookRequest"
               }
             }
           }
@@ -24533,8 +25830,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ResolveConflictResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveConflictRequest"
               }
             }
           }
@@ -24550,7 +25857,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentSearchResponse"
                 }
               }
             }
@@ -24567,8 +25874,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SendRemindersResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendRemindersRequest"
               }
             }
           }
@@ -24584,7 +25901,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SlaDashboardResponse"
                 }
               }
             }

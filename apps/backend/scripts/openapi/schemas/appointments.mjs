@@ -770,6 +770,537 @@ export const schemas = {
       note: { type: 'string' },
     },
   },
+
+  // ======================================================================
+  // T4 — ADMIN ANALYTICS / OPERATIONS payloads.
+  // Source: src/routes/appointment/appointmentAdminRoutes.js (inline
+  // raw-SQL handlers under /admin) + src/controllers/appointment/
+  // appointmentAdminController.js (sla-dashboard, audit-trail) +
+  // appointmentDocumentController.getAllDocumentsAdmin (documents).
+  //
+  // SERIALIZATION RULE that drives most LOOSE decisions here: the analytics
+  // SQL is `$queryRawUnsafe`, and
+  //   * a bare `COUNT(*)` (NOT cast `::int`) returns a Postgres BigInt →
+  //     Prisma yields a JS BigInt → the global `BigInt.prototype.toJSON`
+  //     (src/bin/www.js + jest.setup.cjs) serializes it to a STRING;
+  //   * `ROUND(x::numeric, n)` returns a Prisma Decimal → serialized to a
+  //     STRING too;
+  //   * `EXTRACT(...)` / `ROUND(...)::int` casts return JS numbers.
+  // So inside the analytics aggregate objects the same logical field can be
+  // a string (uncast COUNT / ROUND) or a number (::int cast) depending on the
+  // exact SELECT. Rather than pin every one, the wide aggregate objects below
+  // are LOOSE (additionalProperties:true) — we assert the ENVELOPE + array
+  // structure faithfully and let the scalar cells stay open. Where a handler
+  // DOES `::int`-cast a whole result set (the SLA dashboard), we type those
+  // counts as integer.
+  // ======================================================================
+
+  // ---- GET /admin/analytics ----------------------------------------------
+  // data = { timeframe, overall:{...}, trends[], departmentBreakdown[],
+  // peakHours[], generatedAt, requestedBy }. `overall` is overallStats[0]
+  // (single row of uncast COUNTs + ROUND rates → all STRINGS); trends /
+  // departmentBreakdown / peakHours are arrays of uncast-COUNT rows. All
+  // aggregate rows LOOSE (string-vs-number per cell, see header rule).
+  AppointmentAnalyticsResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['timeframe', 'overall', 'trends', 'departmentBreakdown', 'peakHours'],
+    properties: {
+      timeframe: { type: 'string', enum: ['7d', '30d', '90d', '1y'] },
+      // Single overallStats row. LOOSE: uncast COUNT(*) → BigInt→string,
+      // ROUND(...,2) rates (completion_rate/no_show_rate) → Decimal→string.
+      overall: { type: 'object', additionalProperties: true },
+      // Per-date trend rows (uncast COUNTs → strings). LOOSE row.
+      trends: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      // Per-department rows — avg_wait_time_minutes is ROUND(AVG(...)) Decimal.
+      departmentBreakdown: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      // Per-hour rows — avg_duration is ROUND(AVG(...)) Decimal.
+      peakHours: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      generatedAt: { type: 'string', format: 'date-time', nullable: true },
+      requestedBy: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentAnalyticsResponse: envelope('AppointmentAnalyticsResult'),
+
+  // ---- GET /admin/search -------------------------------------------------
+  // data = { appointments[], pagination:{page,limit,total,totalPages},
+  // filters:{...}, requestedBy }. Each appointment row is `a.* + p.name/phone/
+  // email + d.name + dept.name + effective_status` — wide raw row, reuse the
+  // LOOSE AppointmentListItem (a.* always carries id/status; the row adds
+  // patient_*/doctor_*/department_name/effective_status aliases). pagination
+  // keys are JS-computed integers; filters echoes the query (string|bool).
+  AppointmentSearchResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointments', 'pagination'],
+    properties: {
+      appointments: { type: 'array', items: { $ref: '#/components/schemas/AppointmentListItem' } },
+      pagination: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          page: { type: 'integer' },
+          limit: { type: 'integer' },
+          total: { type: 'integer' },
+          totalPages: { type: 'integer' },
+        },
+      },
+      filters: { type: 'object', additionalProperties: true, nullable: true },
+      requestedBy: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentSearchResponse: envelope('AppointmentSearchResult'),
+
+  // ---- GET /admin/conflicts ----------------------------------------------
+  // data = { conflicts[], totalConflicts, date, doctor_id, requestedBy }.
+  // Each conflict row = { appointment1_id, appointment1_time, patient1_name,
+  // appointment2_id, appointment2_time, patient2_name, doctor_name,
+  // department } — fixed SELECT, strict item. (ids are real integer PKs, not
+  // COUNTs, so they stay integer.)
+  AppointmentConflict: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['appointment1_id', 'appointment2_id'],
+    properties: {
+      appointment1_id: { type: 'integer' },
+      appointment1_time: { type: 'string', format: 'date-time', nullable: true },
+      patient1_name: { type: 'string', nullable: true },
+      appointment2_id: { type: 'integer' },
+      appointment2_time: { type: 'string', format: 'date-time', nullable: true },
+      patient2_name: { type: 'string', nullable: true },
+      doctor_name: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentConflictsResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['conflicts', 'totalConflicts'],
+    properties: {
+      conflicts: { type: 'array', items: { $ref: '#/components/schemas/AppointmentConflict' } },
+      // conflicts.length — a JS number.
+      totalConflicts: { type: 'integer' },
+      date: { type: 'string', nullable: true },
+      doctor_id: { type: 'string', nullable: true },
+      requestedBy: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentConflictsResponse: envelope('AppointmentConflictsResult'),
+
+  // ---- GET /admin/no-shows -----------------------------------------------
+  // data = { noShowPatients[], timeframe, threshold, totalPatientsWithNoShows,
+  // requestedBy }. Each patient row = { id, name, phone, email, no_show_count,
+  // total_appointments, no_show_percentage, last_appointment }. The COUNTs are
+  // UNCAST (→ BigInt→string) and no_show_percentage is ROUND(...,2) Decimal
+  // (→ string); id is a real PK integer. LOOSE on the count/percentage cells.
+  NoShowPatient: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id'],
+    properties: {
+      id: { type: 'integer' },
+      name: { type: 'string', nullable: true },
+      phone: { type: 'string', nullable: true },
+      email: { type: 'string', nullable: true },
+      last_appointment: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  NoShowReportResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['noShowPatients', 'totalPatientsWithNoShows'],
+    properties: {
+      noShowPatients: { type: 'array', items: { $ref: '#/components/schemas/NoShowPatient' } },
+      timeframe: { type: 'string', enum: ['7d', '30d', '90d'] },
+      // `threshold` echoes the raw query value (string) defaulting to number 2.
+      threshold: {},
+      totalPatientsWithNoShows: { type: 'integer' },
+      requestedBy: { type: 'string', nullable: true },
+    },
+  },
+  NoShowReportResponse: envelope('NoShowReportResult'),
+
+  // ---- GET /admin/export (JSON branch) -----------------------------------
+  // `?format=csv` short-circuits to text/csv (NOT modelled — non-JSON 200).
+  // The default JSON branch: data = { appointments[], count, exportDate,
+  // filters:{date_from,date_to,department_id}, requestedBy }. Each export row
+  // is the fixed projection (id, appointment_date, appointment_time, status,
+  // reason, patient_name, patient_phone, doctor_name, department,
+  // consultation_duration_minutes(NULL::integer), notes) — strict item.
+  AppointmentExportRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id'],
+    properties: {
+      id: { type: 'integer' },
+      appointment_date: { type: 'string', format: 'date-time', nullable: true },
+      appointment_time: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true },
+      reason: { type: 'string', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      patient_phone: { type: 'string', nullable: true },
+      doctor_name: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      consultation_duration_minutes: { type: 'integer', nullable: true },
+      notes: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentExportResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointments', 'count'],
+    properties: {
+      appointments: { type: 'array', items: { $ref: '#/components/schemas/AppointmentExportRow' } },
+      count: { type: 'integer' },
+      exportDate: { type: 'string', format: 'date-time', nullable: true },
+      filters: { type: 'object', additionalProperties: true, nullable: true },
+      requestedBy: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentExportResponse: envelope('AppointmentExportResult'),
+
+  // ---- GET /admin/capacity -----------------------------------------------
+  // data = { date, summary:{...}, doctorCapacity[], department_id, requestedBy }.
+  // summary = single row (uncast COUNT/SUM → strings, ROUND overall_utilization
+  // → Decimal string). doctorCapacity rows carry booked_appointments(uncast
+  // COUNT→string), available_slots(int arithmetic), utilization_percentage
+  // (ROUND→string), and `appointments` = array_agg(json_build_object(...)) of
+  // { time, patient, status } (or [null] when no rows). All aggregate objects
+  // LOOSE.
+  CapacityAnalysisResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['summary', 'doctorCapacity'],
+    properties: {
+      date: { type: 'string', nullable: true },
+      summary: { type: 'object', additionalProperties: true },
+      doctorCapacity: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      department_id: { type: 'string', nullable: true },
+      requestedBy: { type: 'string', nullable: true },
+    },
+  },
+  CapacityAnalysisResponse: envelope('CapacityAnalysisResult'),
+
+  // ---- GET /admin/sla-dashboard ------------------------------------------
+  // appointmentAdminController.getAppointmentSLADashboard. Every COUNT here is
+  // `::int`-cast → JS integer (unlike the analytics handler). data = { summary,
+  // sla, by_status[], by_department[], pending_confirmation[], date_range }.
+  // summary/sla are single typed-ish rows; avg_response_minutes is ROUND(...,1)
+  // Decimal → string (keep sla LOOSE). by_status/by_department rows are
+  // {key..., count:int}. pending_confirmation rows carry a.uid + mins_waiting
+  // (::int) + sla_breached(bool).
+  SlaDashboardResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['summary', 'sla', 'by_status', 'by_department', 'pending_confirmation'],
+    properties: {
+      // volumeRes[0]: all COUNT(*)::int → integers.
+      summary: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          total: { type: 'integer' },
+          confirmed: { type: 'integer' },
+          completed: { type: 'integer' },
+          cancelled: { type: 'integer' },
+          no_show: { type: 'integer' },
+          pending_confirmation: { type: 'integer' },
+        },
+      },
+      // slaRes[0]: COUNT(*)::int integers + avg_response_minutes ROUND(...,1)
+      // Decimal → string (LOOSE so the string cell can't break the contract).
+      sla: { type: 'object', additionalProperties: true },
+      by_status: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      by_department: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      pending_confirmation: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true },
+      },
+      date_range: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          from: { type: 'string', nullable: true },
+          to: { type: 'string', nullable: true },
+        },
+      },
+    },
+  },
+  SlaDashboardResponse: envelope('SlaDashboardResult'),
+
+  // ---- GET /admin/audit-trail --------------------------------------------
+  // getStatusAuditTrail → success(res, result) — `data` IS a bare ARRAY of
+  // `ash.* + a.uid as appointment_uid + p.name as patient_name + u.name as
+  // changed_by_name` rows. LOOSE item: ash.* is the full
+  // appointment_status_history row (id/appointment_id/from_status/to_status/
+  // changed_by/changed_by_role/reason/created_at/tenant_id) + the three joined
+  // aliases; keep the load-bearing keys typed, allow the rest. NOTE on `id`:
+  // the column is declared BIGINT, but the LIVE return serializes it as a JS
+  // NUMBER (verified: `1122`) — values are within Number range and Prisma's
+  // adapter yields a plain number here (no BigInt.toJSON string). Typed integer.
+  AppointmentAuditTrailEntry: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointment_id', 'to_status'],
+    properties: {
+      id: { type: 'integer', nullable: true },
+      appointment_id: { type: 'integer' },
+      from_status: { type: 'string', nullable: true },
+      to_status: { type: 'string' },
+      changed_by: { type: 'integer', nullable: true },
+      changed_by_role: { type: 'string', nullable: true },
+      reason: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      appointment_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      changed_by_name: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentAuditTrailResponse: listEnvelope('AppointmentAuditTrailEntry'),
+
+  // ---- GET /admin/documents ----------------------------------------------
+  // getAllDocumentsAdmin → success(res, docs) — `data` IS a bare ARRAY of
+  // appointment_document rows (fixed SELECT column list) + uploaded_by_name /
+  // patient_name / doctor_name / appointment_date / appointment_time joins,
+  // with file_url re-signed post-query. LOOSE item: type the load-bearing keys,
+  // allow the rest. NOTE: `id` and `file_size` are declared BIGINT but the LIVE
+  // return yields plain JS numbers (verified: id=1, file_size small/null), not
+  // BigInt strings — so both are typed integer (file_size nullable).
+  AppointmentDocumentRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'appointment_id'],
+    properties: {
+      id: { type: 'integer' },
+      appointment_id: { type: 'integer' },
+      patient_id: { type: 'integer', nullable: true },
+      doctor_id: { type: 'integer', nullable: true },
+      uploaded_by: { type: 'integer', nullable: true },
+      upload_role: { type: 'string', nullable: true },
+      document_type: { type: 'string', nullable: true },
+      file_key: { type: 'string', nullable: true },
+      file_url: { type: 'string', nullable: true },
+      file_name: { type: 'string', nullable: true },
+      file_size: { type: 'integer', nullable: true },
+      file_mime: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      uploaded_by_name: { type: 'string', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      doctor_name: { type: 'string', nullable: true },
+      appointment_date: { type: 'string', format: 'date-time', nullable: true },
+      appointment_time: { type: 'string', nullable: true },
+    },
+  },
+  AppointmentDocumentsResponse: listEnvelope('AppointmentDocumentRow'),
+
+  // ---- POST /admin/bulk-update-status ------------------------------------
+  // data = { updatedCount, updatedAppointments[], status, reason, updatedBy }.
+  // updatedAppointments = RETURNING id, patient_id, doctor_id,
+  // appointment_date, status (fixed) — strict item.
+  BulkUpdatedAppointment: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      patient_id: { type: 'integer', nullable: true },
+      doctor_id: { type: 'integer', nullable: true },
+      appointment_date: { type: 'string', format: 'date-time', nullable: true },
+      status: { type: 'string', nullable: true },
+    },
+  },
+  BulkUpdateStatusResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['updatedCount', 'updatedAppointments'],
+    properties: {
+      updatedCount: { type: 'integer' },
+      updatedAppointments: { type: 'array', items: { $ref: '#/components/schemas/BulkUpdatedAppointment' } },
+      status: { type: 'string', nullable: true },
+      reason: { type: 'string', nullable: true },
+      updatedBy: { type: 'string', nullable: true },
+    },
+  },
+  BulkUpdateStatusResponse: envelope('BulkUpdateStatusResult'),
+
+  // ---- POST /admin/override-book -----------------------------------------
+  // data = { appointment:<RETURNING row>, override:true, bookedBy }. RETURNING
+  // is a fixed column list incl admin_override/override_reason/created_by.
+  OverrideBookedAppointment: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      patient_id: { type: 'integer', nullable: true },
+      doctor_id: { type: 'integer', nullable: true },
+      appointment_date: { type: 'string', format: 'date-time', nullable: true },
+      reason: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      admin_override: { type: 'boolean', nullable: true },
+      override_reason: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  OverrideBookResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointment', 'override'],
+    properties: {
+      appointment: { $ref: '#/components/schemas/OverrideBookedAppointment' },
+      override: { type: 'boolean' },
+      bookedBy: { type: 'string', nullable: true },
+    },
+  },
+  OverrideBookResponse: envelope('OverrideBookResult'),
+
+  // ---- POST /admin/resolve-conflict --------------------------------------
+  // data = { resolution, updatedAppointment:<RETURNING row>, resolvedBy }.
+  // The UPDATE RETURNs id, uid, phone, patient_name, doctor_name, date(!),
+  // status, notes, created_at, updated_at. NOTE: `date` is selected (the
+  // legacy column alias), not appointment_date. LOOSE item — keep id/uid/status
+  // typed, allow the rest (the RETURNING list is fixed but `date` is an odd
+  // column so we don't over-constrain).
+  ResolveConflictAppointment: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id'],
+    properties: {
+      id: { type: 'integer' },
+      uid: { type: 'string', format: 'uuid', nullable: true },
+      phone: { type: 'string', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      doctor_name: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  ResolveConflictResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['resolution', 'updatedAppointment'],
+    properties: {
+      resolution: { type: 'string' },
+      updatedAppointment: { $ref: '#/components/schemas/ResolveConflictAppointment' },
+      resolvedBy: { type: 'string', nullable: true },
+    },
+  },
+  ResolveConflictResponse: envelope('ResolveConflictResult'),
+
+  // ---- POST /admin/send-reminders ----------------------------------------
+  // data = { remindersSent, appointments[{id,patient,doctor,time}], sentBy }.
+  // The controller re-maps each reminder row to exactly { id, patient, doctor,
+  // time } — strict item.
+  ReminderAppointment: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id'],
+    properties: {
+      id: { type: 'integer' },
+      patient: { type: 'string', nullable: true },
+      doctor: { type: 'string', nullable: true },
+      time: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  SendRemindersResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['remindersSent', 'appointments'],
+    properties: {
+      remindersSent: { type: 'integer' },
+      appointments: { type: 'array', items: { $ref: '#/components/schemas/ReminderAppointment' } },
+      sentBy: { type: 'string', nullable: true },
+    },
+  },
+  SendRemindersResponse: envelope('SendRemindersResult'),
+
+  // ---- DELETE /admin/bulk-delete (body) ----------------------------------
+  // data = { deletedCount, deletedIds[], reason, deletedBy, archived }.
+  // deletedIds = archiveResult.map(r => r.original_id) (integers).
+  BulkDeleteResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['deletedCount', 'deletedIds', 'archived'],
+    properties: {
+      deletedCount: { type: 'integer' },
+      deletedIds: { type: 'array', items: { type: 'integer' } },
+      reason: { type: 'string', nullable: true },
+      deletedBy: { type: 'string', nullable: true },
+      archived: { type: 'boolean' },
+    },
+  },
+  BulkDeleteResponse: envelope('BulkDeleteResult'),
+
+  // ---- T4 request bodies -------------------------------------------------
+  BulkUpdateStatusRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointment_ids', 'status'],
+    description: 'POST /api/v1/appointments/admin/bulk-update-status. status '
+      + 'must be one of completed|cancelled|no_show.',
+    properties: {
+      appointment_ids: { type: 'array', items: { type: 'integer' } },
+      status: { type: 'string', enum: ['completed', 'cancelled', 'no_show'] },
+      reason: { type: 'string' },
+    },
+  },
+  OverrideBookRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['patient_id', 'doctor_id', 'appointment_date'],
+    description: 'POST /api/v1/appointments/admin/override-book.',
+    properties: {
+      patient_id: { type: 'integer' },
+      doctor_id: { type: 'integer' },
+      appointment_date: { type: 'string' },
+      reason: { type: 'string' },
+      override_reason: { type: 'string' },
+      ignore_conflicts: { type: 'boolean' },
+    },
+  },
+  ResolveConflictRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['conflict_appointments', 'resolution_action'],
+    description: 'POST /api/v1/appointments/admin/resolve-conflict. '
+      + 'conflict_appointments must be exactly 2 ids.',
+    properties: {
+      conflict_appointments: { type: 'array', items: { type: 'integer' } },
+      resolution_action: {
+        type: 'string',
+        enum: ['cancel_first', 'cancel_second', 'reschedule_first', 'reschedule_second'],
+      },
+      new_time: { type: 'string' },
+    },
+  },
+  SendRemindersRequest: {
+    type: 'object',
+    additionalProperties: true,
+    description: 'POST /api/v1/appointments/admin/send-reminders.',
+    properties: {
+      hours_before: { type: 'integer' },
+      include_departments: { type: 'array', items: { type: 'integer' } },
+      exclude_cancelled: { type: 'boolean' },
+    },
+  },
+  BulkDeleteRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointment_ids', 'reason'],
+    description: 'DELETE /api/v1/appointments/admin/bulk-delete (body). '
+      + 'reason is mandatory (audit trail).',
+    properties: {
+      appointment_ids: { type: 'array', items: { type: 'integer' } },
+      reason: { type: 'string' },
+    },
+  },
 };
 
 export const operations = {
@@ -877,5 +1408,62 @@ export const operations = {
   },
   'GET /api/v1/appointments/uid/{uid}': {
     response: 'LegacyAppointmentListResponse',
+  },
+
+  // ======================================================================
+  // T4: ADMIN ANALYTICS / OPERATIONS
+  // ======================================================================
+  'GET /api/v1/appointments/admin/analytics': {
+    response: 'AppointmentAnalyticsResponse',
+  },
+  'GET /api/v1/appointments/admin/search': {
+    response: 'AppointmentSearchResponse',
+  },
+  'GET /api/v1/appointments/admin/conflicts': {
+    response: 'AppointmentConflictsResponse',
+  },
+  'GET /api/v1/appointments/admin/no-shows': {
+    response: 'NoShowReportResponse',
+  },
+  // /admin/export: ONLY the default JSON branch is typed. `?format=csv`
+  // returns text/csv (handled before success()) — not a JSON 200, so the
+  // CSV path is intentionally NOT contract-asserted.
+  'GET /api/v1/appointments/admin/export': {
+    response: 'AppointmentExportResponse',
+  },
+  'GET /api/v1/appointments/admin/capacity': {
+    response: 'CapacityAnalysisResponse',
+  },
+  // sla-dashboard / audit-trail / documents are mounted from
+  // appointmentWorkflowRoutes.js (literal /admin/* paths), handled by
+  // appointmentAdminController + appointmentDocumentController.
+  'GET /api/v1/appointments/admin/sla-dashboard': {
+    response: 'SlaDashboardResponse',
+  },
+  'GET /api/v1/appointments/admin/audit-trail': {
+    response: 'AppointmentAuditTrailResponse',
+  },
+  'GET /api/v1/appointments/admin/documents': {
+    response: 'AppointmentDocumentsResponse',
+  },
+  'POST /api/v1/appointments/admin/bulk-update-status': {
+    request: 'BulkUpdateStatusRequest',
+    response: 'BulkUpdateStatusResponse',
+  },
+  'POST /api/v1/appointments/admin/override-book': {
+    request: 'OverrideBookRequest',
+    response: 'OverrideBookResponse',
+  },
+  'POST /api/v1/appointments/admin/resolve-conflict': {
+    request: 'ResolveConflictRequest',
+    response: 'ResolveConflictResponse',
+  },
+  'POST /api/v1/appointments/admin/send-reminders': {
+    request: 'SendRemindersRequest',
+    response: 'SendRemindersResponse',
+  },
+  'DELETE /api/v1/appointments/admin/bulk-delete': {
+    request: 'BulkDeleteRequest',
+    response: 'BulkDeleteResponse',
   },
 };
