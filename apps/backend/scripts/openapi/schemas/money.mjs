@@ -1,7 +1,7 @@
 // apps/backend/scripts/openapi/schemas/money.mjs
 // Typed request/response payload schemas for the money/billing surface.
 // Populated per sub-surface in Phase 5 tasks T3–T8.
-import { envelope, listEnvelope } from './_helpers.mjs';
+import { envelope, listEnvelope, countListEnvelope } from './_helpers.mjs';
 
 // V2 money JSON type. V2 uses Decimal(12,2) in rupees, which Prisma serializes
 // to a JSON STRING (verified by the V2 contract deep test, same as V1).
@@ -1158,6 +1158,277 @@ export const schemas = {
     description: 'Reverse-engineered from paymentLinkService.cancelPaymentLink; not validator-backed.',
     properties: { reason: { type: 'string' } },
   },
+
+  // ---- Billing masters (billingMastersService.js) — *_minor are integer paise;
+  //      tax_rate_pct / quantity are NUMERIC -> Decimal string; dates are 'YYYY-MM-DD' ----
+  Payer: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'payer_code', 'display_name', 'payer_kind', 'status', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      payer_code: { type: 'string' },
+      display_name: { type: 'string' },
+      payer_kind: { type: 'string' },
+      registration_number: { type: 'string', nullable: true },
+      contact_email: { type: 'string', nullable: true },
+      contact_phone: { type: 'string', nullable: true },
+      address: { type: 'string', nullable: true },
+      status: { type: 'string' },
+      ehr_external_id: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  PayerResponse: envelope('Payer'),
+  PayersListResponse: countListEnvelope('payers', 'Payer'),
+
+  Tpa: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'tpa_code', 'display_name', 'status', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      tpa_code: { type: 'string' },
+      display_name: { type: 'string' },
+      parent_payer_id: { type: 'integer', nullable: true },
+      irda_license_number: { type: 'string', nullable: true },
+      contact_email: { type: 'string', nullable: true },
+      contact_phone: { type: 'string', nullable: true },
+      address: { type: 'string', nullable: true },
+      status: { type: 'string' },
+      ehr_external_id: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  TpaResponse: envelope('Tpa'),
+  TpasListResponse: countListEnvelope('tpas', 'Tpa'),
+
+  TariffPlan: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'plan_code', 'display_name', 'is_default', 'currency', 'status', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      plan_code: { type: 'string' },
+      display_name: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      is_default: { type: 'boolean' },
+      currency: { type: 'string' },
+      effective_from: { type: 'string', nullable: true },
+      effective_to: { type: 'string', nullable: true },
+      status: { type: 'string' },
+      metadata: { type: 'object', additionalProperties: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  TariffPlanResponse: envelope('TariffPlan'),
+  TariffPlansListResponse: countListEnvelope('plans', 'TariffPlan'),
+
+  TariffItem: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'tariff_plan_id', 'service_code', 'service_kind', 'display_name', 'unit_price_minor', 'unit_label', 'taxable', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      tariff_plan_id: { type: 'integer' },
+      service_code: { type: 'string' },
+      service_kind: { type: 'string' },
+      display_name: { type: 'string' },
+      unit_price_minor: { type: 'integer' },
+      unit_label: { type: 'string' },
+      taxable: { type: 'boolean' },
+      tax_rate_pct: { type: 'string', nullable: true },
+      effective_from: { type: 'string', nullable: true },
+      effective_to: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  TariffItemResponse: envelope('TariffItem'),
+  TariffItemsListResponse: countListEnvelope('items', 'TariffItem'),
+
+  BillingPackage: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'package_code', 'display_name', 'currency', 'status', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      package_code: { type: 'string' },
+      display_name: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      base_specialty: { type: 'string', nullable: true },
+      base_procedure_code: { type: 'string', nullable: true },
+      duration_days: { type: 'integer', nullable: true },
+      fixed_price_minor: { type: 'integer', nullable: true },
+      currency: { type: 'string' },
+      status: { type: 'string' },
+      exclusion_notes: { type: 'string', nullable: true },
+      inclusion_notes: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  BillingPackageResponse: envelope('BillingPackage'),
+  PackagesListResponse: countListEnvelope('packages', 'BillingPackage'),
+
+  PackageItem: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'package_id', 'service_code', 'service_kind', 'display_name', 'quantity', 'is_included', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      package_id: { type: 'integer' },
+      service_code: { type: 'string' },
+      service_kind: { type: 'string' },
+      display_name: { type: 'string' },
+      quantity: { type: 'string' },
+      unit_price_minor: { type: 'integer', nullable: true },
+      is_included: { type: 'boolean' },
+      notes: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  PackageItemResponse: envelope('PackageItem'),
+  PackageItemsListResponse: countListEnvelope('items', 'PackageItem'),
+
+  PayerTariffLink: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'tenant_id', 'tariff_plan_id', 'is_primary', 'status', 'metadata', 'created_at', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      payer_id: { type: 'integer', nullable: true },
+      tpa_id: { type: 'integer', nullable: true },
+      tariff_plan_id: { type: 'integer' },
+      is_primary: { type: 'boolean' },
+      effective_from: { type: 'string', nullable: true },
+      effective_to: { type: 'string', nullable: true },
+      status: { type: 'string' },
+      metadata: { type: 'object', additionalProperties: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  PayerTariffLinkResponse: envelope('PayerTariffLink'),
+  PayerTariffLinksListResponse: countListEnvelope('links', 'PayerTariffLink'),
+
+  ResolvedPrice: {
+    type: 'object', additionalProperties: false,
+    required: ['tariff_item_id', 'tariff_plan_id', 'service_code', 'service_kind', 'display_name', 'unit_price_minor', 'unit_label', 'taxable', 'plan_code', 'plan_display_name', 'is_primary'],
+    properties: {
+      tariff_item_id: { type: 'integer' },
+      tariff_plan_id: { type: 'integer' },
+      service_code: { type: 'string' },
+      service_kind: { type: 'string' },
+      display_name: { type: 'string' },
+      unit_price_minor: { type: 'integer' },
+      unit_label: { type: 'string' },
+      taxable: { type: 'boolean' },
+      tax_rate_pct: { type: 'string', nullable: true },
+      plan_code: { type: 'string' },
+      plan_display_name: { type: 'string' },
+      payer_id: { type: 'integer', nullable: true },
+      tpa_id: { type: 'integer', nullable: true },
+      is_primary: { type: 'boolean' },
+      link_effective_from: { type: 'string', nullable: true },
+      link_effective_to: { type: 'string', nullable: true },
+    },
+  },
+  // resolve-price returns data: ResolvedPrice | null (null when no match).
+  ResolvePriceResponse: {
+    type: 'object',
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: { nullable: true, allOf: [{ $ref: '#/components/schemas/ResolvedPrice' }] },
+    },
+  },
+
+  // Billing-masters request bodies (service-layer validation, no express-validator → permissive)
+  UpsertPayerRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.upsertPayer; service-layer validation, not express-validator.',
+    properties: {
+      id: { type: 'integer' }, payer_code: { type: 'string' }, display_name: { type: 'string' },
+      payer_kind: { type: 'string' }, registration_number: { type: 'string' }, contact_email: { type: 'string' },
+      contact_phone: { type: 'string' }, address: { type: 'string' }, status: { type: 'string' },
+      ehr_external_id: { type: 'string' }, metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  UpsertTpaRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.upsertTpa; service-layer validation.',
+    properties: {
+      id: { type: 'integer' }, tpa_code: { type: 'string' }, display_name: { type: 'string' },
+      parent_payer_id: { type: 'integer' }, irda_license_number: { type: 'string' }, contact_email: { type: 'string' },
+      contact_phone: { type: 'string' }, address: { type: 'string' }, status: { type: 'string' },
+      ehr_external_id: { type: 'string' }, metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  UpsertTariffPlanRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.upsertTariffPlan; service-layer validation.',
+    properties: {
+      id: { type: 'integer' }, plan_code: { type: 'string' }, display_name: { type: 'string' },
+      description: { type: 'string' }, is_default: { type: 'boolean' }, currency: { type: 'string' },
+      effective_from: { type: 'string' }, effective_to: { type: 'string' }, status: { type: 'string' },
+      metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  UpsertTariffItemRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.upsertTariffItem; service-layer validation.',
+    properties: {
+      id: { type: 'integer' }, tariff_plan_id: { type: 'integer' }, service_code: { type: 'string' },
+      service_kind: { type: 'string' }, display_name: { type: 'string' }, unit_price_minor: { type: 'integer' },
+      unit_label: { type: 'string' }, taxable: { type: 'boolean' }, tax_rate_pct: { type: 'number' },
+      effective_from: { type: 'string' }, effective_to: { type: 'string' }, metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  UpsertPackageRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.upsertPackage; service-layer validation.',
+    properties: {
+      id: { type: 'integer' }, package_code: { type: 'string' }, display_name: { type: 'string' },
+      description: { type: 'string' }, base_specialty: { type: 'string' }, base_procedure_code: { type: 'string' },
+      duration_days: { type: 'integer' }, fixed_price_minor: { type: 'integer' }, currency: { type: 'string' },
+      status: { type: 'string' }, exclusion_notes: { type: 'string' }, inclusion_notes: { type: 'string' },
+      metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  AddPackageItemRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.addPackageItem; service-layer validation.',
+    properties: {
+      service_code: { type: 'string' }, service_kind: { type: 'string' }, display_name: { type: 'string' },
+      quantity: { type: 'number' }, unit_price_minor: { type: 'integer' }, is_included: { type: 'boolean' },
+      notes: { type: 'string' }, metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  LinkPayerTariffRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from billingMastersService.linkPayerTariff; service-layer validation.',
+    properties: {
+      payer_id: { type: 'integer' }, tpa_id: { type: 'integer' }, tariff_plan_id: { type: 'integer' },
+      is_primary: { type: 'boolean' }, effective_from: { type: 'string' }, effective_to: { type: 'string' },
+      status: { type: 'string' }, metadata: { type: 'object', additionalProperties: true },
+    },
+  },
 };
 
 export const operations = {
@@ -1223,4 +1494,21 @@ export const operations = {
   'POST /api/v1/billing/v2/payment-links/{token}/mark-paid': { request: 'MarkLinkPaidRequest', response: 'MarkLinkPaidResponse' },
   'POST /api/v1/billing/v2/payment-links/{token}/cancel': { request: 'CancelPaymentLinkRequest', response: 'PaymentLinkResponse' },
   'POST /api/v1/billing/v2/payment-links/run-expire-stale': { response: 'ExpireStaleResponse' },
+
+  // Billing masters (billingMastersService.js)
+  'PUT /api/v1/admin/billing-masters/payers': { request: 'UpsertPayerRequest', response: 'PayerResponse' },
+  'GET /api/v1/admin/billing-masters/payers': { response: 'PayersListResponse' },
+  'PUT /api/v1/admin/billing-masters/tpas': { request: 'UpsertTpaRequest', response: 'TpaResponse' },
+  'GET /api/v1/admin/billing-masters/tpas': { response: 'TpasListResponse' },
+  'PUT /api/v1/admin/billing-masters/tariff-plans': { request: 'UpsertTariffPlanRequest', response: 'TariffPlanResponse' },
+  'GET /api/v1/admin/billing-masters/tariff-plans': { response: 'TariffPlansListResponse' },
+  'PUT /api/v1/admin/billing-masters/tariff-items': { request: 'UpsertTariffItemRequest', response: 'TariffItemResponse' },
+  'GET /api/v1/admin/billing-masters/tariff-plans/{planId}/items': { response: 'TariffItemsListResponse' },
+  'PUT /api/v1/admin/billing-masters/packages': { request: 'UpsertPackageRequest', response: 'BillingPackageResponse' },
+  'GET /api/v1/admin/billing-masters/packages': { response: 'PackagesListResponse' },
+  'POST /api/v1/admin/billing-masters/packages/{packageId}/items': { request: 'AddPackageItemRequest', response: 'PackageItemResponse' },
+  'GET /api/v1/admin/billing-masters/packages/{packageId}/items': { response: 'PackageItemsListResponse' },
+  'POST /api/v1/admin/billing-masters/payer-tariff-links': { request: 'LinkPayerTariffRequest', response: 'PayerTariffLinkResponse' },
+  'GET /api/v1/admin/billing-masters/payer-tariff-links': { response: 'PayerTariffLinksListResponse' },
+  'GET /api/v1/admin/billing-masters/resolve-price': { response: 'ResolvePriceResponse' },
 };

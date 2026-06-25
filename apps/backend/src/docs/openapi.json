@@ -155,6 +155,38 @@
           }
         }
       },
+      "AddPackageItemRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.addPackageItem; service-layer validation.",
+        "properties": {
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "is_included": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "Advance": {
         "type": "object",
         "additionalProperties": false,
@@ -418,6 +450,106 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "BillingPackage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "package_code",
+          "display_name",
+          "currency",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "package_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_procedure_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fixed_price_minor": {
+            "type": "integer",
+            "nullable": true
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "exclusion_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "inclusion_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BillingPackageResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BillingPackage"
           }
         }
       },
@@ -2599,6 +2731,38 @@
           }
         }
       },
+      "LinkPayerTariffRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.linkPayerTariff; service-layer validation.",
+        "properties": {
+          "payer_id": {
+            "type": "integer"
+          },
+          "tpa_id": {
+            "type": "integer"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "effective_to": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "MarkLinkPaidRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -2845,6 +3009,161 @@
           }
         }
       },
+      "PackageItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "package_id",
+          "service_code",
+          "service_kind",
+          "display_name",
+          "quantity",
+          "is_included",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "package_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_included": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PackageItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PackageItem"
+          }
+        }
+      },
+      "PackageItemsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "count"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PackageItem"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "PackagesListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "packages",
+              "count"
+            ],
+            "properties": {
+              "packages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BillingPackage"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
       "PatientInvoicesResponse": {
         "type": "object",
         "required": [
@@ -2868,6 +3187,254 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "Payer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "payer_code",
+          "display_name",
+          "payer_kind",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payer_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "payer_kind": {
+            "type": "string"
+          },
+          "registration_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PayerResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Payer"
+          }
+        }
+      },
+      "PayerTariffLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "tariff_plan_id",
+          "is_primary",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payer_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tpa_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PayerTariffLinkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayerTariffLink"
+          }
+        }
+      },
+      "PayerTariffLinksListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "links",
+              "count"
+            ],
+            "properties": {
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PayerTariffLink"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "PayersListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "payers",
+              "count"
+            ],
+            "properties": {
+              "payers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Payer"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
           }
         }
       },
@@ -3497,6 +4064,101 @@
           }
         }
       },
+      "ResolvePriceResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedPrice"
+              }
+            ]
+          }
+        }
+      },
+      "ResolvedPrice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tariff_item_id",
+          "tariff_plan_id",
+          "service_code",
+          "service_kind",
+          "display_name",
+          "unit_price_minor",
+          "unit_label",
+          "taxable",
+          "plan_code",
+          "plan_display_name",
+          "is_primary"
+        ],
+        "properties": {
+          "tariff_item_id": {
+            "type": "integer"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "tax_rate_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "plan_code": {
+            "type": "string"
+          },
+          "plan_display_name": {
+            "type": "string"
+          },
+          "payer_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tpa_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "link_effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "link_effective_to": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "RevenueByPaymentMethod": {
         "type": "object",
         "additionalProperties": false,
@@ -3834,6 +4496,330 @@
           "documents": {}
         }
       },
+      "TariffItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "tariff_plan_id",
+          "service_code",
+          "service_kind",
+          "display_name",
+          "unit_price_minor",
+          "unit_label",
+          "taxable",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "tax_rate_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TariffItemResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TariffItem"
+          }
+        }
+      },
+      "TariffItemsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "count"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TariffItem"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "TariffPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "plan_code",
+          "display_name",
+          "is_default",
+          "currency",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "effective_from": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TariffPlanResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TariffPlan"
+          }
+        }
+      },
+      "TariffPlansListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "plans",
+              "count"
+            ],
+            "properties": {
+              "plans": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TariffPlan"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
+          }
+        }
+      },
+      "Tpa": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "tpa_code",
+          "display_name",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tpa_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "parent_payer_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "irda_license_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "TpaDecisionItem": {
         "type": "object",
         "additionalProperties": false,
@@ -3941,6 +4927,25 @@
           }
         }
       },
+      "TpaResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Tpa"
+          }
+        }
+      },
       "TpaUtilisation": {
         "type": "object",
         "additionalProperties": false,
@@ -3974,6 +4979,42 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "TpasListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tpas",
+              "count"
+            ],
+            "properties": {
+              "tpas": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Tpa"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 5
+              }
+            }
           }
         }
       },
@@ -4118,6 +5159,217 @@
           },
           "is_active": {
             "type": "boolean"
+          }
+        }
+      },
+      "UpsertPackageRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertPackage; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "package_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "base_specialty": {
+            "type": "string"
+          },
+          "base_procedure_code": {
+            "type": "string"
+          },
+          "duration_days": {
+            "type": "integer"
+          },
+          "fixed_price_minor": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "exclusion_notes": {
+            "type": "string"
+          },
+          "inclusion_notes": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertPayerRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertPayer; service-layer validation, not express-validator.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payer_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "payer_kind": {
+            "type": "string"
+          },
+          "registration_number": {
+            "type": "string"
+          },
+          "contact_email": {
+            "type": "string"
+          },
+          "contact_phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertTariffItemRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertTariffItem; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tariff_plan_id": {
+            "type": "integer"
+          },
+          "service_code": {
+            "type": "string"
+          },
+          "service_kind": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "unit_price_minor": {
+            "type": "integer"
+          },
+          "unit_label": {
+            "type": "string"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "tax_rate_pct": {
+            "type": "number"
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "effective_to": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertTariffPlanRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertTariffPlan; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "plan_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "effective_to": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "UpsertTpaRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from billingMastersService.upsertTpa; service-layer validation.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tpa_code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "parent_payer_id": {
+            "type": "integer"
+          },
+          "irda_license_number": {
+            "type": "string"
+          },
+          "contact_email": {
+            "type": "string"
+          },
+          "contact_phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ehr_external_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -5475,7 +6727,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PackagesListResponse"
                 }
               }
             }
@@ -5490,8 +6742,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/BillingPackageResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertPackageRequest"
               }
             }
           }
@@ -5507,7 +6769,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PackageItemsListResponse"
                 }
               }
             }
@@ -5532,7 +6794,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PackageItemResponse"
                 }
               }
             }
@@ -5547,7 +6809,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPackageItemRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/billing-masters/payer-tariff-links": {
@@ -5559,7 +6831,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayerTariffLinksListResponse"
                 }
               }
             }
@@ -5574,8 +6846,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayerTariffLinkResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkPayerTariffRequest"
               }
             }
           }
@@ -5591,7 +6873,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayersListResponse"
                 }
               }
             }
@@ -5606,8 +6888,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayerResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertPayerRequest"
               }
             }
           }
@@ -5623,7 +6915,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ResolvePriceResponse"
                 }
               }
             }
@@ -5640,8 +6932,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffItemResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTariffItemRequest"
               }
             }
           }
@@ -5657,7 +6959,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffPlansListResponse"
                 }
               }
             }
@@ -5672,8 +6974,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffPlanResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTariffPlanRequest"
               }
             }
           }
@@ -5689,7 +7001,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TariffItemsListResponse"
                 }
               }
             }
@@ -5716,7 +7028,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TpasListResponse"
                 }
               }
             }
@@ -5731,8 +7043,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/TpaResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTpaRequest"
               }
             }
           }

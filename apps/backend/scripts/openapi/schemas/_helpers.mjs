@@ -31,6 +31,28 @@ export function listEnvelope(itemSchemaName) {
   };
 }
 
+/** Count-list response envelope: data = { <arrayKey>: $ref(item)[], count }. Used by
+ * the billing-masters list endpoints which wrap the array in a named key + count. */
+export function countListEnvelope(arrayKey, itemSchemaName) {
+  return {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: [arrayKey, 'count'],
+        properties: {
+          [arrayKey]: { type: 'array', items: { $ref: `#/components/schemas/${itemSchemaName}` } },
+          count: { type: 'integer', example: 5 },
+        },
+      },
+    },
+  };
+}
+
 /** Paginated response envelope: data.items[] of $ref(item) + data.pagination. */
 export function paginatedEnvelope(itemSchemaName) {
   return {
