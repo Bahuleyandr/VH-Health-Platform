@@ -51,6 +51,16 @@ jobs:
       - name: Format check
         run: melos run format
 
+      # Must run AFTER format (so format only checks hand-written code; the
+      # generated client lib/api/generated/** is gitignored and absent on a
+      # fresh clone) and BEFORE analyze + test (the barrel, wrapper, and compose
+      # test import generated symbols, so they only resolve once codegen has run).
+      # melos run codegen invokes `node scripts/codegen.mjs`, which needs Node
+      # (preinstalled on ubuntu-latest GitHub-hosted runners) and dart (from
+      # subosito/flutter-action above).
+      - name: Codegen (regenerate Dart client from synced spec)
+        run: melos run codegen
+
       - name: Analyze
         run: melos run analyze
 
