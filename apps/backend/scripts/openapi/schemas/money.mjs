@@ -157,7 +157,8 @@ export const schemas = {
   },
   InvoiceDetail: {
     type: 'object', additionalProperties: false,
-    required: ['id', 'invoice_number', 'patient_uid', 'type', 'total_amount', 'payment_status', 'payment_transactions'],
+    required: ['id', 'invoice_number', 'patient_uid', 'type', 'items', 'subtotal', 'tax_amount',
+      'discount_amount', 'total_amount', 'paid_amount', 'payment_status', 'payment_transactions'],
     properties: {
       id: { type: 'integer' },
       invoice_number: { type: 'string' },
@@ -1429,6 +1430,99 @@ export const schemas = {
       status: { type: 'string' }, metadata: { type: 'object', additionalProperties: true },
     },
   },
+
+  // ---- V1 billing revenue-cycle (revenueCycleRoutes.js) — money is ::float -> NUMBER ----
+  ArAgingOverall: {
+    type: 'object', additionalProperties: false,
+    required: ['invoice_count', 'total_outstanding', 'oldest_age_days'],
+    properties: {
+      invoice_count: { type: 'integer' },
+      total_outstanding: { type: 'number' },
+      oldest_age_days: { type: 'integer' },
+    },
+  },
+  ArAgingBucketRow: {
+    type: 'object', additionalProperties: false,
+    required: ['bucket', 'invoice_count', 'outstanding_amount'],
+    properties: {
+      bucket: { type: 'string', enum: ['0-30', '31-60', '61-90', '90+'] },
+      invoice_count: { type: 'integer' },
+      outstanding_amount: { type: 'number' },
+    },
+  },
+  ArAgingInvoice: {
+    type: 'object', additionalProperties: false,
+    required: ['source', 'id', 'invoice_number', 'patient_uid', 'type', 'total_amount', 'paid_amount', 'outstanding_amount', 'issued_at', 'age_days'],
+    properties: {
+      source: { type: 'string' },
+      id: { type: 'integer' },
+      invoice_number: { type: 'string' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      patient_name: { type: 'string', nullable: true },
+      type: { type: 'string' },
+      total_amount: { type: 'number' },
+      paid_amount: { type: 'number' },
+      outstanding_amount: { type: 'number' },
+      issued_at: { type: 'string', format: 'date-time', nullable: true },
+      age_days: { type: 'integer' },
+      insurer_name: { type: 'string', nullable: true },
+      claim_reference: { type: 'string', nullable: true },
+    },
+  },
+  ArAgingSummary: {
+    type: 'object', additionalProperties: false,
+    required: ['as_of', 'overall', 'buckets', 'invoices'],
+    properties: {
+      as_of: { type: 'string', format: 'date-time' },
+      overall: { $ref: '#/components/schemas/ArAgingOverall' },
+      buckets: { type: 'array', items: { $ref: '#/components/schemas/ArAgingBucketRow' } },
+      invoices: { type: 'array', items: { $ref: '#/components/schemas/ArAgingInvoice' } },
+    },
+  },
+  ArAgingResponse: envelope('ArAgingSummary'),
+
+  ClaimQueueSummaryRow: {
+    type: 'object', additionalProperties: false,
+    required: ['status', 'count', 'claim_amount', 'payer_balance'],
+    properties: {
+      status: { type: 'string' },
+      count: { type: 'integer' },
+      claim_amount: { type: 'number' },
+      payer_balance: { type: 'number' },
+    },
+  },
+  ClaimQueueItem: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'claim_number', 'patient_uid', 'insurance_provider', 'policy_number', 'claim_amount', 'payer_balance', 'status', 'submitted_at', 'days_in_queue'],
+    properties: {
+      id: { type: 'integer' },
+      claim_number: { type: 'string' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      patient_name: { type: 'string', nullable: true },
+      invoice_id: { type: 'integer', nullable: true },
+      invoice_number: { type: 'string', nullable: true },
+      insurance_provider: { type: 'string' },
+      policy_number: { type: 'string' },
+      claim_amount: { type: 'number' },
+      approved_amount: { type: 'number', nullable: true },
+      payer_balance: { type: 'number' },
+      status: { type: 'string' },
+      submitted_at: { type: 'string', format: 'date-time' },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      rejection_reason: { type: 'string', nullable: true },
+      days_in_queue: { type: 'integer' },
+    },
+  },
+  ClaimQueue: {
+    type: 'object', additionalProperties: false,
+    required: ['statuses', 'summary', 'claims'],
+    properties: {
+      statuses: { type: 'array', items: { type: 'string' } },
+      summary: { type: 'array', items: { $ref: '#/components/schemas/ClaimQueueSummaryRow' } },
+      claims: { type: 'array', items: { $ref: '#/components/schemas/ClaimQueueItem' } },
+    },
+  },
+  ClaimQueueResponse: envelope('ClaimQueue'),
 };
 
 export const operations = {
@@ -1447,6 +1541,8 @@ export const operations = {
   'POST /api/v1/billing/insurance/claim': { request: 'SubmitClaimRequest', response: 'InsuranceClaimResponse' },
   'GET /api/v1/billing/insurance/claims': { response: 'InsuranceClaimsResponse' },
   'PUT /api/v1/billing/insurance/claim/{id}': { request: 'UpdateClaimRequest', response: 'InsuranceClaimResponse' },
+  'GET /api/v1/billing/ar-aging': { response: 'ArAgingResponse' },
+  'GET /api/v1/billing/claim-queue': { response: 'ClaimQueueResponse' },
   // enhancement: request typed (validator-backed); response left generic — its
   // raw-SQL RETURNING shape isn't covered by a live test, so we don't assert it.
   'POST /api/v1/billing/insurance/claim/{id}/enhancement': { request: 'EnhancementClaimRequest' },

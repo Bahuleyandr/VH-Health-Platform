@@ -174,7 +174,7 @@ export function RevenueCycleTab() {
                     <th className="py-2 px-3">Invoice</th>
                     <th className="py-2 px-3">Patient</th>
                     <th className="py-2 px-3">Type</th>
-                    <th className="py-2 px-3">Due</th>
+                    <th className="py-2 px-3">Issued</th>
                     <th className="py-2 px-3">Age</th>
                     <th className="py-2 px-3">Outstanding</th>
                   </tr>
@@ -185,7 +185,7 @@ export function RevenueCycleTab() {
                       <td className="py-2 px-3 font-mono text-xs">{invoice.invoice_number}</td>
                       <td className="py-2 px-3">{invoice.patient_name || invoice.patient_uid.slice(0, 8)}</td>
                       <td className="py-2 px-3 capitalize">{invoice.type.replace("_", " ")}</td>
-                      <td className="py-2 px-3">{fmtDate(invoice.due_date)}</td>
+                      <td className="py-2 px-3">{fmtDate(invoice.issued_at)}</td>
                       <td className="py-2 px-3">{invoice.age_days}d</td>
                       <td className="py-2 px-3 font-medium">{fmt(invoice.outstanding_amount)}</td>
                     </tr>
