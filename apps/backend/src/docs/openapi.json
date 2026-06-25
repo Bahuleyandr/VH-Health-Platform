@@ -453,6 +453,165 @@
           }
         }
       },
+      "ArAgingBucketRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bucket",
+          "invoice_count",
+          "outstanding_amount"
+        ],
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "0-30",
+              "31-60",
+              "61-90",
+              "90+"
+            ]
+          },
+          "invoice_count": {
+            "type": "integer"
+          },
+          "outstanding_amount": {
+            "type": "number"
+          }
+        }
+      },
+      "ArAgingInvoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "id",
+          "invoice_number",
+          "patient_uid",
+          "type",
+          "total_amount",
+          "paid_amount",
+          "outstanding_amount",
+          "issued_at",
+          "age_days"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "number"
+          },
+          "paid_amount": {
+            "type": "number"
+          },
+          "outstanding_amount": {
+            "type": "number"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "age_days": {
+            "type": "integer"
+          },
+          "insurer_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "claim_reference": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ArAgingOverall": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invoice_count",
+          "total_outstanding",
+          "oldest_age_days"
+        ],
+        "properties": {
+          "invoice_count": {
+            "type": "integer"
+          },
+          "total_outstanding": {
+            "type": "number"
+          },
+          "oldest_age_days": {
+            "type": "integer"
+          }
+        }
+      },
+      "ArAgingResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ArAgingSummary"
+          }
+        }
+      },
+      "ArAgingSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "as_of",
+          "overall",
+          "buckets",
+          "invoices"
+        ],
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "overall": {
+            "$ref": "#/components/schemas/ArAgingOverall"
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArAgingBucketRow"
+            }
+          },
+          "invoices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArAgingInvoice"
+            }
+          }
+        }
+      },
       "BillingPackage": {
         "type": "object",
         "additionalProperties": false,
@@ -760,6 +919,153 @@
           },
           "data": {
             "$ref": "#/components/schemas/CashPosition"
+          }
+        }
+      },
+      "ClaimQueue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "statuses",
+          "summary",
+          "claims"
+        ],
+        "properties": {
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimQueueSummaryRow"
+            }
+          },
+          "claims": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimQueueItem"
+            }
+          }
+        }
+      },
+      "ClaimQueueItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "claim_number",
+          "patient_uid",
+          "insurance_provider",
+          "policy_number",
+          "claim_amount",
+          "payer_balance",
+          "status",
+          "submitted_at",
+          "days_in_queue"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "claim_number": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoice_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "insurance_provider": {
+            "type": "string"
+          },
+          "policy_number": {
+            "type": "string"
+          },
+          "claim_amount": {
+            "type": "number"
+          },
+          "approved_amount": {
+            "type": "number",
+            "nullable": true
+          },
+          "payer_balance": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "days_in_queue": {
+            "type": "integer"
+          }
+        }
+      },
+      "ClaimQueueResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClaimQueue"
+          }
+        }
+      },
+      "ClaimQueueSummaryRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "count",
+          "claim_amount",
+          "payer_balance"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "claim_amount": {
+            "type": "number"
+          },
+          "payer_balance": {
+            "type": "number"
           }
         }
       },
@@ -1699,7 +2005,12 @@
           "invoice_number",
           "patient_uid",
           "type",
+          "items",
+          "subtotal",
+          "tax_amount",
+          "discount_amount",
           "total_amount",
+          "paid_amount",
           "payment_status",
           "payment_transactions"
         ],
@@ -24942,7 +25253,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ArAgingResponse"
                 }
               }
             }
@@ -24959,7 +25270,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClaimQueueResponse"
                 }
               }
             }

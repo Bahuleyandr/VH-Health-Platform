@@ -291,6 +291,7 @@ describe('Billing API', () => {
       const res = await admin.get('/api/v1/billing/ar-aging?limit=10');
 
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/ar-aging', res.body);
       expect(res.body.data.overall.invoice_count).toBeGreaterThanOrEqual(2);
       expect(res.body.data.overall.total_outstanding).toBeGreaterThanOrEqual(21000);
       expect(res.body.data.buckets.map((b) => b.bucket)).toEqual(
@@ -461,6 +462,7 @@ describe('Billing API', () => {
       const res = await admin.get('/api/v1/billing/claim-queue?limit=20');
 
       expect(res.statusCode).toBe(200);
+      assertResponse('GET', '/api/v1/billing/claim-queue', res.body);
       expect(Array.isArray(res.body.data.summary)).toBe(true);
       expect(Array.isArray(res.body.data.claims)).toBe(true);
       expect(res.body.data.claims.length).toBeGreaterThanOrEqual(2);

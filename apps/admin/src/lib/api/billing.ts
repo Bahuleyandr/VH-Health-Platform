@@ -4,6 +4,7 @@
 import { getJSON, postJSON, putJSON } from "./core";
 import type { QueryParams } from "./core";
 import { API_ENDPOINTS } from "../api-config";
+import type { ApiData } from "@/lib/openapi-data";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -29,70 +30,10 @@ export interface CreateInvoicePayload {
   due_date?: string;
 }
 
-export interface Invoice {
-  id: number;
-  invoice_number: string;
-  patient_uid: string;
-  appointment_id: number | null;
-  type: string;
-  items: InvoiceLineItem[];
-  subtotal: string;
-  tax_amount: string;
-  discount_amount: string;
-  total_amount: string;
-  paid_amount: string;
-  payment_status: string;
-  payment_method: string | null;
-  insurance_claim_id: number | null;
-  notes: string | null;
-  issued_by: string | null;
-  issued_at: string;
-  paid_at: string | null;
-  due_date: string | null;
-  created_at: string;
-}
-
-export interface InvoiceDetail extends Invoice {
-  payment_transactions: PaymentTransaction[];
-  insurance_claim: InsuranceClaim | null;
-}
-
-export interface PaymentTransaction {
-  id: number;
-  amount: string;
-  payment_method: string;
-  transaction_ref: string | null;
-  status: string;
-  processed_by: string | null;
-  created_at: string;
-}
-
 export interface RecordPaymentPayload {
   amount: number;
   method: "cash" | "card" | "upi" | "insurance" | "cheque";
   transaction_ref?: string;
-}
-
-export interface PaymentResult {
-  invoice: Invoice;
-  transaction: PaymentTransaction;
-}
-
-export interface InsuranceClaim {
-  id: number;
-  claim_number: string;
-  patient_uid: string;
-  invoice_id: number | null;
-  insurance_provider: string;
-  policy_number: string;
-  claim_amount: string;
-  approved_amount: string | null;
-  status: string;
-  submitted_at: string;
-  reviewed_at: string | null;
-  rejection_reason: string | null;
-  documents: string[];
-  created_at: string;
 }
 
 export interface SubmitClaimPayload {
@@ -110,110 +51,33 @@ export interface UpdateClaimPayload {
   reason?: string;
 }
 
-export interface RevenueSummary {
-  total_invoices: string;
-  total_billed: string;
-  total_collected: string;
-  total_outstanding: string;
-  total_discounts: string;
-  total_taxes: string;
-  paid_count: string;
-  pending_count: string;
-  partial_count: string;
-}
-
-export interface RevenueStats {
-  summary: RevenueSummary;
-  by_type: Array<{
-    type: string;
-    invoice_count: string;
-    total_billed: string;
-    total_collected: string;
-    outstanding: string;
-  }>;
-  by_payment_method: Array<{
-    payment_method: string;
-    transaction_count: string;
-    total_amount: string;
-  }>;
-  daily_totals: Array<{
-    date: string;
-    invoice_count: string;
-    billed: string;
-    collected: string;
-  }>;
-}
-
-export interface ARAgingBucket {
-  bucket: "0-30" | "31-60" | "61-90" | "90+";
-  invoice_count: number;
-  outstanding_amount: number;
-}
-
-export interface ARAgingInvoice {
-  id: number;
-  invoice_number: string;
-  patient_uid: string;
-  patient_name: string | null;
-  type: string;
-  payment_status: string;
-  total_amount: number;
-  paid_amount: number;
-  outstanding_amount: number;
-  due_date: string | null;
-  issued_at: string;
-  age_days: number;
-}
-
-export interface ARAgingSummary {
-  as_of: string;
-  overall: {
-    invoice_count: number;
-    total_outstanding: number;
-    oldest_age_days: number;
-  };
-  buckets: ARAgingBucket[];
-  invoices: ARAgingInvoice[];
-}
-
-export interface ClaimQueueSummary {
-  status: string;
-  count: number;
-  claim_amount: number;
-  payer_balance: number;
-}
-
-export interface ClaimQueueItem {
-  id: number;
-  claim_number: string;
-  patient_uid: string;
-  patient_name: string | null;
-  invoice_id: number | null;
-  invoice_number: string | null;
-  insurance_provider: string;
-  policy_number: string;
-  claim_amount: number;
-  approved_amount: number | null;
-  payer_balance: number;
-  status: string;
-  submitted_at: string;
-  reviewed_at: string | null;
-  rejection_reason: string | null;
-  days_in_queue: number;
-}
-
-export interface ClaimQueueResponse {
-  statuses: string[];
-  summary: ClaimQueueSummary[];
-  claims: ClaimQueueItem[];
-}
-
 export interface Pagination {
   page: number;
   limit: number;
   total: number;
   totalPages: number;
 }
+
+// ── Spec-derived response types (OpenAPI Phase 5) ──────────────────
+// Derived from the canonical spec via `ApiData` (the unwrapped `.data`) so they
+// can't drift. `Invoice(Detail).items` keeps the typed line shape via
+// intersection — the backend stores items as freeform JSON, but the admin owns
+// the line shape it writes. Sub-types come from indexed access.
+export type Invoice =
+  Omit<ApiData<"/api/v1/billing/invoice", "post">, "items"> & { items: InvoiceLineItem[] };
+export type InvoiceDetail =
+  Omit<ApiData<"/api/v1/billing/invoice/{id}", "get">, "items"> & { items: InvoiceLineItem[] };
+export type PaymentTransaction = InvoiceDetail["payment_transactions"][number];
+export type PaymentResult = ApiData<"/api/v1/billing/invoice/{id}/payment", "post">;
+export type InsuranceClaim = ApiData<"/api/v1/billing/insurance/claim", "post">;
+export type RevenueStats = ApiData<"/api/v1/billing/revenue", "get">;
+export type RevenueSummary = RevenueStats["summary"];
+export type ARAgingSummary = ApiData<"/api/v1/billing/ar-aging", "get">;
+export type ARAgingBucket = ARAgingSummary["buckets"][number];
+export type ARAgingInvoice = ARAgingSummary["invoices"][number];
+export type ClaimQueueResponse = ApiData<"/api/v1/billing/claim-queue", "get">;
+export type ClaimQueueSummary = ClaimQueueResponse["summary"][number];
+export type ClaimQueueItem = ClaimQueueResponse["claims"][number];
 
 // ── API Functions ──────────────────────────────────────────────────
 
