@@ -53,30 +53,30 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         const overallStats = await prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(*) as total_appointments,
-            COUNT(CASE WHEN status = 'scheduled' THEN 1 END) as scheduled,
-            COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-            COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
-            COUNT(CASE WHEN status = 'no_show' THEN 1 END) as no_shows,
-            ROUND(COUNT(CASE WHEN status = 'completed' THEN 1 END)::numeric / 
+            COUNT(CASE WHEN status = 'SCHEDULED' THEN 1 END) as scheduled,
+            COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
+            COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END) as cancelled,
+            COUNT(CASE WHEN status = 'NO_SHOW' THEN 1 END) as no_shows,
+            ROUND(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::numeric /
                   NULLIF(COUNT(*), 0) * 100, 2) as completion_rate,
-            ROUND(COUNT(CASE WHEN status = 'no_show' THEN 1 END)::numeric / 
+            ROUND(COUNT(CASE WHEN status = 'NO_SHOW' THEN 1 END)::numeric /
                   NULLIF(COUNT(*), 0) * 100, 2) as no_show_rate,
             COUNT(DISTINCT patient_id) as unique_patients,
             COUNT(DISTINCT doctor_id) as active_doctors
           FROM appointments a
-          LEFT JOIN doctors d ON a.doctor_id = d.id
+          LEFT JOIN doctors d ON d.user_id = a.doctor_id
           ${whereClause}
         `, ...params);
 
         // Appointment trends
         const trends = await prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             DATE(appointment_date) as date,
             COUNT(*) as total,
-            COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-            COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled
+            COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
+            COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END) as cancelled
           FROM appointments a
-          LEFT JOIN doctors d ON a.doctor_id = d.id
+          LEFT JOIN doctors d ON d.user_id = a.doctor_id
           ${whereClause}
           GROUP BY DATE(appointment_date)
           ORDER BY date DESC
@@ -88,10 +88,10 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           SELECT 
             dept.name as department,
             COUNT(a.id) as appointments,
-            COUNT(CASE WHEN a.status = 'completed' THEN 1 END) as completed,
+            COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed,
             ROUND(AVG(EXTRACT(EPOCH FROM (a.updated_at - a.appointment_date))/60)) as avg_wait_time_minutes
           FROM appointments a
-          JOIN doctors d ON a.doctor_id = d.id
+          JOIN doctors d ON d.user_id = a.doctor_id
           JOIN departments dept ON d.department_id = dept.id
           ${whereClause}
           GROUP BY dept.name
@@ -114,7 +114,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             COUNT(*) as appointments,
             NULL::integer as avg_duration
           FROM appointments a
-          LEFT JOIN doctors d ON a.doctor_id = d.id
+          LEFT JOIN doctors d ON d.user_id = a.doctor_id
           ${whereClause}
           GROUP BY 1
           ORDER BY hour
@@ -179,7 +179,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           params.push(status);
           whereConditions.push(`a.status = $${params.length}`);
         } else if (!include_cancelled) {
-          whereConditions.push(`a.status != 'cancelled'`);
+          whereConditions.push(`a.status != 'CANCELLED'`);
         }
 
         if (date_from) {
@@ -205,13 +205,13 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             p.email as patient_email,
             d.name as doctor_name,
             dept.name as department_name,
-            CASE 
-              WHEN a.appointment_date < NOW() AND a.status = 'scheduled' THEN 'overdue'
-              ELSE a.status 
+            CASE
+              WHEN a.appointment_date < NOW() AND a.status = 'SCHEDULED' THEN 'overdue'
+              ELSE a.status
             END as effective_status
           FROM appointments a
           JOIN users p ON a.patient_id = p.id
-          JOIN doctors doc ON a.doctor_id = doc.id
+          JOIN doctors doc ON doc.user_id = a.doctor_id
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
@@ -221,10 +221,10 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         // Get total count
         const countResult = await prisma.$queryRawUnsafe(`
-          SELECT COUNT(*) 
+          SELECT COUNT(*)
           FROM appointments a
           JOIN users p ON a.patient_id = p.id
-          JOIN doctors doc ON a.doctor_id = doc.id
+          JOIN doctors doc ON doc.user_id = a.doctor_id
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
@@ -258,7 +258,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
       try {
         const { date, doctor_id } = req.query;
 
-        let whereClause = `WHERE a1.id != a2.id AND a1.status = 'scheduled' AND a2.status = 'scheduled'`;
+        let whereClause = `WHERE a1.id != a2.id AND a1.status = 'SCHEDULED' AND a2.status = 'SCHEDULED'`;
         const params = [];
 
         if (date) {
@@ -285,7 +285,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           JOIN appointments a2 ON a1.doctor_id = a2.doctor_id
           JOIN users p1 ON a1.patient_id = p1.id
           JOIN users p2 ON a2.patient_id = p2.id
-          JOIN doctors doc ON a1.doctor_id = doc.id
+          JOIN doctors doc ON doc.user_id = a1.doctor_id
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
@@ -327,16 +327,16 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             p.name,
             p.phone,
             p.email,
-            COUNT(CASE WHEN a.status = 'no_show' THEN 1 END) as no_show_count,
+            COUNT(CASE WHEN a.status = 'NO_SHOW' THEN 1 END) as no_show_count,
             COUNT(*) as total_appointments,
-            ROUND(COUNT(CASE WHEN a.status = 'no_show' THEN 1 END)::numeric / 
+            ROUND(COUNT(CASE WHEN a.status = 'NO_SHOW' THEN 1 END)::numeric /
                   COUNT(*) * 100, 2) as no_show_percentage,
             MAX(a.appointment_date) as last_appointment
           FROM appointments a
           JOIN users p ON a.patient_id = p.id
           WHERE a.appointment_date > NOW() - INTERVAL '${interval}'
           GROUP BY p.id, p.name, p.phone, p.email
-          HAVING COUNT(CASE WHEN a.status = 'no_show' THEN 1 END) >= $1
+          HAVING COUNT(CASE WHEN a.status = 'NO_SHOW' THEN 1 END) >= $1
           ORDER BY no_show_count DESC
         `, threshold);
 
@@ -404,7 +404,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             a.notes
           FROM appointments a
           LEFT JOIN users p ON a.patient_id = p.id
-          LEFT JOIN doctors doc ON a.doctor_id = doc.id
+          LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
           LEFT JOIN users d ON doc.user_id = d.id
           LEFT JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
@@ -488,7 +488,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           FROM doctors doc
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
-          LEFT JOIN appointments a ON doc.id = a.doctor_id AND DATE(a.appointment_date) = $1
+          LEFT JOIN appointments a ON a.doctor_id = doc.user_id AND DATE(a.appointment_date) = $1
           LEFT JOIN users p ON a.patient_id = p.id
           ${deptWhere}
           GROUP BY d.id, d.name, dept.name, doc.max_appointments_per_day
@@ -503,7 +503,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             SUM(doc.max_appointments_per_day) - COUNT(a.id) as total_available,
             ROUND(COUNT(a.id)::numeric / NULLIF(SUM(doc.max_appointments_per_day), 0) * 100, 2) as overall_utilization
           FROM doctors doc
-          LEFT JOIN appointments a ON doc.id = a.doctor_id AND DATE(a.appointment_date) = $1
+          LEFT JOIN appointments a ON a.doctor_id = doc.user_id AND DATE(a.appointment_date) = $1
           ${deptWhere}
         `, ...params);
 
@@ -536,6 +536,13 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           return error(res, 'Invalid status. Must be completed, cancelled, or no_show', HTTP_STATUS.BAD_REQUEST);
         }
 
+        // The admin client sends the status lowercase (request contract kept), but
+        // appointment status is canonically UPPERCASE in the DB ('COMPLETED' /
+        // 'CANCELLED' / 'NO_SHOW') — writing the lowercase value would corrupt the
+        // row (every status read elsewhere compares uppercase). Normalize before
+        // the UPDATE; keep `status` for validation + the response/log messages.
+        const canonicalStatus = status.toUpperCase();
+
         // Args are ($1 status, $2 reason, $3 updated_by uuid, $4.. ids), so the
         // id IN-list must start at $4 — starting at $3 collided with the uuid
         // updated_by and bound a uuid into an integer id slot (42804).
@@ -549,7 +556,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
               updated_by = $3
           WHERE id IN (${placeholders})
           RETURNING id, patient_id, doctor_id, appointment_date, status
-        `, status, reason || `Status changed to ${status}`, req.user?.uid, ...appointment_ids);
+        `, canonicalStatus, reason || `Status changed to ${status}`, req.user?.uid, ...appointment_ids);
 
         // Log admin action
         for (const appointment of result) {
@@ -657,14 +664,14 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           case 'cancel_first':
             result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
-              'cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]
+              'CANCELLED', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]
             );
             break;
 
           case 'cancel_second':
             result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, status, notes, created_at, updated_at',
-              'cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]
+              'CANCELLED', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]
             );
             break;
 
@@ -726,7 +733,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         ];
 
         if (exclude_cancelled) {
-          whereConditions.push(`a.status != 'cancelled'`);
+          whereConditions.push(`a.status != 'CANCELLED'`);
         }
 
         if (include_departments.length > 0) {
@@ -745,7 +752,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             dept.name as department
           FROM appointments a
           JOIN users p ON a.patient_id = p.id
-          JOIN doctors doc ON a.doctor_id = doc.id
+          JOIN doctors doc ON doc.user_id = a.doctor_id
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           WHERE ${whereConditions.join(' AND ')}
