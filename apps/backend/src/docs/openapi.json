@@ -590,6 +590,94 @@
           }
         }
       },
+      "AnnualReviewItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uid"
+        ],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "nullable": true
+          },
+          "basic_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "date_of_joining": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "years_of_service": {
+            "type": "string",
+            "nullable": true
+          },
+          "review_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "reminder_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "revision_this_year": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AnnualReviewStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "year",
+          "staff"
+        ],
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "staff": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnnualReviewItem"
+            }
+          }
+        }
+      },
+      "AnnualReviewStatusResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AnnualReviewStatus"
+          }
+        }
+      },
       "ApplyDiscountRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -600,6 +688,42 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "ApplyRevisionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ApplyRevisionResult"
+          }
+        }
+      },
+      "ApplyRevisionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision_id",
+          "staff_uid"
+        ],
+        "properties": {
+          "revision_id": {
+            "type": "string"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -1815,6 +1939,46 @@
           }
         }
       },
+      "ApproveBulkRevisionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ApproveBulkRevisionResult"
+          }
+        }
+      },
+      "ApproveBulkRevisionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "staff_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "processing"
+          },
+          "staff_count": {
+            "type": "integer"
+          }
+        }
+      },
       "ArAgingBucketRow": {
         "type": "object",
         "additionalProperties": false,
@@ -1971,6 +2135,46 @@
             "items": {
               "$ref": "#/components/schemas/ArAgingInvoice"
             }
+          }
+        }
+      },
+      "ArrearsResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "arrears_amount"
+        ],
+        "properties": {
+          "arrears_amount": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "months": {
+            "type": "integer"
+          },
+          "result": {
+            "$ref": "#/components/schemas/SalaryArrearsRow"
+          }
+        }
+      },
+      "ArrearsResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ArrearsResult"
           }
         }
       },
@@ -2269,6 +2473,218 @@
           },
           "archived": {
             "type": "boolean"
+          }
+        }
+      },
+      "BulkRevisionJob": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "revision_type",
+          "target_type",
+          "staff_count",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "revision_type": {
+            "type": "string"
+          },
+          "target_type": {
+            "type": "string"
+          },
+          "target_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "increment_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "increment_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "staff_count": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "approved",
+              "completed",
+              "failed"
+            ]
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BulkRevisionJobListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "description",
+          "revision_type",
+          "target_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "revision_type": {
+            "type": "string"
+          },
+          "target_type": {
+            "type": "string"
+          },
+          "target_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "increment_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "increment_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "staff_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "processed_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "approved",
+              "completed",
+              "failed"
+            ]
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "error_log": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BulkRevisionJobResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BulkRevisionJob"
+          }
+        }
+      },
+      "BulkRevisionsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkRevisionJobListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -2870,6 +3286,38 @@
           },
           "notes": {
             "type": "string"
+          }
+        }
+      },
+      "CreateBulkRevisionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.createBulkRevision; not validator-backed.",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "revision_type": {
+            "type": "string"
+          },
+          "target_type": {
+            "type": "string"
+          },
+          "target_value": {
+            "type": "string"
+          },
+          "increment_type": {
+            "type": "string"
+          },
+          "increment_value": {
+            "type": "number"
+          },
+          "bonus_amount": {
+            "type": "number"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
           }
         }
       },
@@ -3955,6 +4403,49 @@
           "net": {
             "type": "string",
             "example": "500.00"
+          }
+        }
+      },
+      "EditPayslipRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.manualEditPayslip; not validator-backed. Per-component overrides + edit_reason.",
+        "properties": {
+          "basic_earned": {
+            "type": "number"
+          },
+          "hra_earned": {
+            "type": "number"
+          },
+          "da_earned": {
+            "type": "number"
+          },
+          "special_allowance_earned": {
+            "type": "number"
+          },
+          "transport_allowance_earned": {
+            "type": "number"
+          },
+          "medical_allowance_earned": {
+            "type": "number"
+          },
+          "overtime_pay": {
+            "type": "number"
+          },
+          "pf_employee": {
+            "type": "number"
+          },
+          "esi_employee": {
+            "type": "number"
+          },
+          "professional_tax": {
+            "type": "number"
+          },
+          "tds": {
+            "type": "number"
+          },
+          "edit_reason": {
+            "type": "string"
           }
         }
       },
@@ -5335,6 +5826,53 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "IssuePayslipsRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.issuePayslips; not validator-backed.",
+        "properties": {
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "run_id": {
+            "type": "integer"
+          }
+        }
+      },
+      "IssuePayslipsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/IssuePayslipsResult"
+          }
+        }
+      },
+      "IssuePayslipsResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issued"
+        ],
+        "properties": {
+          "issued": {
+            "type": "integer"
           }
         }
       },
@@ -7312,6 +7850,830 @@
           }
         }
       },
+      "PayrollRun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "processing",
+              "completed",
+              "approved",
+              "locked"
+            ]
+          },
+          "total_staff": {
+            "type": "integer",
+            "nullable": true
+          },
+          "total_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_net": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "generated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "employee_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "hr_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "hr_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "hr_comment": {
+            "type": "string",
+            "nullable": true
+          },
+          "admin_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admin_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "admin_comment": {
+            "type": "string",
+            "nullable": true
+          },
+          "approval_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PayrollRunDetail": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "run",
+          "payslips"
+        ],
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/PayrollRunDetailHeader"
+          },
+          "payslips": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayslipListItem"
+            }
+          }
+        }
+      },
+      "PayrollRunDetailHeader": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "processing",
+              "completed",
+              "approved",
+              "locked"
+            ]
+          },
+          "generated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "hr_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "hr_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "admin_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admin_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "total_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_net": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PayrollRunDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayrollRunDetail"
+          }
+        }
+      },
+      "PayrollRunListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "processing",
+              "completed",
+              "approved",
+              "locked"
+            ]
+          },
+          "total_staff": {
+            "type": "integer",
+            "nullable": true
+          },
+          "total_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_net": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "generated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "locked_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "locked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "employee_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "hr_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "hr_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "hr_comment": {
+            "type": "string",
+            "nullable": true
+          },
+          "admin_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admin_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "admin_comment": {
+            "type": "string",
+            "nullable": true
+          },
+          "approval_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generated_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PayrollRunResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayrollRun"
+          }
+        }
+      },
+      "PayrollRunResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_id",
+          "processed",
+          "failed",
+          "total_gross",
+          "total_net"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "integer"
+          },
+          "processed": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "total_gross": {
+            "type": "string",
+            "example": "125000.00"
+          },
+          "total_net": {
+            "type": "string",
+            "example": "110000.00"
+          }
+        }
+      },
+      "PayrollRunResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayrollRunResult"
+          }
+        }
+      },
+      "PayrollRunsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayrollRunListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PayslipDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "payroll_run_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "basic_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "hra_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "da_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "special_allowance_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "transport_allowance_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "medical_allowance_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "overtime_pay": {
+            "type": "string",
+            "nullable": true
+          },
+          "gross_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_employee": {
+            "type": "string",
+            "nullable": true
+          },
+          "esi_employee": {
+            "type": "string",
+            "nullable": true
+          },
+          "professional_tax": {
+            "type": "string",
+            "nullable": true
+          },
+          "tds": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "net_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "issued",
+              "viewed",
+              "downloaded"
+            ]
+          },
+          "pdf_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "manually_edited": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "edit_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "edited_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PayslipDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayslipDetail"
+          }
+        }
+      },
+      "PayslipListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payroll_run_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "total_working_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_present": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_absent": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_leave": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_half": {
+            "type": "integer",
+            "nullable": true
+          },
+          "overtime_hours": {
+            "type": "string",
+            "nullable": true
+          },
+          "overtime_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "basic_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "hra_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "da_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "special_allowance_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "transport_allowance_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "medical_allowance_earned": {
+            "type": "string",
+            "nullable": true
+          },
+          "overtime_pay": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_this_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "gross_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_employee": {
+            "type": "string",
+            "nullable": true
+          },
+          "esi_employee": {
+            "type": "string",
+            "nullable": true
+          },
+          "professional_tax": {
+            "type": "string",
+            "nullable": true
+          },
+          "tds": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "net_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "pdf_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "pdf_generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "issued",
+              "viewed",
+              "downloaded"
+            ]
+          },
+          "viewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "downloaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lop_days": {
+            "type": "string",
+            "nullable": true
+          },
+          "lop_deduction": {
+            "type": "string",
+            "nullable": true
+          },
+          "arrears_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "advance_deduction": {
+            "type": "string",
+            "nullable": true
+          },
+          "revision_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "manually_edited": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "edit_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "edited_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "PendingAppointment": {
         "type": "object",
         "additionalProperties": true,
@@ -7418,6 +8780,45 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "ProposeRevisionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from salaryRevisionController.proposeRevision; not validator-backed.",
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_type": {
+            "type": "string",
+            "enum": [
+              "increment",
+              "bonus",
+              "deduction_change",
+              "component_change"
+            ]
+          },
+          "proposed_basic": {
+            "type": "number"
+          },
+          "increment_amount": {
+            "type": "number"
+          },
+          "increment_pct": {
+            "type": "number"
+          },
+          "bonus_amount": {
+            "type": "number"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string"
           }
         }
       },
@@ -8232,6 +9633,460 @@
           }
         }
       },
+      "RevisionRejectRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from salaryRevisionController.rejectRevision; not validator-backed.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "RevisionSignRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from salaryRevisionController hr-sign / admin-sign; not validator-backed.",
+        "properties": {
+          "comment": {
+            "type": "string"
+          }
+        }
+      },
+      "RunPayrollRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.runPayroll; not validator-backed.",
+        "properties": {
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          }
+        }
+      },
+      "SalaryArrearsRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "from_month",
+          "from_year",
+          "to_month",
+          "to_year",
+          "arrears_amount"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "revision_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "from_month": {
+            "type": "integer"
+          },
+          "from_year": {
+            "type": "integer"
+          },
+          "to_month": {
+            "type": "integer"
+          },
+          "to_year": {
+            "type": "integer"
+          },
+          "arrears_amount": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "paid"
+            ]
+          },
+          "calculated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "SalaryRevisionDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "revision_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_type": {
+            "type": "string",
+            "enum": [
+              "increment",
+              "bonus",
+              "deduction_change",
+              "component_change"
+            ]
+          },
+          "current_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "current_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_hr",
+              "pending_admin",
+              "approved",
+              "applied",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "hr_signed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "admin_signed_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "SalaryRevisionDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SalaryRevisionDetail"
+          }
+        }
+      },
+      "SalaryRevisionListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "revision_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_type": {
+            "type": "string",
+            "enum": [
+              "increment",
+              "bonus",
+              "deduction_change",
+              "component_change"
+            ]
+          },
+          "current_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "current_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_hr",
+              "pending_admin",
+              "approved",
+              "applied",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "hr_signed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "admin_signed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "rejected_by_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "SalaryRevisionProposeResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SalaryRevisionProposeResult"
+          }
+        }
+      },
+      "SalaryRevisionProposeResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "revision_type",
+          "status",
+          "revision_number"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_type": {
+            "type": "string",
+            "enum": [
+              "increment",
+              "bonus",
+              "deduction_change",
+              "component_change"
+            ]
+          },
+          "current_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_hr",
+              "pending_admin",
+              "approved",
+              "applied",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision_number": {
+            "type": "string"
+          }
+        }
+      },
+      "SalaryRevisionSignResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SalaryRevisionSignResult"
+          }
+        }
+      },
+      "SalaryRevisionSignResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "revision_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision_type": {
+            "type": "string",
+            "enum": [
+              "increment",
+              "bonus",
+              "deduction_change",
+              "component_change"
+            ]
+          },
+          "current_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposed_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_hr",
+              "pending_admin",
+              "approved",
+              "applied",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SalaryRevisionsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalaryRevisionListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "SendPaymentLinkRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -8439,6 +10294,16 @@
           }
         }
       },
+      "SignPayrollRunRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.hrSignPayrollRun / adminSignPayrollRun; not validator-backed.",
+        "properties": {
+          "comment": {
+            "type": "string"
+          }
+        }
+      },
       "SlaDashboardResponse": {
         "type": "object",
         "required": [
@@ -8610,6 +10475,370 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "StaffForPayrollItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uid",
+          "has_salary_config"
+        ],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "has_salary_config": {
+            "type": "boolean"
+          },
+          "basic_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StaffForPayrollResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StaffForPayrollItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "StaffSalaryConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "basic_salary"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "basic_salary": {
+            "type": "string"
+          },
+          "hra_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "da_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "special_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "transport_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "medical_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_employee_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "esi_applicable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "professional_tax": {
+            "type": "string",
+            "nullable": true
+          },
+          "tds_monthly": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "date_of_joining": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "pan_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_uan": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_account": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_ifsc": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "StaffSalaryConfigResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StaffSalaryConfig"
+          }
+        }
+      },
+      "StaffSalaryConfigView": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "no_config": {
+            "type": "boolean"
+          },
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "basic_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "hra_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "da_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "special_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "transport_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "medical_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_employee_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_employer_pct": {
+            "type": "string",
+            "nullable": true
+          },
+          "esi_applicable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "professional_tax": {
+            "type": "string",
+            "nullable": true
+          },
+          "tds_monthly": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "date_of_joining": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "pan_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "pf_uan": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_account": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_ifsc": {
+            "type": "string",
+            "nullable": true
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notice_period_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "dob": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "dept": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "StaffSalaryConfigViewResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StaffSalaryConfigView"
+              }
+            ]
           }
         }
       },
@@ -9698,6 +11927,71 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "UpsertSalaryConfigRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.upsertStaffSalaryConfig; not validator-backed.",
+        "properties": {
+          "basic_salary": {
+            "type": "number"
+          },
+          "hra_pct": {
+            "type": "number"
+          },
+          "da_pct": {
+            "type": "number"
+          },
+          "special_allowance": {
+            "type": "number"
+          },
+          "transport_allowance": {
+            "type": "number"
+          },
+          "medical_allowance": {
+            "type": "number"
+          },
+          "pf_employee_pct": {
+            "type": "number"
+          },
+          "esi_applicable": {
+            "type": "boolean"
+          },
+          "professional_tax": {
+            "type": "number"
+          },
+          "tds_monthly": {
+            "type": "number"
+          },
+          "designation": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "employee_id": {
+            "type": "string"
+          },
+          "date_of_joining": {
+            "type": "string",
+            "format": "date"
+          },
+          "pan_number": {
+            "type": "string"
+          },
+          "pf_uan": {
+            "type": "string"
+          },
+          "bank_account": {
+            "type": "string"
+          },
+          "bank_name": {
+            "type": "string"
+          },
+          "bank_ifsc": {
+            "type": "string"
           }
         }
       },
@@ -66615,7 +68909,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AnnualReviewStatusResponse"
                 }
               }
             }
@@ -66632,7 +68926,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/BulkRevisionsResponse"
                 }
               }
             }
@@ -66649,8 +68943,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/BulkRevisionJobResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBulkRevisionRequest"
               }
             }
           }
@@ -66666,7 +68970,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ApproveBulkRevisionResponse"
                 }
               }
             }
@@ -66927,8 +69231,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/IssuePayslipsResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssuePayslipsRequest"
               }
             }
           }
@@ -66978,7 +69292,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayslipDetailResponse"
                 }
               }
             }
@@ -66993,7 +69307,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditPayslipRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/queries": {
@@ -67049,7 +69373,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SalaryRevisionsResponse"
                 }
               }
             }
@@ -67066,8 +69390,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SalaryRevisionProposeResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeRevisionRequest"
               }
             }
           }
@@ -67083,7 +69417,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SalaryRevisionDetailResponse"
                 }
               }
             }
@@ -67110,7 +69444,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SalaryRevisionSignResponse"
                 }
               }
             }
@@ -67125,7 +69459,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionSignRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/revisions/{id}/apply": {
@@ -67137,7 +69481,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ApplyRevisionResponse"
                 }
               }
             }
@@ -67164,7 +69508,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SalaryRevisionSignResponse"
                 }
               }
             }
@@ -67179,7 +69523,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionSignRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/revisions/{id}/reject": {
@@ -67191,7 +69545,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SalaryRevisionSignResponse"
                 }
               }
             }
@@ -67206,7 +69560,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRejectRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/revisions/{revisionId}/arrears": {
@@ -67218,7 +69582,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ArrearsResultResponse"
                 }
               }
             }
@@ -67245,8 +69609,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollRunResultResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunPayrollRequest"
               }
             }
           }
@@ -67262,7 +69636,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollRunsResponse"
                 }
               }
             }
@@ -67279,7 +69653,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollRunDetailResponse"
                 }
               }
             }
@@ -67306,7 +69680,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollRunResponse"
                 }
               }
             }
@@ -67321,7 +69695,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignPayrollRunRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/runs/{runId}/hr-sign": {
@@ -67333,7 +69717,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollRunResponse"
                 }
               }
             }
@@ -67348,7 +69732,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignPayrollRunRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/salary/{staffUid}": {
@@ -67360,7 +69754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/StaffSalaryConfigViewResponse"
                 }
               }
             }
@@ -67385,7 +69779,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/StaffSalaryConfigResponse"
                 }
               }
             }
@@ -67400,7 +69794,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertSalaryConfigRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/staff": {
@@ -67412,7 +69816,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/StaffForPayrollResponse"
                 }
               }
             }
