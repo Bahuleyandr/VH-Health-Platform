@@ -111,6 +111,33 @@ export const schemas = {
   // of review/decision rows. Per-domain list responses may be added later with
   // their own Row item; this is the shared loose-row list wrapper.
   ClinicalAiReviewDecisionListResponse: listEnvelope('ClinicalAiReviewDecisionRow'),
+
+  // ---- ClinicalAiCountListResponse ---------------------------------------
+  // The canonical governance/queue LIST shape across the clinical-AI control
+  // surface: every list service returns `{ <namedArray>: [...rows], count }` as
+  // `data` (the array KEY differs per domain — `audits`/`tasks`/`drafts`/
+  // `reviews`/`sessions` — so the key is NOT pinned). LOOSE: `data` requires
+  // `count` and allows the per-domain named array via additionalProperties:true.
+  // Rows are governance/queue records whose enumerable bands (risk_band/decision/
+  // urgency) are config/LLM-derived and lack a DB CHECK in this sub-domain, so
+  // they stay loose. Strict per-domain row lists (blood-bank inventory,
+  // workflow-runs, operational-alerts) get their own schemas in later passes.
+  ClinicalAiCountListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: true,
+        required: ['count'],
+        properties: {
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -232,6 +259,70 @@ const CONTROL_OPS = [
   ['POST /package-compliance-checks', { response: 'ClinicalAiDraftResponse' }],
   ['POST /patient-feedback-summaries', { response: 'ClinicalAiDraftResponse' }],
   ['POST /sentiment-analyses', { response: 'ClinicalAiDraftResponse' }],
+
+  // -------------------------------------------------------------------------
+  // core-clinical (coreClinicalRoutes.js) — 24 ops. Core clinical sentinels &
+  // worklists: chart-completion auditor, clinical-task extractor, abnormal-result
+  // triage, infection-control sentinel, antimicrobial stewardship, patient
+  // teach-back, sepsis-bundle sentinel, consent/PHI privacy sentinel.
+  //
+  // Typing (per scout r2 + strictOps plan): the POST generate/evaluate/record
+  // ops return the loose `{ <id>, generation_id, draft{…}, safety_flags[] }`
+  // envelope → ClinicalAiDraftResponse. The PATCH decide ops return the updated
+  // governance row → ClinicalAiReviewDecisionResponse. The GET lists return
+  // `{ <namedArray>:[…], count }` (key varies: audits/tasks/drafts/reviews/
+  // sessions) → ClinicalAiCountListResponse. NONE of these suffixes are in the
+  // strictOps shortlist (which lives in the diagnostics/governance/scoreboard/KB
+  // sub-routers — blood-bank inventory, outcome-scoreboard, operational-alerts,
+  // workflow-runs, etc.), so every band here (risk_band/urgency_band/decision)
+  // stays inside loose `draft` / the loose count-list row — no strict schema.
+  // Control-only (no /clinical-ai/clinical mount for any of these).
+  // -------------------------------------------------------------------------
+
+  // ---- Chart-completion auditor ----
+  ['POST /chart-completion/audits', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /chart-completion/audits', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /chart-completion/audits/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Clinical-task extractor ----
+  ['POST /tasks/extract', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /tasks', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /tasks/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Abnormal-result triage worklist (no PATCH decide on this surface) ----
+  ['POST /abnormal-results/triage', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /abnormal-results/triage', { response: 'ClinicalAiCountListResponse' }],
+
+  // ---- Infection-control sentinel ----
+  ['POST /infection-control/audits', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /infection-control/audits', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /infection-control/audits/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Antimicrobial stewardship assistant ----
+  ['POST /antimicrobial-stewardship/reviews', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /antimicrobial-stewardship/reviews', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /antimicrobial-stewardship/reviews/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Patient teach-back / comprehension AI ----
+  // …/answers is a record op (submit answers → updated session result blob); it
+  // is NOT a decide op (no reviewer_decision) and NOT in the strict shortlist, so
+  // it folds into the loose draft-result envelope.
+  ['POST /teach-back/sessions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /teach-back/sessions/{id}/answers', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /teach-back/sessions', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /teach-back/sessions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Sepsis-bundle sentinel ----
+  ['POST /sepsis-bundle/audits', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /sepsis-bundle/audits', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /sepsis-bundle/audits/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Consent & PHI policy (privacy) sentinel ----
+  // scans = a window sweep returning a loose `{ summary{…}, audits[]/findings[] }`
+  // result blob → loose draft-result envelope.
+  ['POST /privacy-sentinel/scans', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /privacy-sentinel/audits', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /privacy-sentinel/audits/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
 ];
 const CLINICAL_OPS = [];
 
