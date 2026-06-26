@@ -846,6 +846,13 @@ function rewriteToMarPrefix(req, _res, next) {
   req.url = `/mar${trimmed}${query}`;
   next();
 }
+// The OpenAPI generator (scripts/generate-openapi.mjs) SKIPS any mount whose
+// handler chain carries this marker. These MAR aliases rewrite req.url at
+// runtime (/api/v1/emr/mar/<x> -> /mar/<x>), so the served path differs from
+// mount+route — walking them would emit unreachable /emr/mar/mar/* (and
+// /nursing/mar/mar/*) artifact paths. The canonical /api/v1/clinical/mar/*
+// surface is the contract; these stay as runtime discoverability aliases only.
+rewriteToMarPrefix.__openapiSkipMount = true;
 app.use(
   '/api/v1/emr/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
