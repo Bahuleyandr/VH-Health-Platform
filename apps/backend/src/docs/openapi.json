@@ -2873,6 +2873,31 @@
           }
         }
       },
+      "CreateDischargeDraftRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "POST /api/v1/discharge-summaries. Creates a draft; admission_id/template_code/specialty optional.",
+        "required": [
+          "patient_uid"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string"
+          },
+          "admission_id": {
+            "type": "integer"
+          },
+          "primary_diagnosis": {
+            "type": "string"
+          },
+          "template_code": {
+            "type": "string"
+          },
+          "specialty": {
+            "type": "string"
+          }
+        }
+      },
       "CreateDraftInvoiceRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -3257,6 +3282,479 @@
             "type": "string"
           },
           "gross_amount": {
+            "type": "string"
+          }
+        }
+      },
+      "DeliverDischargeRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "POST /api/v1/discharge-summaries/{id}/deliver.",
+        "required": [
+          "delivery_method"
+        ],
+        "properties": {
+          "delivery_method": {
+            "type": "string",
+            "enum": [
+              "printed",
+              "email",
+              "whatsapp",
+              "abdm",
+              "sms"
+            ]
+          }
+        }
+      },
+      "DischargePatientListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "primary_diagnosis": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "ready_for_signoff",
+              "signed",
+              "delivered"
+            ]
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivery_method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "printed",
+              "email",
+              "whatsapp",
+              "abdm",
+              "sms"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DischargePatientListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DischargePatientListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DischargePendingItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string"
+          },
+          "patient_name_snapshot": {
+            "type": "string",
+            "nullable": true
+          },
+          "primary_diagnosis": {
+            "type": "string",
+            "nullable": true
+          },
+          "admitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discharged_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "ready_for_signoff",
+              "signed",
+              "delivered"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DischargePendingListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DischargePendingItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DischargeSection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "section_key",
+          "section_title",
+          "display_order",
+          "body_translations"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "section_key": {
+            "type": "string"
+          },
+          "section_title": {
+            "type": "string"
+          },
+          "display_order": {
+            "type": "integer"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "body_translations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "edited_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "DischargeSummary": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid",
+          "status",
+          "tenant_id",
+          "sections"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string"
+          },
+          "patient_name_snapshot": {
+            "type": "string",
+            "nullable": true
+          },
+          "age_years_snapshot": {
+            "type": "integer",
+            "nullable": true
+          },
+          "sex_snapshot": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "admitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discharged_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ward_at_discharge": {
+            "type": "string",
+            "nullable": true
+          },
+          "primary_diagnosis": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondary_diagnoses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "icd10_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "procedures_performed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "ready_for_signoff",
+              "signed",
+              "delivered"
+            ]
+          },
+          "signed_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "signed_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "signed_by_reg": {
+            "type": "string",
+            "nullable": true
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivery_method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "printed",
+              "email",
+              "whatsapp",
+              "abdm",
+              "sms"
+            ]
+          },
+          "created_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary_language": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DischargeSection"
+            }
+          }
+        }
+      },
+      "DischargeSummaryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DischargeSummary"
+          }
+        }
+      },
+      "DischargeTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "code",
+          "display_name",
+          "sections",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "specialty": {
+            "type": "string",
+            "nullable": true
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DischargeTemplateSection"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DischargeTemplateListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DischargeTemplate"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DischargeTemplateSection": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "section_key",
+          "section_title",
+          "display_order"
+        ],
+        "properties": {
+          "section_key": {
+            "type": "string"
+          },
+          "section_title": {
+            "type": "string"
+          },
+          "display_order": {
+            "type": "integer"
+          },
+          "default_body": {
             "type": "string"
           }
         }
@@ -7899,6 +8397,22 @@
           }
         }
       },
+      "SetSectionTranslationRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "PATCH /api/v1/discharge-summaries/{id}/sections/{key}/translation.",
+        "required": [
+          "language"
+        ],
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
       "SettleAdvanceRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -7909,6 +8423,19 @@
           },
           "amount": {
             "type": "number"
+          }
+        }
+      },
+      "SignDischargeRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "POST /api/v1/discharge-summaries/{id}/sign. Both fields optional; signed_by_name falls back to req.user.name.",
+        "properties": {
+          "signed_by_name": {
+            "type": "string"
+          },
+          "signed_by_reg": {
+            "type": "string"
           }
         }
       },
@@ -9044,6 +9571,19 @@
             "type": "number"
           },
           "disallowed_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateSectionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "PATCH /api/v1/discharge-summaries/{id}/sections/{key}.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
             "type": "string"
           }
         }
@@ -42694,8 +43234,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDischargeDraftRequest"
               }
             }
           }
@@ -42711,7 +43261,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargePatientListResponse"
                 }
               }
             }
@@ -42738,7 +43288,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargePendingListResponse"
                 }
               }
             }
@@ -42755,7 +43305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeTemplateListResponse"
                 }
               }
             }
@@ -42772,7 +43322,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
               }
             }
@@ -42799,7 +43349,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
               }
             }
@@ -42814,7 +43364,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliverDischargeRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/discharge-summaries/{id}/ready": {
@@ -42826,7 +43386,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
               }
             }
@@ -42853,7 +43413,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
               }
             }
@@ -42876,7 +43436,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSectionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/discharge-summaries/{id}/sections/{key}/translation": {
@@ -42888,7 +43458,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
               }
             }
@@ -42911,7 +43481,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSectionTranslationRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/discharge-summaries/{id}/sign": {
@@ -42923,7 +43503,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DischargeSummaryResponse"
                 }
               }
             }
@@ -42938,7 +43518,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignDischargeRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/doctors": {

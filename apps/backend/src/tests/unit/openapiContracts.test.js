@@ -5,10 +5,11 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import * as money from '../../../scripts/openapi/schemas/money.mjs';
 import * as appointments from '../../../scripts/openapi/schemas/appointments.mjs';
+import * as discharge from '../../../scripts/openapi/schemas/discharge.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
-const MODULES = [money, appointments];
+const MODULES = [money, appointments, discharge];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const spec = JSON.parse(readFileSync(resolve(__dirname, '../../docs/openapi.json'), 'utf8'));
