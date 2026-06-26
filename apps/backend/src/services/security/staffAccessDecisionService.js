@@ -16,7 +16,7 @@ import {
   STAFF_ACCESS_POLICY_CODES,
 } from './staffAccessPolicyRegistry.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export { SAFE_STAFF_ACCESS_DENIAL_MESSAGE, STAFF_ACCESS_POLICY_CODES };
 

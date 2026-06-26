@@ -619,7 +619,7 @@
           },
           "date_of_joining": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "years_of_service": {
@@ -2595,7 +2595,7 @@
           },
           "effective_from": {
             "type": "string",
-            "format": "date"
+            "format": "date-time"
           },
           "staff_count": {
             "type": "integer",
@@ -5116,7 +5116,7 @@
           },
           "last_working_day": {
             "type": "string",
-            "format": "date"
+            "format": "date-time"
           },
           "last_month_days_worked": {
             "type": "integer",
@@ -5210,7 +5210,7 @@
           },
           "payment_date": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "payment_reference": {
@@ -5274,7 +5274,7 @@
           },
           "last_working_day": {
             "type": "string",
-            "format": "date"
+            "format": "date-time"
           },
           "last_month_days_worked": {
             "type": "integer",
@@ -5376,7 +5376,7 @@
           },
           "payment_date": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "payment_reference": {
@@ -5597,7 +5597,7 @@
           },
           "date_of_joining": {
             "type": "string",
-            "format": "date"
+            "format": "date-time"
           },
           "years_of_service": {
             "type": "number"
@@ -10167,14 +10167,14 @@
             "nullable": true
           },
           "days_worked": {
-            "type": "string"
+            "type": "integer"
           },
           "overtime_hours": {
             "type": "string",
             "nullable": true
           },
           "leaves_taken": {
-            "type": "string"
+            "type": "integer"
           }
         }
       },
@@ -12441,7 +12441,7 @@
           },
           "effective_from": {
             "type": "string",
-            "format": "date"
+            "format": "date-time"
           },
           "status": {
             "type": "string",
@@ -12545,7 +12545,7 @@
           },
           "effective_from": {
             "type": "string",
-            "format": "date"
+            "format": "date-time"
           },
           "status": {
             "type": "string",
@@ -13295,7 +13295,7 @@
           },
           "date_of_joining": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "pan_number": {
@@ -13424,7 +13424,7 @@
           },
           "date_of_joining": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "pan_number": {
@@ -13449,7 +13449,7 @@
           },
           "effective_from": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "is_active": {
@@ -13471,7 +13471,7 @@
           },
           "dob": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "tenant_id": {

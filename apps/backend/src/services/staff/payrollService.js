@@ -38,16 +38,19 @@ export async function calculatePayslip(staffUid, month, year) {
   // Total working days per month (standard 26 for Indian hospitals)
   const totalWorkingDays = 26;
 
-  // Get attendance for this month (staff_attendance uses staff_uid UUID)
+  // Get attendance for this month (staff_attendance uses staff_uid UUID).
+  // The table has no `status`/`date` columns — the marked-attendance flag is
+  // `attendance_status` and the event time is check_in_time (falling back to the
+  // generic `timestamp` column), mirroring attendanceController's date derivation.
   const attRes = await prisma.$queryRawUnsafe(`
     SELECT
-      COUNT(*) FILTER (WHERE status IS NOT NULL) as days_present,
+      COUNT(*) FILTER (WHERE attendance_status IS NOT NULL) as days_present,
       SUM(COALESCE(overtime_hours, 0)) as total_overtime_hours
     FROM staff_attendance
     WHERE staff_uid = $1::uuid
-      AND EXTRACT(MONTH FROM date) = $2
-      AND EXTRACT(YEAR FROM date) = $3
-  `, staffUid, month, year);
+      AND EXTRACT(MONTH FROM COALESCE(check_in_time, "timestamp")) = $2
+      AND EXTRACT(YEAR FROM COALESCE(check_in_time, "timestamp")) = $3
+  `, staffUid, month, year).catch(() => [{ days_present: 0, total_overtime_hours: 0 }]);
 
   const daysPresent = parseInt(attRes[0]?.days_present || 0);
   const overtimeHours = parseFloat(attRes[0]?.total_overtime_hours || 0);
@@ -125,15 +128,21 @@ export async function calculatePayslip(staffUid, month, year) {
   const lopDeduction = Math.round(lopDays * lopDailyRate * 100) / 100;
 
   // ─── FEATURE 3: Check for active salary advances to deduct ──────────────
+  // SELECT the columns the deduction loop actually reads (monthly_deduction,
+  // total_deducted) — the table has no deduction_month/deduction_year columns;
+  // the schedule columns are deduction_start_month/deduction_start_year. The
+  // catch must return an ARRAY ([]), not { rows: [] }: $queryRawUnsafe yields a
+  // plain row array, and the loop below does `for (const adv of advanceRes)`, so
+  // an object fallback throws "advanceRes is not iterable" and zeroes the run.
   const advanceRes = await prisma.$queryRawUnsafe(`
-    SELECT id, staff_uid, amount, deduction_month, deduction_year, status, created_at FROM salary_advances
+    SELECT id, staff_uid, amount, monthly_deduction, total_deducted, status, created_at FROM salary_advances
     WHERE staff_uid = $1::uuid
       AND status = 'approved'
       AND deduction_start_year <= $3
       AND (deduction_start_year < $3 OR deduction_start_month <= $2)
       AND total_deducted < amount
     ORDER BY created_at ASC
-  `, staffUid, month, year).catch(() => ({ rows: [] }));
+  `, staffUid, month, year).catch(() => []);
 
   let totalAdvanceDeduction = 0;
   const advancesToProcess = [];
