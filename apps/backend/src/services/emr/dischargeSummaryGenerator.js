@@ -1293,27 +1293,36 @@ export async function signDischargeSummary(admissionId, doctorUid, tenantId = nu
       },
     });
 
+    // A2 (audit): a SIGNED discharge summary is a legally/clinically significant
+    // state event downstream consumers (records release, billing, ABDM push) act
+    // on. Write the outbox row INSIDE this sign tx (on `tx`, explicit tenantId)
+    // so it is atomic with the is_signed flip + ai-generation status + audit log
+    // — a crash between COMMIT and a post-commit best-effort publish would lose
+    // the signed event. publishEvent re-throws inside a tx → an outbox failure
+    // rolls the signature back (the unsigned note stands, safe to retry).
+    await publishEvent({
+      eventType: 'clinical_document.discharge_summary.signed',
+      aggregateType: 'clinical_note',
+      aggregateId: note.id,
+      patientUid: admission.patient_uid,
+      payload: {
+        admission_id: admissionId,
+        signed_by: doctorUid,
+        signed_by_name: signer?.signed_by_name || null,
+        signed_by_role: signer?.signed_by_role || null,
+        signed_at: signedAt,
+        ai_generation_id: note.ai_generation_id || null,
+      },
+      tx,
+      tenantId: requireTenantId(tenantId),
+    });
+
     return {
       noteId: note.id,
       aiGenerationId: note.ai_generation_id || null,
       signedByName: signer?.signed_by_name || null,
       signedByRole: signer?.signed_by_role || null,
     };
-  });
-
-  await publishEvent({
-    eventType: 'clinical_document.discharge_summary.signed',
-    aggregateType: 'clinical_note',
-    aggregateId: txnResult.noteId,
-    patientUid: admission.patient_uid,
-    payload: {
-      admission_id: admissionId,
-      signed_by: doctorUid,
-      signed_by_name: txnResult.signedByName,
-      signed_by_role: txnResult.signedByRole,
-      signed_at: signedAt,
-      ai_generation_id: txnResult.aiGenerationId,
-    },
   });
 
   // Materialise take-home medicines from the signed discharge note into
