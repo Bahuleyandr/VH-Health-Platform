@@ -125,6 +125,40 @@ const ORDER_SET_ITEM_KIND = [
   'note', 'monitor', 'other',
 ];
 
+// ---------------------------------------------------------------------------
+// observations sub-domain enums (null-free; EXACT casing from
+// vitalsChartService.js / news2Service.js / cdsEngine.js / temperatureRoute.js).
+// All app-layer-validated VARCHAR (dipstick/route via util allowlists, no DB
+// CHECK). CRITICAL cross-cluster fact: vitals_chart Decimal columns and
+// intake_output.amount_ml serialize as STRINGS (Prisma.Decimal.toJSON → string;
+// only BigInt is patched in www.js), so every numeric vital + amount_ml is typed
+// {type:'string',nullable:true}, NOT number. INT columns (gcs_score,
+// triage_acuity, encounter_id, id) stay integer.
+// ---------------------------------------------------------------------------
+// vitals_chart.source — provenance label (vitalsChartService line 447; default 'staff').
+const VITAL_SOURCE = ['staff', 'device', 'fhir', 'patient_app'];
+// vitals_chart.consciousness — ACVPU (VALID_CONSCIOUSNESS, vitalsChartService line 23).
+const CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
+// vitals_chart.temperature_route — temperatureRoute.js VALID_TEMPERATURE_ROUTES.
+const TEMPERATURE_ROUTE = ['oral', 'axillary', 'rectal', 'tympanic'];
+// vitals_chart.urine_albumin/urine_sugar/urine_ketones — dipstick (VALID_DIPSTICK_VALUES).
+const URINE_DIPSTICK = ['negative', 'trace', '1+', '2+', '3+', '4+'];
+// news2_scores.clinical_risk (==risk_level) — news2Service.calculateNEWS2 (snake_case!).
+const NEWS2_CLINICAL_RISK = ['low', 'low_to_medium', 'medium', 'high'];
+// intake_output.io_type — VALID_IO_TYPES (vitalsChartService line 21).
+const IO_TYPE = ['intake', 'output'];
+// intake_output.category — VALID_IO_CATEGORIES (vitalsChartService line 22).
+const IO_CATEGORY = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
+// CDS in-memory alert severity (checkOrder / protocol reminders).
+const CDS_SEVERITY = ['critical', 'warning', 'info'];
+// CDS in-memory alert type (checkOrder + getProtocolReminders).
+const CDS_ALERT_TYPE = [
+  'drug_interaction', 'allergy', 'duplicate_order', 'critical_lab',
+  'protocol_reminder', 'system_error',
+];
+// clinical_protocols.priority — listProtocols/createProtocol (default 'medium').
+const CDS_PROTOCOL_PRIORITY = ['high', 'medium', 'low'];
+
 // A reusable opaque-jsonb schema (parsed object, never string).
 const looseObject = { type: 'object', additionalProperties: true };
 // A reusable opaque LLM/template draft (no required keys).
@@ -1876,6 +1910,436 @@ export const schemas = {
       orders: { type: 'array', items: { type: 'object', additionalProperties: true } },
     },
   },
+
+  // =========================================================================
+  // observations sub-domain — shared schemas
+  // (vitalsRoutes.js + cdsRoutes.js + clinicalTimelineRoutes.js →
+  // vitalsChartService / cdsEngine / news2Service / canonicalClinicalPlatform.
+  // EMR-only mount, NOT aliased to /api/v1/admissions. Every response wraps via
+  // success(res,data,…). CRITICAL: Decimal vitals + amount_ml serialize as
+  // STRINGS — typed {type:'string',nullable:true}, NOT number. jsonb columns →
+  // parsed objects, never string.)
+  // =========================================================================
+
+  // ---- GrowthSnapshot ----------------------------------------------------
+  // computeGrowthSnapshot output attached onto VitalRow on read/POST (NOT a
+  // column). `metrics` is a sparse per-metric map (weight_kg/height_cm → {z_score,
+  // percentile, classification, source, ...}). LOOSE (metrics map is open).
+  GrowthSnapshot: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['sex', 'age_in_days', 'reference_dataset', 'metrics'],
+    properties: {
+      sex: { type: 'string' },
+      age_in_days: { type: 'integer' },
+      reference_dataset: { type: 'string' },
+      metrics: { type: 'object', additionalProperties: { type: 'object', additionalProperties: true } },
+    },
+  },
+
+  // ---- VitalRow ----------------------------------------------------------
+  // VITAL_SELECT projection (vitalsChartService lines 201-247) + attached
+  // `growth` (GrowthSnapshot|null) on read/POST. Decimal vitals → STRING|null;
+  // gcs_score/triage_acuity → INT|null. LOOSE (growth is best-effort enrichment;
+  // additionalProperties:true keeps late-migration vital columns valid).
+  VitalRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'patient_uid'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'integer', nullable: true },
+      encounter_uid: { type: 'string', format: 'uuid', nullable: true },
+      source: { type: 'string', nullable: true, enum: VITAL_SOURCE },
+      source_device: { type: 'string', nullable: true },
+      device_verified: { type: 'boolean', nullable: true },
+      // Decimal columns → STRING on the wire (Prisma.Decimal.toJSON → string).
+      heart_rate: { type: 'string', nullable: true },
+      systolic_bp: { type: 'string', nullable: true },
+      diastolic_bp: { type: 'string', nullable: true },
+      temperature: { type: 'string', nullable: true },
+      temperature_route: { type: 'string', nullable: true, enum: TEMPERATURE_ROUTE },
+      spo2: { type: 'string', nullable: true },
+      respiratory_rate: { type: 'string', nullable: true },
+      blood_glucose: { type: 'string', nullable: true },
+      pain_score: { type: 'string', nullable: true },
+      weight_kg: { type: 'string', nullable: true },
+      height_cm: { type: 'string', nullable: true },
+      o2_flow_rate: { type: 'string', nullable: true },
+      fhr: { type: 'string', nullable: true },
+      fundal_height_cm: { type: 'string', nullable: true },
+      // INT columns → real numbers.
+      gcs_score: { type: 'integer', nullable: true },
+      triage_acuity: { type: 'integer', nullable: true },
+      supplemental_o2: { type: 'boolean', nullable: true },
+      consciousness: { type: 'string', nullable: true, enum: CONSCIOUSNESS },
+      urine_albumin: { type: 'string', nullable: true, enum: URINE_DIPSTICK },
+      urine_sugar: { type: 'string', nullable: true, enum: URINE_DIPSTICK },
+      urine_ketones: { type: 'string', nullable: true, enum: URINE_DIPSTICK },
+      notes: { type: 'string', nullable: true },
+      recorded_by: { type: 'string', format: 'uuid', nullable: true },
+      recorded_at: { type: 'string', format: 'date-time', nullable: true },
+      // Attached on read/POST (not a column). null for non-paediatric rows.
+      growth: { nullable: true, allOf: [{ $ref: '#/components/schemas/GrowthSnapshot' }] },
+    },
+  },
+
+  // ---- News2Summary ------------------------------------------------------
+  // POST /vitals `news2` sub-object (news2Service RETURNING, lines 203-204).
+  // clinical_risk == risk_level (snake_case enum). STRICT.
+  News2Summary: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'patient_uid', 'total_score', 'clinical_risk'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      total_score: { type: 'integer' },
+      clinical_risk: { type: 'string', enum: NEWS2_CLINICAL_RISK },
+      risk_level: { type: 'string', enum: NEWS2_CLINICAL_RISK },
+      recorded_by: { type: 'string', format: 'uuid', nullable: true },
+      recorded_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // ---- VitalsTriage ------------------------------------------------------
+  // POST /vitals `triage` sub-object (propagateTriageAcuity, lines 193-197).
+  // STRICT. triage_priority free string|null.
+  VitalsTriage: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['triage_acuity'],
+    properties: {
+      triage_acuity: { type: 'integer' },
+      triage_priority: { type: 'string', nullable: true },
+      emergency_visit_id: { type: 'integer', nullable: true },
+      appointment_id: { type: 'integer', nullable: true },
+    },
+  },
+
+  // ---- VitalsRecordResult ------------------------------------------------
+  // POST /vitals data = { vitals, news2, alerts, growth, triage } (201). LOOSE
+  // (news2/alerts/growth/triage are best-effort enrichment). `vitals` is a typed
+  // VitalRow; alerts are loose clinical-anomaly objects.
+  VitalsRecordResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['vitals'],
+    properties: {
+      vitals: { $ref: '#/components/schemas/VitalRow' },
+      news2: { nullable: true, allOf: [{ $ref: '#/components/schemas/News2Summary' }] },
+      alerts: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      growth: { nullable: true, allOf: [{ $ref: '#/components/schemas/GrowthSnapshot' }] },
+      triage: { nullable: true, allOf: [{ $ref: '#/components/schemas/VitalsTriage' }] },
+    },
+  },
+
+  // ---- VitalsTrendPoint --------------------------------------------------
+  // GET /vitals/{patientUid}/trend item { timestamp, value } (getVitalsTrend).
+  // value is the selected Decimal vital → STRING|null. STRICT.
+  VitalsTrendPoint: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['timestamp', 'value'],
+    properties: {
+      timestamp: { type: 'string', format: 'date-time', nullable: true },
+      value: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- IORow -------------------------------------------------------------
+  // POST /io IO_SELECT projection (vitalsChartService lines 249-260).
+  // amount_ml is Decimal → STRING. STRICT (fixed projection).
+  IORow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'patient_uid', 'io_type', 'category', 'amount_ml'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'integer', nullable: true },
+      encounter_uid: { type: 'string', format: 'uuid', nullable: true },
+      io_type: { type: 'string', enum: IO_TYPE },
+      category: { type: 'string', enum: IO_CATEGORY },
+      amount_ml: { type: 'string', nullable: true },
+      description: { type: 'string', nullable: true },
+      recorded_by: { type: 'string', format: 'uuid', nullable: true },
+      recorded_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // ---- IOEntry -----------------------------------------------------------
+  // Reduced projection in IOBalance.entries + GET /io/{patientUid}/chart (no
+  // encounter fields). amount_ml Decimal → STRING. STRICT. LIST != detail (this
+  // is the reduced row; IORow is the POST detail).
+  IOEntry: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'io_type', 'category', 'amount_ml'],
+    properties: {
+      id: { type: 'integer' },
+      io_type: { type: 'string', enum: IO_TYPE },
+      category: { type: 'string', enum: IO_CATEGORY },
+      amount_ml: { type: 'string', nullable: true },
+      description: { type: 'string', nullable: true },
+      recorded_by: { type: 'string', format: 'uuid', nullable: true },
+      recorded_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // ---- IOBalance ---------------------------------------------------------
+  // GET /io/{patientUid}/balance (getIOBalance). totals are coerced via
+  // Number(...) → real NUMBERS (unlike amount_ml on the entries). STRICT.
+  IOBalance: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['date', 'total_intake', 'total_output', 'balance', 'entries'],
+    properties: {
+      date: { type: 'string' },
+      total_intake: { type: 'number' },
+      total_output: { type: 'number' },
+      balance: { type: 'number' },
+      entries: { type: 'array', items: { $ref: '#/components/schemas/IOEntry' } },
+    },
+  },
+
+  // ---- CdsCheckAlert -----------------------------------------------------
+  // In-memory alert from checkOrder + getProtocolReminders. `sourceData` is
+  // heavily variable per type (drug_interaction/allergy/duplicate/critical_lab/
+  // protocol_reminder shapes differ) → object additionalProperties:true. LOOSE.
+  CdsCheckAlert: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['type', 'severity', 'title'],
+    properties: {
+      type: { type: 'string', enum: CDS_ALERT_TYPE },
+      severity: { type: 'string', enum: CDS_SEVERITY },
+      title: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      canOverride: { type: 'boolean' },
+      sourceData: { type: 'object', additionalProperties: true },
+    },
+  },
+
+  // ---- CdsCheckResult ----------------------------------------------------
+  // POST /cds/check-order data = { safe, alerts: CdsCheckAlert[] }. In-memory
+  // shape — DISTINCT from the persisted CdsAlertRow. LOOSE on alerts.
+  CdsCheckResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['safe', 'alerts'],
+    properties: {
+      safe: { type: 'boolean' },
+      alerts: { type: 'array', items: { $ref: '#/components/schemas/CdsCheckAlert' } },
+    },
+  },
+
+  // ---- CdsAlertRow -------------------------------------------------------
+  // Persisted cds_alerts row, public projection (getActiveAlerts LIST +
+  // acknowledgeAlert detail — IDENTICAL shape). ack_by→acknowledged_by /
+  // ack_at→acknowledged_at aliases; override_reason lifted from source_data.
+  // source_data jsonb → object|null (NEVER string). alert_type is a free
+  // VARCHAR(100) → open string (NOT enum-bound on the persisted column). LOOSE.
+  CdsAlertRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'patient_uid', 'alert_type', 'severity', 'title'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'integer', nullable: true },
+      alert_type: { type: 'string' },
+      severity: { type: 'string', enum: CDS_SEVERITY },
+      title: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      source_data: { type: 'object', additionalProperties: true, nullable: true },
+      acknowledged: { type: 'boolean' },
+      acknowledged_by: { type: 'string', format: 'uuid', nullable: true },
+      acknowledged_at: { type: 'string', format: 'date-time', nullable: true },
+      override_reason: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // ---- CdsProtocol -------------------------------------------------------
+  // GET/POST /cds/protocols row (listProtocols/createProtocol — IDENTICAL
+  // projection). trigger_conditions/recommendations jsonb → object (default {}).
+  // priority enum (default 'medium'). LOOSE on jsonb.
+  CdsProtocol: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'name', 'category'],
+    properties: {
+      id: { type: 'integer' },
+      name: { type: 'string' },
+      category: { type: 'string' },
+      trigger_conditions: { type: 'object', additionalProperties: true },
+      recommendations: { type: 'object', additionalProperties: true },
+      priority: { type: 'string', enum: CDS_PROTOCOL_PRIORITY },
+      is_active: { type: 'boolean' },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // ---- TimelineEvent -----------------------------------------------------
+  // GET /timeline/{patientUid} item — 3-variant union (canonical |
+  // patient_generated | legacy). `canonical:true|false` discriminator; `payload`
+  // jsonb → object. counts/legacy_included/generated_at go in meta, NOT here.
+  // LOOSE (the three variants differ; legacy not fully traced). Required core is
+  // just the discriminator + occurred_at.
+  TimelineEvent: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['canonical', 'occurred_at'],
+    properties: {
+      id: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
+      canonical: { type: 'boolean' },
+      patient_generated: { type: 'boolean' },
+      event_type: { type: 'string', nullable: true },
+      event_subtype: { type: 'string', nullable: true },
+      event_status: { type: 'string', nullable: true },
+      source_table: { type: 'string', nullable: true },
+      source_id: { oneOf: [{ type: 'integer' }, { type: 'string' }], nullable: true },
+      resource_type: { type: 'string', nullable: true },
+      resource_id: { oneOf: [{ type: 'integer' }, { type: 'string' }], nullable: true },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      occurred_at: { type: 'string', format: 'date-time', nullable: true },
+      timestamp: { type: 'string', format: 'date-time', nullable: true },
+      title: { type: 'string', nullable: true },
+      clinical_summary: { type: 'string', nullable: true },
+      actor_uid: { type: 'string', format: 'uuid', nullable: true },
+      actor_role: { type: 'string', nullable: true },
+      visible_to_patient: { type: 'boolean', nullable: true },
+      payload: { type: 'object', additionalProperties: true },
+      tags: { type: 'array', items: { type: 'string' } },
+    },
+  },
+
+  // =========================================================================
+  // observations — per-endpoint `data` payloads / bare refs
+  // =========================================================================
+
+  // POST /vitals → { vitals, news2, alerts, growth, triage } (201).
+  VitalsRecordData: { $ref: '#/components/schemas/VitalsRecordResult' },
+  // PUT/PATCH /vitals/{vitalsId} → corrected VitalRow (no growth attached).
+  VitalRowData: { $ref: '#/components/schemas/VitalRow' },
+  // GET /vitals/{patientUid}/latest → VitalRow OR null (nullable data).
+  VitalLatestData: { nullable: true, allOf: [{ $ref: '#/components/schemas/VitalRow' }] },
+  // POST /io → IORow (201).
+  IORowData: { $ref: '#/components/schemas/IORow' },
+  // GET /io/{patientUid}/balance → IOBalance.
+  IOBalanceData: { $ref: '#/components/schemas/IOBalance' },
+  // POST /cds/check-order → { safe, alerts }.
+  CdsCheckResultData: { $ref: '#/components/schemas/CdsCheckResult' },
+  // POST /cds/alerts/{id}/acknowledge → single CdsAlertRow.
+  CdsAlertRowData: { $ref: '#/components/schemas/CdsAlertRow' },
+  // POST /cds/protocols → single CdsProtocol (201).
+  CdsProtocolData: { $ref: '#/components/schemas/CdsProtocol' },
+
+  // =========================================================================
+  // observations — response envelopes
+  // =========================================================================
+  // POST /vitals — { vitals, news2, alerts, growth, triage } (201).
+  EmrVitalsRecordResponse: envelope('VitalsRecordData'),
+  // PUT/PATCH /vitals/{vitalsId} — corrected VitalRow.
+  EmrVitalRowResponse: envelope('VitalRowData'),
+  // GET /vitals/{patientUid}/latest — VitalRow|null.
+  EmrVitalLatestResponse: envelope('VitalLatestData'),
+  // GET /vitals/{patientUid}/chart — bare VitalRow[] (pagination in meta).
+  EmrVitalChartResponse: listEnvelope('VitalRow'),
+  // GET /vitals/{patientUid}/trend — bare VitalsTrendPoint[].
+  EmrVitalsTrendResponse: listEnvelope('VitalsTrendPoint'),
+  // POST /io — IORow (201).
+  EmrIORecordResponse: envelope('IORowData'),
+  // GET /io/{patientUid}/balance — IOBalance.
+  EmrIOBalanceResponse: envelope('IOBalanceData'),
+  // GET /io/{patientUid}/chart — bare IOEntry[] (reduced).
+  EmrIOChartResponse: listEnvelope('IOEntry'),
+  // POST /cds/check-order — { safe, alerts }.
+  EmrCdsCheckResponse: envelope('CdsCheckResultData'),
+  // GET /cds/alerts/{patientUid} — bare CdsAlertRow[] (persisted, LIST).
+  EmrCdsAlertListResponse: listEnvelope('CdsAlertRow'),
+  // POST /cds/alerts/{id}/acknowledge — single CdsAlertRow.
+  EmrCdsAlertResponse: envelope('CdsAlertRowData'),
+  // GET /cds/protocols — bare CdsProtocol[].
+  EmrCdsProtocolListResponse: listEnvelope('CdsProtocol'),
+  // POST /cds/protocols — single CdsProtocol (201).
+  EmrCdsProtocolResponse: envelope('CdsProtocolData'),
+  // GET /cds/protocols/check/{patientUid} — bare CdsCheckAlert[] (protocol_reminder).
+  EmrCdsProtocolCheckResponse: listEnvelope('CdsCheckAlert'),
+  // GET /timeline/{patientUid} — bare TimelineEvent[] (counts in meta).
+  EmrTimelineResponse: listEnvelope('TimelineEvent'),
+
+  // =========================================================================
+  // observations — request bodies (LOOSE; services accept raw numeric intake).
+  // =========================================================================
+  // POST /vitals — patient_uid + recorded_by required (recordVitals); all vitals
+  // optional numeric fields (accepts number OR string per the Decimal columns).
+  EmrVitalsRequest: {
+    type: 'object', additionalProperties: true,
+    required: ['patient_uid'],
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
+      source: { type: 'string', enum: VITAL_SOURCE },
+      heart_rate: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      systolic_bp: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      diastolic_bp: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      temperature: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      temperature_route: { type: 'string', enum: TEMPERATURE_ROUTE },
+      spo2: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      respiratory_rate: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      consciousness: { type: 'string', enum: CONSCIOUSNESS },
+      notes: { type: 'string' },
+    },
+  },
+  // PUT/PATCH /vitals/{vitalsId} — correction (correctVitals); all loose.
+  EmrVitalsCorrectionRequest: looseObject,
+  // POST /io — io_type + category + amount_ml + patient_uid required (recordIO).
+  EmrIORequest: {
+    type: 'object', additionalProperties: true,
+    required: ['patient_uid', 'io_type', 'category', 'amount_ml'],
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
+      io_type: { type: 'string', enum: IO_TYPE },
+      category: { type: 'string', enum: IO_CATEGORY },
+      amount_ml: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      description: { type: 'string' },
+    },
+  },
+  // POST /cds/check-order — type + patient_uid required (checkOrder).
+  EmrCdsCheckOrderRequest: {
+    type: 'object', additionalProperties: true,
+    required: ['type', 'patient_uid'],
+    properties: {
+      type: { type: 'string' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
+      medication_name: { type: 'string' },
+      test_name: { type: 'string' },
+    },
+  },
+  // POST /cds/alerts/{id}/acknowledge — override_reason optional (acknowledgeAlert).
+  EmrCdsAcknowledgeRequest: {
+    type: 'object', additionalProperties: true,
+    properties: { override_reason: { type: 'string' } },
+  },
+  // POST /cds/protocols — name+category+trigger_conditions+recommendations required.
+  EmrCreateProtocolRequest: {
+    type: 'object', additionalProperties: true,
+    required: ['name', 'category', 'trigger_conditions', 'recommendations'],
+    properties: {
+      name: { type: 'string' },
+      category: { type: 'string' },
+      trigger_conditions: { type: 'object', additionalProperties: true },
+      recommendations: { type: 'object', additionalProperties: true },
+      priority: { type: 'string', enum: CDS_PROTOCOL_PRIORITY },
+      is_active: { type: 'boolean' },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2020,6 +2484,42 @@ const EMR_ONLY_OPS = [
   // Order sets — GET list (bare OrderSet[]) + POST create (single OrderSet, 201).
   ['GET /order-sets', { response: 'EmrOrderSetListResponse' }],
   ['POST /order-sets', { request: 'EmrCreateOrderSetRequest', response: 'EmrOrderSetResponse' }],
+
+  // -------------------------------------------------------------------------
+  // observations sub-domain (vitalsRoutes.js + cdsRoutes.js +
+  // clinicalTimelineRoutes.js → vitalsChartService / cdsEngine /
+  // canonicalClinicalPlatform). EMR-only mount, NOT aliased to /api/v1/admissions.
+  // 18 ops (16 paths; vitals/{vitalsId} has PUT+PATCH, cds/protocols GET+POST).
+  // Every response wraps via success(res,data,…). Decimal vitals + amount_ml are
+  // STRINGS; jsonb (source_data/payload/trigger_conditions/recommendations) →
+  // loose objects; NEWS2 clinical_risk snake_case; persisted alert_type open string.
+  // NOTE: /icd10/search + /clinical-ai/config are already keyed (notes-diagnosis /
+  // admission-mgmt passes) — NOT re-declared here.
+  // -------------------------------------------------------------------------
+  // Vitals — POST (record → {vitals,news2,alerts,growth,triage}, 201).
+  ['POST /vitals', { request: 'EmrVitalsRequest', response: 'EmrVitalsRecordResponse' }],
+  // Vitals correction — PUT + PATCH share correctVitals → corrected VitalRow.
+  ['PUT /vitals/{vitalsId}', { request: 'EmrVitalsCorrectionRequest', response: 'EmrVitalRowResponse' }],
+  ['PATCH /vitals/{vitalsId}', { request: 'EmrVitalsCorrectionRequest', response: 'EmrVitalRowResponse' }],
+  // Vitals reads — chart (LIST, paginated) / latest (nullable) / trend (LIST).
+  ['GET /vitals/{patientUid}/chart', { response: 'EmrVitalChartResponse' }],
+  ['GET /vitals/{patientUid}/latest', { response: 'EmrVitalLatestResponse' }],
+  ['GET /vitals/{patientUid}/trend', { response: 'EmrVitalsTrendResponse' }],
+  // I/O — POST (record → IORow, 201) / balance / chart (reduced IOEntry[] LIST).
+  ['POST /io', { request: 'EmrIORequest', response: 'EmrIORecordResponse' }],
+  ['GET /io/{patientUid}/balance', { response: 'EmrIOBalanceResponse' }],
+  ['GET /io/{patientUid}/chart', { response: 'EmrIOChartResponse' }],
+  // CDS — active alerts (persisted CdsAlertRow[] LIST) + acknowledge (detail).
+  ['GET /cds/alerts/{patientUid}', { response: 'EmrCdsAlertListResponse' }],
+  ['POST /cds/alerts/{id}/acknowledge', { request: 'EmrCdsAcknowledgeRequest', response: 'EmrCdsAlertResponse' }],
+  // CDS — check-order ({safe,alerts} in-memory CdsCheckAlert[]).
+  ['POST /cds/check-order', { request: 'EmrCdsCheckOrderRequest', response: 'EmrCdsCheckResponse' }],
+  // CDS — protocols list (CdsProtocol[]) + create (single, 201) + check (LIST).
+  ['GET /cds/protocols', { response: 'EmrCdsProtocolListResponse' }],
+  ['POST /cds/protocols', { request: 'EmrCreateProtocolRequest', response: 'EmrCdsProtocolResponse' }],
+  ['GET /cds/protocols/check/{patientUid}', { response: 'EmrCdsProtocolCheckResponse' }],
+  // Timeline — bare TimelineEvent[] (3-variant union; counts in meta).
+  ['GET /timeline/{patientUid}', { response: 'EmrTimelineResponse' }],
 ];
 
 const PREFIXES = ['/api/v1/emr', '/api/v1/admissions'];

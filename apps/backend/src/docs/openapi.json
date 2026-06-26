@@ -4380,6 +4380,191 @@
           }
         }
       },
+      "CdsAlertRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid",
+          "alert_type",
+          "severity",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "alert_type": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "warning",
+              "info"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_data": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "acknowledged": {
+            "type": "boolean"
+          },
+          "acknowledged_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "acknowledged_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "override_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "CdsAlertRowData": {
+        "$ref": "#/components/schemas/CdsAlertRow"
+      },
+      "CdsCheckAlert": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "type",
+          "severity",
+          "title"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "drug_interaction",
+              "allergy",
+              "duplicate_order",
+              "critical_lab",
+              "protocol_reminder",
+              "system_error"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "warning",
+              "info"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "canOverride": {
+            "type": "boolean"
+          },
+          "sourceData": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "CdsCheckResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "safe",
+          "alerts"
+        ],
+        "properties": {
+          "safe": {
+            "type": "boolean"
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CdsCheckAlert"
+            }
+          }
+        }
+      },
+      "CdsCheckResultData": {
+        "$ref": "#/components/schemas/CdsCheckResult"
+      },
+      "CdsProtocol": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "name",
+          "category"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "trigger_conditions": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "recommendations": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "CdsProtocolData": {
+        "$ref": "#/components/schemas/CdsProtocol"
+      },
       "ClaimQueue": {
         "type": "object",
         "additionalProperties": false,
@@ -8150,6 +8335,183 @@
           }
         }
       },
+      "EmrCdsAcknowledgeRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "override_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrCdsAlertListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CdsAlertRow"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrCdsAlertResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CdsAlertRowData"
+          }
+        }
+      },
+      "EmrCdsCheckOrderRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "type",
+          "patient_uid"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "medication_name": {
+            "type": "string"
+          },
+          "test_name": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrCdsCheckResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CdsCheckResultData"
+          }
+        }
+      },
+      "EmrCdsProtocolCheckResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CdsCheckAlert"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrCdsProtocolListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CdsProtocol"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrCdsProtocolResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CdsProtocolData"
+          }
+        }
+      },
       "EmrClinicalAiConfigResponse": {
         "type": "object",
         "required": [
@@ -8566,6 +8928,43 @@
           }
         }
       },
+      "EmrCreateProtocolRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "category",
+          "trigger_conditions",
+          "recommendations"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "trigger_conditions": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "recommendations": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
       "EmrDiagnosisListResponse": {
         "type": "object",
         "required": [
@@ -8967,6 +9366,129 @@
           }
         }
       },
+      "EmrIOBalanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/IOBalanceData"
+          }
+        }
+      },
+      "EmrIOChartResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IOEntry"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrIORecordResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/IORowData"
+          }
+        }
+      },
+      "EmrIORequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "patient_uid",
+          "io_type",
+          "category",
+          "amount_ml"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "io_type": {
+            "type": "string",
+            "enum": [
+              "intake",
+              "output"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "oral",
+              "iv",
+              "blood",
+              "urine",
+              "drain",
+              "vomit",
+              "stool",
+              "other"
+            ]
+          },
+          "amount_ml": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
       "EmrIcd10SearchResponse": {
         "type": "object",
         "required": [
@@ -9318,6 +9840,32 @@
           }
         }
       },
+      "EmrTimelineResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEvent"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "EmrTransferRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -9386,6 +9934,233 @@
       "EmrUpdateNoteRequest": {
         "type": "object",
         "additionalProperties": true
+      },
+      "EmrVitalChartResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VitalRow"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrVitalLatestResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/VitalLatestData"
+          }
+        }
+      },
+      "EmrVitalRowResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/VitalRowData"
+          }
+        }
+      },
+      "EmrVitalsCorrectionRequest": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "EmrVitalsRecordResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/VitalsRecordData"
+          }
+        }
+      },
+      "EmrVitalsRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "patient_uid"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "device",
+              "fhir",
+              "patient_app"
+            ]
+          },
+          "heart_rate": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "systolic_bp": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "diastolic_bp": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "temperature": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "temperature_route": {
+            "type": "string",
+            "enum": [
+              "oral",
+              "axillary",
+              "rectal",
+              "tympanic"
+            ]
+          },
+          "spo2": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "respiratory_rate": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "consciousness": {
+            "type": "string",
+            "enum": [
+              "A",
+              "C",
+              "V",
+              "P",
+              "U"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrVitalsTrendResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VitalsTrendPoint"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
       },
       "EmrWardOptionsResponse": {
         "type": "object",
@@ -10125,6 +10900,191 @@
             "additionalProperties": true
           }
         }
+      },
+      "GrowthSnapshot": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "sex",
+          "age_in_days",
+          "reference_dataset",
+          "metrics"
+        ],
+        "properties": {
+          "sex": {
+            "type": "string"
+          },
+          "age_in_days": {
+            "type": "integer"
+          },
+          "reference_dataset": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "IOBalance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "total_intake",
+          "total_output",
+          "balance",
+          "entries"
+        ],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "total_intake": {
+            "type": "number"
+          },
+          "total_output": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IOEntry"
+            }
+          }
+        }
+      },
+      "IOBalanceData": {
+        "$ref": "#/components/schemas/IOBalance"
+      },
+      "IOEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "io_type",
+          "category",
+          "amount_ml"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "io_type": {
+            "type": "string",
+            "enum": [
+              "intake",
+              "output"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "oral",
+              "iv",
+              "blood",
+              "urine",
+              "drain",
+              "vomit",
+              "stool",
+              "other"
+            ]
+          },
+          "amount_ml": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "recorded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "IORow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "io_type",
+          "category",
+          "amount_ml"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "encounter_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "io_type": {
+            "type": "string",
+            "enum": [
+              "intake",
+              "output"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "oral",
+              "iv",
+              "blood",
+              "urine",
+              "drain",
+              "vomit",
+              "stool",
+              "other"
+            ]
+          },
+          "amount_ml": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "recorded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "IORowData": {
+        "$ref": "#/components/schemas/IORow"
       },
       "Icd10Row": {
         "type": "object",
@@ -12632,6 +13592,61 @@
             "items": {
               "$ref": "#/components/schemas/PayslipQueryReply"
             }
+          }
+        }
+      },
+      "News2Summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "total_score",
+          "clinical_risk"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_score": {
+            "type": "integer"
+          },
+          "clinical_risk": {
+            "type": "string",
+            "enum": [
+              "low",
+              "low_to_medium",
+              "medium",
+              "high"
+            ]
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "low_to_medium",
+              "medium",
+              "high"
+            ]
+          },
+          "recorded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -19299,6 +20314,120 @@
           }
         }
       },
+      "TimelineEvent": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "canonical",
+          "occurred_at"
+        ],
+        "properties": {
+          "id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "canonical": {
+            "type": "boolean"
+          },
+          "patient_generated": {
+            "type": "boolean"
+          },
+          "event_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "event_subtype": {
+            "type": "string",
+            "nullable": true
+          },
+          "event_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_table": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "nullable": true
+          },
+          "resource_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "nullable": true
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "clinical_summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "actor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "actor_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "visible_to_patient": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "TodayAppointmentsResponse": {
         "type": "object",
         "required": [
@@ -20393,6 +21522,293 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "VitalLatestData": {
+        "nullable": true,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/VitalRow"
+          }
+        ]
+      },
+      "VitalRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "encounter_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "staff",
+              "device",
+              "fhir",
+              "patient_app"
+            ]
+          },
+          "source_device": {
+            "type": "string",
+            "nullable": true
+          },
+          "device_verified": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "heart_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "systolic_bp": {
+            "type": "string",
+            "nullable": true
+          },
+          "diastolic_bp": {
+            "type": "string",
+            "nullable": true
+          },
+          "temperature": {
+            "type": "string",
+            "nullable": true
+          },
+          "temperature_route": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "oral",
+              "axillary",
+              "rectal",
+              "tympanic"
+            ]
+          },
+          "spo2": {
+            "type": "string",
+            "nullable": true
+          },
+          "respiratory_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "blood_glucose": {
+            "type": "string",
+            "nullable": true
+          },
+          "pain_score": {
+            "type": "string",
+            "nullable": true
+          },
+          "weight_kg": {
+            "type": "string",
+            "nullable": true
+          },
+          "height_cm": {
+            "type": "string",
+            "nullable": true
+          },
+          "o2_flow_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "fhr": {
+            "type": "string",
+            "nullable": true
+          },
+          "fundal_height_cm": {
+            "type": "string",
+            "nullable": true
+          },
+          "gcs_score": {
+            "type": "integer",
+            "nullable": true
+          },
+          "triage_acuity": {
+            "type": "integer",
+            "nullable": true
+          },
+          "supplemental_o2": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "consciousness": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "A",
+              "C",
+              "V",
+              "P",
+              "U"
+            ]
+          },
+          "urine_albumin": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "negative",
+              "trace",
+              "1+",
+              "2+",
+              "3+",
+              "4+"
+            ]
+          },
+          "urine_sugar": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "negative",
+              "trace",
+              "1+",
+              "2+",
+              "3+",
+              "4+"
+            ]
+          },
+          "urine_ketones": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "negative",
+              "trace",
+              "1+",
+              "2+",
+              "3+",
+              "4+"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "recorded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "growth": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GrowthSnapshot"
+              }
+            ]
+          }
+        }
+      },
+      "VitalRowData": {
+        "$ref": "#/components/schemas/VitalRow"
+      },
+      "VitalsRecordData": {
+        "$ref": "#/components/schemas/VitalsRecordResult"
+      },
+      "VitalsRecordResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "vitals"
+        ],
+        "properties": {
+          "vitals": {
+            "$ref": "#/components/schemas/VitalRow"
+          },
+          "news2": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/News2Summary"
+              }
+            ]
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "growth": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GrowthSnapshot"
+              }
+            ]
+          },
+          "triage": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VitalsTriage"
+              }
+            ]
+          }
+        }
+      },
+      "VitalsTrendPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "timestamp",
+          "value"
+        ],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "VitalsTriage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "triage_acuity"
+        ],
+        "properties": {
+          "triage_acuity": {
+            "type": "integer"
+          },
+          "triage_priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "emergency_visit_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
           }
         }
       },
@@ -55689,7 +57105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCdsAlertResponse"
                 }
               }
             }
@@ -55704,7 +57120,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCdsAcknowledgeRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/cds/alerts/{patientUid}": {
@@ -55716,7 +57142,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCdsAlertListResponse"
                 }
               }
             }
@@ -55743,8 +57169,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCdsCheckResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCdsCheckOrderRequest"
               }
             }
           }
@@ -55760,7 +57196,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCdsProtocolListResponse"
                 }
               }
             }
@@ -55775,8 +57211,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCdsProtocolResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCreateProtocolRequest"
               }
             }
           }
@@ -55792,7 +57238,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCdsProtocolCheckResponse"
                 }
               }
             }
@@ -56106,8 +57552,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrIORecordResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrIORequest"
               }
             }
           }
@@ -56123,7 +57579,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrIOBalanceResponse"
                 }
               }
             }
@@ -56150,7 +57606,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrIOChartResponse"
                 }
               }
             }
@@ -57385,7 +58841,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrTimelineResponse"
                 }
               }
             }
@@ -57429,8 +58885,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrVitalsRecordResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrVitalsRequest"
               }
             }
           }
@@ -57446,7 +58912,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrVitalChartResponse"
                 }
               }
             }
@@ -57473,7 +58939,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrVitalLatestResponse"
                 }
               }
             }
@@ -57500,7 +58966,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrVitalsTrendResponse"
                 }
               }
             }
@@ -57527,7 +58993,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrVitalRowResponse"
                 }
               }
             }
@@ -57542,7 +59008,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrVitalsCorrectionRequest"
+              }
+            }
+          }
+        }
       },
       "put": {
         "operationId": "put_api_v1_emr_vitals_by_vitalsId",
@@ -57552,7 +59028,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrVitalRowResponse"
                 }
               }
             }
@@ -57567,7 +59043,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrVitalsCorrectionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/ward-options": {
