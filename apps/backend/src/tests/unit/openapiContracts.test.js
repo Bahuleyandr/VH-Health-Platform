@@ -8,10 +8,11 @@ import * as appointments from '../../../scripts/openapi/schemas/appointments.mjs
 import * as discharge from '../../../scripts/openapi/schemas/discharge.mjs';
 import * as payroll from '../../../scripts/openapi/schemas/payroll.mjs';
 import * as emr from '../../../scripts/openapi/schemas/emr.mjs';
+import * as clinicalAi from '../../../scripts/openapi/schemas/clinicalAi.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
-const MODULES = [money, appointments, discharge, payroll, emr];
+const MODULES = [money, appointments, discharge, payroll, emr, clinicalAi];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const spec = JSON.parse(readFileSync(resolve(__dirname, '../../docs/openapi.json'), 'utf8'));
