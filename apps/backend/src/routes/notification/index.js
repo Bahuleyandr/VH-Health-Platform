@@ -7,6 +7,7 @@ import logger from '../../logging/logger.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import adminNotificationRoutes from './adminNotificationRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
+import { error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 logger.info('✅ Notification Module loaded with RBAC protection');
@@ -79,6 +80,24 @@ wrapAutoRBAC(router, 'ALL', {
     ['/:id', notificationRoutes]
   ]
 });
+
+// Legacy phone-number routes (GET /:phone, PATCH /:phone/mark-all-read) were
+// removed — PII-in-URL is unsafe. The gatekeeper above forwards only the
+// curated allowlist to notificationRoutes, so a bare phone segment otherwise
+// falls through to a confusing app-level 404. Return an explicit 410 Gone for
+// the phone-shaped (numeric) paths so callers get a clear "use /my" deprecation
+// signal. Numeric-guarded + registered after every real route so it can never
+// shadow one; non-numeric single segments fall through (404).
+const legacyPhoneRouteGone = (req, res, next) => {
+  if (!/^\d+$/.test(req.params.phone)) return next();
+  return error(
+    res,
+    'Phone-number notification routes have been removed — use GET /api/v1/notifications/my.',
+    410,
+  );
+};
+router.get('/:phone', legacyPhoneRouteGone);
+router.patch('/:phone/mark-all-read', legacyPhoneRouteGone);
 
 // Admin-only routes — mounted via `router.use` so the full
 // adminNotificationRoutes sub-router resolves. The earlier wrapAutoRBAC
