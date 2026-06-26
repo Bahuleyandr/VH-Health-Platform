@@ -10538,7 +10538,7 @@ model webhook_deliveries {
   id                    Int                    @id @default(autoincrement())
   subscription_id       Int?
   tenant_id             String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  event_outbox_id       Int?
+  event_outbox_id       BigInt?
   event_type            String                 @db.VarChar(120)
   payload               Json
   attempt_number        Int                    @default(0)

@@ -136,14 +136,19 @@ export async function enqueueDelivery({
   for (const sub of subscriptions) {
     try {
       const rows = await prisma.$queryRawUnsafe(
+        // event_outbox.id is BIGINT and webhook_deliveries.event_outbox_id was
+        // widened to match (migration 347). Bind the id as a STRING + cast
+        // $3::bigint so a value past 2^53 (JS Number's safe-int ceiling) survives
+        // verbatim — Number.parseInt would silently truncate/round it and point
+        // the delivery at the wrong outbox row.
         `INSERT INTO webhook_deliveries
            (subscription_id, tenant_id, event_outbox_id, event_type,
             payload, status, attempt_number, next_retry_at, request_id)
-         VALUES ($1, $2::uuid, $3, $4, $5::jsonb, 'pending', 0, NOW(), $6)
+         VALUES ($1, $2::uuid, $3::bigint, $4, $5::jsonb, 'pending', 0, NOW(), $6)
          RETURNING id, subscription_id, tenant_id, event_outbox_id,
                    event_type, status, attempt_number, next_retry_at,
                    created_at`,
-        sub.id, tid, eventOutboxId ? Number.parseInt(eventOutboxId, 10) : null,
+        sub.id, tid, eventOutboxId == null ? null : String(eventOutboxId),
         cleanType, JSON.stringify(payload || {}),
         requestId || crypto.randomUUID(),
       );

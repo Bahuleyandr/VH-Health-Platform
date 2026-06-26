@@ -50,10 +50,12 @@ async function eventRow(id) {
 }
 
 async function deliveriesForOutbox(id) {
+  // event_outbox_id is BIGINT (mig 347) — bind as a string + cast ::bigint so a
+  // value past JS Number's safe-int ceiling round-trips exactly.
   return prisma.$queryRawUnsafe(
     `SELECT id, subscription_id, event_outbox_id, event_type, status
-     FROM webhook_deliveries WHERE event_outbox_id = $1::int`,
-    Number(id),
+     FROM webhook_deliveries WHERE event_outbox_id = $1::bigint`,
+    String(id),
   );
 }
 
@@ -103,9 +105,11 @@ d('event_outbox drain (deep)', () => {
 
   afterAll(async () => {
     if (insertedEventIds.length) {
+      // ::bigint[] (not ::int[]) — the suite now seeds BigInt-range ids that
+      // overflow int, and the FK column is BIGINT (mig 347). Bind as strings.
       await prisma.$executeRawUnsafe(
-        `DELETE FROM webhook_deliveries WHERE event_outbox_id = ANY($1::int[])`,
-        insertedEventIds.map(Number),
+        `DELETE FROM webhook_deliveries WHERE event_outbox_id = ANY($1::bigint[])`,
+        insertedEventIds.map(String),
       ).catch(() => {});
       await prisma.$executeRawUnsafe(
         `DELETE FROM event_outbox WHERE id = ANY($1::bigint[])`,
@@ -136,6 +140,22 @@ d('event_outbox drain (deep)', () => {
     expect(row?.id).toBeTruthy();
     insertedEventIds.push(row.id);
     return row;
+  }
+
+  // Seed a pending row with an EXPLICIT id (bypassing the sequence) so we can
+  // exercise the BigInt FK path without permanently advancing the shared
+  // event_outbox sequence. The id is bound as a string + cast ::bigint so the
+  // exact value lands in Postgres regardless of JS Number precision.
+  async function seedEventWithId(explicitId) {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO event_outbox
+         (id, event_type, aggregate_type, payload, status, available_at, created_at)
+       VALUES ($1::bigint, $2, 'test_aggregate', $3::jsonb, 'pending', NOW(), NOW())
+       RETURNING id`,
+      String(explicitId), EVENT_TYPE, JSON.stringify({ kind: 'bigint-id' }),
+    );
+    insertedEventIds.push(rows[0].id);
+    return rows[0];
   }
 
   describe('claimPendingEvents', () => {
@@ -243,6 +263,35 @@ d('event_outbox drain (deep)', () => {
       expect(Number(deliveries[0].event_outbox_id)).toBe(Number(ev.id));
       expect(deliveries[0].event_type).toBe(EVENT_TYPE);
       expect(Number(deliveries[0].subscription_id)).toBe(Number(subscriptionId));
+    });
+
+    it('bridges a BigInt-range outbox id to webhook_deliveries with NO truncation', async () => {
+      // Reset pool to pending so the drain reaches our row.
+      await prisma.$executeRawUnsafe(
+        `UPDATE event_outbox SET status='pending', available_at=NOW()
+         WHERE id = ANY($1::bigint[]) AND status='processing'`,
+        insertedEventIds.map(String),
+      );
+      // 2^53 + 1 — NOT representable as a JS Number (9007199254740992 === 9007199254740993
+      // returns true), and far past Int's 2^31 ceiling. If event_outbox_id were still
+      // INTEGER the INSERT would overflow (22003); if the service still Number.parseInt'd
+      // the id, the stored value would be rounded — both regressions this asserts against.
+      const BIG_ID = '9007199254740993';
+      const ev = await seedEventWithId(BIG_ID);
+      expect(String(ev.id)).toBe(BIG_ID);
+
+      const result = await drainEventOutbox({ limit: 100 });
+      expect(result.claimed).toBeGreaterThanOrEqual(1);
+
+      const row = await eventRow(BIG_ID);
+      expect(row.status).toBe('delivered');
+
+      const deliveries = await deliveriesForOutbox(BIG_ID);
+      expect(deliveries.length).toBe(1);
+      // Exact, precision-safe comparison: the stored FK must equal the BigInt id
+      // verbatim. Compare as strings — Number() would itself lose precision here.
+      expect(String(deliveries[0].event_outbox_id)).toBe(BIG_ID);
+      expect(deliveries[0].event_type).toBe(EVENT_TYPE);
     });
 
     it('failure path: a delivery that throws marks the event failed with attempts bumped + backoff', async () => {
