@@ -714,6 +714,87 @@ const CONTROL_OPS = [
   ['POST /inventory/evaluate', { response: 'ClinicalAiDraftResponse' }],
   ['GET /inventory/alerts', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /inventory/alerts/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // care-operations (careOperationsRoutes.js) — 24 ops. Six independent
+  // care/ops sub-modules: staff roster optimizer + roster leave-forecast,
+  // virtual ward (enrollments + escalations), imaging AI (DICOM register +
+  // inference ingest + review), nursing-ambient documentation, and the
+  // consent-aware family-update generator.
+  //
+  // Typing (per scout r3 + ground-truth route file + service return shapes):
+  // every op folds into the shared loose family — NONE are in the strictOps
+  // shortlist (which lives in scoreboard/ROI/KB/operational-alerts/governance,
+  // not here):
+  //   • POST generate/evaluate/record/import/sent → loose draft / governance /
+  //     decision envelope → ClinicalAiDraftResponse (the roster suggestion,
+  //     leave-forecast governance blob, imaging inference EVAL, nursing-ambient
+  //     STT session, family-update draft all wrap a typed outer envelope around
+  //     an LLM/rule/solver-generated inner blob with variable keys). The
+  //     deterministic registry-ish POSTs (imaging study register, virtual-ward
+  //     enroll, pacs-import) ALSO fold here: their rows carry NO DB-CHECK-grade
+  //     categorical column in the strict shortlist — pathway/modality/severity
+  //     are free-ish or config-derived, not service-allowlisted like blood-bank
+  //     group/component or biomed device_type — so per the plan they stay in
+  //     the shared loose envelope rather than getting a bespoke strict schema.
+  //   • PATCH/POST decide + publish/discard/acknowledge/resolve/sent → single
+  //     updated governance/decision row → ClinicalAiReviewDecisionResponse
+  //     (loose row: id + reviewer_decision/status + reviewer metadata, with
+  //     additionalProperties:true for the per-module extra columns).
+  //   • GET lists → `{ <plural>: [...rows], count }` (runs / enrollments /
+  //     escalations / findings / sessions / updates) → ClinicalAiCountListResponse.
+  //   • GET /roster/leave-forecast → a SINGLE governance forecast object (not a
+  //     list) → ClinicalAiDraftResponse. GET /roster/leave-forecast/{id}/audit →
+  //     a BARE array of audit rows as `data` (service returns rows.map(...)) →
+  //     ClinicalAiReviewDecisionListResponse (the listEnvelope shape: data is an
+  //     array, not a `{ <named>, count }` object).
+  // Control-only (no /clinical-ai/clinical mount for any of these). No strict
+  // schema authored — all six sub-modules reuse the shared loose families.
+  // -------------------------------------------------------------------------
+
+  // ---- Staff roster optimizer ----
+  ['POST /roster', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /roster', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /roster/{id}/publish', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['PATCH /roster/{id}/discard', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Roster leave forecast ----
+  // POST/GET return the governance forecast blob (single object, loose draft
+  // family); /{id}/review returns the reviewed governance row; /{id}/audit
+  // returns a bare audit-row array.
+  ['POST /roster/leave-forecast', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /roster/leave-forecast', { response: 'ClinicalAiDraftResponse' }],
+  ['PATCH /roster/leave-forecast/{id}/review', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['GET /roster/leave-forecast/{id}/audit', { response: 'ClinicalAiReviewDecisionListResponse' }],
+
+  // ---- Virtual ward — enrollments + escalations ----
+  ['POST /virtual-ward/enrollments', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /virtual-ward/enrollments', { response: 'ClinicalAiCountListResponse' }],
+  ['GET /virtual-ward/escalations', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /virtual-ward/escalations/{id}/acknowledge', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['PATCH /virtual-ward/escalations/{id}/resolve', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Imaging AI — register + inference ingest + review ----
+  // /pacs/status returns a small adapter-status object (folds into the loose
+  // draft envelope — no strict shortlist entry); /studies + /studies/import-pacs
+  // + /inference are generate/record ops → ClinicalAiDraftResponse.
+  ['GET /imaging/pacs/status', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /imaging/studies', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /imaging/studies/import-pacs', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /imaging/inference', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /imaging/findings', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /imaging/findings/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Nursing ambient documentation ----
+  ['POST /nursing-ambient/sessions', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /nursing-ambient/sessions', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /nursing-ambient/sessions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Consent-aware family update generator ----
+  ['POST /family-updates', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /family-updates', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /family-updates/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['POST /family-updates/{id}/sent', { response: 'ClinicalAiReviewDecisionResponse' }],
 ];
 const CLINICAL_OPS = [];
 
