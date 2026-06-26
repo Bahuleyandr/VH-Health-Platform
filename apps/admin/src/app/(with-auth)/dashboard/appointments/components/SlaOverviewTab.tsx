@@ -52,8 +52,8 @@ export function SlaOverviewTab() {
   if (!data) return null;
 
   const { summary, sla, by_department, pending_confirmation } = data;
-  const slaTotal = parseInt(sla.total_with_sla) || 0;
-  const slaWithin = parseInt(sla.within_sla) || 0;
+  const slaTotal = sla.total_with_sla || 0;
+  const slaWithin = sla.within_sla || 0;
   const slaPct = slaTotal > 0 ? Math.round((slaWithin / slaTotal) * 100) : 0;
 
   return (
