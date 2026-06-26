@@ -5467,7 +5467,7 @@
       "GeneratePayrollDataRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Reverse-engineered from staffAdminOperationsController.generatePayrollData; not validator-backed.",
+        "description": "Reverse-engineered from POST /api/v1/staff/admin/generate-payroll-data; not validator-backed.",
         "properties": {
           "month": {
             "type": "integer"
@@ -7427,6 +7427,491 @@
           }
         }
       },
+      "MyDeclaration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "financial_year"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "financial_year": {
+            "type": "string"
+          },
+          "ppf": {
+            "type": "string",
+            "nullable": true
+          },
+          "epf_voluntary": {
+            "type": "string",
+            "nullable": true
+          },
+          "elss": {
+            "type": "string",
+            "nullable": true
+          },
+          "lic_premium": {
+            "type": "string",
+            "nullable": true
+          },
+          "nsc": {
+            "type": "string",
+            "nullable": true
+          },
+          "home_loan_principal": {
+            "type": "string",
+            "nullable": true
+          },
+          "tuition_fees": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_80c": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_self": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_parents": {
+            "type": "string",
+            "nullable": true
+          },
+          "education_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_paid_monthly": {
+            "type": "string",
+            "nullable": true
+          },
+          "home_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "nps_contribution": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_receipt_provided": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "submitted",
+              "locked",
+              "approved"
+            ]
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "proof_submitted": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "section_80c": {
+            "type": "string"
+          },
+          "section_80d": {
+            "type": "string"
+          },
+          "hra_exemption": {
+            "type": "string"
+          },
+          "lta": {
+            "type": "string"
+          },
+          "other_deductions": {
+            "type": "string"
+          }
+        }
+      },
+      "MyDeclarationsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyDeclaration"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MyPayslipDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "payroll_run_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "basic_earned": {
+            "type": "string"
+          },
+          "hra_earned": {
+            "type": "string"
+          },
+          "da_earned": {
+            "type": "string"
+          },
+          "special_allowance_earned": {
+            "type": "string"
+          },
+          "transport_allowance_earned": {
+            "type": "string"
+          },
+          "medical_allowance_earned": {
+            "type": "string"
+          },
+          "overtime_pay": {
+            "type": "string"
+          },
+          "gross_salary": {
+            "type": "string"
+          },
+          "pf_employee": {
+            "type": "string"
+          },
+          "esi_employee": {
+            "type": "string"
+          },
+          "professional_tax": {
+            "type": "string"
+          },
+          "tds": {
+            "type": "string"
+          },
+          "total_deductions": {
+            "type": "string"
+          },
+          "net_salary": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued",
+              "viewed",
+              "downloaded"
+            ]
+          },
+          "pdf_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "pdf_url": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "MyPayslipDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MyPayslipDetail"
+          }
+        }
+      },
+      "MyPayslipListItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "month",
+          "year",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "gross_salary": {
+            "type": "string"
+          },
+          "net_salary": {
+            "type": "string"
+          },
+          "total_deductions": {
+            "type": "string"
+          },
+          "days_present": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_absent": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued",
+              "viewed",
+              "downloaded"
+            ]
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "pdf_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "basic_earned": {
+            "type": "string"
+          },
+          "overtime_pay": {
+            "type": "string"
+          },
+          "pf_employee": {
+            "type": "string"
+          }
+        }
+      },
+      "MyPayslipListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyPayslipListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MyPayslipQueriesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyPayslipQuery"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MyPayslipQuery": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "staff_uid",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payslip_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "open",
+              "in_review",
+              "resolved"
+            ]
+          },
+          "resolved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "net_salary": {
+            "type": "string"
+          },
+          "replies": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/PayslipQueryReply"
+            }
+          }
+        }
+      },
       "NoShowPatient": {
         "type": "object",
         "additionalProperties": true,
@@ -7822,6 +8307,168 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "OwnAdvanceItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "amount"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "approved",
+              "cleared"
+            ]
+          },
+          "monthly_deduction": {
+            "type": "string"
+          },
+          "total_deducted": {
+            "type": "string",
+            "nullable": true
+          },
+          "months_remaining": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deduction_start_month": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deduction_start_year": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fully_cleared_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "approved_by_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "balance_remaining": {
+            "type": "string"
+          }
+        }
+      },
+      "OwnAdvancesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnAdvanceItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "OwnTaxSummary": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "financial_year"
+        ],
+        "properties": {
+          "financial_year": {
+            "type": "string"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "pdf_url": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OwnTaxSummaryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OwnTaxSummary"
           }
         }
       },
@@ -10819,6 +11466,92 @@
           }
         }
       },
+      "RaiseQueryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payslip_id",
+          "subject",
+          "description"
+        ],
+        "properties": {
+          "payslip_id": {
+            "type": "integer"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      },
+      "RaiseQueryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RaiseQueryResult"
+          }
+        }
+      },
+      "RaiseQueryResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "subject",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payslip_id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_review",
+              "resolved"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "RaiseRefundRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -12850,6 +13583,205 @@
             "minimum": 0
           },
           "documents": {}
+        }
+      },
+      "SubmitDeclarationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "financial_year"
+        ],
+        "properties": {
+          "financial_year": {
+            "type": "string"
+          },
+          "ppf": {
+            "type": "number"
+          },
+          "epf_voluntary": {
+            "type": "number"
+          },
+          "elss": {
+            "type": "number"
+          },
+          "lic_premium": {
+            "type": "number"
+          },
+          "nsc": {
+            "type": "number"
+          },
+          "home_loan_principal": {
+            "type": "number"
+          },
+          "tuition_fees": {
+            "type": "number"
+          },
+          "other_80c": {
+            "type": "number"
+          },
+          "health_insurance_self": {
+            "type": "number"
+          },
+          "health_insurance_parents": {
+            "type": "number"
+          },
+          "education_loan_interest": {
+            "type": "number"
+          },
+          "rent_paid_monthly": {
+            "type": "number"
+          },
+          "home_loan_interest": {
+            "type": "number"
+          },
+          "nps_contribution": {
+            "type": "number"
+          },
+          "rent_receipt_provided": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "SubmitDeclarationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SubmitDeclarationResult"
+          }
+        }
+      },
+      "SubmitDeclarationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "financial_year"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "financial_year": {
+            "type": "string"
+          },
+          "ppf": {
+            "type": "string",
+            "nullable": true
+          },
+          "epf_voluntary": {
+            "type": "string",
+            "nullable": true
+          },
+          "elss": {
+            "type": "string",
+            "nullable": true
+          },
+          "lic_premium": {
+            "type": "string",
+            "nullable": true
+          },
+          "nsc": {
+            "type": "string",
+            "nullable": true
+          },
+          "home_loan_principal": {
+            "type": "string",
+            "nullable": true
+          },
+          "tuition_fees": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_80c": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_self": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_parents": {
+            "type": "string",
+            "nullable": true
+          },
+          "education_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_paid_monthly": {
+            "type": "string",
+            "nullable": true
+          },
+          "home_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "nps_contribution": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_receipt_provided": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "submitted",
+              "locked",
+              "approved"
+            ]
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
         }
       },
       "TariffItem": {
@@ -73079,7 +74011,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/OwnAdvancesResponse"
                 }
               }
             }
@@ -73096,7 +74028,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MyDeclarationsResponse"
                 }
               }
             }
@@ -73113,8 +74045,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/SubmitDeclarationResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitDeclarationRequest"
               }
             }
           }
@@ -73130,7 +74072,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MyPayslipListResponse"
                 }
               }
             }
@@ -73147,7 +74089,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MyPayslipDetailResponse"
                 }
               }
             }
@@ -73201,7 +74143,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MyPayslipQueriesResponse"
                 }
               }
             }
@@ -73218,8 +74160,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/RaiseQueryResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RaiseQueryRequest"
               }
             }
           }
@@ -73235,7 +74187,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/OwnTaxSummaryResponse"
                 }
               }
             }

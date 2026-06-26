@@ -474,6 +474,8 @@ export const schemas = {
       proposed_basic: { type: MT, nullable: true },
       current_gross: { type: MT, nullable: true },
       proposed_gross: { type: MT, nullable: true },
+      // effective_from (@db.Date NOT NULL) + reason (String NOT NULL) are
+      // non-null columns — correctly NOT nullable here (review fix 2026-06-26).
       effective_from: { type: 'string', format: 'date' },
       status: { type: 'string', enum: REVISION_STATUS },
       reason: { type: 'string' },
@@ -1135,7 +1137,7 @@ export const schemas = {
   GeneratePayrollDataResponse: envelope('GeneratePayrollDataResult'),
   GeneratePayrollDataRequest: {
     type: 'object', additionalProperties: true,
-    description: 'Reverse-engineered from staffAdminOperationsController.generatePayrollData; not validator-backed.',
+    description: 'Reverse-engineered from POST /api/v1/staff/admin/generate-payroll-data; not validator-backed.',
     properties: {
       month: { type: 'integer' },
       year: { type: 'integer' },
@@ -1332,6 +1334,299 @@ export const schemas = {
   // endpoints return a text/csv body via res.send(), NOT a JSON envelope, so they
   // are INTENTIONALLY LEFT UNTYPED — not keyed in operations{} below. The generic
   // 200 already in openapi.json is the correct representation for a CSV body. ----
+
+  // =====================================================================
+  // SUB-DOMAIN: hr-self-service  (/api/v1/staff/hr/payroll/* — the staff's
+  // OWN payslips / advances / declarations / queries / tax-summary). PASS C
+  // (final sub-domain). Same null-free-enum + Decimal-string rules as the
+  // admin overlay above; reuses PAYSLIP_STATUS / ADVANCE_STATUS /
+  // DECLARATION_STATUS / PAYSLIP_QUERY_STATUS. ----
+  // =====================================================================
+
+  // ---- getMyPayslips GET /payroll/my-payslips item. Curated explicit SELECT
+  // (p.id..p.pf_employee, no tenant_id) → STRICT. Every money column is
+  // Decimal-from-column → string; days_present/days_absent raw int columns. ----
+  MyPayslipListItem: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'month', 'year', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+      gross_salary: { type: MT },
+      net_salary: { type: MT },
+      total_deductions: { type: MT },
+      days_present: { type: 'integer', nullable: true },
+      days_absent: { type: 'integer', nullable: true },
+      status: { type: 'string', enum: PAYSLIP_STATUS },
+      issued_at: { type: 'string', format: 'date-time', nullable: true },
+      pdf_key: { type: 'string', nullable: true },
+      basic_earned: { type: MT },
+      overtime_pay: { type: MT },
+      pf_employee: { type: MT },
+    },
+  },
+  MyPayslipListResponse: listEnvelope('MyPayslipListItem'),
+
+  // ---- getPayslipDetail GET /payroll/my-payslips/{id}. Curated explicit
+  // SELECT (no tenant_id) + JS-spread pdf_url. LIST != detail — adds 11 columns
+  // (staff_uid, payroll_run_id, the hra/da/special/.../esi/professional_tax/tds
+  // breakdown, pdf_url) and DROPS days_present/days_absent/issued_at. STRICT.
+  // gross_salary/total_deductions/net_salary read BACK from the NUMERIC column
+  // → string. ----
+  MyPayslipDetail: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'staff_uid', 'month', 'year', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid' },
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+      payroll_run_id: { type: 'integer', nullable: true },
+      basic_earned: { type: MT },
+      hra_earned: { type: MT },
+      da_earned: { type: MT },
+      special_allowance_earned: { type: MT },
+      transport_allowance_earned: { type: MT },
+      medical_allowance_earned: { type: MT },
+      overtime_pay: { type: MT },
+      gross_salary: { type: MT },
+      pf_employee: { type: MT },
+      esi_employee: { type: MT },
+      professional_tax: { type: MT },
+      tds: { type: MT },
+      total_deductions: { type: MT },
+      net_salary: { type: MT },
+      status: { type: 'string', enum: PAYSLIP_STATUS },
+      pdf_key: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      pdf_url: { type: 'string', nullable: true },
+    },
+  },
+  MyPayslipDetailResponse: envelope('MyPayslipDetail'),
+
+  // ---- getMyAdvances GET /payroll/advances item: SELECT sa.* + approved_by_name
+  // + computed balance_remaining. SELECT * → leaks tenant_id → LOOSE. TRAP:
+  // balance_remaining = (sa.amount - sa.total_deducted) computed in SQL →
+  // Decimal STRING. amount NOT NULL → required string. ----
+  OwnAdvanceItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'amount'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      amount: { type: MT },
+      reason: { type: 'string' },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      status: { type: 'string', nullable: true, enum: ADVANCE_STATUS },
+      monthly_deduction: { type: MT },
+      total_deducted: { type: MT, nullable: true },
+      months_remaining: { type: 'integer', nullable: true },
+      deduction_start_month: { type: 'integer', nullable: true },
+      deduction_start_year: { type: 'integer', nullable: true },
+      fully_cleared_at: { type: 'string', format: 'date-time', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      approved_by_name: { type: 'string', nullable: true },
+      balance_remaining: { type: MT },
+    },
+  },
+  OwnAdvancesResponse: listEnvelope('OwnAdvanceItem'),
+
+  // ---- getMyDeclarations GET /payroll/declarations item. Curated explicit
+  // SELECT (no tenant_id) + 5 SQL-computed string aggregates (section_80c,
+  // section_80d, hra_exemption, lta, other_deductions). STRICT. The 14 investment
+  // amounts are Decimal(10,2) columns → string|null; the 5 computed are
+  // SUM/COALESCE/0::numeric expressions → Decimal STRING. ----
+  MyDeclaration: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'financial_year'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      financial_year: { type: 'string' },
+      ppf: { type: MT, nullable: true },
+      epf_voluntary: { type: MT, nullable: true },
+      elss: { type: MT, nullable: true },
+      lic_premium: { type: MT, nullable: true },
+      nsc: { type: MT, nullable: true },
+      home_loan_principal: { type: MT, nullable: true },
+      tuition_fees: { type: MT, nullable: true },
+      other_80c: { type: MT, nullable: true },
+      health_insurance_self: { type: MT, nullable: true },
+      health_insurance_parents: { type: MT, nullable: true },
+      education_loan_interest: { type: MT, nullable: true },
+      rent_paid_monthly: { type: MT, nullable: true },
+      home_loan_interest: { type: MT, nullable: true },
+      nps_contribution: { type: MT, nullable: true },
+      rent_receipt_provided: { type: 'boolean', nullable: true },
+      notes: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: DECLARATION_STATUS },
+      submitted_at: { type: 'string', format: 'date-time', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      proof_submitted: { type: 'boolean', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      section_80c: { type: MT },
+      section_80d: { type: MT },
+      hra_exemption: { type: MT },
+      lta: { type: MT },
+      other_deductions: { type: MT },
+    },
+  },
+  MyDeclarationsResponse: listEnvelope('MyDeclaration'),
+
+  // ---- upsertDeclaration POST /payroll/declarations/submit via
+  // DECLARATION_SELECT. DIFFERENT from MyDeclaration: NO 5 computed aggregates,
+  // NO proof_submitted, NO tenant_id. STRICT. status='submitted' (unless an
+  // existing row was 'locked'). ----
+  SubmitDeclarationResult: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'financial_year'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      financial_year: { type: 'string' },
+      ppf: { type: MT, nullable: true },
+      epf_voluntary: { type: MT, nullable: true },
+      elss: { type: MT, nullable: true },
+      lic_premium: { type: MT, nullable: true },
+      nsc: { type: MT, nullable: true },
+      home_loan_principal: { type: MT, nullable: true },
+      tuition_fees: { type: MT, nullable: true },
+      other_80c: { type: MT, nullable: true },
+      health_insurance_self: { type: MT, nullable: true },
+      health_insurance_parents: { type: MT, nullable: true },
+      education_loan_interest: { type: MT, nullable: true },
+      rent_paid_monthly: { type: MT, nullable: true },
+      home_loan_interest: { type: MT, nullable: true },
+      nps_contribution: { type: MT, nullable: true },
+      rent_receipt_provided: { type: 'boolean', nullable: true },
+      notes: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: DECLARATION_STATUS },
+      submitted_at: { type: 'string', format: 'date-time', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  SubmitDeclarationResponse: envelope('SubmitDeclarationResult'),
+
+  // ---- getMyPayslipQueries GET /payroll/queries item: SELECT pq.* + p.month,
+  // p.year, p.net_salary(Decimal → string) + replies json_agg. SELECT * → leaks
+  // tenant_id → LOOSE. (No staff_name/employee_id here — those are admin-only.)
+  // TRAP: replies = json_agg → array OR null (NULL on empty). ----
+  MyPayslipQuery: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'staff_uid', 'subject'],
+    properties: {
+      id: { type: 'integer' },
+      payslip_id: { type: 'integer', nullable: true },
+      staff_uid: { type: 'string', format: 'uuid' },
+      subject: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: PAYSLIP_QUERY_STATUS },
+      resolved_by: { type: 'string', format: 'uuid', nullable: true },
+      resolved_at: { type: 'string', format: 'date-time', nullable: true },
+      resolution_note: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+      net_salary: { type: MT },
+      replies: { type: 'array', nullable: true, items: { $ref: '#/components/schemas/PayslipQueryReply' } },
+    },
+  },
+  MyPayslipQueriesResponse: listEnvelope('MyPayslipQuery'),
+
+  // ---- raisePayslipQuery POST /payroll/queries/raise. Curated create select
+  // (id, payslip_id, staff_uid, subject, description, category, status,
+  // created_at) → STRICT. status defaults 'open'. ----
+  RaiseQueryResult: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'staff_uid', 'subject', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      payslip_id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid' },
+      subject: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string' },
+      status: { type: 'string', enum: PAYSLIP_QUERY_STATUS },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  RaiseQueryResponse: envelope('RaiseQueryResult'),
+
+  // ---- getMyTaxSummary GET /payroll/tax-summary. THREE divergent branches:
+  //   (A) existing annual_tax_summaries row → every total_* is a Decimal column
+  //       → STRING; status is the DB column value; + pdf_url (signed | null).
+  //   (B) freshly generateAnnualTaxSummary'd → a subset object.
+  //   (C) 'unavailable' (no issued payslips) → JS NUMBER literals (total_income:0
+  //       etc) + the SYNTHETIC status const 'unavailable' (NOT a DB enum value) +
+  //       pdf_url:null.
+  // Because branches mix string (A) and number (C) for the same total_* keys and
+  // 'unavailable' is not a DB status, this is deliberately LOOSE
+  // (additionalProperties:true) with a permissive untyped status (string|null,
+  // NO enum so it accepts both 'draft'/'approved' AND 'unavailable') and the
+  // total_* fields left to additionalProperties (string|number both pass).
+  // required minimal [financial_year] (the only key present in every branch). ----
+  OwnTaxSummary: {
+    type: 'object', additionalProperties: true,
+    required: ['financial_year'],
+    properties: {
+      financial_year: { type: 'string' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      status: { type: 'string', nullable: true },
+      pdf_url: { type: 'string', nullable: true },
+    },
+  },
+  OwnTaxSummaryResponse: envelope('OwnTaxSummary'),
+
+  // ---- hr-self-service request bodies. submit-declaration HAS a destructured
+  // body with the 14 numeric amounts + rent_receipt_provided + notes (financial_year
+  // is the only required field). raise-query requires payslip_id/subject/description. ----
+  SubmitDeclarationRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['financial_year'],
+    properties: {
+      financial_year: { type: 'string' },
+      ppf: { type: 'number' },
+      epf_voluntary: { type: 'number' },
+      elss: { type: 'number' },
+      lic_premium: { type: 'number' },
+      nsc: { type: 'number' },
+      home_loan_principal: { type: 'number' },
+      tuition_fees: { type: 'number' },
+      other_80c: { type: 'number' },
+      health_insurance_self: { type: 'number' },
+      health_insurance_parents: { type: 'number' },
+      education_loan_interest: { type: 'number' },
+      rent_paid_monthly: { type: 'number' },
+      home_loan_interest: { type: 'number' },
+      nps_contribution: { type: 'number' },
+      rent_receipt_provided: { type: 'boolean' },
+      notes: { type: 'string' },
+    },
+  },
+  RaiseQueryRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['payslip_id', 'subject', 'description'],
+    properties: {
+      payslip_id: { type: 'integer' },
+      subject: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string' },
+    },
+  },
 };
 
 export const operations = {
@@ -1387,4 +1682,18 @@ export const operations = {
   // ---- statutory-exports (GET /payroll/export/{summary,pf,esi}) — INTENTIONALLY
   // NOT KEYED: these return a text/csv body via res.send(), not a JSON envelope;
   // the generic 200 in openapi.json is the correct (untyped) representation. ----
+
+  // ---- hr-self-service (/api/v1/staff/hr/payroll/*) ----
+  'GET /api/v1/staff/hr/payroll/my-payslips': { response: 'MyPayslipListResponse' },
+  'GET /api/v1/staff/hr/payroll/my-payslips/{id}': { response: 'MyPayslipDetailResponse' },
+  'GET /api/v1/staff/hr/payroll/advances': { response: 'OwnAdvancesResponse' },
+  'GET /api/v1/staff/hr/payroll/declarations': { response: 'MyDeclarationsResponse' },
+  'GET /api/v1/staff/hr/payroll/queries': { response: 'MyPayslipQueriesResponse' },
+  'GET /api/v1/staff/hr/payroll/tax-summary': { response: 'OwnTaxSummaryResponse' },
+  'POST /api/v1/staff/hr/payroll/declarations/submit': { request: 'SubmitDeclarationRequest', response: 'SubmitDeclarationResponse' },
+  'POST /api/v1/staff/hr/payroll/queries/raise': { request: 'RaiseQueryRequest', response: 'RaiseQueryResponse' },
+  // ---- GET /api/v1/staff/hr/payroll/my-payslips/{id}/download — INTENTIONALLY
+  // NOT KEYED: downloadPayslip returns a 302 redirect to a signed R2 PDF URL (no
+  // JSON body), so the generic 200 in openapi.json is the correct (untyped)
+  // representation — mirrors the 3 CSV-export endpoints above. ----
 };
