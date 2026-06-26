@@ -48,6 +48,37 @@ const CLINICAL_AI_BLOOD_COMPONENT = [
   'packed_red_cells', 'whole_blood', 'platelets', 'ffp', 'cryoprecipitate',
 ];
 
+// ---- facility-risk strict enums (T5) ------------------------------------
+// Two deterministic registry rows (NO LLM `draft`) carry hard allowlists:
+//   • clinical_ai_biomed_devices.device_type / .status — real DB CHECK
+//     constraints (migration 053_biomedical_device_maintenance.sql) AND
+//     re-validated in upsertBiomedDevice() (device_type → 400; status →
+//     normalized to 'in_service' when out of set).
+//   • clinical_ai_patient_genotypes.gene / .phenotype — NO DB CHECK, but
+//     upsertPatientGenotype() hard-rejects anything outside SUPPORTED_GENES /
+//     SUPPORTED_PHENOTYPES with a 400 BEFORE the INSERT (same allowlist
+//     contract as bloodBank's validateBloodGroup/validateComponent).
+// Mirrored here verbatim (null-free for Spectral). Every band the 8
+// EVAL/LIST/DECIDE triads surface (severity / priority_band / risk_band /
+// required_cleaning_level) is config/LLM-derived inside loose `draft` and
+// stays plain — only these registry columns are pinned.
+const CLINICAL_AI_BIOMED_DEVICE_TYPE = [
+  'ventilator', 'defibrillator', 'infusion_pump', 'ecg_monitor', 'ultrasound',
+  'x_ray', 'mri', 'ct_scanner', 'dialysis', 'anesthesia_machine', 'other',
+];
+const CLINICAL_AI_BIOMED_DEVICE_STATUS = [
+  'in_service', 'out_of_service', 'retired', 'pending_inspection', 'unknown',
+];
+const CLINICAL_AI_PGX_GENE = [
+  'CYP2D6', 'CYP2C19', 'CYP2C9', 'VKORC1', 'SLCO1B1', 'HLA_B_5701',
+  'HLA_B_1502', 'TPMT', 'DPYD', 'UGT1A1', 'G6PD',
+];
+const CLINICAL_AI_PGX_PHENOTYPE = [
+  'poor_metabolizer', 'intermediate_metabolizer', 'normal_metabolizer',
+  'rapid_metabolizer', 'ultra_rapid_metabolizer', 'positive', 'negative',
+  'deficient', 'unknown',
+];
+
 // A reusable opaque LLM/template draft (parsed object, no required keys).
 const aiDraft = { type: 'object', additionalProperties: true };
 // AI safety flag entry.
@@ -220,6 +251,155 @@ export const schemas = {
           inventory: {
             type: 'array',
             items: { $ref: '#/components/schemas/ClinicalAiBloodBankInventoryRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // =========================================================================
+  // STRICT — facility-risk (T5). TWO deterministic registry rows (NO LLM
+  // `draft`): the biomedical-device registry and the PGx patient-genotype
+  // registry. Both are pure CRUD rows whose categorical columns are pinned to
+  // DB-CHECK-grade enums (biomed) or hard service allowlists rejected with 400
+  // before INSERT (pgx gene/phenotype). The 24 EVAL/LIST/DECIDE triad ops in
+  // this sub-domain stay loose (POST evaluate/record → ClinicalAiDraftResponse;
+  // PATCH decide → ClinicalAiReviewDecisionResponse; GET lists → the per-domain
+  // count-list ClinicalAiCountListResponse): every band they surface
+  // (severity / priority_band / risk_band / required_cleaning_level) is
+  // config/LLM-derived inside loose `draft`, so it stays plain.
+  // =========================================================================
+
+  // ---- ClinicalAiBiomedDeviceRow -----------------------------------------
+  // One row of `clinical_ai_biomed_devices`, as returned by upsertBiomedDevice()
+  // RETURNING and listBiomedDevices(). device_type + status carry real DB CHECK
+  // constraints (migration 053); numeric usage_hours / fault_events_last_90d /
+  // mean_time_between_failures_hours are coerced to JS numbers (normalizeDeviceRow)
+  // before serialization. jsonb `metadata` → object (never string).
+  ClinicalAiBiomedDeviceRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'device_code', 'device_type', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      device_code: { type: 'string' },
+      device_type: { type: 'string', enum: CLINICAL_AI_BIOMED_DEVICE_TYPE },
+      manufacturer: { type: 'string', nullable: true },
+      model: { type: 'string', nullable: true },
+      serial_number: { type: 'string', nullable: true },
+      location: { type: 'string', nullable: true },
+      installed_at: { type: 'string', format: 'date', nullable: true },
+      warranty_expires_on: { type: 'string', format: 'date', nullable: true },
+      last_preventive_maintenance_at: { type: 'string', format: 'date-time', nullable: true },
+      next_scheduled_maintenance_at: { type: 'string', format: 'date-time', nullable: true },
+      usage_hours: { type: 'number' },
+      fault_events_last_90d: { type: 'integer' },
+      mean_time_between_failures_hours: { type: 'number', nullable: true },
+      status: { type: 'string', enum: CLINICAL_AI_BIOMED_DEVICE_STATUS },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /biomed-devices → { success, message, data: <row | null> } (201).
+  // upsert returns null when the device table is absent (missing-schema graceful
+  // degrade), so `data` is nullable.
+  ClinicalAiBiomedDeviceResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/ClinicalAiBiomedDeviceRow' }],
+      },
+    },
+  },
+
+  // GET /biomed-devices → { success, message, data: { devices:[row], count } }.
+  ClinicalAiBiomedDeviceListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['devices', 'count'],
+        properties: {
+          devices: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiBiomedDeviceRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiPgxGenotypeRow ------------------------------------------
+  // One row of `clinical_ai_patient_genotypes`, as returned by
+  // upsertPatientGenotype() RETURNING and listPatientGenotypes(). gene +
+  // phenotype have NO DB CHECK but are hard-validated against SUPPORTED_GENES /
+  // SUPPORTED_PHENOTYPES with a 400 before the INSERT, so they are genuinely
+  // enumerable. jsonb `metadata` → object (never string).
+  ClinicalAiPgxGenotypeRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'patient_uid', 'gene', 'phenotype'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      gene: { type: 'string', enum: CLINICAL_AI_PGX_GENE },
+      phenotype: { type: 'string', enum: CLINICAL_AI_PGX_PHENOTYPE },
+      genotype_detail: { type: 'string', nullable: true },
+      source: { type: 'string', nullable: true },
+      source_report_id: { type: 'string', nullable: true },
+      tested_at: { type: 'string', format: 'date', nullable: true },
+      verified: { type: 'boolean' },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /pgx/genotypes → { success, message, data: <row | null> } (201).
+  // upsert returns null when the genotype table is absent (missing-schema
+  // graceful degrade), so `data` is nullable.
+  ClinicalAiPgxGenotypeResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/ClinicalAiPgxGenotypeRow' }],
+      },
+    },
+  },
+
+  // GET /pgx/genotypes → { success, message, data: { genotypes:[row], count } }.
+  ClinicalAiPgxGenotypeListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['genotypes', 'count'],
+        properties: {
+          genotypes: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiPgxGenotypeRow' },
           },
           count: { type: 'integer', example: 0 },
         },
@@ -466,6 +646,74 @@ const CONTROL_OPS = [
   ['POST /obstetric-risk/evaluate', { response: 'ClinicalAiDraftResponse' }],
   ['GET /obstetric-risk/assessments', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /obstetric-risk/assessments/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // facility-risk (facilityRiskRoutes.js) — 28 ops. Eight independent
+  // EVAL/LIST/DECIDE triads (housekeeping bed-turnover, biomed-device
+  // maintenance, cybersecurity anomaly, pharmacogenomics advisory, radiology
+  // report-QA, radiology worklist, OT-block scheduling, inventory intelligence)
+  // PLUS two deterministic registry CRUD pairs (biomed-device registry, PGx
+  // patient-genotype registry).
+  //
+  // Typing (per scout r3 + ground-truth route file): each triad is the standard
+  // generate/record/evaluate (POST → loose draft envelope, ClinicalAiDraftResponse,
+  // 201) + list (GET `{ <rows[]>, count }` → ClinicalAiCountListResponse) +
+  // decide (PATCH `{ decision, note? }` → updated review row,
+  // ClinicalAiReviewDecisionResponse). Every band these surface (severity /
+  // priority_band / risk_band / required_cleaning_level / advisory_category) is
+  // config/LLM-derived inside loose `draft`, so they stay loose — even where a
+  // prediction-table column (e.g. biomed-maintenance risk_band) carries a DB
+  // CHECK, the LIST/DECIDE governance rows fold into the shared loose family
+  // (matches the T4 prediction-triad precedent). The STRICT ops are the two
+  // registry pairs: pure deterministic rows with real allowlists (biomed
+  // device_type/status = DB CHECK; pgx gene/phenotype = service-validated → 400)
+  // → the ClinicalAiBiomedDevice* / ClinicalAiPgxGenotype* schemas above.
+  // Control-only (no /clinical-ai/clinical mount for any of these).
+  // -------------------------------------------------------------------------
+
+  // ---- Housekeeping / bed turnover optimizer ----
+  ['POST /bed-turnover/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /bed-turnover/predictions', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /bed-turnover/predictions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Biomed device maintenance — STRICT registry (upsert + list) + loose predict triad ----
+  ['POST /biomed-devices', { response: 'ClinicalAiBiomedDeviceResponse' }],
+  ['GET /biomed-devices', { response: 'ClinicalAiBiomedDeviceListResponse' }],
+  ['POST /biomed-devices/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /biomed-devices/predictions', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /biomed-devices/predictions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Cybersecurity anomaly detector ----
+  ['POST /security-anomalies/record', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /security-anomalies', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /security-anomalies/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Pharmacogenomics — STRICT genotype registry (upsert + list) + loose advisory triad ----
+  ['POST /pgx/genotypes', { response: 'ClinicalAiPgxGenotypeResponse' }],
+  ['GET /pgx/genotypes', { response: 'ClinicalAiPgxGenotypeListResponse' }],
+  ['POST /pgx/advisories/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /pgx/advisories', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /pgx/advisories/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Radiology Report QA / discrepancy assistant ----
+  ['POST /radiology/report-qa/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /radiology/report-qa', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /radiology/report-qa/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Radiology worklist prioritizer ----
+  ['POST /radiology/worklist/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /radiology/worklist', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /radiology/worklist/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- OT block scheduling optimizer ----
+  ['POST /ot/blocks/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /ot/blocks', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /ot/blocks/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Inventory intelligence (non-pharmacy) ----
+  ['POST /inventory/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /inventory/alerts', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /inventory/alerts/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
 ];
 const CLINICAL_OPS = [];
 

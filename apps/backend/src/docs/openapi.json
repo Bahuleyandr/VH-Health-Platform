@@ -4667,6 +4667,175 @@
           }
         }
       },
+      "ClinicalAiBiomedDeviceListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "devices",
+              "count"
+            ],
+            "properties": {
+              "devices": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiBiomedDeviceRow"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiBiomedDeviceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClinicalAiBiomedDeviceRow"
+              }
+            ]
+          }
+        }
+      },
+      "ClinicalAiBiomedDeviceRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "device_code",
+          "device_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "device_code": {
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string",
+            "enum": [
+              "ventilator",
+              "defibrillator",
+              "infusion_pump",
+              "ecg_monitor",
+              "ultrasound",
+              "x_ray",
+              "mri",
+              "ct_scanner",
+              "dialysis",
+              "anesthesia_machine",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "serial_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "string",
+            "nullable": true
+          },
+          "installed_at": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "warranty_expires_on": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "last_preventive_maintenance_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "next_scheduled_maintenance_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "usage_hours": {
+            "type": "number"
+          },
+          "fault_events_last_90d": {
+            "type": "integer"
+          },
+          "mean_time_between_failures_hours": {
+            "type": "number",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_service",
+              "out_of_service",
+              "retired",
+              "pending_inspection",
+              "unknown"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "ClinicalAiBloodBankInventoryListResponse": {
         "type": "object",
         "required": [
@@ -5001,6 +5170,154 @@
           },
           "data": {
             "$ref": "#/components/schemas/ClinicalAiDraftEnvelope"
+          }
+        }
+      },
+      "ClinicalAiPgxGenotypeListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "genotypes",
+              "count"
+            ],
+            "properties": {
+              "genotypes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiPgxGenotypeRow"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiPgxGenotypeResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClinicalAiPgxGenotypeRow"
+              }
+            ]
+          }
+        }
+      },
+      "ClinicalAiPgxGenotypeRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "patient_uid",
+          "gene",
+          "phenotype"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "gene": {
+            "type": "string",
+            "enum": [
+              "CYP2D6",
+              "CYP2C19",
+              "CYP2C9",
+              "VKORC1",
+              "SLCO1B1",
+              "HLA_B_5701",
+              "HLA_B_1502",
+              "TPMT",
+              "DPYD",
+              "UGT1A1",
+              "G6PD"
+            ]
+          },
+          "phenotype": {
+            "type": "string",
+            "enum": [
+              "poor_metabolizer",
+              "intermediate_metabolizer",
+              "normal_metabolizer",
+              "rapid_metabolizer",
+              "ultra_rapid_metabolizer",
+              "positive",
+              "negative",
+              "deficient",
+              "unknown"
+            ]
+          },
+          "genotype_detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_report_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "tested_at": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -24847,7 +25164,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -24864,7 +25181,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -24881,7 +25198,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -24908,7 +25225,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiBiomedDeviceListResponse"
                 }
               }
             }
@@ -24923,7 +25240,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiBiomedDeviceResponse"
                 }
               }
             }
@@ -24940,7 +25257,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -24957,7 +25274,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -24974,7 +25291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -26754,7 +27071,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -26771,7 +27088,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -26798,7 +27115,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -28358,7 +28675,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -28375,7 +28692,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -28392,7 +28709,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -28797,7 +29114,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -28814,7 +29131,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -28831,7 +29148,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -28858,7 +29175,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiPgxGenotypeListResponse"
                 }
               }
             }
@@ -28873,7 +29190,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiPgxGenotypeResponse"
                 }
               }
             }
@@ -29701,7 +30018,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -29718,7 +30035,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -29735,7 +30052,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -29762,7 +30079,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -29779,7 +30096,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -29796,7 +30113,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -30347,7 +30664,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -30364,7 +30681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -30381,7 +30698,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -45059,7 +45376,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -45076,7 +45393,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -45093,7 +45410,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -45120,7 +45437,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiBiomedDeviceListResponse"
                 }
               }
             }
@@ -45135,7 +45452,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiBiomedDeviceResponse"
                 }
               }
             }
@@ -45152,7 +45469,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -45169,7 +45486,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -45186,7 +45503,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -46966,7 +47283,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -46983,7 +47300,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -47010,7 +47327,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -48570,7 +48887,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -48587,7 +48904,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -48604,7 +48921,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -49009,7 +49326,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -49026,7 +49343,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -49043,7 +49360,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -49070,7 +49387,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiPgxGenotypeListResponse"
                 }
               }
             }
@@ -49085,7 +49402,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiPgxGenotypeResponse"
                 }
               }
             }
@@ -49913,7 +50230,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -49930,7 +50247,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -49947,7 +50264,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -49974,7 +50291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -49991,7 +50308,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -50008,7 +50325,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -50559,7 +50876,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -50576,7 +50893,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -50593,7 +50910,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
