@@ -4566,6 +4566,320 @@
       "ClinicalAiConfigData": {
         "$ref": "#/components/schemas/ClinicalAiConfig"
       },
+      "ClinicalCoding": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "system_key",
+          "code"
+        ],
+        "properties": {
+          "system_key": {
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "display": {
+            "type": "string",
+            "nullable": true
+          },
+          "release_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "language": {
+            "type": "string",
+            "nullable": true
+          },
+          "linearization_uri": {
+            "type": "string",
+            "nullable": true
+          },
+          "foundation_uri": {
+            "type": "string",
+            "nullable": true
+          },
+          "coding_role": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "who_icd_api",
+              "fhir_import",
+              "legacy",
+              "system"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ClinicalNote": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid",
+          "note_type",
+          "content",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "author_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "note_type": {
+            "type": "string",
+            "enum": [
+              "soap",
+              "progress",
+              "procedure",
+              "discharge",
+              "nursing_assessment",
+              "consultation_note",
+              "op_consultation",
+              "admission_note",
+              "er_note",
+              "transfer_note"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "version": {
+            "type": "integer"
+          },
+          "parent_note_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_addendum": {
+            "type": "boolean"
+          },
+          "is_signed": {
+            "type": "boolean"
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "signed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalNoteData": {
+        "$ref": "#/components/schemas/ClinicalNote"
+      },
+      "ClinicalNoteDetail": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid",
+          "note_type",
+          "content",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "appointment_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "author_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "note_type": {
+            "type": "string",
+            "enum": [
+              "soap",
+              "progress",
+              "procedure",
+              "discharge",
+              "nursing_assessment",
+              "consultation_note",
+              "op_consultation",
+              "admission_note",
+              "er_note",
+              "transfer_note"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "version": {
+            "type": "integer"
+          },
+          "parent_note_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "is_addendum": {
+            "type": "boolean"
+          },
+          "is_signed": {
+            "type": "boolean"
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "signed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "version_history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalNoteVersion"
+            }
+          }
+        }
+      },
+      "ClinicalNoteDetailData": {
+        "$ref": "#/components/schemas/ClinicalNoteDetail"
+      },
+      "ClinicalNoteVersion": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "content",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "author_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "author_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "version": {
+            "type": "integer"
+          },
+          "is_addendum": {
+            "type": "boolean"
+          },
+          "is_signed": {
+            "type": "boolean"
+          },
+          "signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "signed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "CloseDrawerRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -5903,6 +6217,109 @@
           }
         }
       },
+      "DiagnosisWithCodings": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid",
+          "description",
+          "diagnosis_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "icd10_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "icd10_description": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "diagnosis_type": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary",
+              "admitting",
+              "discharge"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "resolved",
+              "chronic",
+              "recurrent"
+            ]
+          },
+          "onset_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "resolved_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "severity": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "mild",
+              "moderate",
+              "severe"
+            ]
+          },
+          "diagnosed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "codings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalCoding"
+            }
+          }
+        }
+      },
+      "DiagnosisWithCodingsData": {
+        "$ref": "#/components/schemas/DiagnosisWithCodings"
+      },
       "DischargeConsultRow": {
         "type": "object",
         "additionalProperties": false,
@@ -7176,6 +7593,10 @@
           }
         }
       },
+      "EmrAddendumRequest": {
+        "type": "object",
+        "additionalProperties": true
+      },
       "EmrAdmissionDetailResponse": {
         "type": "object",
         "required": [
@@ -7483,6 +7904,70 @@
           }
         }
       },
+      "EmrClinicalNoteDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalNoteDetailData"
+          }
+        }
+      },
+      "EmrClinicalNoteListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalNote"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrClinicalNoteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalNoteData"
+          }
+        }
+      },
       "EmrCodeStatusRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -7545,6 +8030,169 @@
           },
           "data": {
             "$ref": "#/components/schemas/ConsultCompleteData"
+          }
+        }
+      },
+      "EmrCreateDiagnosisRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "diagnosis_type": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary",
+              "admitting",
+              "discharge"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "resolved",
+              "chronic",
+              "recurrent"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "mild",
+              "moderate",
+              "severe"
+            ]
+          },
+          "icd10_code": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrCreateNoteRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "note_type": {
+            "type": "string",
+            "enum": [
+              "soap",
+              "progress",
+              "procedure",
+              "discharge",
+              "nursing_assessment",
+              "consultation_note",
+              "op_consultation",
+              "admission_note",
+              "er_note",
+              "transfer_note"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "soap",
+              "progress",
+              "procedure",
+              "discharge",
+              "nursing_assessment",
+              "consultation_note",
+              "op_consultation",
+              "admission_note",
+              "er_note",
+              "transfer_note"
+            ]
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrDiagnosisListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisWithCodings"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrDiagnosisResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DiagnosisWithCodingsData"
+          }
+        }
+      },
+      "EmrDiagnosisStatusRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "resolved",
+              "chronic",
+              "recurrent"
+            ]
           }
         }
       },
@@ -7886,6 +8534,32 @@
           }
         }
       },
+      "EmrIcd10SearchResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Icd10Row"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "EmrLongitudinalRiskRequest": {
         "type": "object",
         "additionalProperties": true
@@ -7959,6 +8633,67 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "EmrNoteDraftDeleteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NoteDraftDeleteData"
+          }
+        }
+      },
+      "EmrNoteDraftResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NoteDraftData"
+          }
+        }
+      },
+      "EmrNoteDraftUpsertRequest": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "EmrNoteDraftUpsertResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NoteDraftUpsertData"
           }
         }
       },
@@ -8157,6 +8892,10 @@
             "$ref": "#/components/schemas/TranslationsListData"
           }
         }
+      },
+      "EmrUpdateNoteRequest": {
+        "type": "object",
+        "additionalProperties": true
       },
       "EmrWardOptionsResponse": {
         "type": "object",
@@ -8894,6 +9633,33 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "Icd10Row": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "code",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean"
           }
         }
       },
@@ -11543,6 +12309,76 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "NoteDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "content",
+          "updated_at",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NoteDraftData": {
+        "nullable": true,
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NoteDraft"
+          }
+        ]
+      },
+      "NoteDraftDeleteData": {
+        "$ref": "#/components/schemas/NoteDraftDeleteResult"
+      },
+      "NoteDraftDeleteResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "integer"
+          }
+        }
+      },
+      "NoteDraftUpsertData": {
+        "$ref": "#/components/schemas/NoteDraftUpsertResult"
+      },
+      "NoteDraftUpsertResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -54415,8 +55251,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrDiagnosisResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCreateDiagnosisRequest"
               }
             }
           }
@@ -54432,7 +55278,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrDiagnosisListResponse"
                 }
               }
             }
@@ -54459,7 +55305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrDiagnosisListResponse"
                 }
               }
             }
@@ -54486,7 +55332,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrDiagnosisListResponse"
                 }
               }
             }
@@ -54513,7 +55359,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrDiagnosisResponse"
                 }
               }
             }
@@ -54528,7 +55374,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrDiagnosisStatusRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/discharge-hub": {
@@ -54631,7 +55487,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrIcd10SearchResponse"
                 }
               }
             }
@@ -55286,8 +56142,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCreateNoteRequest"
               }
             }
           }
@@ -55303,7 +56169,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrNoteDraftDeleteResponse"
                 }
               }
             }
@@ -55318,7 +56184,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrNoteDraftResponse"
                 }
               }
             }
@@ -55333,8 +56199,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrNoteDraftUpsertResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrNoteDraftUpsertRequest"
               }
             }
           }
@@ -55350,7 +56226,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteListResponse"
                 }
               }
             }
@@ -55377,7 +56253,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteListResponse"
                 }
               }
             }
@@ -55404,7 +56280,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteDetailResponse"
                 }
               }
             }
@@ -55429,7 +56305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteResponse"
                 }
               }
             }
@@ -55444,7 +56320,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrUpdateNoteRequest"
+              }
+            }
+          }
+        }
       },
       "put": {
         "operationId": "put_api_v1_emr_notes_by_id",
@@ -55454,7 +56340,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteResponse"
                 }
               }
             }
@@ -55469,7 +56355,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrUpdateNoteRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/notes/{id}/addendum": {
@@ -55481,7 +56377,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteResponse"
                 }
               }
             }
@@ -55496,7 +56392,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrAddendumRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/notes/{id}/sign": {
@@ -55508,7 +56414,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalNoteResponse"
                 }
               }
             }

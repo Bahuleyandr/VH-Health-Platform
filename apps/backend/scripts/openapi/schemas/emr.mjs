@@ -79,6 +79,25 @@ const CLINICAL_AI_PROVIDER = ['template', 'ollama', 'openai-compatible', 'openai
 // elsewhere so a future state can't break the contract — the field is typed
 // {type:'string'} on the row, not enum-bound).
 
+// ---------------------------------------------------------------------------
+// notes-diagnosis sub-domain enums (null-free; EXACT casing from
+// clinicalNotesService.js VALID_NOTE_TYPES / diagnosisService.js /
+// clinicalCodeBindingService.js). All app-layer-validated VARCHAR (no DB CHECK).
+// ---------------------------------------------------------------------------
+// clinical_notes.note_type — VALID_NOTE_TYPES (clinicalNotesService lines 28-39).
+const NOTE_TYPE = [
+  'soap', 'progress', 'procedure', 'discharge', 'nursing_assessment',
+  'consultation_note', 'op_consultation', 'admission_note', 'er_note', 'transfer_note',
+];
+// diagnoses.diagnosis_type (default 'secondary').
+const DIAGNOSIS_TYPE = ['primary', 'secondary', 'admitting', 'discharge'];
+// diagnoses.status (default 'active').
+const DIAGNOSIS_STATUS = ['active', 'resolved', 'chronic', 'recurrent'];
+// diagnoses.severity (nullable).
+const DIAGNOSIS_SEVERITY = ['mild', 'moderate', 'severe'];
+// clinical coding source (clinicalCodeBindingService.normalizeClinicalCodings).
+const CODING_SOURCE = ['manual', 'who_icd_api', 'fhir_import', 'legacy', 'system'];
+
 // A reusable opaque-jsonb schema (parsed object, never string).
 const looseObject = { type: 'object', additionalProperties: true };
 // A reusable opaque LLM/template draft (no required keys).
@@ -1342,6 +1361,279 @@ export const schemas = {
       transcript_segments: { type: 'array', items: { type: 'object', additionalProperties: true } },
     },
   },
+
+  // =========================================================================
+  // notes-diagnosis sub-domain — shared schemas
+  // (clinicalNotesRoutes.js + diagnosisRoutes.js — EMR-only mount, NOT aliased
+  // to /api/v1/admissions. Every response wraps via success(res,data,…). jsonb
+  // columns → parsed objects, never string.)
+  // =========================================================================
+
+  // ---- ClinicalNote ------------------------------------------------------
+  // NOTE_SELECT row + author_name (always appended by attachAuthorNames). Used by
+  // POST /notes, addendum, sign, PUT/PATCH, encounter LIST, patient LIST. `content`
+  // is a typed-by-note_type jsonb object that varies per type → LOOSE object (do
+  // NOT enumerate). LIST == detail minus version_history.
+  ClinicalNote: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'patient_uid', 'note_type', 'content', 'version'],
+    properties: {
+      id: { type: 'integer' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      appointment_id: { type: 'integer', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      author_uid: { type: 'string', format: 'uuid', nullable: true },
+      author_role: { type: 'string', nullable: true },
+      note_type: { type: 'string', enum: NOTE_TYPE },
+      title: { type: 'string', nullable: true },
+      content: { type: 'object', additionalProperties: true },
+      version: { type: 'integer' },
+      parent_note_id: { type: 'integer', nullable: true },
+      is_addendum: { type: 'boolean' },
+      is_signed: { type: 'boolean' },
+      signed_at: { type: 'string', format: 'date-time', nullable: true },
+      signed_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      author_name: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- ClinicalNoteVersion -----------------------------------------------
+  // version_history[] element — reduced VERSION_HISTORY_SELECT projection (no
+  // encounter/title/appointment) + author_name. content jsonb → object. LOOSE.
+  ClinicalNoteVersion: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'content', 'version'],
+    properties: {
+      id: { type: 'integer' },
+      author_uid: { type: 'string', format: 'uuid', nullable: true },
+      author_role: { type: 'string', nullable: true },
+      content: { type: 'object', additionalProperties: true },
+      version: { type: 'integer' },
+      is_addendum: { type: 'boolean' },
+      is_signed: { type: 'boolean' },
+      signed_at: { type: 'string', format: 'date-time', nullable: true },
+      signed_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      author_name: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- ClinicalNoteDetail ------------------------------------------------
+  // GET /notes/{id} = ClinicalNote + version_history: ClinicalNoteVersion[]. LOOSE.
+  ClinicalNoteDetail: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'patient_uid', 'note_type', 'content', 'version'],
+    properties: {
+      id: { type: 'integer' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      appointment_id: { type: 'integer', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      author_uid: { type: 'string', format: 'uuid', nullable: true },
+      author_role: { type: 'string', nullable: true },
+      note_type: { type: 'string', enum: NOTE_TYPE },
+      title: { type: 'string', nullable: true },
+      content: { type: 'object', additionalProperties: true },
+      version: { type: 'integer' },
+      parent_note_id: { type: 'integer', nullable: true },
+      is_addendum: { type: 'boolean' },
+      is_signed: { type: 'boolean' },
+      signed_at: { type: 'string', format: 'date-time', nullable: true },
+      signed_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      author_name: { type: 'string', nullable: true },
+      version_history: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalNoteVersion' },
+      },
+    },
+  },
+
+  // ---- NoteDraft ---------------------------------------------------------
+  // GET /notes/draft — own draft OR null (nullable data; message switches). content
+  // jsonb → object. STRICT shell, content loose.
+  NoteDraft: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'content', 'updated_at', 'expires_at'],
+    properties: {
+      id: { type: 'integer' },
+      content: { type: 'object', additionalProperties: true },
+      updated_at: { type: 'string', format: 'date-time' },
+      expires_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  // ---- NoteDraftUpsertResult ---------------------------------------------
+  // PUT /notes/draft (upsert) → { id, updated_at } (RETURNING). STRICT.
+  NoteDraftUpsertResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'updated_at'],
+    properties: {
+      id: { type: 'integer' },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  // ---- NoteDraftDeleteResult ---------------------------------------------
+  // DELETE /notes/draft → { removed: int } (rows deleted). STRICT.
+  NoteDraftDeleteResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['removed'],
+    properties: {
+      removed: { type: 'integer' },
+    },
+  },
+
+  // ---- ClinicalCoding ----------------------------------------------------
+  // diagnosis codings[] element (clinicalCodeBindingService.normalizeClinicalCodings).
+  // metadata jsonb → object. LOOSE (carries normalized coding columns).
+  ClinicalCoding: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['system_key', 'code'],
+    properties: {
+      system_key: { type: 'string' },
+      system: { type: 'string' },
+      code: { type: 'string' },
+      display: { type: 'string', nullable: true },
+      release_id: { type: 'string', nullable: true },
+      language: { type: 'string', nullable: true },
+      linearization_uri: { type: 'string', nullable: true },
+      foundation_uri: { type: 'string', nullable: true },
+      coding_role: { type: 'string' },
+      source: { type: 'string', enum: CODING_SOURCE },
+      metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+
+  // ---- DiagnosisWithCodings ----------------------------------------------
+  // DIAGNOSIS_SELECT row + codings: ClinicalCoding[]. Used by ALL diagnosis
+  // create/status/LIST ops (SAME projection — detail == list). onset_date/
+  // resolved_date are date-only strings. LOOSE — carries DB columns.
+  DiagnosisWithCodings: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'patient_uid', 'description', 'diagnosis_type', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      icd10_code: { type: 'string', nullable: true },
+      icd10_description: { type: 'string', nullable: true },
+      description: { type: 'string' },
+      diagnosis_type: { type: 'string', enum: DIAGNOSIS_TYPE },
+      status: { type: 'string', enum: DIAGNOSIS_STATUS },
+      onset_date: { type: 'string', format: 'date', nullable: true },
+      resolved_date: { type: 'string', format: 'date', nullable: true },
+      severity: { type: 'string', nullable: true, enum: DIAGNOSIS_SEVERITY },
+      diagnosed_by: { type: 'string', format: 'uuid', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      codings: { type: 'array', items: { $ref: '#/components/schemas/ClinicalCoding' } },
+    },
+  },
+
+  // ---- Icd10Row ----------------------------------------------------------
+  // GET /icd10/search items (icd10_codes select: id,code,description,category,
+  // is_active). No PHI. STRICT.
+  Icd10Row: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'code', 'description'],
+    properties: {
+      id: { type: 'integer' },
+      code: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string', nullable: true },
+      is_active: { type: 'boolean' },
+    },
+  },
+
+  // =========================================================================
+  // notes-diagnosis — per-endpoint `data` payloads / bare refs
+  // =========================================================================
+
+  // POST/PUT/PATCH/sign/addendum /notes → ClinicalNote directly (data IS the note).
+  ClinicalNoteData: { $ref: '#/components/schemas/ClinicalNote' },
+  // GET /notes/{id} → ClinicalNoteDetail (+ version_history).
+  ClinicalNoteDetailData: { $ref: '#/components/schemas/ClinicalNoteDetail' },
+  // GET /notes/draft → NoteDraft OR null (nullable data).
+  NoteDraftData: { nullable: true, allOf: [{ $ref: '#/components/schemas/NoteDraft' }] },
+  // PUT /notes/draft → NoteDraftUpsertResult.
+  NoteDraftUpsertData: { $ref: '#/components/schemas/NoteDraftUpsertResult' },
+  // DELETE /notes/draft → NoteDraftDeleteResult.
+  NoteDraftDeleteData: { $ref: '#/components/schemas/NoteDraftDeleteResult' },
+  // POST/PUT diagnosis (single) → DiagnosisWithCodings directly.
+  DiagnosisWithCodingsData: { $ref: '#/components/schemas/DiagnosisWithCodings' },
+
+  // =========================================================================
+  // notes-diagnosis — response envelopes
+  // =========================================================================
+  // Single-note ops (data = ClinicalNote).
+  EmrClinicalNoteResponse: envelope('ClinicalNoteData'),
+  // Note detail (data = ClinicalNoteDetail).
+  EmrClinicalNoteDetailResponse: envelope('ClinicalNoteDetailData'),
+  // Note LIST (encounter + patient) — data is a bare ClinicalNote[] (pagination
+  // lives in meta / meta.pagination — typed loosely by listEnvelope's meta).
+  EmrClinicalNoteListResponse: listEnvelope('ClinicalNote'),
+  // Drafts.
+  EmrNoteDraftResponse: envelope('NoteDraftData'),
+  EmrNoteDraftUpsertResponse: envelope('NoteDraftUpsertData'),
+  EmrNoteDraftDeleteResponse: envelope('NoteDraftDeleteData'),
+  // Diagnosis single ops (data = DiagnosisWithCodings).
+  EmrDiagnosisResponse: envelope('DiagnosisWithCodingsData'),
+  // Diagnosis LIST (encounter / problem-list / history) — bare DiagnosisWithCodings[].
+  EmrDiagnosisListResponse: listEnvelope('DiagnosisWithCodings'),
+  // ICD-10 search — bare Icd10Row[].
+  EmrIcd10SearchResponse: listEnvelope('Icd10Row'),
+
+  // =========================================================================
+  // notes-diagnosis — request bodies (LOOSE; controllers normalize raw intake).
+  // =========================================================================
+  // CreateNoteRequest — note_type|type + content|note|body|text (normalizeNotePayload).
+  EmrCreateNoteRequest: {
+    type: 'object', additionalProperties: true,
+    properties: {
+      note_type: { type: 'string', enum: NOTE_TYPE },
+      type: { type: 'string', enum: NOTE_TYPE },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'string', format: 'uuid' },
+      title: { type: 'string' },
+      content: { type: 'object', additionalProperties: true },
+    },
+  },
+  EmrUpdateNoteRequest: looseObject,
+  EmrAddendumRequest: looseObject,
+  // CreateDiagnosisRequest — description required; diagnosis_type/icd10_code optional.
+  EmrCreateDiagnosisRequest: {
+    type: 'object', additionalProperties: true, required: ['description'],
+    properties: {
+      description: { type: 'string' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'string', format: 'uuid' },
+      diagnosis_type: { type: 'string', enum: DIAGNOSIS_TYPE },
+      status: { type: 'string', enum: DIAGNOSIS_STATUS },
+      severity: { type: 'string', enum: DIAGNOSIS_SEVERITY },
+      icd10_code: { type: 'string' },
+    },
+  },
+  // DiagnosisStatusRequest — status enum.
+  EmrDiagnosisStatusRequest: {
+    type: 'object', additionalProperties: true, required: ['status'],
+    properties: { status: { type: 'string', enum: DIAGNOSIS_STATUS } },
+  },
+  // NoteDraftUpsertRequest — loose content payload.
+  EmrNoteDraftUpsertRequest: looseObject,
 };
 
 // ---------------------------------------------------------------------------
@@ -1432,6 +1724,36 @@ const OPS = [
 // mounted admissionRoutes.js, so the /api/v1/admissions alias has no such path).
 const EMR_ONLY_OPS = [
   ['POST /downtime-snapshot/{patientUid}', { request: 'EmrDowntimeSnapshotRequest', response: 'EmrDowntimeSnapshotResponse' }],
+
+  // -------------------------------------------------------------------------
+  // notes-diagnosis sub-domain (clinicalNotesRoutes.js + diagnosisRoutes.js —
+  // EMR-only mount, NOT aliased to /api/v1/admissions). 18 ops.
+  // NOTE: the static /notes/draft path is declared BEFORE /notes/{id} so the
+  // spec's literal-vs-param ordering matches the router; both still emit.
+  // -------------------------------------------------------------------------
+  // Clinical notes — drafts (static path; data nullable on GET).
+  ['GET /notes/draft', { response: 'EmrNoteDraftResponse' }],
+  ['PUT /notes/draft', { request: 'EmrNoteDraftUpsertRequest', response: 'EmrNoteDraftUpsertResponse' }],
+  ['DELETE /notes/draft', { response: 'EmrNoteDraftDeleteResponse' }],
+  // Clinical notes — create / detail / update / addendum / sign.
+  ['POST /notes', { request: 'EmrCreateNoteRequest', response: 'EmrClinicalNoteResponse' }],
+  ['GET /notes/{id}', { response: 'EmrClinicalNoteDetailResponse' }],
+  ['PUT /notes/{id}', { request: 'EmrUpdateNoteRequest', response: 'EmrClinicalNoteResponse' }],
+  ['PATCH /notes/{id}', { request: 'EmrUpdateNoteRequest', response: 'EmrClinicalNoteResponse' }],
+  ['POST /notes/{id}/addendum', { request: 'EmrAddendumRequest', response: 'EmrClinicalNoteResponse' }],
+  ['POST /notes/{id}/sign', { response: 'EmrClinicalNoteResponse' }],
+  // Clinical notes — LIST (encounter / patient). Bare ClinicalNote[] (+ meta).
+  ['GET /notes/encounter/{encounterId}', { response: 'EmrClinicalNoteListResponse' }],
+  ['GET /notes/patient/{uid}', { response: 'EmrClinicalNoteListResponse' }],
+  // Diagnosis — create / status (single DiagnosisWithCodings).
+  ['POST /diagnosis', { request: 'EmrCreateDiagnosisRequest', response: 'EmrDiagnosisResponse' }],
+  ['PUT /diagnosis/{id}/status', { request: 'EmrDiagnosisStatusRequest', response: 'EmrDiagnosisResponse' }],
+  // Diagnosis — LIST (encounter / problem-list / history). Bare DiagnosisWithCodings[].
+  ['GET /diagnosis/encounter/{encounterId}', { response: 'EmrDiagnosisListResponse' }],
+  ['GET /diagnosis/patient/{uid}', { response: 'EmrDiagnosisListResponse' }],
+  ['GET /diagnosis/patient/{uid}/history', { response: 'EmrDiagnosisListResponse' }],
+  // ICD-10 search — bare Icd10Row[] (no PHI). STRICT items.
+  ['GET /icd10/search', { response: 'EmrIcd10SearchResponse' }],
 ];
 
 const PREFIXES = ['/api/v1/emr', '/api/v1/admissions'];
