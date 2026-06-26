@@ -674,6 +674,211 @@ export const schemas = {
       },
     },
   },
+
+  // =========================================================================
+  // STRICT — governance (T8). Three of the 46 governance ops surface REAL
+  // fixed-column table rows from explicit projection SELECTs (verified against
+  // the route handlers + service queries): GET /audit, GET /generations, and
+  // GET /safety-flags. Each gets a strict Row + a strict count-list response.
+  //
+  // The OTHER 43 governance ops return computed/merged config objects (modules /
+  // tenant-modules / guardrails / status / governance-report / packs / signoffs)
+  // or shared `{ <named>, count }` list blobs whose enumerable values are
+  // config/heuristic/jsonb-derived with NO DB CHECK — so they fold into the
+  // shared loose families (ClinicalAiCountListResponse for the `{<named>,count}`
+  // lists; the new ClinicalAiGovernanceObjectResponse for the single-object /
+  // report / pack returns). Pinned-enum discipline: `clinical_ai_generations`
+  // and `audit_logs` have NO DB CHECK on status/task_type/action — plain
+  // strings. `generation_mode`/`provider_status`/`fallback_reason`/
+  // `readiness_reason` are `COALESCE(metadata->>'…', CASE …)` projections: the
+  // CASE branch is closed but the jsonb override can be any string, so they stay
+  // plain (nullable) strings, NOT enums. `safety-flags.severity` is a
+  // jsonb-extracted (`flag->>'severity'`) value — could be any string — so it
+  // too stays a plain nullable string. jsonb columns serialize to objects/arrays
+  // (never strings): metadata → object; safety_flags → array.
+  // =========================================================================
+
+  // ---- ClinicalAiGovernanceObjectResponse --------------------------------
+  // The shared LOOSE single-object governance response. `data` is a typed-
+  // envelope-wrapped opaque object (additionalProperties:true, no required
+  // keys) covering every non-list governance return: runtime status, single
+  // module/tenant-module/guardrail/prompt/review/approval/break-glass/
+  // experiment/canary/pilot-signoff rows (incl. the 202 approval_required
+  // two-shape), the governance-report + readiness/pilot evidence packs, the
+  // self-healing status/run + corpus health/reindex/test-query blobs, and the
+  // usage / safety-review summaries. Bands here (risk, severity, decision,
+  // pilot_stage, generation_mode) are config/heuristic/jsonb-derived with no DB
+  // CHECK, so the object stays loose rather than per-field-pinned.
+  ClinicalAiGovernanceObjectResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: { type: 'object', additionalProperties: true },
+    },
+  },
+
+  // ---- ClinicalAiAuditLogRow ---------------------------------------------
+  // One row of `audit_logs` as projected by getClinicalAiAuditRows() — the
+  // explicit 10-column SELECT (id, uid, role, action, resource, resource_id,
+  // metadata, ip_address, user_agent, created_at). `action`/`resource` have NO
+  // DB CHECK (free VARCHAR) → plain strings. jsonb `metadata` → object.
+  ClinicalAiAuditLogRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'action', 'resource'],
+    properties: {
+      id: { type: 'integer' },
+      uid: { type: 'string', format: 'uuid', nullable: true },
+      role: { type: 'string', nullable: true },
+      action: { type: 'string' },
+      resource: { type: 'string' },
+      resource_id: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true, nullable: true },
+      ip_address: { type: 'string', nullable: true },
+      user_agent: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /audit → { success, message, data: { logs:[row], count } }.
+  ClinicalAiAuditLogListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['logs', 'count'],
+        properties: {
+          logs: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiAuditLogRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiGenerationRow -------------------------------------------
+  // One row of the GET /generations explicit projection over
+  // `clinical_ai_generations` LEFT JOIN users (verified against the route
+  // SELECT). `status`/`task_type` have NO DB CHECK → plain strings.
+  // `generation_mode`/`fallback_reason`/`readiness_reason`/`provider_status`
+  // are `COALESCE(metadata->>'…', CASE …)` projections (jsonb override can be
+  // any string) → plain nullable strings, NOT enums. jsonb `safety_flags` →
+  // array; `metadata` → object. token/cost/latency ints are coerced numbers.
+  ClinicalAiGenerationRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'task_type', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      admission_id: { type: 'integer', nullable: true },
+      task_type: { type: 'string' },
+      module_key: { type: 'string', nullable: true },
+      provider: { type: 'string', nullable: true },
+      model: { type: 'string', nullable: true },
+      prompt_version: { type: 'string', nullable: true },
+      source_hash: { type: 'string', nullable: true },
+      status: { type: 'string' },
+      used_ai: { type: 'boolean', nullable: true },
+      safety_flags: { type: 'array', items: clinicalAiSafetyFlag },
+      generated_by: { type: 'string', format: 'uuid', nullable: true },
+      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+      signed_note_id: { type: 'integer', nullable: true },
+      prompt_tokens: { type: 'integer', nullable: true },
+      completion_tokens: { type: 'integer', nullable: true },
+      total_tokens: { type: 'integer', nullable: true },
+      estimated_cost_minor: { type: 'integer', nullable: true },
+      latency_ms: { type: 'integer', nullable: true },
+      provider_request_id: { type: 'string', nullable: true },
+      finish_reason: { type: 'string', nullable: true },
+      generation_mode: { type: 'string', nullable: true },
+      fallback_reason: { type: 'string', nullable: true },
+      readiness_reason: { type: 'string', nullable: true },
+      provider_status: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true, nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /generations → { success, message, data: { generations:[row], count } }.
+  ClinicalAiGenerationListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['generations', 'count'],
+        properties: {
+          generations: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiGenerationRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiSafetyFlagRow -------------------------------------------
+  // One row of the GET /safety-flags lateral-join projection (verified against
+  // the route SELECT): the parent generation columns + the three
+  // jsonb-extracted flag fields (severity/code/message). `severity` is
+  // `flag->>'severity'` (any string, nullable) → plain nullable string, NOT an
+  // enum (the route's ORDER BY CASE only RANKS the known bands; it does not
+  // constrain the value). `status` has no DB CHECK → plain string.
+  ClinicalAiSafetyFlagRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['generation_id'],
+    properties: {
+      generation_id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      admission_id: { type: 'integer', nullable: true },
+      task_type: { type: 'string', nullable: true },
+      module_key: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true },
+      severity: { type: 'string', nullable: true },
+      code: { type: 'string', nullable: true },
+      message: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /safety-flags → { success, message, data: { flags:[row], count } }.
+  ClinicalAiSafetyFlagListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['flags', 'count'],
+        properties: {
+          flags: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiSafetyFlagRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1161,6 +1366,121 @@ const CONTROL_OPS = [
   ['POST /documents/intake/upload', { response: 'ClinicalAiDraftResponse' }],
   ['GET /documents/intake', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /documents/intake/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // governance (governanceRoutes.js) — 46 ops. The largest control sub-router:
+  // runtime status, module / tenant-module enablement, prompts, reviews,
+  // approvals, break-glass, usage, safety, audit, generations, RAG corpus,
+  // A/B experiments, drift canary, regulatory-readiness + pilot-evidence packs.
+  //
+  // Typing (per scout r4 + ground-truth route handlers + verified service
+  // return shapes):
+  //   • THREE STRICT ops surface REAL fixed-column table rows from explicit
+  //     projection SELECTs → bespoke strict schemas:
+  //       GET /audit        → { logs:[ClinicalAiAuditLogRow], count }
+  //       GET /generations  → { generations:[ClinicalAiGenerationRow], count }
+  //       GET /safety-flags → { flags:[ClinicalAiSafetyFlagRow], count }
+  //     Pinned-enum discipline applied: `clinical_ai_generations` + `audit_logs`
+  //     have NO DB CHECK on status/task_type/action → plain strings;
+  //     generation_mode/provider_status/fallback_reason/readiness_reason are
+  //     COALESCE(metadata->>'…', CASE …) projections (jsonb override = any
+  //     string) → plain nullable strings; safety-flags severity is
+  //     flag->>'severity' (any string) → plain nullable string. (No null-free
+  //     enum needed — nothing is pinned. jsonb metadata→object, safety_flags→array.)
+  //   • The eleven `{ <named>, count }` GET lists fold into the shared loose
+  //     count-list → ClinicalAiCountListResponse. Verified service shapes:
+  //     listClinicalAiModules/TenantModules → { modules, count };
+  //     listPrompts → { prompts, count }; listReviews → { reviews, count };
+  //     listApprovals → { approvals, count }; getActiveBreakGlass →
+  //     { sessions, count }; listSelfHealingRuns → { runs, count };
+  //     listExperiments → { experiments, count }; listCanaryRuns → { runs,
+  //     count }; listCanaryCases → { cases, count }; listPilotSignoffs →
+  //     { signoffs, count }. (modules/tenant-modules are computed/merged config
+  //     objects, NOT fixed-column rows, so they stay loose per the plan.)
+  //   • Every other op returns a single computed/merged object, a composite
+  //     governance-report/pack blob, or a usage/summary aggregate → the shared
+  //     loose single-object envelope ClinicalAiGovernanceObjectResponse. This
+  //     covers the two-shape 202(`approval_required`)/200 PATCH ops on
+  //     modules/tenant-modules/prompts (envelope typed, `data` loose). NONE of
+  //     these are draft-envelope-shaped (no module_key+draft contract), so they
+  //     do NOT reuse ClinicalAiDraftResponse.
+  // Control-only (no /clinical-ai/clinical mount). Dual-mounted across both
+  // CONTROL_PREFIXES via aliasOps.
+  // -------------------------------------------------------------------------
+
+  // ---- Runtime status ----
+  ['GET /status', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Module + tenant-module enablement (loose computed/merged objects) ----
+  ['GET /modules', { response: 'ClinicalAiCountListResponse' }],
+  ['GET /tenant-modules', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /tenant-modules/{moduleKey}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['DELETE /tenant-modules/{moduleKey}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /modules/{moduleKey}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Prompt registry ----
+  ['GET /prompts', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /prompts', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /prompts/{id}/activate', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Review queue ----
+  ['GET /reviews', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /reviews/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Approvals ----
+  ['GET /approvals', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /approvals', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /approvals/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Break-glass sessions ----
+  ['POST /break-glass', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /break-glass/{id}/end', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /break-glass', { response: 'ClinicalAiCountListResponse' }],
+
+  // ---- Usage / safety / governance summaries + report ----
+  ['GET /usage', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /safety-reviews/summary', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /governance-report', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Guardrails + budget ----
+  ['GET /guardrails', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /guardrails', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- STRICT — audit log + generations ledger + safety-flags stream ----
+  ['GET /audit', { response: 'ClinicalAiAuditLogListResponse' }],
+  ['GET /generations', { response: 'ClinicalAiGenerationListResponse' }],
+  ['GET /safety-flags', { response: 'ClinicalAiSafetyFlagListResponse' }],
+
+  // ---- Self-healing ----
+  ['GET /self-healing/status', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /self-healing/runs', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /self-healing/runs', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- RAG corpus ----
+  ['GET /corpus', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['POST /corpus/reindex', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['POST /corpus/test-query', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Prompt A/B experiments ----
+  ['GET /experiments', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /experiments', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /experiments/{id}/stats', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /experiments/{id}/conclude', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Model-drift canary ----
+  ['GET /canary/runs', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /canary/runs', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /canary/cases', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /canary/cases', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /canary/cases/{id}/deactivate', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Regulatory-readiness + pilot-evidence packs + signoffs ----
+  ['POST /readiness-pack', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['POST /pilot-evidence-pack', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /pilot-signoffs/gate', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /pilot-signoffs', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /pilot-signoffs', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['PATCH /pilot-signoffs/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
 ];
 const CLINICAL_OPS = [];
 
