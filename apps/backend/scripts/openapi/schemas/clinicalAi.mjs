@@ -38,6 +38,16 @@ const CLINICAL_AI_SAFETY_SEVERITY = ['low', 'medium', 'high', 'critical'];
 // per-domain variants later).
 const CLINICAL_AI_REVIEWER_DECISION = ['accepted', 'rejected', 'needs_revision', 'edited'];
 
+// ---- diagnostics-medication strict enums (T4) ---------------------------
+// Blood-bank inventory rows have hard service-level allowlists (NOT LLM/config
+// soft bands): bloodBankForecastService.js exports BLOOD_GROUPS / COMPONENTS and
+// validateBloodGroup()/validateComponent() reject anything outside them with a
+// 400 before the INSERT. Mirrored here verbatim (null-free for Spectral).
+const CLINICAL_AI_BLOOD_GROUP = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+const CLINICAL_AI_BLOOD_COMPONENT = [
+  'packed_red_cells', 'whole_blood', 'platelets', 'ffp', 'cryoprecipitate',
+];
+
 // A reusable opaque LLM/template draft (parsed object, no required keys).
 const aiDraft = { type: 'object', additionalProperties: true };
 // AI safety flag entry.
@@ -133,6 +143,84 @@ export const schemas = {
         additionalProperties: true,
         required: ['count'],
         properties: {
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // =========================================================================
+  // STRICT — diagnostics-medication (T4). Blood-bank inventory snapshot rows
+  // are pure deterministic inventory records (no LLM `draft`): fixed columns
+  // with real DB-CHECK-grade enums (blood_group / component) enforced by
+  // bloodBankForecastService.validateBloodGroup/validateComponent before the
+  // INSERT. jsonb `metadata` → object (never string). The 21 other ops in this
+  // sub-domain stay loose (POST evaluate/generate → ClinicalAiDraftResponse;
+  // PATCH decide → ClinicalAiReviewDecisionResponse; GET lists → the per-domain
+  // count-list ClinicalAiCountListResponse), because every band they surface
+  // (risk_band/safety_band/triage_level/boarding_band/critical_band) is
+  // config/LLM-derived and lacks a DB CHECK, so it lives inside loose `draft`.
+  // =========================================================================
+
+  // ---- ClinicalAiBloodBankInventoryRow -----------------------------------
+  // One row of `clinical_ai_blood_bank_inventory_snapshots`, as returned by
+  // upsertBloodBankInventory() RETURNING and listBloodBankInventory(). units_*
+  // are coerced to JS numbers (toNumber) before serialization → integers.
+  ClinicalAiBloodBankInventoryRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id', 'blood_group', 'component', 'units_available', 'units_committed',
+      'minimum_stock_level',
+    ],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      blood_group: { type: 'string', enum: CLINICAL_AI_BLOOD_GROUP },
+      component: { type: 'string', enum: CLINICAL_AI_BLOOD_COMPONENT },
+      units_available: { type: 'integer' },
+      units_committed: { type: 'integer' },
+      minimum_stock_level: { type: 'integer' },
+      expires_earliest: { type: 'string', format: 'date', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      updated_by: { type: 'string', format: 'uuid', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /blood-bank/inventory → { success, message, data: <row | null> } (201).
+  // upsert returns null when the snapshot table is absent (missing-schema
+  // graceful degrade), so `data` is nullable.
+  ClinicalAiBloodBankInventoryResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/ClinicalAiBloodBankInventoryRow' }],
+      },
+    },
+  },
+
+  // GET /blood-bank/inventory → { success, message, data: { inventory:[row], count } }.
+  ClinicalAiBloodBankInventoryListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['inventory', 'count'],
+        properties: {
+          inventory: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiBloodBankInventoryRow' },
+          },
           count: { type: 'integer', example: 0 },
         },
       },
@@ -323,6 +411,61 @@ const CONTROL_OPS = [
   ['POST /privacy-sentinel/scans', { response: 'ClinicalAiDraftResponse' }],
   ['GET /privacy-sentinel/audits', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /privacy-sentinel/audits/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // diagnostics-medication (diagnosticsMedicationRoutes.js) — 23 ops. Lab
+  // autoverification, pediatric dosing, staff burnout, ED triage/boarding, ICU
+  // ventilator bundle, blood-bank forecast + inventory, obstetric risk.
+  //
+  // Typing (per scout r2 + strictOps plan): each domain is the standard
+  // generate/evaluate (POST → loose draft envelope, ClinicalAiDraftResponse,
+  // 201) + list (GET `{ <rows[]>, count }` → ClinicalAiCountListResponse) +
+  // decide (PATCH `{ decision, note? }` → updated review row,
+  // ClinicalAiReviewDecisionResponse) triad. Every band these surface
+  // (critical_band / safety_band / risk_band / triage_level / boarding_band /
+  // predicted_disposition) is config/LLM-derived inside loose `draft` — no DB
+  // CHECK — so they stay loose. The ONE STRICT pair is blood-bank inventory
+  // (POST upsert + GET list): pure deterministic inventory rows with the real
+  // service allowlists (blood_group / component), no LLM draft → the
+  // ClinicalAiBloodBankInventory* schemas authored above. Control-only.
+  // -------------------------------------------------------------------------
+
+  // ---- Lab autoverification / delta check ----
+  ['POST /lab-autoverifications/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /lab-autoverifications', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /lab-autoverifications/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Pediatric dosing safety ----
+  ['POST /pediatric-dose-checks/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /pediatric-dose-checks', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /pediatric-dose-checks/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Staff burnout / workload risk ----
+  ['POST /staff-burnout/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /staff-burnout/reviews', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /staff-burnout/reviews/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- ED triage + boarding predictor ----
+  ['POST /ed-triage/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /ed-triage/predictions', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /ed-triage/predictions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- ICU ventilator / sedation bundle reviewer ----
+  ['POST /icu-ventilator-bundle/audits', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /icu-ventilator-bundle/audits', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /icu-ventilator-bundle/audits/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Blood bank — STRICT inventory (upsert + list) + loose forecast triad ----
+  ['POST /blood-bank/inventory', { response: 'ClinicalAiBloodBankInventoryResponse' }],
+  ['GET /blood-bank/inventory', { response: 'ClinicalAiBloodBankInventoryListResponse' }],
+  ['POST /blood-bank/forecast', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /blood-bank/forecasts', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /blood-bank/forecasts/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Pregnancy / obstetric risk assistant ----
+  ['POST /obstetric-risk/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /obstetric-risk/assessments', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /obstetric-risk/assessments/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
 ];
 const CLINICAL_OPS = [];
 
