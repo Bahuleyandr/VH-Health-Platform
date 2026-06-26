@@ -21,13 +21,13 @@ BigInt.prototype.toJSON = function bigIntToJSON() {
 import http from 'http';
 import app from '../app.js';
 import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
-import { initRedis, disconnectRedis } from '../lib/redis.js';
+import { initRedis, getRedisClient, disconnectRedis } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
 import { runAllScheduledTasksNow, stopAllScheduledTasks } from '../utils/scheduler.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
-import { initWebSocket } from '../utils/websocket/wsServer.js';
+import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
 
 
 
@@ -162,6 +162,21 @@ async function onListening() {
     logger.warn('Redis initialization failed — running without cache:', err.message);
   }
 
+  // Wire cross-process WebSocket fan-out onto the Redis bus. The publisher is
+  // the shared singleton; the subscriber is a dedicated duplicate connection
+  // (subscriber-mode connections can't run normal commands). When Redis is
+  // absent this is a no-op and broadcasts stay single-process (degraded).
+  try {
+    const redisClient = getRedisClient();
+    if (redisClient) {
+      initWsFanout({ pub: redisClient });
+    } else {
+      logger.warn('WS Redis fan-out not wired — Redis unavailable; broadcasts are single-process only');
+    }
+  } catch (err) {
+    logger.warn('WS Redis fan-out init failed — single-process broadcasts only:', err.message);
+  }
+
   // Boot-time sweep. Awaited so a rejection is surfaced/handled rather than
   // becoming an unhandledRejection that tears the process down. The heavy
   // mutating jobs inside are advisory-locked + gated behind RUN_STARTUP_TASKS
@@ -199,6 +214,13 @@ function gracefulShutdown(signal) {
       logger.info('Database clients disconnected.');
     } catch (err) {
       logger.error('Error disconnecting Prisma:', err.message);
+    }
+    try {
+      // Tear down the WS fan-out subscriber connection before quitting the
+      // shared Redis client.
+      await closeWsFanout();
+    } catch (err) {
+      logger.error('Error closing WS fan-out:', err.message);
     }
     try {
       await disconnectRedis();
