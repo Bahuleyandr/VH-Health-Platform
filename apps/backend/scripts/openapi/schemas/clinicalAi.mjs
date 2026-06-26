@@ -131,8 +131,57 @@ function aliasOps(pairs, prefixes) {
   return out;
 }
 
-// Authored-once op pairs. EMPTY at T0 — later passes append.
-const CONTROL_OPS = [];
+// Authored-once op pairs. Each control pair is keyed under BOTH control
+// prefixes via aliasOps(CONTROL_OPS, CONTROL_PREFIXES). Later passes append.
+const CONTROL_OPS = [
+  // -------------------------------------------------------------------------
+  // tierA-cH-assistants (Tier A + Tier C + Tier D). All 35 ops are single-POST
+  // LLM-draft generators returning the shared ClinicalAiDraftEnvelope (201). No
+  // strict ops in this sub-domain — `draft` content (risk_band/HEART/ESI/etc.)
+  // is LLM-prompt-internal, not DB-CHECK-backed. All → ClinicalAiDraftResponse.
+  // -------------------------------------------------------------------------
+
+  // ---- Tier A "fastest wins" assistants (tierAAssistantsRoutes.js) — 10 ----
+  ['POST /lab-trend-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /discharge-medication-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /patient-faq-answers', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /lab-pending-reminders', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /front-desk-responses', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /audit-log-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /call-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /handwritten-note-structures', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /voice-to-prescription-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /pending-report-trackers', { response: 'ClinicalAiDraftResponse' }],
+
+  // ---- Tier C clinical-doc & drug-safety assistants (tierCAssistantsRoutes.js) — 16 ----
+  ['POST /medical-certificate-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /clinic-letter-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /clinical-note-cleanups', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /missing-questions-suggestions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /missing-examination-suggestions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /missing-tests-suggestions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /order-set-suggestions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /renal-dose-checks', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /liver-dose-checks', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /pregnancy-lactation-warnings', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /adverse-drug-event-detections', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /fall-risk-predictions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /pressure-ulcer-risk-predictions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /aki-risk-alerts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /intake-output-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /icu-round-summaries', { response: 'ClinicalAiDraftResponse' }],
+
+  // ---- Tier D emergency / triage assistants (tierDEmergencyRoutes.js) — 9 ----
+  ['POST /emergency-triage-forms', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /triage-priority-suggestions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /ed-red-flag-detections', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /emergency-visit-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /ambulance-handover-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /stroke-fast-checks', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /chest-pain-protocols', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /trauma-checklists', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /mlc-documentation', { response: 'ClinicalAiDraftResponse' }],
+];
 const CLINICAL_OPS = [];
 
 export const operations = {
