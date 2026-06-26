@@ -1156,6 +1156,471 @@ export const schemas = {
       },
     },
   },
+
+  // =========================================================================
+  // STRICT — revenue-cycle ROI dashboard (T11). The ROI dashboard returns
+  // fixed-key deterministic numeric objects (computeAiRoiMetrics) + the
+  // persisted snapshot rows (clinical_ai_roi_snapshots, migration 041). NO LLM
+  // `draft` anywhere here. Distinct from the outcome-scoreboard nullability
+  // rule: aiRoiDashboardService.calculateAcceptanceRate() returns 0 (NOT null)
+  // on a zero denominator, so ROI rate fields are plain non-null numbers — only
+  // the outcome-scoreboard pct/minutes go nullable. money columns are *_minor
+  // integers (NUMERIC cost cols coerced to JS numbers by normalizeSnapshotRow /
+  // calculateCostPerUsefulDraft → kept as `number`). jsonb by_module/highlights
+  // → array; metadata → object. The three projections (compute / insert-
+  // RETURNING / list-full / latest) carry DIFFERENT column subsets, so the
+  // snapshot row schema is the UNION with additionalProperties:false and only
+  // the always-present core required.
+  // =========================================================================
+
+  // ---- ClinicalAiRoiByModuleRow ------------------------------------------
+  // One entry of computeAiRoiMetrics().by_module (aggregateRoiMetrics push).
+  // Fixed keys, all numeric/string scalars. acceptance_rate_pct is a non-null
+  // number (0 when no generations). Reused as the items of the persisted
+  // snapshot's jsonb by_module array too.
+  ClinicalAiRoiByModuleRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['module_key'],
+    properties: {
+      module_key: { type: 'string' },
+      generation_count: { type: 'integer' },
+      ai_generation_count: { type: 'integer' },
+      fallback_count: { type: 'integer' },
+      accepted_count: { type: 'integer' },
+      rejected_count: { type: 'integer' },
+      pending_count: { type: 'integer' },
+      edited_count: { type: 'integer' },
+      total_tokens: { type: 'integer' },
+      total_cost_minor: { type: 'integer' },
+      acceptance_rate_pct: { type: 'number' },
+      time_saved_minutes: { type: 'integer' },
+      documentation_minutes_saved: { type: 'integer' },
+      cost_per_useful_draft_minor: { type: 'number' },
+    },
+  },
+
+  // ---- ClinicalAiRoiHighlightRow -----------------------------------------
+  // One entry of computeAiRoiMetrics().highlights (top-5 accepted modules).
+  ClinicalAiRoiHighlightRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['module_key'],
+    properties: {
+      module_key: { type: 'string' },
+      accepted_count: { type: 'integer' },
+      time_saved_minutes: { type: 'integer' },
+      acceptance_rate_pct: { type: 'number' },
+      cost_per_useful_draft_minor: { type: 'number' },
+    },
+  },
+
+  // ---- ClinicalAiRoiMetrics ----------------------------------------------
+  // The computeAiRoiMetrics() return object (GET /roi). Fixed-key overall
+  // metrics + by_module[] + highlights[]. All rate/minute fields are plain
+  // non-null numbers (the ROI service's calculateAcceptanceRate/TimeSaved/
+  // CostPerUsefulDraft return 0, not null, on empty denominators).
+  ClinicalAiRoiMetrics: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['tenant_id', 'module_key', 'period_days', 'generation_count', 'by_module', 'highlights'],
+    properties: {
+      tenant_id: { type: 'string', format: 'uuid' },
+      module_key: { type: 'string', example: 'ALL' },
+      period_start: { type: 'string', format: 'date-time' },
+      period_end: { type: 'string', format: 'date-time' },
+      period_days: { type: 'integer' },
+      generation_count: { type: 'integer' },
+      ai_generation_count: { type: 'integer' },
+      fallback_count: { type: 'integer' },
+      accepted_count: { type: 'integer' },
+      rejected_count: { type: 'integer' },
+      pending_count: { type: 'integer' },
+      edited_count: { type: 'integer' },
+      total_tokens: { type: 'integer' },
+      total_cost_minor: { type: 'integer' },
+      acceptance_rate_pct: { type: 'number' },
+      time_saved_minutes: { type: 'integer' },
+      documentation_hours_saved: { type: 'number' },
+      denial_value_prevented_minor: { type: 'integer' },
+      prior_auth_approved_count: { type: 'integer' },
+      appeal_approved_count: { type: 'integer' },
+      cost_per_useful_draft_minor: { type: 'number' },
+      by_module: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiRoiByModuleRow' },
+      },
+      highlights: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiRoiHighlightRow' },
+      },
+      computed_at: { type: 'string', format: 'date-time' },
+      decision_support_only: { type: 'boolean', example: true },
+      read_only: { type: 'boolean', example: true },
+    },
+  },
+
+  // GET /roi → { success, message, data: ClinicalAiRoiMetrics }.
+  ClinicalAiRoiMetricsResponse: envelope('ClinicalAiRoiMetrics'),
+
+  // ---- ClinicalAiRoiSnapshotRow ------------------------------------------
+  // One row of `clinical_ai_roi_snapshots`, as returned by the three different
+  // projections (insert RETURNING = 17 cols incl. computed_by but NO ai/
+  // fallback/rejected/pending/edited/tokens/cost; list = 28 cols full; latest =
+  // 18 cols). normalizeSnapshotRow coerces every numeric (incl. the NUMERIC/
+  // BIGINT cols) to a JS number. The schema is the UNION of all three with
+  // additionalProperties:false; only the always-present core is required, the
+  // rest optional. money/cost cols are *_minor integers; acceptance_rate_pct /
+  // documentation_hours_saved / cost_per_useful_draft_minor are NUMERIC → number.
+  // jsonb by_module/highlights → array; metadata → object.
+  ClinicalAiRoiSnapshotRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'tenant_id', 'period_days', 'module_key', 'generation_count'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      period_start: { type: 'string', format: 'date-time', nullable: true },
+      period_end: { type: 'string', format: 'date-time', nullable: true },
+      period_days: { type: 'integer' },
+      module_key: { type: 'string', example: 'ALL' },
+      generation_count: { type: 'integer' },
+      ai_generation_count: { type: 'integer' },
+      fallback_count: { type: 'integer' },
+      accepted_count: { type: 'integer' },
+      rejected_count: { type: 'integer' },
+      pending_count: { type: 'integer' },
+      edited_count: { type: 'integer' },
+      total_tokens: { type: 'integer' },
+      total_cost_minor: { type: 'integer' },
+      acceptance_rate_pct: { type: 'number' },
+      time_saved_minutes: { type: 'integer' },
+      documentation_hours_saved: { type: 'number' },
+      denial_value_prevented_minor: { type: 'integer' },
+      prior_auth_approved_count: { type: 'integer' },
+      appeal_approved_count: { type: 'integer' },
+      cost_per_useful_draft_minor: { type: 'number' },
+      by_module: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiRoiByModuleRow' },
+      },
+      highlights: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiRoiHighlightRow' },
+      },
+      metadata: { type: 'object', additionalProperties: true },
+      computed_at: { type: 'string', format: 'date-time', nullable: true },
+      computed_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /roi/snapshots (201) → { success, message, data: { snapshot:row|null,
+  //   metrics:ClinicalAiRoiMetrics } }. saveAiRoiSnapshot returns null when the
+  //   snapshot table is absent (missing-schema graceful degrade) → snapshot nullable.
+  ClinicalAiRoiSnapshotResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['snapshot', 'metrics'],
+        properties: {
+          snapshot: {
+            nullable: true,
+            allOf: [{ $ref: '#/components/schemas/ClinicalAiRoiSnapshotRow' }],
+          },
+          metrics: { $ref: '#/components/schemas/ClinicalAiRoiMetrics' },
+        },
+      },
+    },
+  },
+
+  // GET /roi/snapshots → { success, message, data: { snapshots:[row], count } }.
+  ClinicalAiRoiSnapshotListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['snapshots', 'count'],
+        properties: {
+          snapshots: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiRoiSnapshotRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // GET /roi/snapshots/latest → { success, message, data: { snapshot:row|null } }.
+  // getLatestAiRoiSnapshot returns null when no snapshot exists / table absent.
+  ClinicalAiRoiSnapshotLatestResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['snapshot'],
+        properties: {
+          snapshot: {
+            nullable: true,
+            allOf: [{ $ref: '#/components/schemas/ClinicalAiRoiSnapshotRow' }],
+          },
+        },
+      },
+    },
+  },
+
+  // =========================================================================
+  // STRICT — outcome-scoreboard (T11). GET /outcome-scoreboard
+  // (computeAiOutcomeScoreboard) is the single best strict target in the whole
+  // clinical-AI surface: a fully deterministic, fixed-key nested metrics object
+  // aggregated ONLY from existing generation/review/safety tables — NO LLM
+  // content, no `draft`. ★ NULLABILITY RULE (overrides the usual null-free
+  // guidance): aiOutcomeScoreboardService.pct()/median() return `null` (NOT 0)
+  // on an empty denominator — "no evidence yet" must never read as 0%. So
+  // EVERY *_pct / *_minutes / *_distance_pct field below is a `nullable` number
+  // (emitted as anyOf number/null) or Spectral fails the empty-tenant case.
+  // Counts are plain integers. The nested shape mirrors emptyModuleRow() /
+  // aggregateOutcomeScoreboard() / computeAiOutcomeScoreboard() exactly.
+  // `definitions` is a fixed const-string map (SCOREBOARD_DEFINITIONS). Control-only.
+  // =========================================================================
+
+  // ---- ClinicalAiScoreboardModuleReviews ---------------------------------
+  ClinicalAiScoreboardModuleReviews: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['total', 'decided', 'pending', 'accepted', 'edited', 'rejected', 'needs_revision'],
+    properties: {
+      total: { type: 'integer' },
+      decided: { type: 'integer' },
+      pending: { type: 'integer' },
+      accepted: { type: 'integer' },
+      edited: { type: 'integer' },
+      rejected: { type: 'integer' },
+      needs_revision: { type: 'integer' },
+      acceptance_rate_pct: { type: 'number', nullable: true },
+      edit_rate_pct: { type: 'number', nullable: true },
+      rejection_rate_pct: { type: 'number', nullable: true },
+      needs_revision_rate_pct: { type: 'number', nullable: true },
+      used_rate_pct: { type: 'number', nullable: true },
+      avg_review_latency_minutes: { type: 'number', nullable: true },
+    },
+  },
+
+  // ---- ClinicalAiScoreboardModuleSafety ----------------------------------
+  ClinicalAiScoreboardModuleSafety: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'flagged_total', 'flagged_decided', 'flagged_confirmed', 'flagged_overridden',
+      'missed_reject_count',
+    ],
+    properties: {
+      flagged_total: { type: 'integer' },
+      flagged_decided: { type: 'integer' },
+      flagged_confirmed: { type: 'integer' },
+      flagged_overridden: { type: 'integer' },
+      flag_precision_pct: { type: 'number', nullable: true },
+      flag_override_rate_pct: { type: 'number', nullable: true },
+      missed_reject_count: { type: 'integer' },
+    },
+  },
+
+  // ---- ClinicalAiScoreboardTimeToSignRow ---------------------------------
+  // One per-note_type time-to-sign comparison entry (module-level array).
+  ClinicalAiScoreboardTimeToSignRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['note_type', 'ai_signed_count', 'baseline_signed_count'],
+    properties: {
+      note_type: { type: 'string' },
+      ai_signed_count: { type: 'integer' },
+      ai_median_minutes: { type: 'number', nullable: true },
+      ai_avg_minutes: { type: 'number', nullable: true },
+      baseline_signed_count: { type: 'integer' },
+      baseline_median_minutes: { type: 'number', nullable: true },
+      baseline_avg_minutes: { type: 'number', nullable: true },
+      median_delta_minutes: { type: 'number', nullable: true },
+    },
+  },
+
+  // ---- ClinicalAiScoreboardModuleRow -------------------------------------
+  // One per-module scoreboard row (emptyModuleRow shape, populated).
+  ClinicalAiScoreboardModuleRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['module_key', 'enabled', 'generations', 'reviews', 'edits', 'safety', 'time_to_sign'],
+    properties: {
+      module_key: { type: 'string' },
+      display_name: { type: 'string', nullable: true },
+      enabled: { type: 'boolean' },
+      generations: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['total', 'ai_generated', 'fallback'],
+        properties: {
+          total: { type: 'integer' },
+          ai_generated: { type: 'integer' },
+          fallback: { type: 'integer' },
+        },
+      },
+      reviews: { $ref: '#/components/schemas/ClinicalAiScoreboardModuleReviews' },
+      edits: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['sample_count'],
+        properties: {
+          sample_count: { type: 'integer' },
+          mean_edit_distance_pct: { type: 'number', nullable: true },
+          median_edit_distance_pct: { type: 'number', nullable: true },
+        },
+      },
+      safety: { $ref: '#/components/schemas/ClinicalAiScoreboardModuleSafety' },
+      time_to_sign: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiScoreboardTimeToSignRow' },
+      },
+    },
+  },
+
+  // ---- ClinicalAiScoreboardTotals ----------------------------------------
+  // The cross-module totals block. Mirrors the `totals` assembled in
+  // aggregateOutcomeScoreboard(): generations/reviews/edits/safety roll-ups +
+  // a pooled time_to_sign averages object (NOT the per-module array) +
+  // modules_with_activity.
+  ClinicalAiScoreboardTotals: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['modules_with_activity', 'generations', 'reviews', 'edits', 'safety', 'time_to_sign'],
+    properties: {
+      modules_with_activity: { type: 'integer' },
+      generations: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['total', 'ai_generated', 'fallback'],
+        properties: {
+          total: { type: 'integer' },
+          ai_generated: { type: 'integer' },
+          fallback: { type: 'integer' },
+        },
+      },
+      reviews: { $ref: '#/components/schemas/ClinicalAiScoreboardModuleReviews' },
+      edits: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['sample_count'],
+        properties: {
+          sample_count: { type: 'integer' },
+          mean_edit_distance_pct: { type: 'number', nullable: true },
+          median_edit_distance_pct: { type: 'number', nullable: true },
+        },
+      },
+      safety: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'flagged_total', 'flagged_decided', 'flagged_confirmed', 'flagged_overridden',
+          'missed_reject_count',
+        ],
+        properties: {
+          flagged_total: { type: 'integer' },
+          flagged_decided: { type: 'integer' },
+          flagged_confirmed: { type: 'integer' },
+          flagged_overridden: { type: 'integer' },
+          flag_precision_pct: { type: 'number', nullable: true },
+          flag_override_rate_pct: { type: 'number', nullable: true },
+          missed_reject_count: { type: 'integer' },
+        },
+      },
+      time_to_sign: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['ai_signed_count', 'baseline_signed_count'],
+        properties: {
+          ai_signed_count: { type: 'integer' },
+          baseline_signed_count: { type: 'integer' },
+          ai_avg_minutes: { type: 'number', nullable: true },
+          baseline_avg_minutes: { type: 'number', nullable: true },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiScoreboardMedicationSafetyTypeRow -----------------------
+  // One per-review_type medication-safety entry (medication_safety.by_type[]).
+  ClinicalAiScoreboardMedicationSafetyTypeRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['review_type', 'finding_count', 'critical_count', 'blocker_count', 'overridden_count'],
+    properties: {
+      review_type: { type: 'string' },
+      finding_count: { type: 'integer' },
+      critical_count: { type: 'integer' },
+      blocker_count: { type: 'integer' },
+      overridden_count: { type: 'integer' },
+      override_rate_pct: { type: 'number', nullable: true },
+    },
+  },
+
+  // ---- ClinicalAiOutcomeScoreboard ---------------------------------------
+  // The full computeAiOutcomeScoreboard() return object.
+  ClinicalAiOutcomeScoreboard: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'tenant_id', 'period_days', 'module_key', 'modules', 'totals',
+      'medication_safety', 'definitions',
+    ],
+    properties: {
+      tenant_id: { type: 'string', format: 'uuid' },
+      period_start: { type: 'string', format: 'date-time' },
+      period_end: { type: 'string', format: 'date-time' },
+      period_days: { type: 'integer' },
+      module_key: { type: 'string', example: 'ALL' },
+      modules: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ClinicalAiScoreboardModuleRow' },
+      },
+      totals: { $ref: '#/components/schemas/ClinicalAiScoreboardTotals' },
+      medication_safety: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['finding_count', 'critical_count', 'blocker_count', 'overridden_count', 'by_type'],
+        properties: {
+          finding_count: { type: 'integer' },
+          critical_count: { type: 'integer' },
+          blocker_count: { type: 'integer' },
+          overridden_count: { type: 'integer' },
+          override_rate_pct: { type: 'number', nullable: true },
+          by_type: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiScoreboardMedicationSafetyTypeRow' },
+          },
+        },
+      },
+      // SCOREBOARD_DEFINITIONS — a fixed map of metric-name → description string.
+      definitions: { type: 'object', additionalProperties: { type: 'string' } },
+      computed_at: { type: 'string', format: 'date-time' },
+      decision_support_only: { type: 'boolean', example: true },
+      read_only: { type: 'boolean', example: true },
+    },
+  },
+
+  // GET /outcome-scoreboard → { success, message, data: ClinicalAiOutcomeScoreboard }.
+  ClinicalAiOutcomeScoreboardResponse: envelope('ClinicalAiOutcomeScoreboard'),
 };
 
 // ---------------------------------------------------------------------------
@@ -1896,6 +2361,104 @@ const CONTROL_OPS = [
   ['POST /voice-ivr/evaluate', { response: 'ClinicalAiDraftResponse' }],
   ['GET /voice-ivr/sessions', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /voice-ivr/sessions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // revenue-cycle (revenueCycleRoutes.js) — 18 ops. Four revenue sub-modules:
+  // prior-authorization packet generator, denial appeal-letter generator, the
+  // AI ROI dashboard, and payer-contract variance / underpayment AI. Mixed
+  // typing (per scout r5 + ground-truth route file + verified service RETURNING
+  // projections):
+  //   • POST generate/evaluate (prior-auth, appeal-letter, payer-variance) →
+  //     loose draft/result envelope (201) → ClinicalAiDraftResponse.
+  //   • GET lists (prior-auths / appeals / payer-contracts / payer-variance
+  //     reviews) → `{ <plural>:[row], count }` → ClinicalAiCountListResponse
+  //     (the per-domain rows carry money-minor + variance bands inside the loose
+  //     count-list row — not in the strict shortlist, which is ROI-only here).
+  //   • PATCH/POST decide-shaped updates that RETURN a row carrying BOTH `id`
+  //     AND `reviewer_decision` → ClinicalAiReviewDecisionResponse (submit PA,
+  //     decide/submit appeal, decide payer-variance). The updates that RETURN a
+  //     row WITHOUT a `reviewer_decision` column (recordPayerDecision →
+  //     { id, status, payer_decided_at, … }; recordAppealPayerResponse →
+  //     { id, claim_id, appeal_status, … }; upsertPayerContract → contract row)
+  //     CANNOT satisfy the ReviewDecisionRow `required:[id,reviewer_decision]`,
+  //     so they fold into the typed-envelope/loose-object
+  //     ClinicalAiGovernanceObjectResponse instead.
+  //   • THE STRICT BLOCK — the AI ROI dashboard (NO LLM draft, fixed-key
+  //     deterministic numeric metrics + persisted snapshot rows):
+  //       GET  /roi                  → ClinicalAiRoiMetricsResponse
+  //       POST /roi/snapshots (201)  → ClinicalAiRoiSnapshotResponse
+  //                                     ({ snapshot:row|null, metrics })
+  //       GET  /roi/snapshots        → ClinicalAiRoiSnapshotListResponse
+  //       GET  /roi/snapshots/latest → ClinicalAiRoiSnapshotLatestResponse
+  //     (ROI rate fields are plain non-null numbers — the ROI service returns 0,
+  //     not null, on empty denominators; only the outcome-scoreboard goes nullable.)
+  // Control-only. Dual-mounted across both CONTROL_PREFIXES via aliasOps.
+  // -------------------------------------------------------------------------
+
+  // ---- Prior authorization ----
+  ['POST /prior-auth', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /prior-auth', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /prior-auth/{id}/submit', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['PATCH /prior-auth/{id}/payer-decision', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- Appeal letter generator ----
+  ['POST /appeal-letters', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /appeal-letters', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /appeal-letters/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['POST /appeal-letters/{id}/submit', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['POST /appeal-letters/{id}/payer-response', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- STRICT — AI ROI dashboard (metrics object + snapshot rows) ----
+  ['GET /roi', { response: 'ClinicalAiRoiMetricsResponse' }],
+  ['POST /roi/snapshots', { response: 'ClinicalAiRoiSnapshotResponse' }],
+  ['GET /roi/snapshots', { response: 'ClinicalAiRoiSnapshotListResponse' }],
+  ['GET /roi/snapshots/latest', { response: 'ClinicalAiRoiSnapshotLatestResponse' }],
+
+  // ---- Payer-contract variance / underpayment ----
+  ['POST /payer-contracts', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /payer-contracts', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /payer-variance/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /payer-variance/reviews', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /payer-variance/reviews/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // prior-auth-appeal chain (priorAuthAppealRoutes.js) — 4 ops. The
+  // prior_auth_appeal_chain resumable meta-workflow over
+  // `clinical_ai_workflow_runs` (same store/runner family as discharge-compose).
+  // Mixed typing (per scout r5 + ground-truth route file):
+  //   • POST /prior-auth/{id}/appeal           → composePriorAuthAppeal outcome
+  //     blob (paused stub { status:'paused', run_id, pause_reason } OR rare sync
+  //     completion; variable keys) → loose ClinicalAiDraftResponse. 202 paused /
+  //     201 completed.
+  //   • POST /prior-auth-appeal/{runId}/resume → resumeWorkflow outcome blob
+  //     ({ status, runId, state?, result?, pauseReason?, error? }) → loose
+  //     ClinicalAiDraftResponse. 200 / 202.
+  //   • GET  /prior-auth-appeal/{runId}        → STRICT { run, children:[row],
+  //     child_count } over workflow-run rows → REUSES the discharge-compose
+  //     ClinicalAiWorkflowRunDetailResponse (identical clinical_ai_workflow_runs
+  //     shape; `status`/`pause_reason` plain VARCHARs, no DB CHECK).
+  //   • POST /prior-auth-appeal/{runId}/fail   → STRICT trivial
+  //     { status:'failed', runId, reason } → REUSES ClinicalAiWorkflowRunFailResponse.
+  // Note the bare `/prior-auth/{id}/appeal` start op is keyed under the
+  // prior-auth prefix but routes through this chain service (module-gated on
+  // appeal_letter_generator → 403, not a 200 variant). Control-only.
+  // -------------------------------------------------------------------------
+  ['POST /prior-auth/{id}/appeal', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /prior-auth-appeal/{runId}', { response: 'ClinicalAiWorkflowRunDetailResponse' }],
+  ['POST /prior-auth-appeal/{runId}/resume', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /prior-auth-appeal/{runId}/fail', { response: 'ClinicalAiWorkflowRunFailResponse' }],
+
+  // -------------------------------------------------------------------------
+  // outcome-scoreboard (outcomeScoreboardRoutes.js) — 1 op. STRICT — the single
+  // best strict target in the clinical-AI surface: GET /outcome-scoreboard
+  // (computeAiOutcomeScoreboard) returns a fully deterministic, fixed-key nested
+  // metrics object (modules / totals / medication_safety / time_to_sign)
+  // aggregated only from existing generation/review/safety tables — NO LLM
+  // content. EVERY *_pct / *_minutes / *_distance field is nullable (the service
+  // emits null, not 0, on an empty denominator). The strict schema lives above.
+  // Read-only, control-only.
+  // -------------------------------------------------------------------------
+  ['GET /outcome-scoreboard', { response: 'ClinicalAiOutcomeScoreboardResponse' }],
 ];
 const CLINICAL_OPS = [];
 

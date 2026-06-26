@@ -6343,6 +6343,121 @@
           }
         }
       },
+      "ClinicalAiOutcomeScoreboard": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "period_days",
+          "module_key",
+          "modules",
+          "totals",
+          "medication_safety",
+          "definitions"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_days": {
+            "type": "integer"
+          },
+          "module_key": {
+            "type": "string",
+            "example": "ALL"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiScoreboardModuleRow"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ClinicalAiScoreboardTotals"
+          },
+          "medication_safety": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "finding_count",
+              "critical_count",
+              "blocker_count",
+              "overridden_count",
+              "by_type"
+            ],
+            "properties": {
+              "finding_count": {
+                "type": "integer"
+              },
+              "critical_count": {
+                "type": "integer"
+              },
+              "blocker_count": {
+                "type": "integer"
+              },
+              "overridden_count": {
+                "type": "integer"
+              },
+              "override_rate_pct": {
+                "type": "number",
+                "nullable": true
+              },
+              "by_type": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiScoreboardMedicationSafetyTypeRow"
+                }
+              }
+            }
+          },
+          "definitions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decision_support_only": {
+            "type": "boolean",
+            "example": true
+          },
+          "read_only": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "ClinicalAiOutcomeScoreboardResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiOutcomeScoreboard"
+          }
+        }
+      },
       "ClinicalAiPgxGenotypeListResponse": {
         "type": "object",
         "required": [
@@ -6573,6 +6688,427 @@
           }
         }
       },
+      "ClinicalAiRoiByModuleRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "module_key"
+        ],
+        "properties": {
+          "module_key": {
+            "type": "string"
+          },
+          "generation_count": {
+            "type": "integer"
+          },
+          "ai_generation_count": {
+            "type": "integer"
+          },
+          "fallback_count": {
+            "type": "integer"
+          },
+          "accepted_count": {
+            "type": "integer"
+          },
+          "rejected_count": {
+            "type": "integer"
+          },
+          "pending_count": {
+            "type": "integer"
+          },
+          "edited_count": {
+            "type": "integer"
+          },
+          "total_tokens": {
+            "type": "integer"
+          },
+          "total_cost_minor": {
+            "type": "integer"
+          },
+          "acceptance_rate_pct": {
+            "type": "number"
+          },
+          "time_saved_minutes": {
+            "type": "integer"
+          },
+          "documentation_minutes_saved": {
+            "type": "integer"
+          },
+          "cost_per_useful_draft_minor": {
+            "type": "number"
+          }
+        }
+      },
+      "ClinicalAiRoiHighlightRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "module_key"
+        ],
+        "properties": {
+          "module_key": {
+            "type": "string"
+          },
+          "accepted_count": {
+            "type": "integer"
+          },
+          "time_saved_minutes": {
+            "type": "integer"
+          },
+          "acceptance_rate_pct": {
+            "type": "number"
+          },
+          "cost_per_useful_draft_minor": {
+            "type": "number"
+          }
+        }
+      },
+      "ClinicalAiRoiMetrics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "module_key",
+          "period_days",
+          "generation_count",
+          "by_module",
+          "highlights"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "module_key": {
+            "type": "string",
+            "example": "ALL"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_days": {
+            "type": "integer"
+          },
+          "generation_count": {
+            "type": "integer"
+          },
+          "ai_generation_count": {
+            "type": "integer"
+          },
+          "fallback_count": {
+            "type": "integer"
+          },
+          "accepted_count": {
+            "type": "integer"
+          },
+          "rejected_count": {
+            "type": "integer"
+          },
+          "pending_count": {
+            "type": "integer"
+          },
+          "edited_count": {
+            "type": "integer"
+          },
+          "total_tokens": {
+            "type": "integer"
+          },
+          "total_cost_minor": {
+            "type": "integer"
+          },
+          "acceptance_rate_pct": {
+            "type": "number"
+          },
+          "time_saved_minutes": {
+            "type": "integer"
+          },
+          "documentation_hours_saved": {
+            "type": "number"
+          },
+          "denial_value_prevented_minor": {
+            "type": "integer"
+          },
+          "prior_auth_approved_count": {
+            "type": "integer"
+          },
+          "appeal_approved_count": {
+            "type": "integer"
+          },
+          "cost_per_useful_draft_minor": {
+            "type": "number"
+          },
+          "by_module": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiRoiByModuleRow"
+            }
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiRoiHighlightRow"
+            }
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decision_support_only": {
+            "type": "boolean",
+            "example": true
+          },
+          "read_only": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "ClinicalAiRoiMetricsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiRoiMetrics"
+          }
+        }
+      },
+      "ClinicalAiRoiSnapshotLatestResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshot"
+            ],
+            "properties": {
+              "snapshot": {
+                "nullable": true,
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ClinicalAiRoiSnapshotRow"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiRoiSnapshotListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshots",
+              "count"
+            ],
+            "properties": {
+              "snapshots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotRow"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiRoiSnapshotResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshot",
+              "metrics"
+            ],
+            "properties": {
+              "snapshot": {
+                "nullable": true,
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ClinicalAiRoiSnapshotRow"
+                  }
+                ]
+              },
+              "metrics": {
+                "$ref": "#/components/schemas/ClinicalAiRoiMetrics"
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiRoiSnapshotRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "period_days",
+          "module_key",
+          "generation_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "period_days": {
+            "type": "integer"
+          },
+          "module_key": {
+            "type": "string",
+            "example": "ALL"
+          },
+          "generation_count": {
+            "type": "integer"
+          },
+          "ai_generation_count": {
+            "type": "integer"
+          },
+          "fallback_count": {
+            "type": "integer"
+          },
+          "accepted_count": {
+            "type": "integer"
+          },
+          "rejected_count": {
+            "type": "integer"
+          },
+          "pending_count": {
+            "type": "integer"
+          },
+          "edited_count": {
+            "type": "integer"
+          },
+          "total_tokens": {
+            "type": "integer"
+          },
+          "total_cost_minor": {
+            "type": "integer"
+          },
+          "acceptance_rate_pct": {
+            "type": "number"
+          },
+          "time_saved_minutes": {
+            "type": "integer"
+          },
+          "documentation_hours_saved": {
+            "type": "number"
+          },
+          "denial_value_prevented_minor": {
+            "type": "integer"
+          },
+          "prior_auth_approved_count": {
+            "type": "integer"
+          },
+          "appeal_approved_count": {
+            "type": "integer"
+          },
+          "cost_per_useful_draft_minor": {
+            "type": "number"
+          },
+          "by_module": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiRoiByModuleRow"
+            }
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiRoiHighlightRow"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "computed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "ClinicalAiSafetyFlagListResponse": {
         "type": "object",
         "required": [
@@ -6660,6 +7196,371 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "ClinicalAiScoreboardMedicationSafetyTypeRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "review_type",
+          "finding_count",
+          "critical_count",
+          "blocker_count",
+          "overridden_count"
+        ],
+        "properties": {
+          "review_type": {
+            "type": "string"
+          },
+          "finding_count": {
+            "type": "integer"
+          },
+          "critical_count": {
+            "type": "integer"
+          },
+          "blocker_count": {
+            "type": "integer"
+          },
+          "overridden_count": {
+            "type": "integer"
+          },
+          "override_rate_pct": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalAiScoreboardModuleReviews": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total",
+          "decided",
+          "pending",
+          "accepted",
+          "edited",
+          "rejected",
+          "needs_revision"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "decided": {
+            "type": "integer"
+          },
+          "pending": {
+            "type": "integer"
+          },
+          "accepted": {
+            "type": "integer"
+          },
+          "edited": {
+            "type": "integer"
+          },
+          "rejected": {
+            "type": "integer"
+          },
+          "needs_revision": {
+            "type": "integer"
+          },
+          "acceptance_rate_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "edit_rate_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "rejection_rate_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "needs_revision_rate_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "used_rate_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "avg_review_latency_minutes": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalAiScoreboardModuleRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module_key",
+          "enabled",
+          "generations",
+          "reviews",
+          "edits",
+          "safety",
+          "time_to_sign"
+        ],
+        "properties": {
+          "module_key": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "generations": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "ai_generated",
+              "fallback"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "ai_generated": {
+                "type": "integer"
+              },
+              "fallback": {
+                "type": "integer"
+              }
+            }
+          },
+          "reviews": {
+            "$ref": "#/components/schemas/ClinicalAiScoreboardModuleReviews"
+          },
+          "edits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sample_count"
+            ],
+            "properties": {
+              "sample_count": {
+                "type": "integer"
+              },
+              "mean_edit_distance_pct": {
+                "type": "number",
+                "nullable": true
+              },
+              "median_edit_distance_pct": {
+                "type": "number",
+                "nullable": true
+              }
+            }
+          },
+          "safety": {
+            "$ref": "#/components/schemas/ClinicalAiScoreboardModuleSafety"
+          },
+          "time_to_sign": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiScoreboardTimeToSignRow"
+            }
+          }
+        }
+      },
+      "ClinicalAiScoreboardModuleSafety": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "flagged_total",
+          "flagged_decided",
+          "flagged_confirmed",
+          "flagged_overridden",
+          "missed_reject_count"
+        ],
+        "properties": {
+          "flagged_total": {
+            "type": "integer"
+          },
+          "flagged_decided": {
+            "type": "integer"
+          },
+          "flagged_confirmed": {
+            "type": "integer"
+          },
+          "flagged_overridden": {
+            "type": "integer"
+          },
+          "flag_precision_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "flag_override_rate_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "missed_reject_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "ClinicalAiScoreboardTimeToSignRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "note_type",
+          "ai_signed_count",
+          "baseline_signed_count"
+        ],
+        "properties": {
+          "note_type": {
+            "type": "string"
+          },
+          "ai_signed_count": {
+            "type": "integer"
+          },
+          "ai_median_minutes": {
+            "type": "number",
+            "nullable": true
+          },
+          "ai_avg_minutes": {
+            "type": "number",
+            "nullable": true
+          },
+          "baseline_signed_count": {
+            "type": "integer"
+          },
+          "baseline_median_minutes": {
+            "type": "number",
+            "nullable": true
+          },
+          "baseline_avg_minutes": {
+            "type": "number",
+            "nullable": true
+          },
+          "median_delta_minutes": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalAiScoreboardTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "modules_with_activity",
+          "generations",
+          "reviews",
+          "edits",
+          "safety",
+          "time_to_sign"
+        ],
+        "properties": {
+          "modules_with_activity": {
+            "type": "integer"
+          },
+          "generations": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "ai_generated",
+              "fallback"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "ai_generated": {
+                "type": "integer"
+              },
+              "fallback": {
+                "type": "integer"
+              }
+            }
+          },
+          "reviews": {
+            "$ref": "#/components/schemas/ClinicalAiScoreboardModuleReviews"
+          },
+          "edits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sample_count"
+            ],
+            "properties": {
+              "sample_count": {
+                "type": "integer"
+              },
+              "mean_edit_distance_pct": {
+                "type": "number",
+                "nullable": true
+              },
+              "median_edit_distance_pct": {
+                "type": "number",
+                "nullable": true
+              }
+            }
+          },
+          "safety": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "flagged_total",
+              "flagged_decided",
+              "flagged_confirmed",
+              "flagged_overridden",
+              "missed_reject_count"
+            ],
+            "properties": {
+              "flagged_total": {
+                "type": "integer"
+              },
+              "flagged_decided": {
+                "type": "integer"
+              },
+              "flagged_confirmed": {
+                "type": "integer"
+              },
+              "flagged_overridden": {
+                "type": "integer"
+              },
+              "flag_precision_pct": {
+                "type": "number",
+                "nullable": true
+              },
+              "flag_override_rate_pct": {
+                "type": "number",
+                "nullable": true
+              },
+              "missed_reject_count": {
+                "type": "integer"
+              }
+            }
+          },
+          "time_to_sign": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ai_signed_count",
+              "baseline_signed_count"
+            ],
+            "properties": {
+              "ai_signed_count": {
+                "type": "integer"
+              },
+              "baseline_signed_count": {
+                "type": "integer"
+              },
+              "ai_avg_minutes": {
+                "type": "number",
+                "nullable": true
+              },
+              "baseline_avg_minutes": {
+                "type": "number",
+                "nullable": true
+              }
+            }
           }
         }
       },
@@ -26443,7 +27344,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -26458,7 +27359,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -26475,7 +27376,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -26502,7 +27403,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -26529,7 +27430,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -30221,7 +31122,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiOutcomeScoreboardResponse"
                 }
               }
             }
@@ -30428,7 +31329,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -30443,7 +31344,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -30460,7 +31361,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -30477,7 +31378,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -30494,7 +31395,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -31033,7 +31934,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -31048,7 +31949,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -31065,7 +31966,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiWorkflowRunDetailResponse"
                 }
               }
             }
@@ -31092,7 +31993,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiWorkflowRunFailResponse"
                 }
               }
             }
@@ -31119,7 +32020,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -31146,7 +32047,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -31173,7 +32074,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -31200,7 +32101,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -31772,7 +32673,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiMetricsResponse"
                 }
               }
             }
@@ -31789,7 +32690,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotListResponse"
                 }
               }
             }
@@ -31804,7 +32705,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotResponse"
                 }
               }
             }
@@ -31821,7 +32722,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotLatestResponse"
                 }
               }
             }
@@ -46655,7 +47556,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -46670,7 +47571,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -46687,7 +47588,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -46714,7 +47615,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -46741,7 +47642,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -50433,7 +51334,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiOutcomeScoreboardResponse"
                 }
               }
             }
@@ -50640,7 +51541,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -50655,7 +51556,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -50672,7 +51573,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -50689,7 +51590,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -50706,7 +51607,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -51245,7 +52146,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -51260,7 +52161,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -51277,7 +52178,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiWorkflowRunDetailResponse"
                 }
               }
             }
@@ -51304,7 +52205,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiWorkflowRunFailResponse"
                 }
               }
             }
@@ -51331,7 +52232,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -51358,7 +52259,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiDraftResponse"
                 }
               }
             }
@@ -51385,7 +52286,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -51412,7 +52313,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
                 }
               }
             }
@@ -51984,7 +52885,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiMetricsResponse"
                 }
               }
             }
@@ -52001,7 +52902,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotListResponse"
                 }
               }
             }
@@ -52016,7 +52917,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotResponse"
                 }
               }
             }
@@ -52033,7 +52934,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiRoiSnapshotLatestResponse"
                 }
               }
             }
