@@ -407,6 +407,353 @@
           }
         }
       },
+      "AdmissionHistoryData": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "admissions"
+        ],
+        "properties": {
+          "admissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdmissionHistoryItem"
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdmissionHistoryItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admitting_doctor": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "attending_doctor": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "chief_complaint": {
+            "type": "string",
+            "nullable": true
+          },
+          "admitting_diagnosis": {
+            "type": "string",
+            "nullable": true
+          },
+          "admission_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "elective",
+              "emergency",
+              "transfer_in",
+              "day_care"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "admitted",
+              "transferred",
+              "discharged",
+              "cancelled",
+              "lama",
+              "expired"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "routine",
+              "urgent",
+              "emergent"
+            ]
+          },
+          "code_status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "full_code",
+              "dnr",
+              "dni",
+              "comfort_care"
+            ]
+          },
+          "admitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discharged_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discharge_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "home",
+              "transfer",
+              "lama",
+              "expired",
+              "aor"
+            ]
+          },
+          "expected_los_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ip_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "los_days": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "AdmissionListData": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AdmissionListItem"
+        }
+      },
+      "AdmissionListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admitting_doctor": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "attending_doctor": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "chief_complaint": {
+            "type": "string",
+            "nullable": true
+          },
+          "admitting_diagnosis": {
+            "type": "string",
+            "nullable": true
+          },
+          "admission_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "elective",
+              "emergency",
+              "transfer_in",
+              "day_care"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "admitted",
+              "transferred",
+              "discharged",
+              "cancelled",
+              "lama",
+              "expired"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "routine",
+              "urgent",
+              "emergent"
+            ]
+          },
+          "code_status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "full_code",
+              "dnr",
+              "dni",
+              "comfort_care"
+            ]
+          },
+          "allergies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "admitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expected_los_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "next_review_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_hospital_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_ward_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AdmissionLookup": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "lookup_state"
+        ],
+        "properties": {
+          "lookup_state": {
+            "type": "string",
+            "enum": [
+              "multiple_matches",
+              "new_patient",
+              "returning_ip_patient",
+              "known_patient_no_prior_ip"
+            ]
+          },
+          "patient": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "prior_admissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "last_ip_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_admission": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "next_ip_number_hint": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AdmissionLookupData": {
+        "$ref": "#/components/schemas/AdmissionLookup"
+      },
       "AdmissionMutationData": {
         "type": "object",
         "additionalProperties": true,
@@ -596,6 +943,240 @@
           }
         }
       },
+      "AdmissionStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total_admissions",
+          "total_discharged"
+        ],
+        "properties": {
+          "total_admissions": {
+            "type": "integer"
+          },
+          "total_discharged": {
+            "type": "integer"
+          },
+          "avg_los_days": {
+            "type": "number",
+            "nullable": true
+          },
+          "currently_admitted": {
+            "type": "integer"
+          },
+          "currently_transferred": {
+            "type": "integer"
+          },
+          "occupancy_rate": {
+            "type": "number"
+          },
+          "total_beds": {
+            "type": "integer"
+          },
+          "occupied_beds": {
+            "type": "integer"
+          },
+          "discharge_type_breakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "discharge_type",
+                "count"
+              ],
+              "properties": {
+                "discharge_type": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    "home",
+                    "transfer",
+                    "lama",
+                    "expired",
+                    "aor"
+                  ]
+                },
+                "count": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "admission_type_breakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "admission_type",
+                "count"
+              ],
+              "properties": {
+                "admission_type": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    "elective",
+                    "emergency",
+                    "transfer_in",
+                    "day_care"
+                  ]
+                },
+                "count": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AdmissionStatsData": {
+        "$ref": "#/components/schemas/AdmissionStats"
+      },
+      "AdmitAdmissionRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status",
+          "patient_uid"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "admitted",
+              "transferred",
+              "discharged",
+              "cancelled",
+              "lama",
+              "expired"
+            ]
+          },
+          "admission_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "elective",
+              "emergency",
+              "transfer_in",
+              "day_care"
+            ]
+          },
+          "admitting_doctor": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "attending_doctor": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "admitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discharged_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "code_status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "full_code",
+              "dnr",
+              "dni",
+              "comfort_care"
+            ]
+          },
+          "room_category": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "general",
+              "semi_private",
+              "private",
+              "deluxe",
+              "icu",
+              "day_care"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ip_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_hospital_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "hospital_number": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AdmitData": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "admission"
+        ],
+        "properties": {
+          "admission": {
+            "$ref": "#/components/schemas/AdmitAdmissionRow"
+          }
+        }
+      },
       "Advance": {
         "type": "object",
         "additionalProperties": false,
@@ -771,6 +1352,9 @@
             "additionalProperties": true
           }
         }
+      },
+      "AdviseAdmissionData": {
+        "$ref": "#/components/schemas/AdviseAdmissionResult"
       },
       "AdviseAdmissionRequest": {
         "type": "object",
@@ -2719,6 +3303,70 @@
           }
         }
       },
+      "BedOption": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "bed_number"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "bed_number": {
+            "type": "string"
+          },
+          "ward_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ward_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "floor": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "available",
+              "occupied",
+              "cleaning"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BedOptionsData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "beds",
+          "count"
+        ],
+        "properties": {
+          "beds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BedOption"
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
       "BillingPackage": {
         "type": "object",
         "additionalProperties": false,
@@ -3850,6 +4498,74 @@
           }
         }
       },
+      "ClinicalAiConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "enabled"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "template",
+              "ollama",
+              "openai-compatible",
+              "openai",
+              "anthropic"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "readiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "tier": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "supportedProviders": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "template",
+                "ollama",
+                "openai-compatible",
+                "openai",
+                "anthropic"
+              ]
+            }
+          },
+          "decision_support_only": {
+            "type": "boolean"
+          },
+          "human_review_required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ClinicalAiConfigData": {
+        "$ref": "#/components/schemas/ClinicalAiConfig"
+      },
       "CloseDrawerRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -3921,6 +4637,215 @@
           },
           "notes": {
             "type": "string"
+          }
+        }
+      },
+      "CommandBoardData": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "board",
+          "rows"
+        ],
+        "properties": {
+          "board": {
+            "$ref": "#/components/schemas/CommandBoardMeta"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommandBoardRow"
+            }
+          }
+        }
+      },
+      "CommandBoardMeta": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "actor": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "governance": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "ai_state": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "nullable": true
+              },
+              "source_count": {
+                "type": "integer"
+              },
+              "human_review_required_for_actions": {
+                "type": "boolean"
+              }
+            }
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "CommandBoardRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "admission_id"
+        ],
+        "properties": {
+          "admission_id": {
+            "type": "integer"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "location": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "admission": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "status": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  "admitted",
+                  "transferred",
+                  "discharged",
+                  "cancelled",
+                  "lama",
+                  "expired"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  "elective",
+                  "emergency",
+                  "transfer_in",
+                  "day_care"
+                ]
+              },
+              "code_status": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  "full_code",
+                  "dnr",
+                  "dni",
+                  "comfort_care"
+                ]
+              },
+              "room_category": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  "general",
+                  "semi_private",
+                  "private",
+                  "deluxe",
+                  "icu",
+                  "day_care"
+                ]
+              },
+              "next_review_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              }
+            }
+          },
+          "assigned_staff": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "timers": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "diagnosis": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "allergies": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "isolation": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "alerts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "tasks": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "notes": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "discharge": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
           }
         }
       },
@@ -6148,6 +7073,43 @@
           }
         }
       },
+      "DowntimeSnapshot": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "patient_uid",
+          "payload"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DowntimeSnapshotData": {
+        "$ref": "#/components/schemas/DowntimeSnapshot"
+      },
       "DrawerPosition": {
         "type": "object",
         "additionalProperties": false,
@@ -6233,6 +7195,70 @@
           }
         }
       },
+      "EmrAdmissionHistoryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdmissionHistoryData"
+          }
+        }
+      },
+      "EmrAdmissionListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdmissionListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrAdmissionLookupResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdmissionLookupData"
+          }
+        }
+      },
       "EmrAdmissionMutationResponse": {
         "type": "object",
         "required": [
@@ -6249,6 +7275,83 @@
           },
           "data": {
             "$ref": "#/components/schemas/AdmissionMutationData"
+          }
+        }
+      },
+      "EmrAdmissionStatsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdmissionStatsData"
+          }
+        }
+      },
+      "EmrAdmitRequest": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "EmrAdmitResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdmitData"
+          }
+        }
+      },
+      "EmrAdviseAdmissionRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "appointment_id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrAdviseAdmissionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdviseAdmissionData"
           }
         }
       },
@@ -6300,6 +7403,25 @@
           }
         }
       },
+      "EmrBedOptionsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BedOptionsData"
+          }
+        }
+      },
       "EmrCaseSheetResponse": {
         "type": "object",
         "required": [
@@ -6342,6 +7464,25 @@
           }
         }
       },
+      "EmrClinicalAiConfigResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiConfigData"
+          }
+        }
+      },
       "EmrCodeStatusRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -6357,6 +7498,25 @@
               "dni",
               "comfort_care"
             ]
+          }
+        }
+      },
+      "EmrCommandBoardResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CommandBoardData"
           }
         }
       },
@@ -6657,6 +7817,37 @@
           }
         }
       },
+      "EmrDowntimeSnapshotRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "scope": {
+            "type": "string"
+          },
+          "hours_to_live": {
+            "type": "integer"
+          }
+        }
+      },
+      "EmrDowntimeSnapshotResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DowntimeSnapshotData"
+          }
+        }
+      },
       "EmrFamilyUpdateRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -6848,6 +8039,25 @@
           }
         }
       },
+      "EmrTeachBackAnswersRowResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TeachBackAnswersRowData"
+          }
+        }
+      },
       "EmrTeachBackGenerateRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -6895,6 +8105,75 @@
           },
           "ward": {
             "type": "string"
+          }
+        }
+      },
+      "EmrTranslateRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "target_language"
+        ],
+        "properties": {
+          "target_language": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrTranslationResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TranslationResultData"
+          }
+        }
+      },
+      "EmrTranslationsListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TranslationsListData"
+          }
+        }
+      },
+      "EmrWardOptionsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WardOptionsData"
           }
         }
       },
@@ -16343,6 +17622,148 @@
           }
         }
       },
+      "TeachBackAnswersRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admission_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "generation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "source_generation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "language": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "in_progress",
+              "needs_clinician_review",
+              "completed"
+            ]
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "patient_answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "misunderstanding_flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "comprehension_score": {
+            "type": "number",
+            "nullable": true
+          },
+          "source_citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "safety_flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "critical"
+                  ]
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "reviewer_decision": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reviewer_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluated_answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "TeachBackAnswersRowData": {
+        "$ref": "#/components/schemas/TeachBackAnswersRow"
+      },
       "TeachBackSessionDraftData": {
         "type": "object",
         "additionalProperties": true,
@@ -16900,6 +18321,144 @@
                 "example": 5
               }
             }
+          }
+        }
+      },
+      "TranslationListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "target_language",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "source_generation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "source_language": {
+            "type": "string",
+            "nullable": true
+          },
+          "target_language": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "needs_review"
+            ]
+          },
+          "fidelity_flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "module_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "TranslationResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "translation_id",
+          "target_language",
+          "translated_draft",
+          "status"
+        ],
+        "properties": {
+          "translation_id": {
+            "type": "integer"
+          },
+          "source_generation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "target_language": {
+            "type": "string"
+          },
+          "translated_draft": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "fidelity_flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "coverage_pct": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "needs_review"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "used_ai": {
+            "type": "boolean"
+          },
+          "deduplicated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TranslationResultData": {
+        "$ref": "#/components/schemas/TranslationResult"
+      },
+      "TranslationsListData": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "translations"
+        ],
+        "properties": {
+          "translations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranslationListItem"
+            }
+          },
+          "count": {
+            "type": "integer"
           }
         }
       },
@@ -17671,6 +19230,69 @@
             "type": "object",
             "nullable": true,
             "additionalProperties": true
+          }
+        }
+      },
+      "WardOption": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "label",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "wards",
+              "fallback"
+            ]
+          },
+          "floor": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_beds": {
+            "type": "integer"
+          },
+          "bed_count": {
+            "type": "integer"
+          },
+          "available_count": {
+            "type": "integer"
+          },
+          "occupied_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "WardOptionsData": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "wards",
+          "count"
+        ],
+        "properties": {
+          "wards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WardOption"
+            }
+          },
+          "count": {
+            "type": "integer"
           }
         }
       }
@@ -32904,7 +34526,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionListResponse"
                 }
               }
             }
@@ -32921,8 +34543,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdviseAdmissionResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrAdviseAdmissionRequest"
               }
             }
           }
@@ -32938,7 +34570,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionHistoryResponse"
                 }
               }
             }
@@ -32965,7 +34597,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionStatsResponse"
                 }
               }
             }
@@ -32982,8 +34614,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmitResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrAdmitRequest"
               }
             }
           }
@@ -32999,7 +34641,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrBedOptionsResponse"
                 }
               }
             }
@@ -33016,7 +34658,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalAiConfigResponse"
                 }
               }
             }
@@ -33033,7 +34675,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCommandBoardResponse"
                 }
               }
             }
@@ -33067,7 +34709,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrTranslationResultResponse"
                 }
               }
             }
@@ -33082,7 +34724,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrTranslateRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admissions/lookup": {
@@ -33094,7 +34746,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionLookupResponse"
                 }
               }
             }
@@ -33165,7 +34817,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrTranslationsListResponse"
                 }
               }
             }
@@ -33182,7 +34834,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrWardOptionsResponse"
                 }
               }
             }
@@ -52467,7 +54119,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionListResponse"
                 }
               }
             }
@@ -52484,8 +54136,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdviseAdmissionResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrAdviseAdmissionRequest"
               }
             }
           }
@@ -52501,7 +54163,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionHistoryResponse"
                 }
               }
             }
@@ -52528,7 +54190,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionStatsResponse"
                 }
               }
             }
@@ -52545,8 +54207,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmitResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrAdmitRequest"
               }
             }
           }
@@ -52562,7 +54234,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrBedOptionsResponse"
                 }
               }
             }
@@ -52709,7 +54381,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalAiConfigResponse"
                 }
               }
             }
@@ -52726,7 +54398,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrCommandBoardResponse"
                 }
               }
             }
@@ -52885,7 +54557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrDowntimeSnapshotResponse"
                 }
               }
             }
@@ -52900,7 +54572,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrDowntimeSnapshotRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/generations/{generationId}/translate": {
@@ -52912,7 +54594,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrTranslationResultResponse"
                 }
               }
             }
@@ -52927,7 +54609,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrTranslateRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/icd10/search": {
@@ -53027,7 +54719,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrAdmissionLookupResponse"
                 }
               }
             }
@@ -54152,7 +55844,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrTranslationsListResponse"
                 }
               }
             }
@@ -54319,7 +56011,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrWardOptionsResponse"
                 }
               }
             }

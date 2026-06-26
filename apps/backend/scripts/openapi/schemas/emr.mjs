@@ -17,7 +17,7 @@
 // keys survive in the spec. We therefore key the overlay under BOTH prefixes via
 // the `aliasOps()` helper at the bottom so neither alias falls back to the
 // generic Success envelope.
-import { envelope } from './_helpers.mjs';
+import { envelope, listEnvelope } from './_helpers.mjs';
 
 // ---------------------------------------------------------------------------
 // Null-free const enums — EXACT casing from admissionService.js / the DB.
@@ -56,6 +56,28 @@ const CONSULT_TYPE = ['dietary', 'family_counselling', 'pharmacy', 'physiotherap
 const HUB_AI_STATUS = ['schema_unavailable', 'ai_draft', 'fallback', 'rules_draft'];
 // getLatestDischargeSummary source
 const DISCHARGE_SUMMARY_SOURCE = ['clinical_note', 'admission'];
+
+// ---------------------------------------------------------------------------
+// admission-mgmt sub-domain enums (null-free; EXACT casing from
+// admissionService.js / patientCommandBoardService.js / the AI services).
+// ---------------------------------------------------------------------------
+// bed.status (bed-options / command-board location.bed_status) — lowercase.
+const BED_STATUS = ['available', 'occupied', 'cleaning'];
+// ward-options heterogeneous source discriminator.
+const WARD_SOURCE = ['wards', 'fallback'];
+// admission lookup result branch.
+const LOOKUP_STATE = [
+  'multiple_matches', 'new_patient', 'returning_ip_patient', 'known_patient_no_prior_ip',
+];
+// translation result status.
+const TRANSLATION_STATUS = ['completed', 'needs_review'];
+// teach-back session status.
+const TEACHBACK_SESSION_STATUS = ['draft', 'in_progress', 'needs_clinician_review', 'completed'];
+// clinical-ai/config provider + supportedProviders.
+const CLINICAL_AI_PROVIDER = ['template', 'ollama', 'openai-compatible', 'openai', 'anthropic'];
+// command-board governance.ai_state (fallback-only today; kept null-free + loose
+// elsewhere so a future state can't break the contract — the field is typed
+// {type:'string'} on the row, not enum-bound).
 
 // A reusable opaque-jsonb schema (parsed object, never string).
 const looseObject = { type: 'object', additionalProperties: true };
@@ -708,6 +730,524 @@ export const schemas = {
   },
 
   // =========================================================================
+  // admission-mgmt sub-domain — shared item schemas
+  // (LIST != detail: these are distinct reduced projections from AdmissionRow /
+  // AdmissionDetail; do NOT collapse them onto those.)
+  // =========================================================================
+
+  // ---- AdmissionListItem -------------------------------------------------
+  // GET /admissions reduced projection (fixed `select`): HAS department/priority/
+  // expected_los_days; NO doctor names / los_days / prior_admission. LOOSE —
+  // minimize variant nulls PHI (patient_name='Occupied') + late-migration cols.
+  AdmissionListItem: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      admitting_doctor: { type: 'string', format: 'uuid', nullable: true },
+      attending_doctor: { type: 'string', format: 'uuid', nullable: true },
+      department: { type: 'string', nullable: true },
+      ward: { type: 'string', nullable: true },
+      bed_id: { type: 'integer', nullable: true },
+      bed_number: { type: 'string', nullable: true },
+      chief_complaint: { type: 'string', nullable: true },
+      admitting_diagnosis: { type: 'string', nullable: true },
+      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      status: { type: 'string', enum: ADMISSION_STATUS },
+      priority: { type: 'string', nullable: true, enum: ADMISSION_PRIORITY },
+      code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
+      allergies: { type: 'array', items: { type: 'string' }, nullable: true },
+      admitted_at: { type: 'string', format: 'date-time', nullable: true },
+      expected_los_days: { type: 'integer', nullable: true },
+      next_review_at: { type: 'string', format: 'date-time', nullable: true },
+      // enrichment (string|null; 'Occupied' for minimized roles)
+      patient_name: { type: 'string', nullable: true },
+      patient_phone: { type: 'string', nullable: true },
+      patient_hospital_number: { type: 'string', nullable: true },
+      hospital_number: { type: 'string', nullable: true },
+      bed_ward_name: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- AdmissionHistoryItem ----------------------------------------------
+  // GET /admissions/patient/{uid} own projection: adds computed ip_number
+  // (IP-YYYY-NNNNN) + los_days + discharge fields; NO patient enrichment. LOOSE.
+  AdmissionHistoryItem: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      admitting_doctor: { type: 'string', format: 'uuid', nullable: true },
+      attending_doctor: { type: 'string', format: 'uuid', nullable: true },
+      department: { type: 'string', nullable: true },
+      ward: { type: 'string', nullable: true },
+      bed_id: { type: 'integer', nullable: true },
+      bed_number: { type: 'string', nullable: true },
+      chief_complaint: { type: 'string', nullable: true },
+      admitting_diagnosis: { type: 'string', nullable: true },
+      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      status: { type: 'string', enum: ADMISSION_STATUS },
+      priority: { type: 'string', nullable: true, enum: ADMISSION_PRIORITY },
+      code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
+      admitted_at: { type: 'string', format: 'date-time', nullable: true },
+      discharged_at: { type: 'string', format: 'date-time', nullable: true },
+      discharge_type: { type: 'string', nullable: true, enum: DISCHARGE_TYPE },
+      expected_los_days: { type: 'integer', nullable: true },
+      ip_number: { type: 'string', nullable: true },
+      los_days: { type: 'number', nullable: true },
+    },
+  },
+
+  // ---- AdmissionStats ----------------------------------------------------
+  // GET /admissions/stats aggregate (no PHI). STRICT. avg_los_days number|null.
+  AdmissionStats: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['total_admissions', 'total_discharged'],
+    properties: {
+      total_admissions: { type: 'integer' },
+      total_discharged: { type: 'integer' },
+      avg_los_days: { type: 'number', nullable: true },
+      currently_admitted: { type: 'integer' },
+      currently_transferred: { type: 'integer' },
+      occupancy_rate: { type: 'number' },
+      total_beds: { type: 'integer' },
+      occupied_beds: { type: 'integer' },
+      discharge_type_breakdown: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['discharge_type', 'count'],
+          properties: {
+            discharge_type: { type: 'string', nullable: true, enum: DISCHARGE_TYPE },
+            count: { type: 'integer' },
+          },
+        },
+      },
+      admission_type_breakdown: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['admission_type', 'count'],
+          properties: {
+            admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+            count: { type: 'integer' },
+          },
+        },
+      },
+    },
+  },
+
+  // ---- AdmitAdmissionRow -------------------------------------------------
+  // POST /admit row: ADMISSION_RETURNING_SELECT core + post-commit best-effort
+  // enrichment (ip_number/bed_number/patient_*). LOOSE — enrichment may be absent
+  // on best-effort-failure paths. Distinct from AdmissionRow (no los_days here,
+  // adds ip_number + patient_*).
+  AdmitAdmissionRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'status', 'patient_uid'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      status: { type: 'string', nullable: true, enum: ADMISSION_STATUS },
+      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      admitting_doctor: { type: 'string', format: 'uuid', nullable: true },
+      attending_doctor: { type: 'string', format: 'uuid', nullable: true },
+      ward: { type: 'string', nullable: true },
+      bed_id: { type: 'integer', nullable: true },
+      bed_number: { type: 'string', nullable: true },
+      admitted_at: { type: 'string', format: 'date-time', nullable: true },
+      discharged_at: { type: 'string', format: 'date-time', nullable: true },
+      code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
+      room_category: { type: 'string', nullable: true, enum: ROOM_CATEGORY },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      // post-commit best-effort enrichment
+      ip_number: { type: 'string', nullable: true },
+      patient_name: { type: 'string', nullable: true },
+      patient_phone: { type: 'string', nullable: true },
+      patient_hospital_number: { type: 'string', nullable: true },
+      hospital_number: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- BedOption ---------------------------------------------------------
+  // GET /bed-options items. STRICT — fixed query projection.
+  BedOption: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'bed_number'],
+    properties: {
+      id: { type: 'integer' },
+      bed_number: { type: 'string' },
+      ward_id: { type: 'integer', nullable: true },
+      ward_name: { type: 'string', nullable: true },
+      floor: { type: 'string', nullable: true },
+      bed_type: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: BED_STATUS },
+      notes: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- WardOption --------------------------------------------------------
+  // GET /ward-options heterogeneous items: source 'wards' rows carry bed counts;
+  // 'fallback' rows have only {id:null,name,label,source}. LOOSE.
+  WardOption: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['name', 'label', 'source'],
+    properties: {
+      id: { type: 'integer', nullable: true },
+      name: { type: 'string' },
+      label: { type: 'string' },
+      source: { type: 'string', enum: WARD_SOURCE },
+      floor: { type: 'string', nullable: true },
+      total_beds: { type: 'integer' },
+      bed_count: { type: 'integer' },
+      available_count: { type: 'integer' },
+      occupied_count: { type: 'integer' },
+    },
+  },
+
+  // ---- AdviseAdmissionResult (REUSED) ------------------------------------
+  // POST /admissions/advise returns the SAME bare appointment RETURNING row that
+  // appointmentWorkflowController.adviseForAdmission produces — already modelled
+  // by the appointments overlay as `AdviseAdmissionResult` (status = UPPERCASE
+  // APPOINTMENT_STATUS, NOT admission status). We $ref it below rather than
+  // redeclare (the generator rejects duplicate global schema names).
+
+  // ---- AdmissionLookup ---------------------------------------------------
+  // GET /lookup result. ONE schema, 4 lookup_state branches: patient|null +
+  // optional matches[] + prior_admissions[]. LOOSE.
+  AdmissionLookup: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['lookup_state'],
+    properties: {
+      lookup_state: { type: 'string', enum: LOOKUP_STATE },
+      patient: { type: 'object', additionalProperties: true, nullable: true },
+      matches: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      prior_admissions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      count: { type: 'integer' },
+      last_ip_number: { type: 'string', nullable: true },
+      last_admission: { type: 'object', additionalProperties: true, nullable: true },
+      next_ip_number_hint: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- CommandBoardMeta --------------------------------------------------
+  // GET /command-board board envelope. LOOSE — semi-structured, role-variant.
+  CommandBoardMeta: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['kind'],
+    properties: {
+      kind: { type: 'string' },
+      generated_at: { type: 'string', format: 'date-time' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      scope: { type: 'object', additionalProperties: true },
+      actor: { type: 'object', additionalProperties: true },
+      governance: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          ai_state: { type: 'string' },
+          label: { type: 'string', nullable: true },
+          source_count: { type: 'integer' },
+          human_review_required_for_actions: { type: 'boolean' },
+        },
+      },
+      counts: { type: 'object', additionalProperties: true },
+    },
+  },
+
+  // ---- CommandBoardRow ---------------------------------------------------
+  // GET /command-board deeply nested composite row. LOOSE throughout — jsonb-
+  // derived sub-objects + heavy housekeeping-role minimize variant. Required core
+  // is just admission_id.
+  CommandBoardRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['admission_id'],
+    properties: {
+      admission_id: { type: 'integer' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient: { type: 'object', additionalProperties: true, nullable: true },
+      location: { type: 'object', additionalProperties: true },
+      admission: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          status: { type: 'string', nullable: true, enum: ADMISSION_STATUS },
+          type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+          code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
+          room_category: { type: 'string', nullable: true, enum: ROOM_CATEGORY },
+          next_review_at: { type: 'string', format: 'date-time', nullable: true },
+        },
+      },
+      assigned_staff: { type: 'object', additionalProperties: true },
+      priority: { type: 'object', additionalProperties: true },
+      timers: { type: 'object', additionalProperties: true },
+      diagnosis: { type: 'object', additionalProperties: true },
+      allergies: { type: 'object', additionalProperties: true },
+      isolation: { type: 'object', additionalProperties: true },
+      alerts: { type: 'object', additionalProperties: true },
+      tasks: { type: 'object', additionalProperties: true },
+      notes: { type: 'object', additionalProperties: true },
+      discharge: { type: 'object', additionalProperties: true },
+      actions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    },
+  },
+
+  // ---- ClinicalAiConfig --------------------------------------------------
+  // GET /clinical-ai/config — provider readiness (NOT generated content).
+  // 11 fixed keys. STRICT. readiness/reason free string|null.
+  ClinicalAiConfig: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['provider', 'enabled'],
+    properties: {
+      provider: { type: 'string', enum: CLINICAL_AI_PROVIDER },
+      enabled: { type: 'boolean' },
+      ready: { type: 'boolean' },
+      readiness: { type: 'string', nullable: true },
+      reason: { type: 'string', nullable: true },
+      model: { type: 'string', nullable: true },
+      tier: { type: 'string', nullable: true },
+      base_url: { type: 'string', nullable: true },
+      supportedProviders: { type: 'array', items: { type: 'string', enum: CLINICAL_AI_PROVIDER } },
+      decision_support_only: { type: 'boolean' },
+      human_review_required: { type: 'boolean' },
+    },
+  },
+
+  // ---- TranslationResult -------------------------------------------------
+  // POST /generations/{generationId}/translate. translated_draft jsonb → object;
+  // coverage_pct/used_ai only on non-dedup path. LOOSE.
+  TranslationResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['translation_id', 'target_language', 'translated_draft', 'status'],
+    properties: {
+      translation_id: { type: 'integer' },
+      source_generation_id: { type: 'integer', nullable: true },
+      target_language: { type: 'string' },
+      translated_draft: { type: 'object', additionalProperties: true },
+      fidelity_flags: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      coverage_pct: { type: 'number' },
+      status: { type: 'string', enum: TRANSLATION_STATUS },
+      provider: { type: 'string' },
+      model: { type: 'string', nullable: true },
+      used_ai: { type: 'boolean' },
+      deduplicated: { type: 'boolean' },
+    },
+  },
+
+  // ---- TranslationListItem -----------------------------------------------
+  // GET /translations reduced (NO translated_draft; adds module_key/patient_uid/
+  // source_language). LOOSE — fidelity_flags jsonb. LIST != detail.
+  TranslationListItem: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'target_language', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      source_generation_id: { type: 'integer', nullable: true },
+      source_language: { type: 'string', nullable: true },
+      target_language: { type: 'string' },
+      provider: { type: 'string', nullable: true },
+      model: { type: 'string', nullable: true },
+      status: { type: 'string', enum: TRANSLATION_STATUS },
+      fidelity_flags: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      module_key: { type: 'string', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+    },
+  },
+
+  // ---- TeachBackAnswersRow -----------------------------------------------
+  // POST /teach-back/{sessionId}/answers — full clinical_ai_teach_back_sessions
+  // raw row + evaluated_answers. All array/object cols are jsonb → parsed. LOOSE.
+  TeachBackAnswersRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      admission_id: { type: 'integer', nullable: true },
+      generation_id: { type: 'integer', nullable: true },
+      source_generation_id: { type: 'integer', nullable: true },
+      language: { type: 'string', nullable: true },
+      status: { type: 'string', enum: TEACHBACK_SESSION_STATUS },
+      questions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      patient_answers: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      misunderstanding_flags: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      comprehension_score: { type: 'number', nullable: true },
+      source_citations: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      safety_flags: { type: 'array', items: aiSafetyFlag },
+      reviewer_decision: { type: 'string', nullable: true },
+      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      reviewer_note: { type: 'string', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      evaluated_answers: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    },
+  },
+
+  // ---- DowntimeSnapshot --------------------------------------------------
+  // POST /downtime-snapshot/{patientUid} (201). payload jsonb (patient+timeline)
+  // OPAQUE → object, never string. LOOSE.
+  DowntimeSnapshot: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'patient_uid', 'payload'],
+    properties: {
+      id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      scope: { type: 'string' },
+      payload: { type: 'object', additionalProperties: true },
+      expires_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  // =========================================================================
+  // admission-mgmt — per-endpoint `data` payloads
+  // =========================================================================
+
+  // POST /admit → { admission: AdmitAdmissionRow } (201).
+  AdmitData: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['admission'],
+    properties: { admission: { $ref: '#/components/schemas/AdmitAdmissionRow' } },
+  },
+
+  // GET /admissions/patient/{uid} → { admissions: AdmissionHistoryItem[], count }.
+  AdmissionHistoryData: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['admissions'],
+    properties: {
+      admissions: { type: 'array', items: { $ref: '#/components/schemas/AdmissionHistoryItem' } },
+      count: { type: 'integer' },
+    },
+  },
+
+  // GET /bed-options → { beds: BedOption[], count }.
+  BedOptionsData: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['beds', 'count'],
+    properties: {
+      beds: { type: 'array', items: { $ref: '#/components/schemas/BedOption' } },
+      count: { type: 'integer' },
+    },
+  },
+
+  // GET /ward-options → { wards: WardOption[], count }.
+  WardOptionsData: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['wards', 'count'],
+    properties: {
+      wards: { type: 'array', items: { $ref: '#/components/schemas/WardOption' } },
+      count: { type: 'integer' },
+    },
+  },
+
+  // GET /command-board → { board: CommandBoardMeta, rows: CommandBoardRow[] }.
+  CommandBoardData: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['board', 'rows'],
+    properties: {
+      board: { $ref: '#/components/schemas/CommandBoardMeta' },
+      rows: { type: 'array', items: { $ref: '#/components/schemas/CommandBoardRow' } },
+    },
+  },
+
+  // GET /translations → { translations: TranslationListItem[], count }.
+  TranslationsListData: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['translations'],
+    properties: {
+      translations: { type: 'array', items: { $ref: '#/components/schemas/TranslationListItem' } },
+      count: { type: 'integer' },
+    },
+  },
+
+  // Bare-data refs (data IS the object/array directly — no wrapper key).
+  AdmissionListData: { type: 'array', items: { $ref: '#/components/schemas/AdmissionListItem' } },
+  AdmissionStatsData: { $ref: '#/components/schemas/AdmissionStats' },
+  AdviseAdmissionData: { $ref: '#/components/schemas/AdviseAdmissionResult' },
+  AdmissionLookupData: { $ref: '#/components/schemas/AdmissionLookup' },
+  ClinicalAiConfigData: { $ref: '#/components/schemas/ClinicalAiConfig' },
+  TranslationResultData: { $ref: '#/components/schemas/TranslationResult' },
+  TeachBackAnswersRowData: { $ref: '#/components/schemas/TeachBackAnswersRow' },
+  DowntimeSnapshotData: { $ref: '#/components/schemas/DowntimeSnapshot' },
+
+  // =========================================================================
+  // admission-mgmt — response envelopes
+  // =========================================================================
+  EmrAdmissionListResponse: listEnvelope('AdmissionListItem'),
+  EmrAdmitResponse: envelope('AdmitData'),
+  EmrAdmissionHistoryResponse: envelope('AdmissionHistoryData'),
+  EmrAdmissionStatsResponse: envelope('AdmissionStatsData'),
+  EmrAdviseAdmissionResponse: envelope('AdviseAdmissionData'),
+  EmrBedOptionsResponse: envelope('BedOptionsData'),
+  EmrWardOptionsResponse: envelope('WardOptionsData'),
+  EmrCommandBoardResponse: envelope('CommandBoardData'),
+  EmrAdmissionLookupResponse: envelope('AdmissionLookupData'),
+  EmrClinicalAiConfigResponse: envelope('ClinicalAiConfigData'),
+  EmrTranslationResultResponse: envelope('TranslationResultData'),
+  EmrTranslationsListResponse: envelope('TranslationsListData'),
+  EmrTeachBackAnswersRowResponse: envelope('TeachBackAnswersRowData'),
+  EmrDowntimeSnapshotResponse: envelope('DowntimeSnapshotData'),
+
+  // =========================================================================
+  // admission-mgmt — request bodies (LOOSE; controllers accept raw intake)
+  // =========================================================================
+  EmrAdviseAdmissionRequest: {
+    type: 'object', additionalProperties: true,
+    properties: {
+      appointment_id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      note: { type: 'string' },
+    },
+  },
+  EmrAdmitRequest: looseObject,
+  EmrTranslateRequest: {
+    type: 'object', additionalProperties: true, required: ['target_language'],
+    properties: { target_language: { type: 'string' } },
+  },
+  EmrDowntimeSnapshotRequest: {
+    type: 'object', additionalProperties: true,
+    properties: {
+      scope: { type: 'string' },
+      hours_to_live: { type: 'integer' },
+    },
+  },
+
+  // =========================================================================
   // Response envelopes (success(res,data) → { success, message, data })
   // =========================================================================
   EmrAdmissionMutationResponse: envelope('AdmissionMutationData'),
@@ -854,20 +1394,62 @@ const OPS = [
   ['POST /{id}/ai/family-update', { request: 'EmrFamilyUpdateRequest', response: 'EmrFamilyUpdateResponse' }],
   ['POST /{id}/ai/nursing-ambient', { request: 'EmrNursingAmbientRequest', response: 'EmrNursingAmbientResponse' }],
   ['POST /{id}/ai/teach-back', { request: 'EmrTeachBackGenerateRequest', response: 'EmrTeachBackSessionDraftResponse' }],
+
+  // -------------------------------------------------------------------------
+  // admission-mgmt sub-domain (list/lookup/stats/options/board/admit/advise/
+  // translations/downtime). All wrap via success(res,data,…).
+  // -------------------------------------------------------------------------
+  // GET /admissions → bare AdmissionListItem[] (pagination+scope in meta).
+  ['GET /admissions', { response: 'EmrAdmissionListResponse' }],
+  // POST /admissions/advise → bare appointment row (UPPERCASE appt status). STRICT.
+  ['POST /admissions/advise', { request: 'EmrAdviseAdmissionRequest', response: 'EmrAdviseAdmissionResponse' }],
+  // GET /admissions/patient/{uid} → { admissions, count }.
+  ['GET /admissions/patient/{uid}', { response: 'EmrAdmissionHistoryResponse' }],
+  // GET /admissions/stats → aggregate. STRICT.
+  ['GET /admissions/stats', { response: 'EmrAdmissionStatsResponse' }],
+  // POST /admit → { admission: AdmitAdmissionRow } (201).
+  ['POST /admit', { request: 'EmrAdmitRequest', response: 'EmrAdmitResponse' }],
+  // GET /bed-options → { beds, count }. STRICT.
+  ['GET /bed-options', { response: 'EmrBedOptionsResponse' }],
+  // GET /ward-options → { wards, count } (heterogeneous). LOOSE.
+  ['GET /ward-options', { response: 'EmrWardOptionsResponse' }],
+  // GET /command-board → { board, rows }. LOOSE composite.
+  ['GET /command-board', { response: 'EmrCommandBoardResponse' }],
+  // GET /lookup → AdmissionLookup (4 lookup_state branches). LOOSE.
+  ['GET /lookup', { response: 'EmrAdmissionLookupResponse' }],
+  // GET /clinical-ai/config → provider readiness (NOT generated content). STRICT.
+  ['GET /clinical-ai/config', { response: 'EmrClinicalAiConfigResponse' }],
+  // GET /translations → { translations, count } (no translated_draft). LIST.
+  ['GET /translations', { response: 'EmrTranslationsListResponse' }],
+  // POST /generations/{generationId}/translate → TranslationResult (AI; draft loose).
+  ['POST /generations/{generationId}/translate', { request: 'EmrTranslateRequest', response: 'EmrTranslationResultResponse' }],
+  // NOTE: POST /downtime-snapshot/{patientUid} is EMR-ONLY (it lives in
+  // clinicalNotesRoutes.js, NOT admissionRoutes.js, so the /api/v1/admissions
+  // alias does NOT cover it). Keyed under /api/v1/emr only via EMR_ONLY_OPS below.
+];
+
+// Ops that exist ONLY under /api/v1/emr (their handler is NOT in the twice-
+// mounted admissionRoutes.js, so the /api/v1/admissions alias has no such path).
+const EMR_ONLY_OPS = [
+  ['POST /downtime-snapshot/{patientUid}', { request: 'EmrDowntimeSnapshotRequest', response: 'EmrDowntimeSnapshotResponse' }],
 ];
 
 const PREFIXES = ['/api/v1/emr', '/api/v1/admissions'];
 
-/** Fan each [«METHOD /suffix», overlay] out to both mount prefixes. */
-function aliasOps(pairs) {
+/** Fan each [«METHOD /suffix», overlay] out to the given mount prefixes. */
+function aliasOps(pairs, prefixes = PREFIXES) {
   const out = {};
   for (const [methodSuffix, ov] of pairs) {
     const spaceIdx = methodSuffix.indexOf(' ');
     const method = methodSuffix.slice(0, spaceIdx);
     const suffix = methodSuffix.slice(spaceIdx + 1);
-    for (const pre of PREFIXES) out[`${method} ${pre}${suffix}`] = ov;
+    for (const pre of prefixes) out[`${method} ${pre}${suffix}`] = ov;
   }
   return out;
 }
 
-export const operations = aliasOps(OPS);
+export const operations = {
+  ...aliasOps(OPS),
+  // EMR-only ops keyed under the /api/v1/emr prefix only.
+  ...aliasOps(EMR_ONLY_OPS, ['/api/v1/emr']),
+};
