@@ -1819,6 +1819,74 @@ export const schemas = {
       },
     },
   },
+
+  // =========================================================================
+  // STRICT — overview longitudinal-risk (T14, overviewRoutes.js). GET
+  // /longitudinal-risk returns `{ snapshots:[row], count }` over the
+  // deterministic `clinical_longitudinal_risk` table (migration 018) — pure
+  // immutable risk-snapshot rows, NO LLM `draft`. The route's explicit
+  // 13-column projection (id, admission_id, patient_uid, u.name AS
+  // patient_name, overall_score, band, adherence_score, adherence_source,
+  // readmission_score, comorbidity_score, abdm_enrichment, recommendations,
+  // created_at) is mirrored verbatim. `band` carries a REAL DB CHECK
+  // constraint (`CHECK (band IN ('low','medium','high','critical'))`) so it is
+  // pinned to a null-free enum. The four score columns are `NUMERIC(5,2)` read
+  // via `$queryRawUnsafe` (rawQuery) with NO JS coercion — Prisma returns them
+  // as `Prisma.Decimal`, whose `toJSON` emits a JS number — so each is
+  // `{ type:'number', nullable:true }` (spec is OpenAPI 3.0, which forbids
+  // array `type`; single type + nullable is the 3.0-correct nullable shape,
+  // mirroring the outcome-scoreboard pct/minutes fields). jsonb
+  // `abdm_enrichment` → object; jsonb `recommendations` → array (never
+  // strings). `patient_name` comes from the LEFT JOIN (nullable). The
+  // projection omits tenant_id / contributors / metadata / retention_until, so
+  // those are absent (additionalProperties:false). Dual-mounted across both
+  // CONTROL_PREFIXES via aliasOps.
+  // =========================================================================
+
+  // ---- ClinicalAiLongitudinalRiskRow -------------------------------------
+  ClinicalAiLongitudinalRiskRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'patient_uid', 'overall_score', 'band'],
+    properties: {
+      id: { type: 'integer' },
+      admission_id: { type: 'integer', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      patient_name: { type: 'string', nullable: true },
+      overall_score: { type: 'number', nullable: true },
+      band: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+      adherence_score: { type: 'number', nullable: true },
+      adherence_source: { type: 'string', nullable: true },
+      readmission_score: { type: 'number', nullable: true },
+      comorbidity_score: { type: 'number', nullable: true },
+      abdm_enrichment: { type: 'object', additionalProperties: true },
+      recommendations: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /longitudinal-risk → { success, message,
+  //   data: { snapshots:[row], count } }.
+  ClinicalAiLongitudinalRiskListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['snapshots', 'count'],
+        properties: {
+          snapshots: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiLongitudinalRiskRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2854,8 +2922,80 @@ const CONTROL_OPS = [
   ['POST /patient-report-explanations', { response: 'ClinicalAiDraftResponse' }],
   ['POST /prescription-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
   ['POST /invoice-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+
+  // -------------------------------------------------------------------------
+  // overview (overviewRoutes.js) — 3 GET ops, all control-plane, dual-mounted
+  // across both CONTROL_PREFIXES via aliasOps.
+  //   • GET /translations    — listTranslations() → loose `{ translations, count }`
+  //     blob (rows are config/jsonb translation entries, no DB-CHECK columns) →
+  //     the shared count-list ClinicalAiCountListResponse.
+  //   • GET /longitudinal-risk — STRICT: `{ snapshots:[row], count }` over the
+  //     deterministic clinical_longitudinal_risk table, `band` DB-CHECK-pinned →
+  //     ClinicalAiLongitudinalRiskListResponse.
+  //   • GET /dead-letter     — `{ generations:[row], count }`: the failed-status
+  //     subset projection of clinical_ai_generations. The columns are a strict
+  //     SUBSET of the already-declared ClinicalAiGenerationRow (additionalProperties
+  //     false, only id/task_type/status required) so the shared
+  //     ClinicalAiGenerationListResponse types it exactly.
+  // -------------------------------------------------------------------------
+  ['GET /translations', { response: 'ClinicalAiCountListResponse' }],
+  ['GET /longitudinal-risk', { response: 'ClinicalAiLongitudinalRiskListResponse' }],
+  ['GET /dead-letter', { response: 'ClinicalAiGenerationListResponse' }],
 ];
-const CLINICAL_OPS = [];
+
+// -------------------------------------------------------------------------
+// Clinical-use ops (clinicalUseRoutes.js) — mounted ONLY at
+// /api/v1/clinical-ai/clinical/* (staff Flutter surface). Keyed under the
+// single CLINICAL_PREFIXES entry via aliasOps(CLINICAL_OPS, CLINICAL_PREFIXES).
+//
+// 20 ops, 19 paths (/discharge-compose has GET+POST). The 7 /op/* POSTs, the 5
+// explainer POSTs, POST /admission-ai-draft, POST /ehr-query, POST
+// /discharge-compose, and POST /discharge-compose/{runId}/resume ALL return the
+// shared loose ClinicalAiDraftEnvelope / orchestration-result blob (the file's
+// own doc comment: "no business-logic divergence between control + clinical
+// paths" — same dischargeComposeService functions) → ClinicalAiDraftResponse.
+//
+// STRICT reuse (no new schema authored — the control-plane discharge-compose
+// strict rows from T7 apply byte-identically here):
+//   • GET  /discharge-compose         → ClinicalAiWorkflowRunListResponse
+//     (raw clinical_ai_workflow_runs subset projection; status/pause_reason
+//     plain VARCHAR with no DB CHECK, already plain strings on the row).
+//   • GET  /discharge-compose/{runId} → ClinicalAiWorkflowRunDetailResponse
+//     ({ run, children:[row], child_count } from the checkpoint store).
+//   • PATCH /reviews/{id}             → ClinicalAiReviewDecisionResponse
+//     (updateReview() returns the loose review/decision row).
+//   • GET  /reviews                   → ClinicalAiReviewDecisionListResponse
+//     (listReviews() filtered to the caller role → the shared loose-row list).
+//   • GET  /op/services               → ClinicalAiGovernanceObjectResponse
+//     (listOpdAiModules() returns a computed `{ modules:[...] }` enable-status
+//     object whose bands are config-derived, not DB-CHECK — stays loose-object).
+// -------------------------------------------------------------------------
+const CLINICAL_OPS = [
+  // ---- AI-draft / orchestration POSTs — shared loose envelope ----
+  ['POST /admission-ai-draft', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /ehr-query', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /discharge-compose', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /discharge-compose/{runId}/resume', { response: 'ClinicalAiDraftResponse' }],
+  // ---- OP doctor-facing AI assist — shared loose envelope ----
+  ['POST /op/visit-prep', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /op/prescription-safety', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /op/investigation-review', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /op/differential-red-flags', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /op/follow-up-plan', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /op/referral-draft', { response: 'ClinicalAiDraftResponse' }],
+  // ---- Patient-facing explainer POSTs (clinical plane) — shared loose envelope ----
+  ['POST /lab-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /radiology-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /patient-report-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /prescription-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /invoice-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  // ---- STRICT reuse (discharge-compose workflow-run rows + reviews + op services) ----
+  ['GET /discharge-compose', { response: 'ClinicalAiWorkflowRunListResponse' }],
+  ['GET /discharge-compose/{runId}', { response: 'ClinicalAiWorkflowRunDetailResponse' }],
+  ['GET /reviews', { response: 'ClinicalAiReviewDecisionListResponse' }],
+  ['PATCH /reviews/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['GET /op/services', { response: 'ClinicalAiGovernanceObjectResponse' }],
+];
 
 export const operations = {
   ...aliasOps(CONTROL_OPS, CONTROL_PREFIXES),
