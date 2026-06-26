@@ -2765,6 +2765,95 @@ const CONTROL_OPS = [
   ['POST /labeling/annotations', { response: 'ClinicalAiDraftResponse' }],
   ['GET /labeling/annotations', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /labeling/annotations/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // -------------------------------------------------------------------------
+  // trial-safety-quality-explainers (T13). Three control sub-routers, all
+  // dual-mounted flat at '/' on the aggregator (clinicalAiRoutes.js lines
+  // 46/57/60), so each suffix exists at BOTH control prefixes via aliasOps:
+  //   • trialSafetyOperationsRoutes.js — 18 ops: clinical-trials catalog/sync/
+  //     match, RCA drafts, deterioration early-warning, polypharmacy review,
+  //     operational AI (no-show / OT case-time / charge-capture).
+  //   • qualityCaseRoutes.js — 2 ops: M&M/RCA standing queue (list + packet).
+  //   • patientExplainersRoutes.js — 5 ops: Tier-A lay-language explainers.
+  //
+  // Typing (per scout r4 + r5 + ground-truth route files + verified service
+  // RETURNING projections):
+  //   • POST generate/score/sync/match/upsert/record/explain → loose draft /
+  //     result envelope (201) → ClinicalAiDraftResponse. This covers the trial
+  //     catalog upsert + registry sync, the trial-match scoring blob, every RCA
+  //     draft, the deterioration / no-show / OT / charge-capture score blobs,
+  //     the quality-case packet generator, and all 5 patient explainers. Every
+  //     band these surface (deterioration `band` critical|concerning|watch|
+  //     stable, no-show `band` high|medium|low, trial catalog `status`) is a
+  //     heuristic THRESHOLD output, NOT a persisted DB CHECK column in these
+  //     routes, so per the plan's "leave soft/config-derived bands plain" rule
+  //     it stays inside loose `draft` — no strict schema.
+  //   • GET lists → `{ <plural>:[…], count }` (verified service shapes:
+  //     listTrialSyncRuns→{runs,count}; listTrialMatches→{matches,count};
+  //     listRcaDrafts→{drafts,count}; listDeteriorationSnapshots→
+  //     {snapshots,count}; listPolypharmacyReviews→{reviews,count};
+  //     listChargeCaptureAudits→{audits,count}) → ClinicalAiCountListResponse.
+  //   • PATCH decide ops split on the RETURNING column set:
+  //       – decideRcaDraft / decidePolypharmacyReview / decideChargeCaptureAudit
+  //         all RETURN a row carrying BOTH `id` AND `reviewer_decision` →
+  //         ClinicalAiReviewDecisionResponse (loose row, additionalProperties:true).
+  //       – decideTrialMatch RETURNS `coordinator_decision` (the
+  //         offered|enrolled|declined|ineligible code allowlist) but NO
+  //         `reviewer_decision` column, so it CANNOT satisfy ReviewDecisionRow's
+  //         required:[id,reviewer_decision] → ClinicalAiGovernanceObjectResponse
+  //         (per the revenue-cycle recordPayerDecision / workbench labeling
+  //         decideAnnotation precedent — typed envelope, loose `data`).
+  //   • THE ONE STRICT op — GET /quality/cases → listOperationalAlerts({domain:
+  //     'quality'}) returns the IDENTICAL 30-column `clinical_ai_operational_
+  //     alerts` row shape already typed strictly in T7, with the SAME `{ alerts,
+  //     count }` envelope, so it REUSES ClinicalAiOperationalAlertListResponse
+  //     verbatim (no new schema — severity / system_status / reviewer_decision
+  //     DB-CHECK enums already pinned there). The /generate-packet POST returns
+  //     `{ alert_id, scope_key, rca_draft_id, draft }` with an LLM-generated RCA
+  //     `draft` blob → loose ClinicalAiDraftResponse.
+  // Control-only (no /clinical-ai/clinical mount for any of these). Dual-mounted
+  // across both CONTROL_PREFIXES via aliasOps. No new schema authored — all 25
+  // ops reuse the shared loose families + the T7 operational-alert strict list.
+  // -------------------------------------------------------------------------
+
+  // ---- Clinical trials catalog + match (trialSafetyOperationsRoutes.js) ----
+  ['POST /trials/catalog', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /trials/sync', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /trials/sync', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /trials/match/{patientUid}', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /trials/matches', { response: 'ClinicalAiCountListResponse' }],
+  // decideTrialMatch RETURNS coordinator_decision (no reviewer_decision) → loose object.
+  ['PATCH /trials/matches/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // ---- RCA / M&M draft generator ----
+  ['POST /rca/{id}', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /rca', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /rca/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Clinical safety AI — deterioration early-warning + polypharmacy ----
+  ['GET /safety/deterioration', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /safety/deterioration/{patientUid}', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /safety/polypharmacy', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /safety/polypharmacy/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Operational AI — no-show / OT case-time / charge-capture ----
+  ['POST /operational/no-show/{appointmentId}', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /operational/ot/{scheduleId}', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /operational/charge-capture/{id}', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /operational/charge-capture', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /operational/charge-capture/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Quality / M&M / RCA standing queue (qualityCaseRoutes.js) ----
+  // GET /quality/cases reuses the T7 operational-alert strict list (domain='quality').
+  ['GET /quality/cases', { response: 'ClinicalAiOperationalAlertListResponse' }],
+  ['POST /quality/cases/{alertId}/generate-packet', { response: 'ClinicalAiDraftResponse' }],
+
+  // ---- Tier-A patient explainers (patientExplainersRoutes.js) — 5 loose drafts ----
+  ['POST /lab-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /radiology-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /patient-report-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /prescription-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /invoice-patient-explanations', { response: 'ClinicalAiDraftResponse' }],
 ];
 const CLINICAL_OPS = [];
 
