@@ -2,12 +2,48 @@
 import { getJSON, postJSON, fetchAdminAPI } from "./core";
 import type { QueryParams } from "./core";
 import { API_ENDPOINTS } from "../api-config";
+import type { ApiData } from "@/lib/openapi-data";
+
+// ── Spec-derived response types (OpenAPI Phase 5 — appointments slice) ──────
+// Derived from the canonical spec via `ApiData` (the unwrapped `.data` payload)
+// so they track the backend contract and drift is caught at `tsc`. The admin
+// analytics/conflicts/capacity/no-shows/search/export results have a typed
+// envelope (LOOSE aggregate cells per the backend overlay, but the array +
+// envelope structure is real). Mutator responses adopt their typed `data`.
+export type AppointmentAnalytics =
+  ApiData<"/api/v1/appointments/admin/analytics", "get">;
+export type AppointmentConflicts =
+  ApiData<"/api/v1/appointments/admin/conflicts", "get">;
+export type AppointmentConflict = AppointmentConflicts["conflicts"][number];
+export type CapacityAnalysis =
+  ApiData<"/api/v1/appointments/admin/capacity", "get">;
+export type NoShowReport = ApiData<"/api/v1/appointments/admin/no-shows", "get">;
+export type NoShowPatient = NoShowReport["noShowPatients"][number];
+export type AppointmentSearch =
+  ApiData<"/api/v1/appointments/admin/search", "get">;
+export type AppointmentExport =
+  ApiData<"/api/v1/appointments/admin/export", "get">;
+export type AppointmentExportRow = AppointmentExport["appointments"][number];
+
+// Mutator response payloads (spec-derived).
+export type BookAppointmentResult =
+  ApiData<"/api/v1/appointments/book", "post">;
+export type BulkUpdateStatusResult =
+  ApiData<"/api/v1/appointments/admin/bulk-update-status", "post">;
+export type OverrideBookResult =
+  ApiData<"/api/v1/appointments/admin/override-book", "post">;
+export type ResolveConflictResult =
+  ApiData<"/api/v1/appointments/admin/resolve-conflict", "post">;
+export type SendRemindersResult =
+  ApiData<"/api/v1/appointments/admin/send-reminders", "post">;
+export type BulkDeleteResult =
+  ApiData<"/api/v1/appointments/admin/bulk-delete", "delete">;
 
 export function getAppointments<T = unknown>(params?: QueryParams) {
   return getJSON<T>(API_ENDPOINTS.appointments.list, params);
 }
 
-export function bookAppointmentAdmin<T = unknown>(data: {
+export function bookAppointmentAdmin(data: {
   patient_id?: number;
   patient_phone?: string;
   patient_name?: string;
@@ -17,36 +53,43 @@ export function bookAppointmentAdmin<T = unknown>(data: {
   reason: string;
   notes?: string;
 }) {
-  return postJSON<T>(API_ENDPOINTS.appointments.book, data);
+  return postJSON<BookAppointmentResult>(API_ENDPOINTS.appointments.book, data);
 }
 
-export function getAppointmentAnalytics<T = unknown>() {
-  return getJSON<T>(API_ENDPOINTS.appointments.admin.analytics);
+export function getAppointmentAnalytics() {
+  return getJSON<AppointmentAnalytics>(
+    API_ENDPOINTS.appointments.admin.analytics,
+  );
 }
 
-export function getAppointmentConflicts<T = unknown>() {
-  return getJSON<T>(API_ENDPOINTS.appointments.admin.conflicts);
+export function getAppointmentConflicts() {
+  return getJSON<AppointmentConflicts>(
+    API_ENDPOINTS.appointments.admin.conflicts,
+  );
 }
 
-export function getAppointmentCapacity<T = unknown>() {
-  return getJSON<T>(API_ENDPOINTS.appointments.admin.capacity);
+export function getAppointmentCapacity() {
+  return getJSON<CapacityAnalysis>(API_ENDPOINTS.appointments.admin.capacity);
 }
 
-export function getNoShows<T = unknown>() {
-  return getJSON<T>(API_ENDPOINTS.appointments.admin.noShows);
+export function getNoShows() {
+  return getJSON<NoShowReport>(API_ENDPOINTS.appointments.admin.noShows);
 }
 
 // --- New admin endpoints ---
 
-export function bulkUpdateAppointmentStatus<T = unknown>(data: {
+export function bulkUpdateAppointmentStatus(data: {
   appointment_ids: number[];
   status: "completed" | "cancelled" | "no_show";
   reason?: string;
 }) {
-  return postJSON<T>(API_ENDPOINTS.appointments.admin.bulkUpdateStatus, data);
+  return postJSON<BulkUpdateStatusResult>(
+    API_ENDPOINTS.appointments.admin.bulkUpdateStatus,
+    data,
+  );
 }
 
-export function overrideBookAppointment<T = unknown>(data: {
+export function overrideBookAppointment(data: {
   patient_id: number;
   doctor_id: number;
   appointment_date: string;
@@ -54,10 +97,13 @@ export function overrideBookAppointment<T = unknown>(data: {
   override_reason?: string;
   ignore_conflicts?: boolean;
 }) {
-  return postJSON<T>(API_ENDPOINTS.appointments.admin.overrideBook, data);
+  return postJSON<OverrideBookResult>(
+    API_ENDPOINTS.appointments.admin.overrideBook,
+    data,
+  );
 }
 
-export function resolveAppointmentConflict<T = unknown>(data: {
+export function resolveAppointmentConflict(data: {
   conflict_appointments: [number, number];
   resolution_action:
     | "cancel_first"
@@ -66,53 +112,75 @@ export function resolveAppointmentConflict<T = unknown>(data: {
     | "reschedule_second";
   new_time?: string;
 }) {
-  return postJSON<T>(API_ENDPOINTS.appointments.admin.resolveConflict, data);
+  return postJSON<ResolveConflictResult>(
+    API_ENDPOINTS.appointments.admin.resolveConflict,
+    data,
+  );
 }
 
-export function sendAppointmentReminders<T = unknown>(data?: {
+export function sendAppointmentReminders(data?: {
   hours_before?: number;
   include_departments?: number[];
   exclude_cancelled?: boolean;
 }) {
-  return postJSON<T>(API_ENDPOINTS.appointments.admin.sendReminders, data);
+  return postJSON<SendRemindersResult>(
+    API_ENDPOINTS.appointments.admin.sendReminders,
+    data,
+  );
 }
 
-export function bulkDeleteAppointments<T = unknown>(data: {
+export function bulkDeleteAppointments(data: {
   appointment_ids: number[];
   reason: string;
 }) {
-  return fetchAdminAPI<T>(API_ENDPOINTS.appointments.admin.bulkDelete, {
-    method: "DELETE",
-    body: data,
-  });
+  return fetchAdminAPI<BulkDeleteResult>(
+    API_ENDPOINTS.appointments.admin.bulkDelete,
+    {
+      method: "DELETE",
+      body: data,
+    },
+  );
 }
 
-export function searchAppointments<T = unknown>(params?: QueryParams) {
-  return getJSON<T>(API_ENDPOINTS.appointments.admin.search, params);
+export function searchAppointments(params?: QueryParams) {
+  return getJSON<AppointmentSearch>(
+    API_ENDPOINTS.appointments.admin.search,
+    params,
+  );
 }
 
-export function exportAppointments<T = unknown>(params?: QueryParams) {
-  return getJSON<T>(API_ENDPOINTS.appointments.admin.export, params);
+export function exportAppointments(params?: QueryParams) {
+  return getJSON<AppointmentExport>(
+    API_ENDPOINTS.appointments.admin.export,
+    params,
+  );
 }
 
 // ── Workflow endpoints (confirmation, SLA, documents) ──────────────────────
 
-export interface SlaSummary {
-  total: string;
-  confirmed: string;
-  completed: string;
-  cancelled: string;
-  no_show: string;
-  pending_confirmation: string;
-}
-
+// LOOSE backend schema — hand-typed for admin UI detail.
+// The SLA dashboard `sla` block (slaRes[0]) is `additionalProperties:true` with
+// no declared properties in the spec overlay (the analytics handler mixes
+// `::int` counts with a `ROUND(...,1)::numeric` avg → Decimal-as-string), so
+// `ApiData` would expose it as an open `{ [k]: unknown }` and lose the admin
+// UI's typed field access. Counts are `::int` (number); avg_response_minutes is
+// a Decimal serialized as string.
 export interface SlaMetrics {
-  total_with_sla: string;
-  within_sla: string;
-  breached_sla: string;
+  total_with_sla: number;
+  within_sla: number;
+  breached_sla: number;
   avg_response_minutes: string | null;
 }
 
+// LOOSE backend schema — hand-typed for admin UI detail.
+// `TodayQueueItem` / `PendingAppointment` (queue/today, pending) and the SLA
+// dashboard `pending_confirmation` rows are all `additionalProperties:true` in
+// the spec overlay. The admin queue/SLA UIs read fields the overlay does not
+// enumerate (blood_group, reminder_24h_sent/_1h_sent, mins_waiting) plus the
+// joined display columns, so this richer hand-authored shape is kept rather
+// than collapsing to an open spec type. NOTE: `token_number` is `string | null`
+// (DB `VARCHAR(20)` — appointments.token_number) per the spec; the previous
+// `number | null` here was real drift, now reconciled to the contract.
 export interface AppointmentWorkflow {
   id: number;
   uid: string;
@@ -124,7 +192,7 @@ export interface AppointmentWorkflow {
   notes: string | null;
   status: string;
   phone: string | null;
-  token_number: number | null;
+  token_number: string | null;
   confirmed_by: number | null;
   confirmed_at: string | null;
   confirmation_notes: string | null;
@@ -179,20 +247,34 @@ export interface AuditEntry {
   created_at: string;
 }
 
-export interface SlaDashboardResponse {
-  summary: SlaSummary;
+// HYBRID (billing.ts pattern): the strict parts (`summary` `::int` counts,
+// `by_status`, `date_range`) are pulled from the spec via indexed access on the
+// `ApiData` base; the three LOOSE blocks (`sla`, `by_department`,
+// `pending_confirmation` — all `additionalProperties:true` with no enumerated
+// fields in the overlay) are replaced with the hand-typed shapes the admin UI
+// relies on. `summary` is spec-derived: the backend `::int`-casts every count,
+// so it is `number` (not the old `string`).
+// NOTE: indexed access (`Base["summary"]`) rather than `Omit<Base, ...>` —
+// `SlaDashboardResult` is `additionalProperties:true`, so the spec type carries
+// a `& { [k: string]: unknown }` index signature; `Omit` over that collapses
+// every kept key back to `unknown` (keyof includes `string`). Indexed access
+// preserves the declared field types.
+type SlaDashboardBase =
+  ApiData<"/api/v1/appointments/admin/sla-dashboard", "get">;
+export type SlaDashboardResponse = {
+  summary: SlaDashboardBase["summary"];
+  by_status: SlaDashboardBase["by_status"];
+  date_range: SlaDashboardBase["date_range"];
   sla: SlaMetrics;
-  by_status: { status: string; count: string }[];
   by_department: {
     department: string;
-    total: string;
-    completed: string;
-    confirmed: string;
-    cancelled: string;
+    total: number;
+    completed: number;
+    confirmed: number;
+    cancelled: number;
   }[];
   pending_confirmation: AppointmentWorkflow[];
-  date_range: { from: string; to: string };
-}
+};
 
 export function getAppointmentSlaDashboard(params?: QueryParams) {
   return getJSON<SlaDashboardResponse>(
@@ -201,6 +283,9 @@ export function getAppointmentSlaDashboard(params?: QueryParams) {
   );
 }
 
+// LOOSE backend (TodayQueueItem / PendingAppointment are additionalProperties:
+// true) — return the richer hand-typed AppointmentWorkflow[] the admin queue/
+// pending UIs consume (see the AppointmentWorkflow note above).
 export function getTodayQueue(params?: QueryParams) {
   return getJSON<AppointmentWorkflow[]>(
     API_ENDPOINTS.appointments.queue,

@@ -133,7 +133,11 @@ export function DoctorQueueTab() {
             </thead>
             <tbody>
               {queue
-                .sort((a, b) => (a.token_number ?? 999) - (b.token_number ?? 999))
+                .sort(
+                  (a, b) =>
+                    (Number(a.token_number) || 999) -
+                    (Number(b.token_number) || 999),
+                )
                 .map((appt) => {
                   const a = appt as AppointmentWorkflow & { patient_name?: string; blood_group?: string; reminder_24h_sent?: boolean; reminder_1h_sent?: boolean };
                   return (
