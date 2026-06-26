@@ -879,6 +879,283 @@ export const schemas = {
       },
     },
   },
+
+  // =========================================================================
+  // STRICT — knowledge-base (T9). The RAG knowledge layer is pure deterministic
+  // CRUD over real fixed-column tables (knowledge_bases / knowledge_documents /
+  // knowledge_access_policies — migrations 113 + 311) — NO LLM `draft`. Every
+  // categorical column is pinned to its REAL DB CHECK constraint (verified in
+  // 113_knowledge_base_foundation.sql + 311_knowledge_curation.sql, AND
+  // re-validated in the services' normalize*() guards which 400 before INSERT):
+  //   • kb_type                  CHECK 8-value set (knowledge_bases)
+  //   • status                   CHECK ('active','archived')
+  //   • source_type              CHECK ('upload','url','inline_text','imported')
+  //   • processing_status        CHECK 7-value set (knowledge_documents)
+  //   • prompt_injection_verdict CHECK NULL OR ('pass','flag','block') → nullable
+  //   • curation_status          CHECK ('pending','approved','rejected')
+  //   • permission               CHECK ('read','write','manage')
+  // `role` is a plain VARCHAR(60) with NO CHECK (the service uppercases free
+  // input) → plain string. jsonb columns (metadata / prompt_injection_metadata)
+  // serialize to objects (never strings). file_size_bytes is BIGINT but the
+  // service inserts a JS number / Buffer.byteLength → integer. The two
+  // service-blob ops (POST /retrieve, GET /retrieval-logs) carry NO fixed-column
+  // table row (retrieve = `{ results[], source, query_hash }` where `source` is
+  // a soft non-CHECK string; retrieval-logs = `{ logs, count }`) so they fold
+  // into the shared loose families. Control-only.
+  // =========================================================================
+
+  // ---- Knowledge-base enums (null-free for Spectral; verified DB CHECKs) ----
+  // Declared inline here (not at module top) to keep the T9 strict block
+  // self-contained; the consts above are scoped to their own sub-domains.
+
+  // ---- ClinicalAiKnowledgeBaseRow ----------------------------------------
+  // One row of `knowledge_bases`. create/update/archive/unarchive return the
+  // base column projection; get/list additionally surface the computed
+  // `document_count` (and get also `chunk_count`) sub-selects — so those two
+  // are optional, not required.
+  ClinicalAiKnowledgeBaseRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'name', 'kb_type', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      name: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      kb_type: {
+        type: 'string',
+        enum: [
+          'general', 'sop', 'antibiotic_policy', 'patient_education',
+          'clinical_guideline', 'formulary', 'safety_alert', 'training',
+        ],
+      },
+      status: { type: 'string', enum: ['active', 'archived'] },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      document_count: { type: 'integer' },
+      chunk_count: { type: 'integer' },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /knowledge-bases (201) + GET|PATCH /knowledge-bases/{id} +
+  // PATCH .../archive + .../unarchive → { success, message, data: row }.
+  ClinicalAiKnowledgeBaseResponse: envelope('ClinicalAiKnowledgeBaseRow'),
+
+  // GET /knowledge-bases → { success, message,
+  //   data: { knowledge_bases:[row], count } }.
+  ClinicalAiKnowledgeBaseListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['knowledge_bases', 'count'],
+        properties: {
+          knowledge_bases: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiKnowledgeBaseRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiKnowledgeAccessPolicyRow --------------------------------
+  // One row of `knowledge_access_policies`. listAccessPolicies + grantAccess
+  // RETURNING surface the full column projection; `role` has NO DB CHECK
+  // (uppercased free input) → plain string.
+  ClinicalAiKnowledgeAccessPolicyRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'knowledge_base_id', 'role', 'permission'],
+    properties: {
+      id: { type: 'integer' },
+      knowledge_base_id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      role: { type: 'string' },
+      permission: { type: 'string', enum: ['read', 'write', 'manage'] },
+      granted_by: { type: 'string', format: 'uuid', nullable: true },
+      granted_at: { type: 'string', format: 'date-time', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+
+  // POST /knowledge-bases/{id}/access-policies (201) →
+  //   { success, message, data: row }.
+  ClinicalAiKnowledgeAccessPolicyResponse: envelope('ClinicalAiKnowledgeAccessPolicyRow'),
+
+  // GET /knowledge-bases/{id}/access-policies → { success, message,
+  //   data: { policies:[row], count } }.
+  ClinicalAiKnowledgeAccessPolicyListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['policies', 'count'],
+        properties: {
+          policies: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiKnowledgeAccessPolicyRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiKnowledgeAccessRevokeRow --------------------------------
+  // DELETE .../access-policies/{role}/{permission} RETURNING projection — the
+  // four-column subset (no tenant_id / granted_* / metadata).
+  ClinicalAiKnowledgeAccessRevokeRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'knowledge_base_id', 'role', 'permission'],
+    properties: {
+      id: { type: 'integer' },
+      knowledge_base_id: { type: 'integer' },
+      role: { type: 'string' },
+      permission: { type: 'string', enum: ['read', 'write', 'manage'] },
+    },
+  },
+
+  // DELETE .../access-policies/{role}/{permission} →
+  //   { success, message, data: row }.
+  ClinicalAiKnowledgeAccessRevokeResponse: envelope('ClinicalAiKnowledgeAccessRevokeRow'),
+
+  // ---- ClinicalAiKnowledgeDocumentRow ------------------------------------
+  // One row of `knowledge_documents`. The full projection is returned by
+  // getKnowledgeDocument + listKnowledgeDocuments (list omits raw_text). The
+  // four categorical columns carry real DB CHECKs (113 + 311);
+  // prompt_injection_verdict is nullable per its CHECK. file_size_bytes is
+  // BIGINT → integer. `raw_text` is only present on the single-doc projection
+  // (optional). The decide (curation) projection is a strict subset of these
+  // columns, so it reuses this same schema (additionalProperties:false; only
+  // the always-present core is required).
+  ClinicalAiKnowledgeDocumentRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'knowledge_base_id', 'title'],
+    properties: {
+      id: { type: 'integer' },
+      knowledge_base_id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      title: { type: 'string' },
+      source_type: {
+        type: 'string',
+        enum: ['upload', 'url', 'inline_text', 'imported'],
+      },
+      source_uri: { type: 'string', nullable: true },
+      mime_type: { type: 'string', nullable: true },
+      file_hash: { type: 'string', nullable: true },
+      file_size_bytes: { type: 'integer', nullable: true },
+      raw_text: { type: 'string', nullable: true },
+      processing_status: {
+        type: 'string',
+        enum: [
+          'pending', 'extracting', 'chunking', 'embedding',
+          'indexed', 'failed', 'blocked',
+        ],
+      },
+      processing_error: { type: 'string', nullable: true },
+      chunk_count: { type: 'integer' },
+      prompt_injection_verdict: {
+        type: 'string',
+        nullable: true,
+        enum: ['pass', 'flag', 'block'],
+      },
+      prompt_injection_metadata: { type: 'object', additionalProperties: true },
+      uploaded_by: { type: 'string', format: 'uuid', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      curation_status: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
+      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /knowledge-bases/{id}/documents/{documentId} +
+  // PATCH .../{documentId}/curation → { success, message, data: row }.
+  ClinicalAiKnowledgeDocumentResponse: envelope('ClinicalAiKnowledgeDocumentRow'),
+
+  // GET /knowledge-bases/{id}/documents → { success, message,
+  //   data: { documents:[row], count } }.
+  ClinicalAiKnowledgeDocumentListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['documents', 'count'],
+        properties: {
+          documents: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiKnowledgeDocumentRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiKnowledgeDocumentDeleteRow ------------------------------
+  // DELETE .../documents/{documentId} RETURNING projection — { id,
+  //   knowledge_base_id, title }.
+  ClinicalAiKnowledgeDocumentDeleteRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'knowledge_base_id', 'title'],
+    properties: {
+      id: { type: 'integer' },
+      knowledge_base_id: { type: 'integer' },
+      title: { type: 'string' },
+    },
+  },
+
+  // DELETE .../documents/{documentId} → { success, message, data: row }.
+  ClinicalAiKnowledgeDocumentDeleteResponse: envelope('ClinicalAiKnowledgeDocumentDeleteRow'),
+
+  // ---- ClinicalAiKnowledgeIngestResultResponse ---------------------------
+  // POST .../documents (upload) + .../documents/inline + .../documents/
+  // {documentId}/reindex (all 201) return the ingest-pipeline result envelope:
+  //   { document: row, processed:boolean, chunk_count?, embedded_count?,
+  //     reason?, injection_safety_flag? }
+  // `document` is the strict KB-document row; the pipeline counters/flags vary
+  // by outcome (blocked / no_text / indexed / embed_unavailable), so the outer
+  // object stays additionalProperties:true with `document` typed.
+  ClinicalAiKnowledgeIngestResultResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: true,
+        required: ['document'],
+        properties: {
+          document: { $ref: '#/components/schemas/ClinicalAiKnowledgeDocumentRow' },
+          processed: { type: 'boolean' },
+          chunk_count: { type: 'integer' },
+          embedded_count: { type: 'integer' },
+          reason: { type: 'string', nullable: true },
+        },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1481,6 +1758,53 @@ const CONTROL_OPS = [
   ['GET /pilot-signoffs', { response: 'ClinicalAiCountListResponse' }],
   ['POST /pilot-signoffs', { response: 'ClinicalAiGovernanceObjectResponse' }],
   ['PATCH /pilot-signoffs/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+
+  // -------------------------------------------------------------------------
+  // knowledge-base (knowledgeBaseRoutes.js) — 18 ops. The RAG knowledge layer:
+  // KB CRUD + role-based access policies + document upload/curation pipeline +
+  // permission-filtered retrieval. MOSTLY-STRICT (per scout r4 + plan strictOps
+  // + ground-truth route/service + DB CHECKs in migrations 113 + 311): every
+  // CRUD op surfaces a REAL fixed-column table row with DB-CHECK-grade enums
+  // (kb_type/status/source_type/processing_status/prompt_injection_verdict/
+  // curation_status/permission) → bespoke strict schemas authored above. `role`
+  // is plain VARCHAR (no CHECK) → plain string. jsonb metadata → object.
+  //
+  // The ingest ops (upload / inline / reindex) return the pipeline-result
+  // envelope `{ document: <strict row>, processed, chunk_count?, embedded_count?,
+  // reason? }` → ClinicalAiKnowledgeIngestResultResponse. The curation decide
+  // (PATCH .../curation) returns the strict document row → the document response.
+  // The two service-blob ops fold into the shared loose families: POST /retrieve
+  // returns `{ results[], source, query_hash }` (source = soft non-CHECK string)
+  // → ClinicalAiGovernanceObjectResponse; GET /retrieval-logs returns
+  // `{ logs, count }` → ClinicalAiCountListResponse. Control-only (no
+  // /clinical-ai/clinical mount). Dual-mounted across both CONTROL_PREFIXES.
+  // -------------------------------------------------------------------------
+
+  // ---- KB CRUD (strict row) ----
+  ['GET /knowledge-bases', { response: 'ClinicalAiKnowledgeBaseListResponse' }],
+  ['POST /knowledge-bases', { response: 'ClinicalAiKnowledgeBaseResponse' }],
+  ['GET /knowledge-bases/{id}', { response: 'ClinicalAiKnowledgeBaseResponse' }],
+  ['PATCH /knowledge-bases/{id}', { response: 'ClinicalAiKnowledgeBaseResponse' }],
+  ['PATCH /knowledge-bases/{id}/archive', { response: 'ClinicalAiKnowledgeBaseResponse' }],
+  ['PATCH /knowledge-bases/{id}/unarchive', { response: 'ClinicalAiKnowledgeBaseResponse' }],
+
+  // ---- Access policies (strict row; revoke = subset projection) ----
+  ['GET /knowledge-bases/{id}/access-policies', { response: 'ClinicalAiKnowledgeAccessPolicyListResponse' }],
+  ['POST /knowledge-bases/{id}/access-policies', { response: 'ClinicalAiKnowledgeAccessPolicyResponse' }],
+  ['DELETE /knowledge-bases/{id}/access-policies/{role}/{permission}', { response: 'ClinicalAiKnowledgeAccessRevokeResponse' }],
+
+  // ---- Documents (strict row; ingest = pipeline-result envelope) ----
+  ['GET /knowledge-bases/{id}/documents', { response: 'ClinicalAiKnowledgeDocumentListResponse' }],
+  ['POST /knowledge-bases/{id}/documents/inline', { response: 'ClinicalAiKnowledgeIngestResultResponse' }],
+  ['POST /knowledge-bases/{id}/documents', { response: 'ClinicalAiKnowledgeIngestResultResponse' }],
+  ['GET /knowledge-bases/{id}/documents/{documentId}', { response: 'ClinicalAiKnowledgeDocumentResponse' }],
+  ['DELETE /knowledge-bases/{id}/documents/{documentId}', { response: 'ClinicalAiKnowledgeDocumentDeleteResponse' }],
+  ['POST /knowledge-bases/{id}/documents/{documentId}/reindex', { response: 'ClinicalAiKnowledgeIngestResultResponse' }],
+  ['PATCH /knowledge-bases/{id}/documents/{documentId}/curation', { response: 'ClinicalAiKnowledgeDocumentResponse' }],
+
+  // ---- Retrieval (loose service blobs) ----
+  ['POST /knowledge-bases/retrieve', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['GET /knowledge-bases/retrieval-logs', { response: 'ClinicalAiCountListResponse' }],
 ];
 const CLINICAL_OPS = [];
 

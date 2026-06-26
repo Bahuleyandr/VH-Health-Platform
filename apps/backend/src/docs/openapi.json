@@ -5470,6 +5470,542 @@
           }
         }
       },
+      "ClinicalAiKnowledgeAccessPolicyListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "policies",
+              "count"
+            ],
+            "properties": {
+              "policies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessPolicyRow"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiKnowledgeAccessPolicyResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessPolicyRow"
+          }
+        }
+      },
+      "ClinicalAiKnowledgeAccessPolicyRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "knowledge_base_id",
+          "role",
+          "permission"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "knowledge_base_id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "role": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "manage"
+            ]
+          },
+          "granted_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "granted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ClinicalAiKnowledgeAccessRevokeResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessRevokeRow"
+          }
+        }
+      },
+      "ClinicalAiKnowledgeAccessRevokeRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "knowledge_base_id",
+          "role",
+          "permission"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "knowledge_base_id": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "manage"
+            ]
+          }
+        }
+      },
+      "ClinicalAiKnowledgeBaseListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "knowledge_bases",
+              "count"
+            ],
+            "properties": {
+              "knowledge_bases": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseRow"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiKnowledgeBaseResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseRow"
+          }
+        }
+      },
+      "ClinicalAiKnowledgeBaseRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "kb_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "kb_type": {
+            "type": "string",
+            "enum": [
+              "general",
+              "sop",
+              "antibiotic_policy",
+              "patient_education",
+              "clinical_guideline",
+              "formulary",
+              "safety_alert",
+              "training"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived"
+            ]
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "document_count": {
+            "type": "integer"
+          },
+          "chunk_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalAiKnowledgeDocumentDeleteResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentDeleteRow"
+          }
+        }
+      },
+      "ClinicalAiKnowledgeDocumentDeleteRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "knowledge_base_id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "knowledge_base_id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ClinicalAiKnowledgeDocumentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "documents",
+              "count"
+            ],
+            "properties": {
+              "documents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentRow"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "example": 0
+              }
+            }
+          }
+        }
+      },
+      "ClinicalAiKnowledgeDocumentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentRow"
+          }
+        }
+      },
+      "ClinicalAiKnowledgeDocumentRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "knowledge_base_id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "knowledge_base_id": {
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "url",
+              "inline_text",
+              "imported"
+            ]
+          },
+          "source_uri": {
+            "type": "string",
+            "nullable": true
+          },
+          "mime_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_size_bytes": {
+            "type": "integer",
+            "nullable": true
+          },
+          "raw_text": {
+            "type": "string",
+            "nullable": true
+          },
+          "processing_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "extracting",
+              "chunking",
+              "embedding",
+              "indexed",
+              "failed",
+              "blocked"
+            ]
+          },
+          "processing_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "chunk_count": {
+            "type": "integer"
+          },
+          "prompt_injection_verdict": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pass",
+              "flag",
+              "block"
+            ]
+          },
+          "prompt_injection_metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "curation_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalAiKnowledgeIngestResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "document"
+            ],
+            "properties": {
+              "document": {
+                "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentRow"
+              },
+              "processed": {
+                "type": "boolean"
+              },
+              "chunk_count": {
+                "type": "integer"
+              },
+              "embedded_count": {
+                "type": "integer"
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
       "ClinicalAiOperationalAlertDecisionResponse": {
         "type": "object",
         "required": [
@@ -28098,7 +28634,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseListResponse"
                 }
               }
             }
@@ -28113,7 +28649,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -28130,7 +28666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -28147,7 +28683,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -28164,7 +28700,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -28189,7 +28725,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -28216,7 +28752,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessPolicyListResponse"
                 }
               }
             }
@@ -28241,7 +28777,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessPolicyResponse"
                 }
               }
             }
@@ -28268,7 +28804,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessRevokeResponse"
                 }
               }
             }
@@ -28311,7 +28847,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -28338,7 +28874,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentListResponse"
                 }
               }
             }
@@ -28363,7 +28899,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeIngestResultResponse"
                 }
               }
             }
@@ -28390,7 +28926,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeIngestResultResponse"
                 }
               }
             }
@@ -28417,7 +28953,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentDeleteResponse"
                 }
               }
             }
@@ -28450,7 +28986,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentResponse"
                 }
               }
             }
@@ -28485,7 +29021,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentResponse"
                 }
               }
             }
@@ -28520,7 +29056,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeIngestResultResponse"
                 }
               }
             }
@@ -28555,7 +29091,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -48310,7 +48846,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseListResponse"
                 }
               }
             }
@@ -48325,7 +48861,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -48342,7 +48878,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiCountListResponse"
                 }
               }
             }
@@ -48359,7 +48895,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiGovernanceObjectResponse"
                 }
               }
             }
@@ -48376,7 +48912,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -48401,7 +48937,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -48428,7 +48964,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessPolicyListResponse"
                 }
               }
             }
@@ -48453,7 +48989,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessPolicyResponse"
                 }
               }
             }
@@ -48480,7 +49016,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeAccessRevokeResponse"
                 }
               }
             }
@@ -48523,7 +49059,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
@@ -48550,7 +49086,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentListResponse"
                 }
               }
             }
@@ -48575,7 +49111,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeIngestResultResponse"
                 }
               }
             }
@@ -48602,7 +49138,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeIngestResultResponse"
                 }
               }
             }
@@ -48629,7 +49165,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentDeleteResponse"
                 }
               }
             }
@@ -48662,7 +49198,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentResponse"
                 }
               }
             }
@@ -48697,7 +49233,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeDocumentResponse"
                 }
               }
             }
@@ -48732,7 +49268,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeIngestResultResponse"
                 }
               }
             }
@@ -48767,7 +49303,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ClinicalAiKnowledgeBaseResponse"
                 }
               }
             }
