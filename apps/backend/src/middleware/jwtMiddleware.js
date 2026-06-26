@@ -8,6 +8,21 @@ import {
   RevocationCheckUnavailableError,
 } from '../utils/tokenBlacklist.js';
 
+// Token scopes that are deliberately NARROWER than full REST access. We preserve
+// these onto `req.user.scope` (rather than collapsing them to 'full') so the
+// downstream scope guards can enforce them:
+//   - 'mfa_setup' — first-time MFA enrollment; accepted only by the two
+//     /mfa/setup-* routes via `requireSetupScope`, rejected elsewhere by
+//     `enforceFullScope`.
+//   - 'ws'        — short-lived WebSocket handshake ticket (minted by
+//     /realtime/ticket). Its ONLY legitimate consumer is the WS upgrade path
+//     (src/utils/websocket/wsServer.js), which verifies the token directly and
+//     never runs this middleware. A 'ws' token therefore must never authenticate
+//     a normal REST request — jwtMiddleware hard-rejects it below.
+// A present scope can only originate from one of our own signed tokens, so an
+// absent/unknown scope still safely defaults to 'full'.
+const NARROW_TOKEN_SCOPES = new Set(['mfa_setup', 'ws']);
+
 // Process-local memo for the uid→users.id fallback below. The mapping is
 // stable for the lifetime of a uid (users.id is never reassigned), so
 // caching forever is safe; FIFO-evict at 50k entries to cap memory.
@@ -192,12 +207,37 @@ export default async function jwtMiddleware(req, res, next) {
   // resolve/default downstream if the claim is missing.
   const tenantId = decoded.tenant_id || decoded.tenantId || null;
 
-  // Narrow-scope tokens (e.g. first-time MFA enrollment) must never be
-  // mistaken for full-access admin tokens. We preserve the original role on
-  // `rawRole` so the MFA setup controller can persist the correct record
-  // without relying on the normalized ADMIN label.
-  const scope = decoded.scope === 'mfa_setup' ? 'mfa_setup' : 'full';
+  // Narrow-scope tokens (e.g. first-time MFA enrollment, or the WebSocket
+  // handshake ticket) must never be mistaken for full-access tokens. PRESERVE
+  // the token's real scope instead of collapsing every non-'mfa_setup' value to
+  // 'full' — that collapse let a `ws` ticket act as a full-access REST bearer.
+  // Only recognised narrow scopes are kept; an absent/unknown scope defaults to
+  // 'full' (see NARROW_TOKEN_SCOPES). We also preserve the original role on
+  // `rawRole` so the MFA setup controller can persist the correct record without
+  // relying on the normalized ADMIN label.
+  const rawScope = typeof decoded.scope === 'string' ? decoded.scope.trim() : '';
+  const scope = NARROW_TOKEN_SCOPES.has(rawScope) ? rawScope : 'full';
   const rawRole = String(roleRaw || '').trim().toUpperCase();
+
+  // A `ws` ticket is minted solely for the WebSocket upgrade handshake, which
+  // verifies the token directly (wsServer.verifyToken) and never runs this
+  // middleware. So a `ws` ticket reaching ANY normal HTTP route is illegitimate
+  // — historically it was silently widened to full access here. Reject it at
+  // this single JWT chokepoint so the guard holds uniformly across every REST
+  // surface, including routers that mount jwtAuth locally WITHOUT
+  // `enforceFullScope` (staff auth, HL7 generate, health, infrastructure). WS
+  // tickets are passed in `?token=` query params that proxies/referrers log, so
+  // leakage is realistic and the blast radius (full REST access for 60s) is high.
+  if (scope === 'ws') {
+    logger.warn(
+      `JWT denied: ws-scope ticket presented to REST route ${req.method} ${req.path}`,
+    );
+    return res.status(403).json({
+      success: false,
+      error: 'WebSocket ticket is not valid for this endpoint',
+      code: 'WS_SCOPE_NOT_ALLOWED',
+    });
+  }
 
   // Device-type claim, set at login by every auth realm (staff/admin/patient).
   // Read here so route-level middleware like `requireDeviceType('mobile')` can
