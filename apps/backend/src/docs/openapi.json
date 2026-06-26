@@ -1979,6 +1979,16 @@
           }
         }
       },
+      "ApproveDeclarationRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.approveDeclaration; not validator-backed.",
+        "properties": {
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
       "ArAgingBucketRow": {
         "type": "object",
         "additionalProperties": false,
@@ -3289,6 +3299,218 @@
           }
         }
       },
+      "ComparisonPayslip": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "month",
+          "year",
+          "basic_earned",
+          "gross_salary",
+          "net_salary",
+          "total_deductions",
+          "status"
+        ],
+        "properties": {
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "days_present": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_absent": {
+            "type": "integer",
+            "nullable": true
+          },
+          "lop_days": {
+            "type": "string",
+            "nullable": true
+          },
+          "overtime_hours": {
+            "type": "string",
+            "nullable": true
+          },
+          "basic_earned": {
+            "type": "number"
+          },
+          "hra_earned": {
+            "type": "number"
+          },
+          "da_earned": {
+            "type": "number"
+          },
+          "special_allowance": {
+            "type": "number"
+          },
+          "transport_allowance": {
+            "type": "number"
+          },
+          "medical_allowance": {
+            "type": "number"
+          },
+          "overtime_pay": {
+            "type": "number"
+          },
+          "bonus": {
+            "type": "number"
+          },
+          "arrears": {
+            "type": "number"
+          },
+          "gross_salary": {
+            "type": "number"
+          },
+          "pf": {
+            "type": "number"
+          },
+          "esi": {
+            "type": "number"
+          },
+          "professional_tax": {
+            "type": "number"
+          },
+          "tds": {
+            "type": "number"
+          },
+          "advance_deduction": {
+            "type": "number"
+          },
+          "total_deductions": {
+            "type": "number"
+          },
+          "net_salary": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued",
+              "viewed",
+              "downloaded"
+            ]
+          }
+        }
+      },
+      "ComplianceCalendar": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deadlines",
+          "current_month",
+          "current_year"
+        ],
+        "properties": {
+          "deadlines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComplianceDeadline"
+            }
+          },
+          "current_month": {
+            "type": "integer"
+          },
+          "current_year": {
+            "type": "integer"
+          }
+        }
+      },
+      "ComplianceCalendarResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ComplianceCalendar"
+          }
+        }
+      },
+      "ComplianceDeadline": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "due_date",
+          "due_in_days",
+          "status",
+          "type"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "due_in_days": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "pending",
+              "manual"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "pf",
+              "esi",
+              "tds",
+              "annual_tds",
+              "form16"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateAdvanceRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.createAdvance; not validator-backed.",
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "monthly_deduction": {
+            "type": "number"
+          },
+          "deduction_start_month": {
+            "type": "integer"
+          },
+          "deduction_start_year": {
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
       "CreateBulkRevisionRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -3385,6 +3607,42 @@
           }
         }
       },
+      "CreateFnFRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.createFnF; not validator-backed.",
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "separation_type": {
+            "type": "string"
+          },
+          "last_working_day": {
+            "type": "string",
+            "format": "date"
+          },
+          "notice_period_days": {
+            "type": "integer"
+          },
+          "notice_shortfall_days": {
+            "type": "integer"
+          },
+          "bonus_payable": {
+            "type": "number"
+          },
+          "other_deductions": {
+            "type": "number"
+          },
+          "other_deductions_reason": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
       "CreateInvoiceRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -3449,6 +3707,26 @@
           "due_date": {
             "type": "string",
             "format": "date"
+          }
+        }
+      },
+      "CreateLeaveEncashmentRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.calculateLeaveEncashment; not validator-backed.",
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "encashment_type": {
+            "type": "string"
+          },
+          "leave_days": {
+            "type": "integer"
+          },
+          "financial_year": {
+            "type": "string"
           }
         }
       },
@@ -3731,6 +4009,315 @@
           },
           "gross_amount": {
             "type": "string"
+          }
+        }
+      },
+      "Declaration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "financial_year"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "financial_year": {
+            "type": "string"
+          },
+          "ppf": {
+            "type": "string",
+            "nullable": true
+          },
+          "epf_voluntary": {
+            "type": "string",
+            "nullable": true
+          },
+          "elss": {
+            "type": "string",
+            "nullable": true
+          },
+          "lic_premium": {
+            "type": "string",
+            "nullable": true
+          },
+          "nsc": {
+            "type": "string",
+            "nullable": true
+          },
+          "home_loan_principal": {
+            "type": "string",
+            "nullable": true
+          },
+          "tuition_fees": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_80c": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_self": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_parents": {
+            "type": "string",
+            "nullable": true
+          },
+          "education_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_paid_monthly": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_receipt_provided": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "home_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "nps_contribution": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "submitted",
+              "locked",
+              "approved"
+            ]
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "DeclarationListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "financial_year"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "financial_year": {
+            "type": "string"
+          },
+          "ppf": {
+            "type": "string",
+            "nullable": true
+          },
+          "epf_voluntary": {
+            "type": "string",
+            "nullable": true
+          },
+          "elss": {
+            "type": "string",
+            "nullable": true
+          },
+          "lic_premium": {
+            "type": "string",
+            "nullable": true
+          },
+          "nsc": {
+            "type": "string",
+            "nullable": true
+          },
+          "home_loan_principal": {
+            "type": "string",
+            "nullable": true
+          },
+          "tuition_fees": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_80c": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_self": {
+            "type": "string",
+            "nullable": true
+          },
+          "health_insurance_parents": {
+            "type": "string",
+            "nullable": true
+          },
+          "education_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_paid_monthly": {
+            "type": "string",
+            "nullable": true
+          },
+          "rent_receipt_provided": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "home_loan_interest": {
+            "type": "string",
+            "nullable": true
+          },
+          "nps_contribution": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "submitted",
+              "locked",
+              "approved"
+            ]
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "proof_submitted": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DeclarationListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeclarationListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DeclarationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Declaration"
           }
         }
       },
@@ -4494,6 +5081,561 @@
         "properties": {
           "expired": {
             "type": "integer"
+          }
+        }
+      },
+      "FnFApproveRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.approveFnF; not validator-backed.",
+        "properties": {
+          "comment": {
+            "type": "string"
+          }
+        }
+      },
+      "FnFDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "separation_type",
+          "last_working_day"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "separation_type": {
+            "type": "string"
+          },
+          "last_working_day": {
+            "type": "string",
+            "format": "date"
+          },
+          "last_month_days_worked": {
+            "type": "integer",
+            "nullable": true
+          },
+          "last_month_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_month_allowances": {
+            "type": "string",
+            "nullable": true
+          },
+          "notice_period_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notice_shortfall_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notice_recovery_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "years_of_service": {
+            "type": "string",
+            "nullable": true
+          },
+          "gratuity_eligible": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "gratuity_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "gross_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "net_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "hr_approved",
+              "admin_approved",
+              "paid"
+            ]
+          },
+          "hr_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "hr_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "admin_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admin_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "payment_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "payment_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "FnFDetailResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FnFDetail"
+          }
+        }
+      },
+      "FnFListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "separation_type",
+          "last_working_day"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "separation_type": {
+            "type": "string"
+          },
+          "last_working_day": {
+            "type": "string",
+            "format": "date"
+          },
+          "last_month_days_worked": {
+            "type": "integer",
+            "nullable": true
+          },
+          "last_month_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_month_allowances": {
+            "type": "string",
+            "nullable": true
+          },
+          "earned_leave_balance": {
+            "type": "integer",
+            "nullable": true
+          },
+          "leave_encashment_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "notice_period_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notice_shortfall_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notice_recovery_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "years_of_service": {
+            "type": "string",
+            "nullable": true
+          },
+          "gratuity_eligible": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "gratuity_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "gross_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "net_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "hr_approved",
+              "admin_approved",
+              "paid"
+            ]
+          },
+          "hr_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "hr_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "admin_approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "admin_approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "payment_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "payment_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "FnFListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FnFListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "FnFMarkPaidRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.markFnFPaid; not validator-backed.",
+        "properties": {
+          "payment_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "payment_reference": {
+            "type": "string"
+          }
+        }
+      },
+      "GeneratePayrollDataRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from staffAdminOperationsController.generatePayrollData; not validator-backed.",
+        "properties": {
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          }
+        }
+      },
+      "GeneratePayrollDataResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/GeneratePayrollDataResult"
+          }
+        }
+      },
+      "GeneratePayrollDataResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "payrollData",
+          "generatedAt"
+        ],
+        "properties": {
+          "payrollData": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayrollDataRow"
+            }
+          },
+          "month": {},
+          "year": {},
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GenerateTaxSummariesRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.generateAllTaxSummaries; not validator-backed.",
+        "properties": {
+          "financial_year": {
+            "type": "string"
+          }
+        }
+      },
+      "GenerateTaxSummariesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/GenerateTaxSummariesResult"
+          }
+        }
+      },
+      "GenerateTaxSummariesResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generated",
+          "failed"
+        ],
+        "properties": {
+          "generated": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          }
+        }
+      },
+      "GratuityStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staff_uid",
+          "date_of_joining",
+          "years_of_service",
+          "gratuity_eligible",
+          "projected_gratuity",
+          "days_to_five_years"
+        ],
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "date_of_joining": {
+            "type": "string",
+            "format": "date"
+          },
+          "years_of_service": {
+            "type": "number"
+          },
+          "gratuity_eligible": {
+            "type": "boolean"
+          },
+          "projected_gratuity": {
+            "type": "number"
+          },
+          "days_to_five_years": {
+            "type": "integer"
+          }
+        }
+      },
+      "GratuityStatusResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GratuityStatus"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -5981,6 +7123,191 @@
           },
           "skipped_existing": {
             "type": "integer"
+          }
+        }
+      },
+      "LeaveEncashment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "encashment_type",
+          "leave_days",
+          "daily_rate",
+          "amount"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "encashment_type": {
+            "type": "string"
+          },
+          "leave_days": {
+            "type": "integer"
+          },
+          "daily_rate": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "financial_year": {
+            "type": "string",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "approved"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "LeaveEncashmentListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "encashment_type",
+          "leave_days",
+          "daily_rate",
+          "amount"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "encashment_type": {
+            "type": "string"
+          },
+          "leave_days": {
+            "type": "integer"
+          },
+          "daily_rate": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "financial_year": {
+            "type": "string",
+            "nullable": true
+          },
+          "payslip_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fnf_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "approved"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "LeaveEncashmentListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeaveEncashmentListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "LeaveEncashmentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LeaveEncashment"
           }
         }
       },
@@ -7850,6 +9177,360 @@
           }
         }
       },
+      "PayrollAdvance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "amount",
+          "reason",
+          "monthly_deduction"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "approved",
+              "cleared"
+            ]
+          },
+          "monthly_deduction": {
+            "type": "string"
+          },
+          "months_remaining": {
+            "type": "integer",
+            "nullable": true
+          },
+          "total_deducted": {
+            "type": "string",
+            "nullable": true
+          },
+          "deduction_start_month": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deduction_start_year": {
+            "type": "integer",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PayrollAdvanceListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "amount",
+          "reason",
+          "monthly_deduction",
+          "balance_remaining"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "amount": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "approved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "approved",
+              "cleared"
+            ]
+          },
+          "monthly_deduction": {
+            "type": "string"
+          },
+          "total_deducted": {
+            "type": "string",
+            "nullable": true
+          },
+          "months_remaining": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deduction_start_month": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deduction_start_year": {
+            "type": "integer",
+            "nullable": true
+          },
+          "fully_cleared_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "balance_remaining": {
+            "type": "string"
+          }
+        }
+      },
+      "PayrollAdvanceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayrollAdvance"
+          }
+        }
+      },
+      "PayrollAdvancesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayrollAdvanceListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PayrollComparison": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "month_range",
+          "staff",
+          "total_staff",
+          "total_payslips"
+        ],
+        "properties": {
+          "month_range": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayrollComparisonMonth"
+            }
+          },
+          "staff": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayrollComparisonStaff"
+            }
+          },
+          "total_staff": {
+            "type": "integer"
+          },
+          "total_payslips": {
+            "type": "integer"
+          }
+        }
+      },
+      "PayrollComparisonMonth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "month",
+          "year"
+        ],
+        "properties": {
+          "month": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          }
+        }
+      },
+      "PayrollComparisonResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayrollComparison"
+          }
+        }
+      },
+      "PayrollComparisonStaff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staff_uid",
+          "payslips"
+        ],
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "designation": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "payslips": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComparisonPayslip"
+            }
+          }
+        }
+      },
+      "PayrollDataRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "days_worked",
+          "leaves_taken"
+        ],
+        "properties": {
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "days_worked": {
+            "type": "string"
+          },
+          "overtime_hours": {
+            "type": "string",
+            "nullable": true
+          },
+          "leaves_taken": {
+            "type": "string"
+          }
+        }
+      },
       "PayrollRun": {
         "type": "object",
         "additionalProperties": false,
@@ -8671,6 +10352,269 @@
           "role": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "PayslipQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "staff_uid",
+          "subject",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payslip_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "open",
+              "in_review",
+              "resolved"
+            ]
+          },
+          "resolved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PayslipQueryListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "staff_uid",
+          "subject",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "payslip_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "open",
+              "in_review",
+              "resolved"
+            ]
+          },
+          "resolved_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "month": {
+            "type": "integer",
+            "nullable": true
+          },
+          "year": {
+            "type": "integer",
+            "nullable": true
+          },
+          "net_salary": {
+            "type": "string",
+            "nullable": true
+          },
+          "staff_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "employee_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "replies": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/PayslipQueryReply"
+            }
+          }
+        }
+      },
+      "PayslipQueryListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PayslipQueryListItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PayslipQueryReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "query_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "author_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "author_role": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "PayslipQueryReplyRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Reverse-engineered from payrollController.replyToPayslipQuery; not validator-backed.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "resolve": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PayslipQueryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayslipQuery"
           }
         }
       },
@@ -68232,8 +70176,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/GeneratePayrollDataResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeneratePayrollDataRequest"
               }
             }
           }
@@ -68875,7 +70829,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollAdvancesResponse"
                 }
               }
             }
@@ -68892,8 +70846,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollAdvanceResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdvanceRequest"
               }
             }
           }
@@ -68997,7 +70961,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayrollComparisonResponse"
                 }
               }
             }
@@ -69014,7 +70978,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/ComplianceCalendarResponse"
                 }
               }
             }
@@ -69031,7 +70995,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DeclarationListResponse"
                 }
               }
             }
@@ -69048,7 +71012,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/DeclarationResponse"
                 }
               }
             }
@@ -69063,7 +71027,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveDeclarationRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/export/esi": {
@@ -69126,7 +71100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/FnFListResponse"
                 }
               }
             }
@@ -69143,8 +71117,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/FnFDetailResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFnFRequest"
               }
             }
           }
@@ -69160,7 +71144,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/FnFDetailResponse"
                 }
               }
             }
@@ -69175,7 +71159,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FnFApproveRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/fnf/{id}/mark-paid": {
@@ -69187,7 +71181,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/FnFDetailResponse"
                 }
               }
             }
@@ -69202,7 +71196,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FnFMarkPaidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/gratuity": {
@@ -69214,7 +71218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/GratuityStatusResponse"
                 }
               }
             }
@@ -69258,7 +71262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/LeaveEncashmentListResponse"
                 }
               }
             }
@@ -69275,8 +71279,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/LeaveEncashmentResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeaveEncashmentRequest"
               }
             }
           }
@@ -69329,7 +71343,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayslipQueryListResponse"
                 }
               }
             }
@@ -69346,7 +71360,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PayslipQueryResponse"
                 }
               }
             }
@@ -69361,7 +71375,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayslipQueryReplyRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/staff/admin/payroll/revisions": {
@@ -69833,8 +71857,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/GenerateTaxSummariesResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateTaxSummariesRequest"
               }
             }
           }

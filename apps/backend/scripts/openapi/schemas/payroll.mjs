@@ -32,6 +32,24 @@ const BULK_REVISION_STATUS = ['draft', 'approved', 'completed', 'failed'];
 // salary_arrears.status: pending (default) -> paid
 const ARREARS_STATUS = ['pending', 'paid'];
 
+// ---- PASS B enums (separations + queries-compliance). Same null-free rule:
+// nullable status fields keep a null-free enum + nullable:true. ----
+// salary_advances.status: pending (default) -> approved -> cleared
+const ADVANCE_STATUS = ['pending', 'approved', 'cleared'];
+// full_final_settlements.status: draft (default) -> hr_approved -> admin_approved -> paid
+const FNF_STATUS = ['draft', 'hr_approved', 'admin_approved', 'paid'];
+// leave_encashments.status: pending (default) -> approved
+const LEAVE_ENCASHMENT_STATUS = ['pending', 'approved'];
+// investment_declarations.status: draft (default) -> submitted -> locked -> approved
+const DECLARATION_STATUS = ['draft', 'submitted', 'locked', 'approved'];
+// payslip_queries.status: open (default) -> in_review -> resolved
+const PAYSLIP_QUERY_STATUS = ['open', 'in_review', 'resolved'];
+// compliance-calendar deadline.status — JS literal (NOT a DB column)
+const COMPLIANCE_DEADLINE_STATUS = ['ready', 'pending', 'manual'];
+// compliance-calendar deadline.type — JS literal
+const COMPLIANCE_DEADLINE_TYPE = ['pf', 'esi', 'tds', 'annual_tds', 'form16'];
+// ComparisonPayslip reuses PAYSLIP_STATUS (draft/issued/viewed/downloaded), already declared above.
+
 export const schemas = {
   // =====================================================================
   // SUB-DOMAIN: payroll-runs
@@ -715,6 +733,605 @@ export const schemas = {
       effective_from: { type: 'string', format: 'date' },
     },
   },
+
+  // =====================================================================
+  // SUB-DOMAIN: separations  (advances / fnf / gratuity / leave-encashment)
+  // PASS B.
+  // =====================================================================
+
+  // ---- getAllAdvances GET /payroll/advances item: SELECT sa.* + staff_name,
+  // department + computed balance_remaining. SELECT * → leaks tenant_id → LOOSE.
+  // TRAP: balance_remaining = (sa.amount - sa.total_deducted) computed in SQL →
+  // serializes as a Decimal STRING, NOT a JS number. amount/monthly_deduction
+  // (NOT NULL) → required strings. (PayrollAdvance* prefix avoids the money.mjs
+  // `Advance` collision.) ----
+  PayrollAdvanceListItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'amount', 'reason', 'monthly_deduction', 'balance_remaining'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      amount: { type: MT },
+      reason: { type: 'string' },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      status: { type: 'string', nullable: true, enum: ADVANCE_STATUS },
+      monthly_deduction: { type: MT },
+      total_deducted: { type: MT, nullable: true },
+      months_remaining: { type: 'integer', nullable: true },
+      deduction_start_month: { type: 'integer', nullable: true },
+      deduction_start_year: { type: 'integer', nullable: true },
+      fully_cleared_at: { type: 'string', format: 'date-time', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      staff_name: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      balance_remaining: { type: MT },
+    },
+  },
+  PayrollAdvancesResponse: listEnvelope('PayrollAdvanceListItem'),
+
+  // ---- createAdvance RETURNING subset (explicit list, no tenant_id/updated_at/
+  // fully_cleared_at) → STRICT. amount/monthly_deduction Decimal-from-column →
+  // string. status hardcoded 'approved'. ----
+  PayrollAdvance: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'amount', 'reason', 'monthly_deduction'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      amount: { type: MT },
+      reason: { type: 'string' },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      status: { type: 'string', nullable: true, enum: ADVANCE_STATUS },
+      monthly_deduction: { type: MT },
+      months_remaining: { type: 'integer', nullable: true },
+      total_deducted: { type: MT, nullable: true },
+      deduction_start_month: { type: 'integer', nullable: true },
+      deduction_start_year: { type: 'integer', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  PayrollAdvanceResponse: envelope('PayrollAdvance'),
+
+  // ---- getFnFList GET /payroll/fnf item: SELECT f.* + staff_name, department,
+  // designation, employee_id. SELECT * → leaks tenant_id → LOOSE. Every money
+  // column Decimal → string; years_of_service Decimal(5,2) → string. ----
+  FnFListItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'separation_type', 'last_working_day'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      separation_type: { type: 'string' },
+      last_working_day: { type: 'string', format: 'date' },
+      last_month_days_worked: { type: 'integer', nullable: true },
+      last_month_basic: { type: MT, nullable: true },
+      last_month_allowances: { type: MT, nullable: true },
+      earned_leave_balance: { type: 'integer', nullable: true },
+      leave_encashment_amount: { type: MT, nullable: true },
+      notice_period_days: { type: 'integer', nullable: true },
+      notice_shortfall_days: { type: 'integer', nullable: true },
+      notice_recovery_amount: { type: MT, nullable: true },
+      years_of_service: { type: MT, nullable: true },
+      gratuity_eligible: { type: 'boolean', nullable: true },
+      gratuity_amount: { type: MT, nullable: true },
+      bonus_payable: { type: MT, nullable: true },
+      other_deductions: { type: MT, nullable: true },
+      other_deductions_reason: { type: 'string', nullable: true },
+      gross_payable: { type: MT, nullable: true },
+      total_deductions: { type: MT, nullable: true },
+      net_payable: { type: MT, nullable: true },
+      status: { type: 'string', nullable: true, enum: FNF_STATUS },
+      hr_approved_by: { type: 'string', format: 'uuid', nullable: true },
+      hr_approved_at: { type: 'string', format: 'date-time', nullable: true },
+      admin_approved_by: { type: 'string', format: 'uuid', nullable: true },
+      admin_approved_at: { type: 'string', format: 'date-time', nullable: true },
+      payment_date: { type: 'string', format: 'date', nullable: true },
+      payment_reference: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      staff_name: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      designation: { type: 'string', nullable: true },
+      employee_id: { type: 'string', nullable: true },
+    },
+  },
+  FnFListResponse: listEnvelope('FnFListItem'),
+
+  // ---- FNF_DETAIL_SELECT — shared by createFnF / approveFnF / markFnFPaid.
+  // Curated subset (excludes earned_leave_balance, leave_encashment_amount,
+  // created_by, tenant_id) → STRICT. All money columns Decimal → string EVEN
+  // though JS-computed (they round-trip through the NUMERIC column + are read
+  // back via select). ----
+  FnFDetail: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'separation_type', 'last_working_day'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      separation_type: { type: 'string' },
+      last_working_day: { type: 'string', format: 'date' },
+      last_month_days_worked: { type: 'integer', nullable: true },
+      last_month_basic: { type: MT, nullable: true },
+      last_month_allowances: { type: MT, nullable: true },
+      notice_period_days: { type: 'integer', nullable: true },
+      notice_shortfall_days: { type: 'integer', nullable: true },
+      notice_recovery_amount: { type: MT, nullable: true },
+      years_of_service: { type: MT, nullable: true },
+      gratuity_eligible: { type: 'boolean', nullable: true },
+      gratuity_amount: { type: MT, nullable: true },
+      bonus_payable: { type: MT, nullable: true },
+      other_deductions: { type: MT, nullable: true },
+      other_deductions_reason: { type: 'string', nullable: true },
+      gross_payable: { type: MT, nullable: true },
+      total_deductions: { type: MT, nullable: true },
+      net_payable: { type: MT, nullable: true },
+      status: { type: 'string', nullable: true, enum: FNF_STATUS },
+      hr_approved_by: { type: 'string', format: 'uuid', nullable: true },
+      hr_approved_at: { type: 'string', format: 'date-time', nullable: true },
+      admin_approved_by: { type: 'string', format: 'uuid', nullable: true },
+      admin_approved_at: { type: 'string', format: 'date-time', nullable: true },
+      payment_date: { type: 'string', format: 'date', nullable: true },
+      payment_reference: { type: 'string', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  FnFDetailResponse: envelope('FnFDetail'),
+
+  // ---- getAllGratuityStatus GET /payroll/gratuity item. FULLY JS-computed
+  // object (no DB row, no tenant_id) → STRICT. TRAP: years_of_service &
+  // projected_gratuity are JS Math.round NUMBERS (not Decimal strings);
+  // days_to_five_years integer. No status string — gratuity_eligible boolean. ----
+  GratuityStatus: {
+    type: 'object', additionalProperties: false,
+    required: ['staff_uid', 'date_of_joining', 'years_of_service', 'gratuity_eligible', 'projected_gratuity', 'days_to_five_years'],
+    properties: {
+      staff_uid: { type: 'string', format: 'uuid' },
+      name: { type: 'string', nullable: true },
+      employee_id: { type: 'string', nullable: true },
+      designation: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      date_of_joining: { type: 'string', format: 'date' },
+      years_of_service: { type: 'number' },
+      gratuity_eligible: { type: 'boolean' },
+      projected_gratuity: { type: 'number' },
+      days_to_five_years: { type: 'integer' },
+    },
+  },
+  GratuityStatusResponse: listEnvelope('GratuityStatus'),
+
+  // ---- getLeaveEncashments GET /payroll/leave-encashment item: SELECT le.* +
+  // staff_name, employee_id. SELECT * → leaks tenant_id → LOOSE. daily_rate/
+  // amount are NOT NULL Decimal columns → required strings. leave_days integer.
+  // No updated_at column on this table. ----
+  LeaveEncashmentListItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'encashment_type', 'leave_days', 'daily_rate', 'amount'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      encashment_type: { type: 'string' },
+      leave_days: { type: 'integer' },
+      daily_rate: { type: MT },
+      amount: { type: MT },
+      financial_year: { type: 'string', nullable: true },
+      payslip_id: { type: 'integer', nullable: true },
+      fnf_id: { type: 'integer', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      status: { type: 'string', nullable: true, enum: LEAVE_ENCASHMENT_STATUS },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      staff_name: { type: 'string', nullable: true },
+      employee_id: { type: 'string', nullable: true },
+    },
+  },
+  LeaveEncashmentListResponse: listEnvelope('LeaveEncashmentListItem'),
+
+  // ---- calculateLeaveEncashment curated select (no payslip_id/fnf_id/tenant_id)
+  // → STRICT. TRAP: daily_rate/amount JS-computed but round-trip through Decimal
+  // columns + read back via select → STRINGS (not numbers). status='approved'. ----
+  LeaveEncashment: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'encashment_type', 'leave_days', 'daily_rate', 'amount'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      encashment_type: { type: 'string' },
+      leave_days: { type: 'integer' },
+      daily_rate: { type: MT },
+      amount: { type: MT },
+      financial_year: { type: 'string', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      status: { type: 'string', nullable: true, enum: LEAVE_ENCASHMENT_STATUS },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  LeaveEncashmentResponse: envelope('LeaveEncashment'),
+
+  // ---- separations request bodies (no express-validator → permissive). ----
+  CreateAdvanceRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.createAdvance; not validator-backed.',
+    properties: {
+      staff_uid: { type: 'string', format: 'uuid' },
+      amount: { type: 'number' },
+      reason: { type: 'string' },
+      monthly_deduction: { type: 'number' },
+      deduction_start_month: { type: 'integer' },
+      deduction_start_year: { type: 'integer' },
+      notes: { type: 'string' },
+    },
+  },
+  CreateFnFRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.createFnF; not validator-backed.',
+    properties: {
+      staff_uid: { type: 'string', format: 'uuid' },
+      separation_type: { type: 'string' },
+      last_working_day: { type: 'string', format: 'date' },
+      notice_period_days: { type: 'integer' },
+      notice_shortfall_days: { type: 'integer' },
+      bonus_payable: { type: 'number' },
+      other_deductions: { type: 'number' },
+      other_deductions_reason: { type: 'string' },
+      notes: { type: 'string' },
+    },
+  },
+  FnFApproveRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.approveFnF; not validator-backed.',
+    properties: { comment: { type: 'string' } },
+  },
+  FnFMarkPaidRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.markFnFPaid; not validator-backed.',
+    properties: {
+      payment_date: { type: 'string', format: 'date' },
+      payment_reference: { type: 'string' },
+    },
+  },
+  CreateLeaveEncashmentRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.calculateLeaveEncashment; not validator-backed.',
+    properties: {
+      staff_uid: { type: 'string', format: 'uuid' },
+      encashment_type: { type: 'string' },
+      leave_days: { type: 'integer' },
+      financial_year: { type: 'string' },
+    },
+  },
+
+  // =====================================================================
+  // SUB-DOMAIN: queries-compliance
+  // (tax-summary/all, comparison, generate-payroll-data, declarations(+approve),
+  //  queries(+reply), compliance-calendar)
+  // PASS B.
+  // =====================================================================
+
+  // ---- generateAllTaxSummaries POST /payroll/tax-summary/all. JS counters. ----
+  GenerateTaxSummariesResult: {
+    type: 'object', additionalProperties: false,
+    required: ['generated', 'failed'],
+    properties: {
+      generated: { type: 'integer' },
+      failed: { type: 'integer' },
+    },
+  },
+  GenerateTaxSummariesResponse: envelope('GenerateTaxSummariesResult'),
+  GenerateTaxSummariesRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.generateAllTaxSummaries; not validator-backed.',
+    properties: { financial_year: { type: 'string' } },
+  },
+
+  // ---- getPayrollComparison GET /payroll/comparison. TRAP: ComparisonPayslip
+  // money fields are parseFloat'd in JS → NUMBERS (basic_earned..net_salary,
+  // pf, esi, tds, advance_deduction, bonus, arrears), BUT lop_days/overtime_hours
+  // are emitted RAW from the Decimal column → STRINGS. days_present/days_absent
+  // raw int columns. The outer wrapper is LOOSE (nested JS object). ----
+  ComparisonPayslip: {
+    type: 'object', additionalProperties: false,
+    required: ['month', 'year', 'basic_earned', 'gross_salary', 'net_salary', 'total_deductions', 'status'],
+    properties: {
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+      days_present: { type: 'integer', nullable: true },
+      days_absent: { type: 'integer', nullable: true },
+      lop_days: { type: MT, nullable: true },
+      overtime_hours: { type: MT, nullable: true },
+      basic_earned: { type: 'number' },
+      hra_earned: { type: 'number' },
+      da_earned: { type: 'number' },
+      special_allowance: { type: 'number' },
+      transport_allowance: { type: 'number' },
+      medical_allowance: { type: 'number' },
+      overtime_pay: { type: 'number' },
+      bonus: { type: 'number' },
+      arrears: { type: 'number' },
+      gross_salary: { type: 'number' },
+      pf: { type: 'number' },
+      esi: { type: 'number' },
+      professional_tax: { type: 'number' },
+      tds: { type: 'number' },
+      advance_deduction: { type: 'number' },
+      total_deductions: { type: 'number' },
+      net_salary: { type: 'number' },
+      status: { type: 'string', enum: PAYSLIP_STATUS },
+    },
+  },
+  PayrollComparisonStaff: {
+    type: 'object', additionalProperties: false,
+    required: ['staff_uid', 'payslips'],
+    properties: {
+      staff_uid: { type: 'string', format: 'uuid' },
+      name: { type: 'string', nullable: true },
+      employee_id: { type: 'string', nullable: true },
+      designation: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      payslips: { type: 'array', items: { $ref: '#/components/schemas/ComparisonPayslip' } },
+    },
+  },
+  PayrollComparisonMonth: {
+    type: 'object', additionalProperties: false,
+    required: ['month', 'year'],
+    properties: {
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+    },
+  },
+  PayrollComparison: {
+    type: 'object', additionalProperties: true,
+    required: ['month_range', 'staff', 'total_staff', 'total_payslips'],
+    properties: {
+      month_range: { type: 'array', items: { $ref: '#/components/schemas/PayrollComparisonMonth' } },
+      staff: { type: 'array', items: { $ref: '#/components/schemas/PayrollComparisonStaff' } },
+      total_staff: { type: 'integer' },
+      total_payslips: { type: 'integer' },
+    },
+  },
+  PayrollComparisonResponse: envelope('PayrollComparison'),
+
+  // ---- generatePayrollData POST /generate-payroll-data (NB: top-level
+  // staff-admin route, NO /payroll prefix). Aggregate query. TRAP: base_salary =
+  // staff.base_salary Decimal → string; days_worked/leaves_taken = bigint COUNT
+  // → STRING (Prisma serializes bigint as string); overtime_hours = numeric
+  // aggregate → string|null. month/year echoed raw from req.body (untyped). LOOSE. ----
+  PayrollDataRow: {
+    type: 'object', additionalProperties: true,
+    required: ['days_worked', 'leaves_taken'],
+    properties: {
+      employee_id: { type: 'string', nullable: true },
+      name: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      base_salary: { type: MT, nullable: true },
+      days_worked: { type: 'string' },
+      overtime_hours: { type: MT, nullable: true },
+      leaves_taken: { type: 'string' },
+    },
+  },
+  GeneratePayrollDataResult: {
+    type: 'object', additionalProperties: true,
+    required: ['payrollData', 'generatedAt'],
+    properties: {
+      payrollData: { type: 'array', items: { $ref: '#/components/schemas/PayrollDataRow' } },
+      // month/year echoed from req.body with no coercion — type unconstrained.
+      month: {},
+      year: {},
+      generatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  GeneratePayrollDataResponse: envelope('GeneratePayrollDataResult'),
+  GeneratePayrollDataRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from staffAdminOperationsController.generatePayrollData; not validator-backed.',
+    properties: {
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+    },
+  },
+
+  // ---- getAllDeclarations GET /payroll/declarations item: SELECT d.* +
+  // staff_name, department, designation, employee_id. SELECT * → leaks tenant_id
+  // → LOOSE. 15 investment amounts Decimal(10,2) → string|null. The admin handler
+  // does NOT add the computed section_80c/etc fields. ----
+  DeclarationListItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'financial_year'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      financial_year: { type: 'string' },
+      ppf: { type: MT, nullable: true },
+      epf_voluntary: { type: MT, nullable: true },
+      elss: { type: MT, nullable: true },
+      lic_premium: { type: MT, nullable: true },
+      nsc: { type: MT, nullable: true },
+      home_loan_principal: { type: MT, nullable: true },
+      tuition_fees: { type: MT, nullable: true },
+      other_80c: { type: MT, nullable: true },
+      health_insurance_self: { type: MT, nullable: true },
+      health_insurance_parents: { type: MT, nullable: true },
+      education_loan_interest: { type: MT, nullable: true },
+      rent_paid_monthly: { type: MT, nullable: true },
+      rent_receipt_provided: { type: 'boolean', nullable: true },
+      home_loan_interest: { type: MT, nullable: true },
+      nps_contribution: { type: MT, nullable: true },
+      status: { type: 'string', nullable: true, enum: DECLARATION_STATUS },
+      submitted_at: { type: 'string', format: 'date-time', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      proof_submitted: { type: 'boolean', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      staff_name: { type: 'string', nullable: true },
+      department: { type: 'string', nullable: true },
+      designation: { type: 'string', nullable: true },
+      employee_id: { type: 'string', nullable: true },
+    },
+  },
+  DeclarationListResponse: listEnvelope('DeclarationListItem'),
+
+  // ---- approveDeclaration via DECLARATION_SELECT (excludes proof_submitted,
+  // tenant_id, joins) → STRICT. NOT the same schema as DeclarationListItem.
+  // 15 amounts string|null. status='approved'. ----
+  Declaration: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'financial_year'],
+    properties: {
+      id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      financial_year: { type: 'string' },
+      ppf: { type: MT, nullable: true },
+      epf_voluntary: { type: MT, nullable: true },
+      elss: { type: MT, nullable: true },
+      lic_premium: { type: MT, nullable: true },
+      nsc: { type: MT, nullable: true },
+      home_loan_principal: { type: MT, nullable: true },
+      tuition_fees: { type: MT, nullable: true },
+      other_80c: { type: MT, nullable: true },
+      health_insurance_self: { type: MT, nullable: true },
+      health_insurance_parents: { type: MT, nullable: true },
+      education_loan_interest: { type: MT, nullable: true },
+      rent_paid_monthly: { type: MT, nullable: true },
+      rent_receipt_provided: { type: 'boolean', nullable: true },
+      home_loan_interest: { type: MT, nullable: true },
+      nps_contribution: { type: MT, nullable: true },
+      notes: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: DECLARATION_STATUS },
+      submitted_at: { type: 'string', format: 'date-time', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  DeclarationResponse: envelope('Declaration'),
+  ApproveDeclarationRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.approveDeclaration; not validator-backed.',
+    properties: { notes: { type: 'string' } },
+  },
+
+  // ---- getAllPayslipQueries GET /payroll/queries item: SELECT pq.* + month,
+  // year, net_salary(joined p.net_salary Decimal → string), staff_name,
+  // employee_id + replies. SELECT * → leaks tenant_id → LOOSE. TRAP: replies is a
+  // json_agg subquery → array OR null (json_agg returns NULL on empty). ----
+  PayslipQueryReply: {
+    type: 'object', additionalProperties: true,
+    required: ['id'],
+    properties: {
+      id: { type: 'integer' },
+      query_id: { type: 'integer', nullable: true },
+      author_uid: { type: 'string', format: 'uuid', nullable: true },
+      author_role: { type: 'string', nullable: true },
+      message: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+    },
+  },
+  PayslipQueryListItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'staff_uid', 'subject', 'description'],
+    properties: {
+      id: { type: 'integer' },
+      payslip_id: { type: 'integer', nullable: true },
+      staff_uid: { type: 'string', format: 'uuid' },
+      subject: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: PAYSLIP_QUERY_STATUS },
+      resolved_by: { type: 'string', format: 'uuid', nullable: true },
+      resolved_at: { type: 'string', format: 'date-time', nullable: true },
+      resolution_note: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+      tenant_id: { type: 'string', format: 'uuid' },
+      month: { type: 'integer', nullable: true },
+      year: { type: 'integer', nullable: true },
+      net_salary: { type: MT, nullable: true },
+      staff_name: { type: 'string', nullable: true },
+      employee_id: { type: 'string', nullable: true },
+      replies: { type: 'array', nullable: true, items: { $ref: '#/components/schemas/PayslipQueryReply' } },
+    },
+  },
+  PayslipQueryListResponse: listEnvelope('PayslipQueryListItem'),
+
+  // ---- replyToPayslipQuery findUnique subset (no money/tenant_id/replies) →
+  // STRICT. NOT the same schema as the list item. status='resolved'|'in_review'. ----
+  PayslipQuery: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'staff_uid', 'subject', 'description'],
+    properties: {
+      id: { type: 'integer' },
+      payslip_id: { type: 'integer', nullable: true },
+      staff_uid: { type: 'string', format: 'uuid' },
+      subject: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string', nullable: true },
+      status: { type: 'string', nullable: true, enum: PAYSLIP_QUERY_STATUS },
+      resolved_by: { type: 'string', format: 'uuid', nullable: true },
+      resolved_at: { type: 'string', format: 'date-time', nullable: true },
+      resolution_note: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  PayslipQueryResponse: envelope('PayslipQuery'),
+  PayslipQueryReplyRequest: {
+    type: 'object', additionalProperties: true,
+    description: 'Reverse-engineered from payrollController.replyToPayslipQuery; not validator-backed.',
+    required: ['message'],
+    properties: {
+      message: { type: 'string' },
+      resolve: { type: 'boolean' },
+    },
+  },
+
+  // ---- getComplianceCalendar GET /payroll/compliance-calendar. FULLY
+  // JS-computed wrapper { deadlines[], current_month, current_year }. The
+  // deadline status/type are JS literals (NULL-FREE enums, not DB columns); note
+  // is optional (only on the TDS quarterly entry). All numerics JS → integer. ----
+  ComplianceDeadline: {
+    type: 'object', additionalProperties: false,
+    required: ['label', 'due_date', 'due_in_days', 'status', 'type'],
+    properties: {
+      label: { type: 'string' },
+      due_date: { type: 'string', format: 'date' },
+      due_in_days: { type: 'integer' },
+      status: { type: 'string', enum: COMPLIANCE_DEADLINE_STATUS },
+      type: { type: 'string', enum: COMPLIANCE_DEADLINE_TYPE },
+      note: { type: 'string' },
+    },
+  },
+  ComplianceCalendar: {
+    type: 'object', additionalProperties: false,
+    required: ['deadlines', 'current_month', 'current_year'],
+    properties: {
+      deadlines: { type: 'array', items: { $ref: '#/components/schemas/ComplianceDeadline' } },
+      current_month: { type: 'integer' },
+      current_year: { type: 'integer' },
+    },
+  },
+  ComplianceCalendarResponse: envelope('ComplianceCalendar'),
+
+  // ---- statutory-exports (GET /payroll/export/{summary,pf,esi}): these 3
+  // endpoints return a text/csv body via res.send(), NOT a JSON envelope, so they
+  // are INTENTIONALLY LEFT UNTYPED — not keyed in operations{} below. The generic
+  // 200 already in openapi.json is the correct representation for a CSV body. ----
 };
 
 export const operations = {
@@ -745,4 +1362,29 @@ export const operations = {
   'GET /api/v1/staff/admin/payroll/bulk-revisions': { response: 'BulkRevisionsResponse' },
   'POST /api/v1/staff/admin/payroll/bulk-revisions/create': { request: 'CreateBulkRevisionRequest', response: 'BulkRevisionJobResponse' },
   'POST /api/v1/staff/admin/payroll/bulk-revisions/{id}/approve': { response: 'ApproveBulkRevisionResponse' },
+
+  // ---- separations ----
+  'GET /api/v1/staff/admin/payroll/advances': { response: 'PayrollAdvancesResponse' },
+  'POST /api/v1/staff/admin/payroll/advances/create': { request: 'CreateAdvanceRequest', response: 'PayrollAdvanceResponse' },
+  'GET /api/v1/staff/admin/payroll/fnf': { response: 'FnFListResponse' },
+  'POST /api/v1/staff/admin/payroll/fnf/create': { request: 'CreateFnFRequest', response: 'FnFDetailResponse' },
+  'POST /api/v1/staff/admin/payroll/fnf/{id}/approve': { request: 'FnFApproveRequest', response: 'FnFDetailResponse' },
+  'POST /api/v1/staff/admin/payroll/fnf/{id}/mark-paid': { request: 'FnFMarkPaidRequest', response: 'FnFDetailResponse' },
+  'GET /api/v1/staff/admin/payroll/gratuity': { response: 'GratuityStatusResponse' },
+  'GET /api/v1/staff/admin/payroll/leave-encashment': { response: 'LeaveEncashmentListResponse' },
+  'POST /api/v1/staff/admin/payroll/leave-encashment/create': { request: 'CreateLeaveEncashmentRequest', response: 'LeaveEncashmentResponse' },
+
+  // ---- queries-compliance ----
+  'POST /api/v1/staff/admin/payroll/tax-summary/all': { request: 'GenerateTaxSummariesRequest', response: 'GenerateTaxSummariesResponse' },
+  'GET /api/v1/staff/admin/payroll/comparison': { response: 'PayrollComparisonResponse' },
+  'POST /api/v1/staff/admin/generate-payroll-data': { request: 'GeneratePayrollDataRequest', response: 'GeneratePayrollDataResponse' },
+  'GET /api/v1/staff/admin/payroll/declarations': { response: 'DeclarationListResponse' },
+  'POST /api/v1/staff/admin/payroll/declarations/{id}/approve': { request: 'ApproveDeclarationRequest', response: 'DeclarationResponse' },
+  'GET /api/v1/staff/admin/payroll/queries': { response: 'PayslipQueryListResponse' },
+  'POST /api/v1/staff/admin/payroll/queries/{id}/reply': { request: 'PayslipQueryReplyRequest', response: 'PayslipQueryResponse' },
+  'GET /api/v1/staff/admin/payroll/compliance-calendar': { response: 'ComplianceCalendarResponse' },
+
+  // ---- statutory-exports (GET /payroll/export/{summary,pf,esi}) — INTENTIONALLY
+  // NOT KEYED: these return a text/csv body via res.send(), not a JSON envelope;
+  // the generic 200 in openapi.json is the correct (untyped) representation. ----
 };
