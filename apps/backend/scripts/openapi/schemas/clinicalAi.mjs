@@ -181,6 +181,57 @@ const CONTROL_OPS = [
   ['POST /chest-pain-protocols', { response: 'ClinicalAiDraftResponse' }],
   ['POST /trauma-checklists', { response: 'ClinicalAiDraftResponse' }],
   ['POST /mlc-documentation', { response: 'ClinicalAiDraftResponse' }],
+
+  // -------------------------------------------------------------------------
+  // tierE-H-assistants (Tier E + Tier F + Tier G + Tier H). All 31 ops are
+  // single-POST LLM-draft generators that funnel through `runExplainerPipeline`
+  // and return `success(res, result, message, 201)` with the shared draft
+  // envelope. No strict ops in this sub-domain (verified against ground-truth
+  // route files + scout report r1: zero list/status/config/enum-typed
+  // endpoints; every structured bit — symptom red-flag severity, ESI/CTAS,
+  // FHIR validation verdict, de-id map, TAT/sentiment scores — is LLM-prompt-
+  // internal inside loose `draft`, with no DB CHECK backing). Control-only
+  // (no clinical-use mount). All → ClinicalAiDraftResponse.
+  // -------------------------------------------------------------------------
+
+  // ---- Tier E patient-engagement / coaching assistants (tierEPatientEngagementRoutes.js) — 13 ----
+  ['POST /symptom-red-flag-checks', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /chronic-disease-coaching', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /post-discharge-checkins', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /post-surgery-monitoring', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /home-vitals-insights', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /diet-advice-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /exercise-advice-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /mental-health-screenings', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /medication-reminders', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /follow-up-reminders', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /pre-visit-forms', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /preventive-health-recommendations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /family-health-risk-summaries', { response: 'ClinicalAiDraftResponse' }],
+
+  // ---- Tier F interoperability / record-reconciliation assistants (tierFInteropRoutes.js) — 5 ----
+  ['POST /fhir-validations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /abdm-care-contexts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /health-record-reconciliations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /document-patient-matching', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /medical-record-bundles', { response: 'ClinicalAiDraftResponse' }],
+
+  // ---- Tier G public / population-health assistants (tierGPublicHealthRoutes.js) — 5 ----
+  ['POST /chronic-disease-registries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /screening-gap-detections', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /high-risk-cohorts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /public-health-reports', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /phi-deidentifications', { response: 'ClinicalAiDraftResponse' }],
+
+  // ---- Tier H operational-forecasting assistants (tierHOperationalRoutes.js) — 8 ----
+  ['POST /lab-tat-delay-predictions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /radiology-tat-delay-predictions', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /ambulance-demand-forecasts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /smart-queue-optimizations', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /tariff-optimization-insights', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /package-compliance-checks', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /patient-feedback-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /sentiment-analyses', { response: 'ClinicalAiDraftResponse' }],
 ];
 const CLINICAL_OPS = [];
 
