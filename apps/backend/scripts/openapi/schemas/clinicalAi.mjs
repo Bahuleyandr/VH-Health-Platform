@@ -1805,6 +1805,97 @@ const CONTROL_OPS = [
   // ---- Retrieval (loose service blobs) ----
   ['POST /knowledge-bases/retrieve', { response: 'ClinicalAiGovernanceObjectResponse' }],
   ['GET /knowledge-bases/retrieval-logs', { response: 'ClinicalAiCountListResponse' }],
+
+  // -------------------------------------------------------------------------
+  // knowledge-governance (knowledgeGovernanceRoutes.js) — 21 ops. Seven
+  // independent governance sub-modules, all the SAME evaluate→list→decide CRUD
+  // triad (policy-diff/regulation watcher, multimodal patient timeline, pathway
+  // bundle compliance, clinical knowledge graph, acuity staffing forecast,
+  // federated-learning coordinator, voice-patient-assistant/IVR).
+  //
+  // Typing (per scout r4 + ground-truth route file + verified service return
+  // shapes): ALL 21 ops are loose — NONE are in the strictOps shortlist (which
+  // lives in scoreboard/ROI/KB/operational-alerts/governance, not here). Every
+  // band these surface (severity / recommendation / overall_severity /
+  // overall_health / impact_area / compliance_pct / federation status +
+  // approval_status / voice channel + aggregation_method) is config/heuristic/
+  // LLM-derived inside loose `draft`, with NO hard DB CHECK in these routes, so
+  // it stays plain — per the plan's "leave soft/config-derived bands as plain
+  // strings" rule. Specifically:
+  //   • POST evaluate/generate/record → loose draft/result envelope (201) →
+  //     ClinicalAiDraftResponse (the policy-diff, timeline-snapshot, pathway
+  //     audit, graph-health report, staffing forecast, federation-round, voice
+  //     session all wrap a typed outer envelope around a rule/LLM-generated
+  //     inner blob with variable keys).
+  //   • The deterministic registry-ish upsert POSTs (knowledge-graph nodes +
+  //     edges, federation sites) ALSO fold here: each returns a single
+  //     normalized registry row (or null on missing-schema graceful degrade),
+  //     but carries NO DB-CHECK-grade categorical column in the strict
+  //     shortlist — node_type/edge_type/site status are service-normalized free
+  //     strings, NOT service-allowlisted like blood-bank group/component — so
+  //     per the plan + the T6 care-ops registry precedent they stay in the
+  //     shared loose envelope rather than getting a bespoke strict schema.
+  //   • GET lists → `{ <plural>: [...rows], count }` (verified service shapes:
+  //     listNodes→{nodes,count}; listEdges→{edges,count}; listFederationSites→
+  //     {sites,count}; listFederationRounds→{rounds,count}; plus policy-diffs/
+  //     snapshots/pathway-bundles/health-reports/forecasts/voice-sessions) →
+  //     ClinicalAiCountListResponse.
+  //   • PATCH decide + PATCH .../status → single updated governance/registry row
+  //     ({ id, reviewer_decision/status + reviewer metadata }) →
+  //     ClinicalAiReviewDecisionResponse (loose row, additionalProperties:true).
+  // Control-only (no /clinical-ai/clinical mount for any of these). Dual-mounted
+  // across both CONTROL_PREFIXES via aliasOps.
+  // -------------------------------------------------------------------------
+
+  // ---- Policy Diff / Regulation Watcher ----
+  ['POST /policy-diffs/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /policy-diffs', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /policy-diffs/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Multimodal Patient Timeline ----
+  ['POST /patient-timeline/generate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /patient-timeline/snapshots', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /patient-timeline/snapshots/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Generalized Pathway Bundle Compliance ----
+  ['POST /pathway-bundles/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /pathway-bundles', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /pathway-bundles/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Clinical Knowledge Graph — registry upserts + lists + health triad ----
+  // nodes/edges POSTs return a single normalized registry row (loose draft
+  // family); GET nodes/edges return `{ nodes|edges, count }`; health/evaluate is
+  // the standard rule-generated report; health/reports list + decide are the
+  // governance pair.
+  ['POST /knowledge-graph/nodes', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /knowledge-graph/nodes', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /knowledge-graph/edges', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /knowledge-graph/edges', { response: 'ClinicalAiCountListResponse' }],
+  ['POST /knowledge-graph/health/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /knowledge-graph/health/reports', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /knowledge-graph/health/reports/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Acuity-Based Staffing Forecast ----
+  ['POST /acuity-staffing/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /acuity-staffing/forecasts', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /acuity-staffing/forecasts/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Federated Learning Coordinator — sites + rounds ----
+  // /sites POST = registry upsert (single row, loose draft family);
+  // /sites/{id}/status PATCH = updated site row (review-decision family);
+  // /rounds POST = rules-authoritative readiness recommendation (draft family);
+  // /rounds/{id} PATCH = decide.
+  ['POST /federation/sites', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /federation/sites', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /federation/sites/{id}/status', { response: 'ClinicalAiReviewDecisionResponse' }],
+  ['POST /federation/rounds', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /federation/rounds', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /federation/rounds/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Voice Patient Assistant / IVR ----
+  ['POST /voice-ivr/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /voice-ivr/sessions', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /voice-ivr/sessions/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
 ];
 const CLINICAL_OPS = [];
 
