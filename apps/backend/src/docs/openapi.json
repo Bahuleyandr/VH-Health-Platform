@@ -4734,6 +4734,191 @@
       "ClinicalAiConfigData": {
         "$ref": "#/components/schemas/ClinicalAiConfig"
       },
+      "ClinicalAiDraftEnvelope": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "module_key",
+          "draft"
+        ],
+        "properties": {
+          "module_key": {
+            "type": "string"
+          },
+          "generation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "review_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "review_status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              "needs_revision",
+              "edited",
+              "schema_unavailable"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "used_ai": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "safety_flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "critical"
+                  ]
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "source_citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "decision_support_only": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "requires_signoff": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "draft": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ClinicalAiDraftResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiDraftEnvelope"
+          }
+        }
+      },
+      "ClinicalAiReviewDecisionListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalAiReviewDecisionRow"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ClinicalAiReviewDecisionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalAiReviewDecisionRow"
+          }
+        }
+      },
+      "ClinicalAiReviewDecisionRow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "reviewer_decision"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "reviewer_decision": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "accepted",
+              "rejected",
+              "needs_revision",
+              "edited"
+            ]
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reviewer_note": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "ClinicalCoding": {
         "type": "object",
         "additionalProperties": true,
