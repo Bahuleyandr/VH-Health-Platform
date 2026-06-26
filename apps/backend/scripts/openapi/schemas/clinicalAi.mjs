@@ -79,6 +79,24 @@ const CLINICAL_AI_PGX_PHENOTYPE = [
   'deficient', 'unknown',
 ];
 
+// ---- operational-alerts strict enums (T7) -------------------------------
+// `clinical_ai_operational_alerts` carries three real DB CHECK constraints
+// (migration 315_operational_alerts.sql) — verbatim, null-free for Spectral:
+//   • severity          CHECK IN ('low','moderate','high','critical','unknown')
+//   • system_status     CHECK IN ('active','resolved','superseded')
+//   • reviewer_decision CHECK IN ('pending','accepted','deferred','rejected','edited')
+// The LIST row can surface any reviewer_decision (default 'pending'); the POST
+// /decision endpoint only ACCEPTS the four FINAL_DECISIONS
+// ('accepted','deferred','rejected','edited') — anything else → 400 before the
+// UPDATE — but the persisted column (and thus the returned row) uses the full
+// 5-value CHECK set, so the decision-row schema pins the same 5 values. Note
+// `alert_category` has NO CHECK (default 'unknown') → stays a plain string.
+const CLINICAL_AI_OPALERT_SEVERITY = ['low', 'moderate', 'high', 'critical', 'unknown'];
+const CLINICAL_AI_OPALERT_SYSTEM_STATUS = ['active', 'resolved', 'superseded'];
+const CLINICAL_AI_OPALERT_REVIEWER_DECISION = [
+  'pending', 'accepted', 'deferred', 'rejected', 'edited',
+];
+
 // A reusable opaque LLM/template draft (parsed object, no required keys).
 const aiDraft = { type: 'object', additionalProperties: true };
 // AI safety flag entry.
@@ -402,6 +420,256 @@ export const schemas = {
             items: { $ref: '#/components/schemas/ClinicalAiPgxGenotypeRow' },
           },
           count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // =========================================================================
+  // STRICT — operational-alerts (T7). `clinical_ai_operational_alerts` is a
+  // deterministic forecast-alert stream (rules-authoritative severity, NO LLM
+  // `draft`): the LIST returns the full fixed 30-column row, the POST /decision
+  // returns the reviewed 5-column projection, and the run-sweep returns a fixed
+  // count summary. The three categorical columns (severity / system_status /
+  // reviewer_decision) carry real DB CHECK constraints (migration 315) and are
+  // pinned to null-free enums. jsonb columns serialize to objects/arrays (never
+  // strings): metrics/metadata → object; signals/recommended_actions/
+  // source_citations/safety_flags → array. The free-text categorical
+  // `alert_category` has no CHECK (default 'unknown') so it stays a plain string.
+  // =========================================================================
+
+  // ---- ClinicalAiOperationalAlertRow -------------------------------------
+  // One row of `clinical_ai_operational_alerts`, as returned by the explicit
+  // 30-column SELECT in listOperationalAlerts(). id is SERIAL → integer.
+  ClinicalAiOperationalAlertRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id', 'module_key', 'domain', 'scope_key', 'alert_category', 'severity',
+      'system_status', 'reviewer_decision',
+    ],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      module_key: { type: 'string' },
+      domain: { type: 'string' },
+      owner_role: { type: 'string', nullable: true },
+      scope_key: { type: 'string' },
+      scope_label: { type: 'string', nullable: true },
+      horizon: { type: 'string', nullable: true },
+      predicted_for: { type: 'string', format: 'date-time', nullable: true },
+      alert_category: { type: 'string' },
+      severity: { type: 'string', enum: CLINICAL_AI_OPALERT_SEVERITY },
+      metrics: { type: 'object', additionalProperties: true },
+      signals: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      summary: { type: 'string', nullable: true },
+      recommended_actions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      source_citations: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      safety_flags: { type: 'array', items: clinicalAiSafetyFlag },
+      system_status: { type: 'string', enum: CLINICAL_AI_OPALERT_SYSTEM_STATUS },
+      reviewer_decision: { type: 'string', enum: CLINICAL_AI_OPALERT_REVIEWER_DECISION },
+      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      reviewer_note: { type: 'string', nullable: true },
+      first_seen_at: { type: 'string', format: 'date-time', nullable: true },
+      last_evaluated_at: { type: 'string', format: 'date-time', nullable: true },
+      resolved_at: { type: 'string', format: 'date-time', nullable: true },
+      resolved_reason: { type: 'string', nullable: true },
+      notified_at: { type: 'string', format: 'date-time', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /operational-alerts → { success, message, data: { alerts:[row], count } }.
+  ClinicalAiOperationalAlertListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['alerts', 'count'],
+        properties: {
+          alerts: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiOperationalAlertRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiOperationalAlertDecisionRow -----------------------------
+  // POST /operational-alerts/{id}/decision RETURNING projection — the five
+  // reviewed columns. reviewer_decision uses the full DB CHECK set (the POST
+  // only writes one of the four FINAL_DECISIONS, but the column/CHECK is 5-way).
+  ClinicalAiOperationalAlertDecisionRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'reviewer_decision'],
+    properties: {
+      id: { type: 'integer' },
+      reviewer_decision: { type: 'string', enum: CLINICAL_AI_OPALERT_REVIEWER_DECISION },
+      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+      reviewer_note: { type: 'string', nullable: true },
+    },
+  },
+
+  // POST /operational-alerts/{id}/decision → { success, message, data: row }.
+  ClinicalAiOperationalAlertDecisionResponse: envelope('ClinicalAiOperationalAlertDecisionRow'),
+
+  // POST /operational-alerts/run-sweep → { success, message, data: summary }.
+  // runSweep returns a fixed count summary: { evaluated, raised, resolved,
+  // errors:[{ module_key, error }] }. Deterministic — no draft.
+  ClinicalAiOperationalAlertSweepResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['evaluated', 'raised', 'resolved', 'errors'],
+        properties: {
+          evaluated: { type: 'integer', example: 0 },
+          raised: { type: 'integer', example: 0 },
+          resolved: { type: 'integer', example: 0 },
+          errors: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['module_key'],
+              properties: {
+                module_key: { type: 'string' },
+                error: { type: 'string', nullable: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  // =========================================================================
+  // STRICT — discharge-compose workflow runs (T7). The three discharge-compose
+  // endpoints that surface REAL `clinical_ai_workflow_runs` table rows get a
+  // strict row schema: GET (list) → { runs:[row], count }, GET /{runId} →
+  // { run, children:[row], child_count }, POST /{runId}/fail → the trivial
+  // { status:'failed', runId, reason }. The POST (compose) and POST /resume
+  // endpoints return polymorphic orchestration-result BLOBS (the compose graph
+  // result / resumeWorkflow outcome with variable keys), NOT table rows, so they
+  // fold into the loose ClinicalAiDraftResponse family. `status` and
+  // `pause_reason` are plain VARCHARs with NO DB CHECK (migration 109 documents
+  // the value sets only in a comment) — so they stay plain strings, NOT enums.
+  // jsonb columns (state/result/metadata → object; checkpoints → array)
+  // serialize to objects/arrays. The schema is the UNION of the three column
+  // projections (list / getRun-full / listChildren) with additionalProperties
+  // false; each projection is a subset, so only the always-present core is
+  // required and the rest are optional.
+  // =========================================================================
+
+  // ---- ClinicalAiWorkflowRunRow ------------------------------------------
+  ClinicalAiWorkflowRunRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'workflow_key', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      workflow_key: { type: 'string' },
+      module_key: { type: 'string', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      admission_id: { type: 'integer', nullable: true },
+      status: { type: 'string' },
+      current_node: { type: 'string', nullable: true },
+      pause_reason: { type: 'string', nullable: true },
+      state: { type: 'object', additionalProperties: true },
+      result: { type: 'object', additionalProperties: true, nullable: true },
+      error_node: { type: 'string', nullable: true },
+      error_message: { type: 'string', nullable: true },
+      checkpoints: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      metadata: { type: 'object', additionalProperties: true },
+      started_by: { type: 'string', format: 'uuid', nullable: true },
+      parent_run_id: { type: 'integer', nullable: true },
+      parent_node: { type: 'string', nullable: true },
+      started_at: { type: 'string', format: 'date-time', nullable: true },
+      paused_at: { type: 'string', format: 'date-time', nullable: true },
+      completed_at: { type: 'string', format: 'date-time', nullable: true },
+      failed_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // GET /discharge-compose → { success, message, data: { runs:[row], count } }.
+  ClinicalAiWorkflowRunListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['runs', 'count'],
+        properties: {
+          runs: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiWorkflowRunRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // GET /discharge-compose/{runId} → { success, message,
+  //   data: { run, children:[row], child_count } }.
+  ClinicalAiWorkflowRunDetailResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['run', 'children', 'child_count'],
+        properties: {
+          run: { $ref: '#/components/schemas/ClinicalAiWorkflowRunRow' },
+          children: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiWorkflowRunRow' },
+          },
+          child_count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // POST /discharge-compose/{runId}/fail → { success, message,
+  //   data: { status:'failed', runId, reason } }.
+  ClinicalAiWorkflowRunFailResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['status', 'runId', 'reason'],
+        properties: {
+          status: { type: 'string', example: 'failed' },
+          runId: { type: 'integer' },
+          reason: { type: 'string' },
         },
       },
     },
@@ -795,6 +1063,104 @@ const CONTROL_OPS = [
   ['GET /family-updates', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /family-updates/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
   ['POST /family-updates/{id}/sent', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // -------------------------------------------------------------------------
+  // surgical (surgicalAiRoutes.js) — 8 ops. Eight single-POST surgical-AI
+  // module generators (Tier B PR2). Each drafts a clinical doc / risk summary /
+  // checklist + enqueues a clinical-AI review row, returning
+  // success(res, result, …, 201) with the standard draft envelope (the scout's
+  // "SurgicalAiDraftEnvelope" — module_key/generation_id/ot_schedule_id/
+  // review_status/provider/used_ai/safety_flags[] + draft:additionalProperties).
+  // Folds into the shared loose family — every structured bit (HEART/risk band,
+  // consent terms, implant reconciliation) is LLM-prompt-internal inside loose
+  // `draft`, with no DB CHECK. Listing + decisions reuse the existing /reviews
+  // surface (already overlaid in the core-clinical pass), so there are NO
+  // list/decide ops here. All → ClinicalAiDraftResponse. Control-only.
+  // -------------------------------------------------------------------------
+  ['POST /preop-checklist-reviews', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /surgical-consent-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /ot-note-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /post-op-instruction-drafts', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /surgical-risk-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /anesthesia-prechecks', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /implant-consumable-tracking', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /post-op-complication-alerts', { response: 'ClinicalAiDraftResponse' }],
+
+  // -------------------------------------------------------------------------
+  // teleconsult (teleconsultAiRoutes.js) — 2 ops. Two single-POST teleconsult
+  // generators (Phase B1): each drafts a pre-visit summary / consult note +
+  // enqueues a review row + back-links the generation onto the parent
+  // teleconsultations row, returning the standard draft envelope (201). Loose
+  // family — all → ClinicalAiDraftResponse. Control-only.
+  // -------------------------------------------------------------------------
+  ['POST /teleconsult-pre-visit-summaries', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /teleconsult-note-drafts', { response: 'ClinicalAiDraftResponse' }],
+
+  // -------------------------------------------------------------------------
+  // operational-alerts (operationalAlertRoutes.js) — 3 ops. STRICT. The unified
+  // forecast-alert stream (rules-authoritative, advisory-only, NO LLM `draft`):
+  //   • GET  /operational-alerts            → { alerts:[30-col row], count }
+  //   • POST /operational-alerts/{id}/decision → { id, reviewer_decision,
+  //                                               reviewed_by, reviewed_at,
+  //                                               reviewer_note }
+  //   • POST /operational-alerts/run-sweep  → { evaluated, raised, resolved,
+  //                                             errors:[{module_key,error}] }
+  // The row's three categorical columns (severity / system_status /
+  // reviewer_decision) have real DB CHECK constraints (migration 315) → pinned
+  // enums. The strict schemas live above. Control-only.
+  // -------------------------------------------------------------------------
+  ['GET /operational-alerts', { response: 'ClinicalAiOperationalAlertListResponse' }],
+  ['POST /operational-alerts/{id}/decision', { response: 'ClinicalAiOperationalAlertDecisionResponse' }],
+  ['POST /operational-alerts/run-sweep', { response: 'ClinicalAiOperationalAlertSweepResponse' }],
+
+  // -------------------------------------------------------------------------
+  // discharge-compose (dischargeComposeRoutes.js) — 5 ops. The
+  // discharge_summary_compose meta-workflow over `clinical_ai_workflow_runs`.
+  // Mixed typing (per ground-truth route file + workflowGraphRunner outcome
+  // shapes):
+  //   • POST /discharge-compose            → compose graph result blob (the
+  //     completed compose result OR a paused stub; variable keys) → loose
+  //     ClinicalAiDraftResponse. 201 completed / 202 paused.
+  //   • POST /discharge-compose/{runId}/resume → resumeWorkflow outcome blob
+  //     ({ status, runId, state?, result?, pauseReason?, error? }; variable
+  //     keys) → loose ClinicalAiDraftResponse. 200 / 202.
+  //   • GET  /discharge-compose            → STRICT { runs:[workflow-run row],
+  //     count } (explicit 14-col SELECT) → ClinicalAiWorkflowRunListResponse.
+  //   • GET  /discharge-compose/{runId}    → STRICT { run, children:[row],
+  //     child_count } → ClinicalAiWorkflowRunDetailResponse.
+  //   • POST /discharge-compose/{runId}/fail → STRICT trivial
+  //     { status:'failed', runId, reason } → ClinicalAiWorkflowRunFailResponse.
+  // `status`/`pause_reason` are plain VARCHARs (no DB CHECK) → plain strings.
+  // Control-only.
+  // -------------------------------------------------------------------------
+  ['POST /discharge-compose', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /discharge-compose', { response: 'ClinicalAiWorkflowRunListResponse' }],
+  ['GET /discharge-compose/{runId}', { response: 'ClinicalAiWorkflowRunDetailResponse' }],
+  ['POST /discharge-compose/{runId}/resume', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /discharge-compose/{runId}/fail', { response: 'ClinicalAiWorkflowRunFailResponse' }],
+
+  // -------------------------------------------------------------------------
+  // documents (documentRoutes.js) — 4 ops. Document-intelligence / OCR intake
+  // over `clinical_document_intake`. Standard generate/list/decide family — NO
+  // strict ops (the intake result is a loose draft envelope; the list is the
+  // shared count-list; the decide is the shared review-decision row):
+  //   • POST /documents/intake             → loose draft envelope (201) →
+  //     ClinicalAiDraftResponse.
+  //   • POST /documents/intake/upload      → same (multipart file upload, 201)
+  //     → ClinicalAiDraftResponse.
+  //   • GET  /documents/intake             → { documents:[row], count } →
+  //     ClinicalAiCountListResponse (key 'documents' — not pinned by the loose
+  //     count-list).
+  //   • PATCH /documents/intake/{id}       → updated review-decision row
+  //     ({ id, reviewer_decision[accepted|rejected|needs_revision],
+  //     reviewed_by, reviewed_at, reviewer_note, + extra cols }) →
+  //     ClinicalAiReviewDecisionResponse (loose row, additionalProperties:true).
+  // Control-only.
+  // -------------------------------------------------------------------------
+  ['POST /documents/intake', { response: 'ClinicalAiDraftResponse' }],
+  ['POST /documents/intake/upload', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /documents/intake', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /documents/intake/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
 ];
 const CLINICAL_OPS = [];
 
