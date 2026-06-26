@@ -1621,6 +1621,204 @@ export const schemas = {
 
   // GET /outcome-scoreboard → { success, message, data: ClinicalAiOutcomeScoreboard }.
   ClinicalAiOutcomeScoreboardResponse: envelope('ClinicalAiOutcomeScoreboard'),
+
+  // =========================================================================
+  // STRICT — platform-workbench (T12). The AI platform workbench / MLOps
+  // governance sub-router (platformWorkbenchRoutes.js, 33 ops across 8 service
+  // families: synthetic cases, training/sim, model registry+eval, procurement,
+  // explainability, agent lifecycle, command center, dataset labeling). MOST
+  // ops fold into the shared loose families — every band the EVAL/governance
+  // rows surface (severity / recommendation / trust_band / opportunity_category
+  // / command_status / risk_band) is config/heuristic/LLM-derived inside loose
+  // `draft`, matching the T4 diagnostics-prediction-triad + T6 care-ops precedent
+  // (the LIST/DECIDE governance rows fold loose even where a forecast column
+  // carries a DB CHECK).
+  //
+  // The TWO STRICT pairs are the deterministic registry CRUD surfaces — pure
+  // fixed-column rows with NO LLM `draft`, whose `stage` + `approval_status`
+  // columns carry REAL DB CHECK constraints (migrations 062 + 065) AND are
+  // re-validated against the service STAGES / APPROVAL_STATES allowlists with a
+  // 400 BEFORE the upsert (same allowlist-before-INSERT contract as the T5
+  // biomed-device registry / blood-bank group/component). normalizeRegistryRow
+  // is a pass-through spread, so jsonb columns (lineage / scopes /
+  // permitted_actions / metadata) come back as objects/arrays (never strings)
+  // and id (SERIAL) is an integer. Both upsert paths return null on a
+  // missing-schema graceful degrade → upsert `data` is nullable; the stage-
+  // change path has no null branch (404 throw) → its `data` is the row.
+  //
+  // ★ NOTE the agent-registry approval_status set DIFFERS from the model one:
+  //   model: pending|approved|revoked|rejected|pending_retirement
+  //   agent: pending|approved|revoked|rejected|pending_renewal
+  // so the two registries get their OWN approval_status enums. The recommendation
+  // / severity bands on the eval-run + health-report tables ALSO carry DB CHECKs,
+  // but those rows wrap rule/LLM-generated EVAL content (generation_id FK +
+  // signals/recommended_actions jsonb), so their LIST/DECIDE ops stay loose per
+  // the prediction-triad precedent. Control-only.
+  // =========================================================================
+
+  // ---- ClinicalAiModelRegistryRow ----------------------------------------
+  // One row of `clinical_ai_model_registry` (migration 062), as returned by
+  // upsertModelRegistry() / changeModelStage() RETURNING and listModelRegistry().
+  // `stage` + `approval_status` carry real DB CHECK constraints (re-validated by
+  // the service STAGES / APPROVAL_STATES sets → 400). jsonb lineage / metadata →
+  // object.
+  ClinicalAiModelRegistryRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'model_key', 'version', 'stage', 'approval_status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      model_key: { type: 'string' },
+      version: { type: 'string' },
+      provider: { type: 'string', nullable: true },
+      purpose: { type: 'string', nullable: true },
+      owner: { type: 'string', nullable: true },
+      stage: {
+        type: 'string',
+        enum: ['sandbox', 'staging', 'production', 'deprecated', 'quarantined', 'unknown'],
+      },
+      parent_version: { type: 'string', nullable: true },
+      lineage: { type: 'object', additionalProperties: true },
+      approval_status: {
+        type: 'string',
+        enum: ['pending', 'approved', 'revoked', 'rejected', 'pending_retirement'],
+      },
+      approval_note: { type: 'string', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      retired_at: { type: 'string', format: 'date-time', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /model-registry (201) → { success, message, data: <row | null> }.
+  // upsert returns null when the registry table is absent (missing-schema
+  // graceful degrade), so `data` is nullable.
+  ClinicalAiModelRegistryResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/ClinicalAiModelRegistryRow' }],
+      },
+    },
+  },
+
+  // PATCH /model-registry/{id}/stage → { success, message, data: row }.
+  // changeModelStage has no missing-schema null branch (404 throw), so the row
+  // is always present.
+  ClinicalAiModelRegistryStageResponse: envelope('ClinicalAiModelRegistryRow'),
+
+  // GET /model-registry → { success, message, data: { models:[row], count } }.
+  ClinicalAiModelRegistryListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['models', 'count'],
+        properties: {
+          models: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiModelRegistryRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
+
+  // ---- ClinicalAiAgentRegistryRow ----------------------------------------
+  // One row of `clinical_ai_agent_registry` (migration 065), as returned by
+  // upsertAgentRegistry() / changeAgentStage() RETURNING and listAgentRegistry().
+  // `stage` + `approval_status` carry real DB CHECK constraints (re-validated by
+  // the service STAGES / APPROVAL_STATES sets → 400). NOTE the approval_status
+  // set ends in `pending_renewal` (NOT the model registry's `pending_retirement`).
+  // jsonb scopes / permitted_actions → array; metadata → object.
+  ClinicalAiAgentRegistryRow: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'agent_key', 'stage', 'approval_status'],
+    properties: {
+      id: { type: 'integer' },
+      tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      agent_key: { type: 'string' },
+      display_name: { type: 'string', nullable: true },
+      owner: { type: 'string', nullable: true },
+      purpose: { type: 'string', nullable: true },
+      scopes: { type: 'array', items: { type: 'string' } },
+      permitted_actions: { type: 'array', items: { type: 'string' } },
+      stage: {
+        type: 'string',
+        enum: ['sandbox', 'staging', 'production', 'deprecated', 'quarantined', 'unknown'],
+      },
+      expiry_date: { type: 'string', format: 'date', nullable: true },
+      last_seen_at: { type: 'string', format: 'date-time', nullable: true },
+      approval_status: {
+        type: 'string',
+        enum: ['pending', 'approved', 'revoked', 'rejected', 'pending_renewal'],
+      },
+      approval_note: { type: 'string', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      retired_at: { type: 'string', format: 'date-time', nullable: true },
+      metadata: { type: 'object', additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+
+  // POST /agent-registry (201) → { success, message, data: <row | null> }.
+  // upsert returns null when the registry table is absent (missing-schema
+  // graceful degrade), so `data` is nullable.
+  ClinicalAiAgentRegistryResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/ClinicalAiAgentRegistryRow' }],
+      },
+    },
+  },
+
+  // PATCH /agent-registry/{id}/stage → { success, message, data: row }.
+  // changeAgentStage has no missing-schema null branch (404 throw), so the row
+  // is always present.
+  ClinicalAiAgentRegistryStageResponse: envelope('ClinicalAiAgentRegistryRow'),
+
+  // GET /agent-registry → { success, message, data: { agents:[row], count } }.
+  ClinicalAiAgentRegistryListResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['agents', 'count'],
+        properties: {
+          agents: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ClinicalAiAgentRegistryRow' },
+          },
+          count: { type: 'integer', example: 0 },
+        },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2459,6 +2657,114 @@ const CONTROL_OPS = [
   // Read-only, control-only.
   // -------------------------------------------------------------------------
   ['GET /outcome-scoreboard', { response: 'ClinicalAiOutcomeScoreboardResponse' }],
+
+  // -------------------------------------------------------------------------
+  // platform-workbench (platformWorkbenchRoutes.js) — 33 ops. AI platform
+  // workbench / MLOps governance: synthetic clinical-case generator, training &
+  // simulation coach, model registry + eval-run workbench, procurement
+  // negotiation assistant, AI explainability dashboard, AI agent lifecycle
+  // manager, hospital command center, dataset labeling studio.
+  //
+  // Typing (per scout r5 + ground-truth route file + verified service RETURNING
+  // projections + DB CHECKs in migrations 062/065):
+  //   • POST generate/evaluate/record (synthetic-case, training-module, eval-run,
+  //     procurement, explainability, agent-health, command-center, labeling
+  //     annotation) → loose draft/result envelope (201) → ClinicalAiDraftResponse.
+  //     Each wraps a typed outer envelope around a rule/LLM-generated inner blob;
+  //     every band they surface (severity / recommendation / trust_band /
+  //     opportunity_category / command_status / risk_band) is config/heuristic/
+  //     LLM-derived inside loose `draft` — even where the persisted eval-run /
+  //     health-report table column carries a DB CHECK, the LIST/DECIDE governance
+  //     rows fold loose per the T4 prediction-triad precedent.
+  //   • POST /labeling/tasks → createLabelingTask returns a single normalized
+  //     task row, but task_type/difficulty are NOT in the strict shortlist
+  //     (free-ish / config-derived, no surfaced allowlist) → loose
+  //     ClinicalAiDraftResponse (registry-ish row in the loose family, matching
+  //     the T6 care-ops / T10 knowledge-governance registry precedent).
+  //   • GET lists → `{ <plural>:[row], count }` (verified keys: cases / modules /
+  //     runs / opportunities / reports / agents+reports / snapshots / tasks /
+  //     annotations) → ClinicalAiCountListResponse.
+  //   • PATCH decide ops that RETURN a row with BOTH `id` AND `reviewer_decision`
+  //     (synthetic-case, training-module, eval-run, procurement, explainability,
+  //     agent-health, command-snapshot) → ClinicalAiReviewDecisionResponse (loose
+  //     row, additionalProperties:true).
+  //   • PATCH /labeling/annotations/{id} → decideAnnotation returns
+  //     `{ annotation:{id,reviewer_decision,…}, task, … }` — the row is NESTED
+  //     under `annotation`, so `data` has NO top-level reviewer_decision and
+  //     CANNOT satisfy ReviewDecisionRow's required:[id,reviewer_decision] →
+  //     ClinicalAiGovernanceObjectResponse (per the revenue-cycle precedent).
+  //   • GET /labeling/tasks/{id} → getTaskWithAnnotations returns the composite
+  //     `{ task, annotations:[…], aggregate }` (single object, nested rows, NOT a
+  //     `{ plural, count }` list) → ClinicalAiGovernanceObjectResponse.
+  //   • THE TWO STRICT registry CRUD pairs — pure deterministic fixed-column rows
+  //     (NO LLM draft) whose stage + approval_status carry real DB CHECKs
+  //     (062/065) + service allowlists (STAGES/APPROVAL_STATES → 400 before
+  //     upsert):
+  //       POST  /model-registry           (201) → ClinicalAiModelRegistryResponse
+  //                                                (data nullable: missing-schema
+  //                                                 graceful degrade)
+  //       GET   /model-registry                 → ClinicalAiModelRegistryListResponse
+  //       PATCH /model-registry/{id}/stage      → ClinicalAiModelRegistryStageResponse
+  //                                                (non-null row; 404 throw, no null)
+  //       POST  /agent-registry           (201) → ClinicalAiAgentRegistryResponse
+  //       GET   /agent-registry                 → ClinicalAiAgentRegistryListResponse
+  //       PATCH /agent-registry/{id}/stage      → ClinicalAiAgentRegistryStageResponse
+  //     (The eval-run + health-report tables also carry recommendation/severity
+  //     CHECKs, but those rows wrap rule/LLM EVAL content → their LIST/DECIDE stay
+  //     loose.) Control-only. Dual-mounted across both CONTROL_PREFIXES via aliasOps.
+  // -------------------------------------------------------------------------
+
+  // ---- Synthetic clinical-case generator ----
+  ['POST /synthetic-cases/generate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /synthetic-cases', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /synthetic-cases/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Training & simulation coach ----
+  ['POST /training/modules/generate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /training/modules', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /training/modules/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Model registry — STRICT registry CRUD + loose eval-run triad ----
+  ['POST /model-registry', { response: 'ClinicalAiModelRegistryResponse' }],
+  ['GET /model-registry', { response: 'ClinicalAiModelRegistryListResponse' }],
+  ['PATCH /model-registry/{id}/stage', { response: 'ClinicalAiModelRegistryStageResponse' }],
+  ['POST /model-registry/eval-runs', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /model-registry/eval-runs', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /model-registry/eval-runs/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Procurement negotiation assistant ----
+  ['POST /procurement/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /procurement/opportunities', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /procurement/opportunities/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- AI explainability dashboard ----
+  ['POST /explainability/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /explainability/reports', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /explainability/reports/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- AI agent lifecycle manager — STRICT registry CRUD + loose health-report triad ----
+  ['POST /agent-registry', { response: 'ClinicalAiAgentRegistryResponse' }],
+  ['GET /agent-registry', { response: 'ClinicalAiAgentRegistryListResponse' }],
+  ['PATCH /agent-registry/{id}/stage', { response: 'ClinicalAiAgentRegistryStageResponse' }],
+  ['POST /agent-registry/health-reports', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /agent-registry/health-reports', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /agent-registry/health-reports/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Hospital command center ----
+  ['POST /command-center/evaluate', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /command-center/snapshots', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /command-center/snapshots/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Dataset labeling studio ----
+  // /tasks/{id} = composite { task, annotations[], aggregate } → governance object;
+  // /annotations/{id} decide returns the row NESTED under `annotation` (no top-level
+  // reviewer_decision) → governance object.
+  ['POST /labeling/tasks', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /labeling/tasks', { response: 'ClinicalAiCountListResponse' }],
+  ['GET /labeling/tasks/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
+  ['POST /labeling/annotations', { response: 'ClinicalAiDraftResponse' }],
+  ['GET /labeling/annotations', { response: 'ClinicalAiCountListResponse' }],
+  ['PATCH /labeling/annotations/{id}', { response: 'ClinicalAiGovernanceObjectResponse' }],
 ];
 const CLINICAL_OPS = [];
 
