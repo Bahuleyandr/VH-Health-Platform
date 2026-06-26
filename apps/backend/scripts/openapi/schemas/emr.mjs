@@ -26,8 +26,10 @@ import { envelope, listEnvelope } from './_helpers.mjs';
 // ---------------------------------------------------------------------------
 // admissions.status — app-validated lifecycle (DB is varchar(50), no CHECK).
 const ADMISSION_STATUS = ['admitted', 'transferred', 'discharged', 'cancelled', 'lama', 'expired'];
-// admissions.admission_type
-const ADMISSION_TYPE = ['elective', 'emergency', 'transfer_in', 'day_care'];
+// admissions.admission_type — FREE-FORM varchar (NO DB CHECK, NO app-layer
+// validation in admitPatient): live data carries 'inpatient'/'planned' (legacy
+// seed) plus app-written 'emergency', so any enum rejects real rows. Typed as a
+// plain nullable string on every admission schema (was a too-narrow guess).
 // admissions.priority
 const ADMISSION_PRIORITY = ['routine', 'urgent', 'emergent'];
 // admissions.code_status (DB default 'full_code')
@@ -62,7 +64,9 @@ const DISCHARGE_SUMMARY_SOURCE = ['clinical_note', 'admission'];
 // admissionService.js / patientCommandBoardService.js / the AI services).
 // ---------------------------------------------------------------------------
 // bed.status (bed-options / command-board location.bed_status) — lowercase.
-const BED_STATUS = ['available', 'occupied', 'cleaning'];
+// Aligned EXACTLY to the DB CHECK `beds_status_check` (was a too-narrow guess of
+// only available/occupied/cleaning).
+const BED_STATUS = ['available', 'occupied', 'reserved', 'maintenance', 'cleaning', 'dirty'];
 // ward-options heterogeneous source discriminator.
 const WARD_SOURCE = ['wards', 'fallback'];
 // admission lookup result branch.
@@ -83,6 +87,11 @@ const CLINICAL_AI_PROVIDER = ['template', 'ollama', 'openai-compatible', 'openai
 // clinicalCodeBindingService.js). All app-layer-validated VARCHAR (no DB CHECK).
 // ---------------------------------------------------------------------------
 // clinical_notes.note_type — VALID_NOTE_TYPES (clinicalNotesService lines 28-39).
+// Used ONLY on REQUEST bodies: createNote() rejects off-list values (400), so the
+// accepted-input contract is closed. The RESPONSE schemas type note_type as a
+// plain string, because the column has NO DB CHECK and alternate write paths
+// (admissionService case-sheet → 'case_sheet') persist values outside this list
+// that the note LISTs return verbatim.
 const NOTE_TYPE = [
   'soap', 'progress', 'procedure', 'discharge', 'nursing_assessment',
   'consultation_note', 'op_consultation', 'admission_note', 'er_note', 'transfer_note',
@@ -256,7 +265,7 @@ export const schemas = {
       encounter_id: { type: 'string', format: 'uuid', nullable: true },
       patient_uid: { type: 'string', format: 'uuid' },
       status: { type: 'string', nullable: true, enum: ADMISSION_STATUS },
-      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      admission_type: { type: 'string', nullable: true },
       admitting_doctor: { type: 'string', format: 'uuid', nullable: true },
       ward: { type: 'string', nullable: true },
       bed_id: { type: 'integer', nullable: true },
@@ -309,7 +318,7 @@ export const schemas = {
       encounter_id: { type: 'string', format: 'uuid', nullable: true },
       patient_uid: { type: 'string', format: 'uuid' },
       status: { type: 'string', nullable: true, enum: ADMISSION_STATUS },
-      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      admission_type: { type: 'string', nullable: true },
       priority: { type: 'string', nullable: true, enum: ADMISSION_PRIORITY },
       code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
       room_category: { type: 'string', nullable: true, enum: ROOM_CATEGORY },
@@ -878,7 +887,7 @@ export const schemas = {
       bed_number: { type: 'string', nullable: true },
       chief_complaint: { type: 'string', nullable: true },
       admitting_diagnosis: { type: 'string', nullable: true },
-      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      admission_type: { type: 'string', nullable: true },
       status: { type: 'string', enum: ADMISSION_STATUS },
       priority: { type: 'string', nullable: true, enum: ADMISSION_PRIORITY },
       code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
@@ -913,7 +922,7 @@ export const schemas = {
       bed_number: { type: 'string', nullable: true },
       chief_complaint: { type: 'string', nullable: true },
       admitting_diagnosis: { type: 'string', nullable: true },
-      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      admission_type: { type: 'string', nullable: true },
       status: { type: 'string', enum: ADMISSION_STATUS },
       priority: { type: 'string', nullable: true, enum: ADMISSION_PRIORITY },
       code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
@@ -960,7 +969,7 @@ export const schemas = {
           additionalProperties: false,
           required: ['admission_type', 'count'],
           properties: {
-            admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+            admission_type: { type: 'string', nullable: true },
             count: { type: 'integer' },
           },
         },
@@ -983,7 +992,7 @@ export const schemas = {
       encounter_id: { type: 'string', format: 'uuid', nullable: true },
       patient_uid: { type: 'string', format: 'uuid' },
       status: { type: 'string', nullable: true, enum: ADMISSION_STATUS },
-      admission_type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+      admission_type: { type: 'string', nullable: true },
       admitting_doctor: { type: 'string', format: 'uuid', nullable: true },
       attending_doctor: { type: 'string', format: 'uuid', nullable: true },
       ward: { type: 'string', nullable: true },
@@ -1015,7 +1024,7 @@ export const schemas = {
       bed_number: { type: 'string' },
       ward_id: { type: 'integer', nullable: true },
       ward_name: { type: 'string', nullable: true },
-      floor: { type: 'string', nullable: true },
+      floor: { type: 'integer', nullable: true },
       bed_type: { type: 'string', nullable: true },
       status: { type: 'string', nullable: true, enum: BED_STATUS },
       notes: { type: 'string', nullable: true },
@@ -1034,7 +1043,7 @@ export const schemas = {
       name: { type: 'string' },
       label: { type: 'string' },
       source: { type: 'string', enum: WARD_SOURCE },
-      floor: { type: 'string', nullable: true },
+      floor: { type: 'integer', nullable: true },
       total_beds: { type: 'integer' },
       bed_count: { type: 'integer' },
       available_count: { type: 'integer' },
@@ -1114,7 +1123,7 @@ export const schemas = {
         additionalProperties: true,
         properties: {
           status: { type: 'string', nullable: true, enum: ADMISSION_STATUS },
-          type: { type: 'string', nullable: true, enum: ADMISSION_TYPE },
+          type: { type: 'string', nullable: true },
           code_status: { type: 'string', nullable: true, enum: CODE_STATUS },
           room_category: { type: 'string', nullable: true, enum: ROOM_CATEGORY },
           next_review_at: { type: 'string', format: 'date-time', nullable: true },
@@ -1454,7 +1463,7 @@ export const schemas = {
       patient_uid: { type: 'string', format: 'uuid' },
       author_uid: { type: 'string', format: 'uuid', nullable: true },
       author_role: { type: 'string', nullable: true },
-      note_type: { type: 'string', enum: NOTE_TYPE },
+      note_type: { type: 'string' },
       title: { type: 'string', nullable: true },
       content: { type: 'object', additionalProperties: true },
       version: { type: 'integer' },
@@ -1504,7 +1513,7 @@ export const schemas = {
       patient_uid: { type: 'string', format: 'uuid' },
       author_uid: { type: 'string', format: 'uuid', nullable: true },
       author_role: { type: 'string', nullable: true },
-      note_type: { type: 'string', enum: NOTE_TYPE },
+      note_type: { type: 'string' },
       title: { type: 'string', nullable: true },
       content: { type: 'object', additionalProperties: true },
       version: { type: 'integer' },
@@ -1586,7 +1595,10 @@ export const schemas = {
   // ---- DiagnosisWithCodings ----------------------------------------------
   // DIAGNOSIS_SELECT row + codings: ClinicalCoding[]. Used by ALL diagnosis
   // create/status/LIST ops (SAME projection — detail == list). onset_date/
-  // resolved_date are date-only strings. LOOSE — carries DB columns.
+  // resolved_date are DB `date` columns, but the service writes them via
+  // `new Date(...)` and Prisma serializes a Date as a FULL ISO-8601 date-time
+  // string (`2026-06-26T00:00:00.000Z`), so they validate as `date-time`, NOT
+  // bare `date`. LOOSE — carries DB columns.
   DiagnosisWithCodings: {
     type: 'object',
     additionalProperties: true,
@@ -1600,8 +1612,8 @@ export const schemas = {
       description: { type: 'string' },
       diagnosis_type: { type: 'string', enum: DIAGNOSIS_TYPE },
       status: { type: 'string', enum: DIAGNOSIS_STATUS },
-      onset_date: { type: 'string', format: 'date', nullable: true },
-      resolved_date: { type: 'string', format: 'date', nullable: true },
+      onset_date: { type: 'string', format: 'date-time', nullable: true },
+      resolved_date: { type: 'string', format: 'date-time', nullable: true },
       severity: { type: 'string', nullable: true, enum: DIAGNOSIS_SEVERITY },
       diagnosed_by: { type: 'string', format: 'uuid', nullable: true },
       notes: { type: 'string', nullable: true },

@@ -225,13 +225,7 @@
           },
           "admission_type": {
             "type": "string",
-            "nullable": true,
-            "enum": [
-              "elective",
-              "emergency",
-              "transfer_in",
-              "day_care"
-            ]
+            "nullable": true
           },
           "priority": {
             "type": "string",
@@ -477,13 +471,7 @@
           },
           "admission_type": {
             "type": "string",
-            "nullable": true,
-            "enum": [
-              "elective",
-              "emergency",
-              "transfer_in",
-              "day_care"
-            ]
+            "nullable": true
           },
           "status": {
             "type": "string",
@@ -611,13 +599,7 @@
           },
           "admission_type": {
             "type": "string",
-            "nullable": true,
-            "enum": [
-              "elective",
-              "emergency",
-              "transfer_in",
-              "day_care"
-            ]
+            "nullable": true
           },
           "status": {
             "type": "string",
@@ -798,13 +780,7 @@
           },
           "admission_type": {
             "type": "string",
-            "nullable": true,
-            "enum": [
-              "elective",
-              "emergency",
-              "transfer_in",
-              "day_care"
-            ]
+            "nullable": true
           },
           "admitting_doctor": {
             "type": "string",
@@ -1009,13 +985,7 @@
               "properties": {
                 "admission_type": {
                   "type": "string",
-                  "nullable": true,
-                  "enum": [
-                    "elective",
-                    "emergency",
-                    "transfer_in",
-                    "day_care"
-                  ]
+                  "nullable": true
                 },
                 "count": {
                   "type": "integer"
@@ -1067,13 +1037,7 @@
           },
           "admission_type": {
             "type": "string",
-            "nullable": true,
-            "enum": [
-              "elective",
-              "emergency",
-              "transfer_in",
-              "day_care"
-            ]
+            "nullable": true
           },
           "admitting_doctor": {
             "type": "string",
@@ -3533,7 +3497,7 @@
             "nullable": true
           },
           "floor": {
-            "type": "string",
+            "type": "integer",
             "nullable": true
           },
           "bed_type": {
@@ -3546,7 +3510,10 @@
             "enum": [
               "available",
               "occupied",
-              "cleaning"
+              "reserved",
+              "maintenance",
+              "cleaning",
+              "dirty"
             ]
           },
           "notes": {
@@ -5050,19 +5017,7 @@
             "nullable": true
           },
           "note_type": {
-            "type": "string",
-            "enum": [
-              "soap",
-              "progress",
-              "procedure",
-              "discharge",
-              "nursing_assessment",
-              "consultation_note",
-              "op_consultation",
-              "admission_note",
-              "er_note",
-              "transfer_note"
-            ]
+            "type": "string"
           },
           "title": {
             "type": "string",
@@ -5149,19 +5104,7 @@
             "nullable": true
           },
           "note_type": {
-            "type": "string",
-            "enum": [
-              "soap",
-              "progress",
-              "procedure",
-              "discharge",
-              "nursing_assessment",
-              "consultation_note",
-              "op_consultation",
-              "admission_note",
-              "er_note",
-              "transfer_note"
-            ]
+            "type": "string"
           },
           "title": {
             "type": "string",
@@ -5631,13 +5574,7 @@
               },
               "type": {
                 "type": "string",
-                "nullable": true,
-                "enum": [
-                  "elective",
-                  "emergency",
-                  "transfer_in",
-                  "day_care"
-                ]
+                "nullable": true
               },
               "code_status": {
                 "type": "string",
@@ -6894,12 +6831,12 @@
           },
           "onset_date": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "resolved_date": {
             "type": "string",
-            "format": "date",
+            "format": "date-time",
             "nullable": true
           },
           "severity": {
@@ -24558,7 +24495,7 @@
             ]
           },
           "floor": {
-            "type": "string",
+            "type": "integer",
             "nullable": true
           },
           "total_beds": {
