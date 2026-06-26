@@ -98,6 +98,33 @@ const DIAGNOSIS_SEVERITY = ['mild', 'moderate', 'severe'];
 // clinical coding source (clinicalCodeBindingService.normalizeClinicalCodings).
 const CODING_SOURCE = ['manual', 'who_icd_api', 'fhir_import', 'legacy', 'system'];
 
+// ---------------------------------------------------------------------------
+// orders sub-domain enums (null-free; EXACT casing from orderEntryService.js).
+// All app-layer-validated VARCHAR (NO Postgres CHECK on order_type/status).
+// NOTE: `route` is NOT enum-bound — ROUTE_SYNONYMS canonicalises known values
+// but unrecognised values pass through trimmed, so `route` is a free
+// string|null on the row (typed {type:'string',nullable:true}, no enum).
+// ---------------------------------------------------------------------------
+// clinical_orders.order_type — VALID_ORDER_TYPES (orderEntryService line 46).
+// Aliases (lab/imaging/med/consult) are coerced to one of these 9 BEFORE
+// persist, so the returned value is always one of the canonical 9.
+const ORDER_TYPE = [
+  'medication', 'investigation', 'nursing', 'diet', 'activity',
+  'consultation', 'ecg', 'radiology', 'procedure',
+];
+// clinical_orders.priority — VALID_PRIORITIES (default 'routine').
+const ORDER_PRIORITY = ['stat', 'urgent', 'routine', 'prn'];
+// clinical_orders.status — reachable state-machine set (default 'ordered';
+// create always writes 'ordered').
+const ORDER_STATUS = [
+  'ordered', 'verified', 'in_progress', 'completed', 'cancelled', 'discontinued',
+];
+// clinical_order_set_items.kind — VARCHAR(20) seeded values (OrderSet items).
+const ORDER_SET_ITEM_KIND = [
+  'med', 'lab', 'radiology', 'diet', 'nursing', 'vitals', 'consult',
+  'note', 'monitor', 'other',
+];
+
 // A reusable opaque-jsonb schema (parsed object, never string).
 const looseObject = { type: 'object', additionalProperties: true };
 // A reusable opaque LLM/template draft (no required keys).
@@ -1634,6 +1661,221 @@ export const schemas = {
   },
   // NoteDraftUpsertRequest — loose content payload.
   EmrNoteDraftUpsertRequest: looseObject,
+
+  // =========================================================================
+  // orders sub-domain — shared schemas
+  // (orderRoutes.js → orderEntryService.js — EMR-only mount, NOT aliased to
+  // /api/v1/admissions. Every response wraps via success(res,data,…). jsonb
+  // columns → parsed objects, never string.)
+  // =========================================================================
+
+  // ---- ClinicalOrder -----------------------------------------------------
+  // ORDER_RETURNING_SELECT row (orderEntryService lines 95-118). Used by
+  // verify/complete/cancel/discontinue (detail) + patient/encounter LIST +
+  // nested inside ClinicalOrderCreateResult. `details` is heavily kind-specific
+  // jsonb → LOOSE object (do NOT enumerate). `route` is a FREE string|null
+  // (synonyms pass through), NOT a closed enum. LIST == detail (same projection).
+  ClinicalOrder: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'order_number', 'patient_uid', 'order_type', 'status'],
+    properties: {
+      id: { type: 'integer' },
+      order_number: { type: 'string' },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      order_type: { type: 'string', enum: ORDER_TYPE },
+      priority: { type: 'string', enum: ORDER_PRIORITY },
+      details: { type: 'object', additionalProperties: true },
+      route: { type: 'string', nullable: true },
+      status: { type: 'string', enum: ORDER_STATUS },
+      ordered_by: { type: 'string', format: 'uuid', nullable: true },
+      verified_by: { type: 'string', format: 'uuid', nullable: true },
+      verified_at: { type: 'string', format: 'date-time', nullable: true },
+      completed_by: { type: 'string', format: 'uuid', nullable: true },
+      completed_at: { type: 'string', format: 'date-time', nullable: true },
+      cancelled_by: { type: 'string', format: 'uuid', nullable: true },
+      cancel_reason: { type: 'string', nullable: true },
+      start_date: { type: 'string', format: 'date-time', nullable: true },
+      end_date: { type: 'string', format: 'date-time', nullable: true },
+      notes: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      tenant_id: { type: 'string', format: 'uuid' },
+    },
+  },
+
+  // ---- ClinicalOrderCreateResult -----------------------------------------
+  // POST /orders single (201) + /bulk array element + apply-set SUCCESS element.
+  // { order: ClinicalOrder, cds_warnings: (string|object)[] }. cds_warnings is
+  // MIXED — bare strings AND shaped objects ({type,medication,message} dup /
+  // interaction warnings) → array items oneOf [string, loose object]. LOOSE.
+  ClinicalOrderCreateResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['order', 'cds_warnings'],
+    properties: {
+      order: { $ref: '#/components/schemas/ClinicalOrder' },
+      cds_warnings: {
+        type: 'array',
+        items: { oneOf: [{ type: 'string' }, { type: 'object', additionalProperties: true }] },
+      },
+    },
+  },
+
+  // ---- ApplyOrderSetResult -----------------------------------------------
+  // POST /orders/apply-set array element — heterogeneous: success element is a
+  // ClinicalOrderCreateResult ({order,cds_warnings}); failure element is
+  // {error,kind}. oneOf [ClinicalOrderCreateResult, OrderSetApplyError]. LOOSE.
+  ApplyOrderSetResult: {
+    oneOf: [
+      { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
+      {
+        type: 'object',
+        additionalProperties: true,
+        required: ['error', 'kind'],
+        properties: {
+          error: { type: 'string' },
+          kind: { type: 'string' },
+        },
+      },
+    ],
+  },
+
+  // ---- OrderSetItem ------------------------------------------------------
+  // OrderSet.orders[] element (shapeOrderSetForResponse). details + payload are
+  // jsonb → LOOSE objects. `kind` enum (clinical_order_set_items.kind). LOOSE.
+  OrderSetItem: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      order_type: { type: 'string', nullable: true, enum: ORDER_TYPE },
+      priority: { type: 'string', nullable: true, enum: ORDER_PRIORITY },
+      details: { type: 'object', additionalProperties: true },
+      notes: { type: 'string', nullable: true },
+      kind: { type: 'string', nullable: true, enum: ORDER_SET_ITEM_KIND },
+      display_order: { type: 'integer', nullable: true },
+      default_selected: { type: 'boolean' },
+      payload: { type: 'object', additionalProperties: true },
+    },
+  },
+
+  // ---- OrderSet ----------------------------------------------------------
+  // GET/POST /order-sets — legacy compat shape (shapeOrderSetForResponse lines
+  // 1473-1490), NOT the raw clinical_order_sets row. orders[] = OrderSetItem[].
+  // LOOSE (orders[].details/payload jsonb).
+  OrderSet: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'name', 'orders'],
+    properties: {
+      id: { type: 'integer' },
+      name: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      category: { type: 'string', nullable: true },
+      orders: { type: 'array', items: { $ref: '#/components/schemas/OrderSetItem' } },
+      created_by: { type: 'string', format: 'uuid', nullable: true },
+      is_active: { type: 'boolean' },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  // =========================================================================
+  // orders — per-endpoint `data` payloads / bare refs
+  // =========================================================================
+
+  // POST /orders → ClinicalOrderCreateResult directly (data IS {order,cds_warnings}).
+  ClinicalOrderCreateData: { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
+  // PUT verify/complete/cancel/discontinue → ClinicalOrder directly.
+  ClinicalOrderData: { $ref: '#/components/schemas/ClinicalOrder' },
+  // POST /orders/bulk → bare ClinicalOrderCreateResult[].
+  ClinicalOrderBulkData: {
+    type: 'array', items: { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
+  },
+  // POST /orders/apply-set → bare ApplyOrderSetResult[] (mixed success/error).
+  ApplyOrderSetData: {
+    type: 'array', items: { $ref: '#/components/schemas/ApplyOrderSetResult' },
+  },
+  // POST /order-sets → OrderSet directly.
+  OrderSetData: { $ref: '#/components/schemas/OrderSet' },
+
+  // =========================================================================
+  // orders — response envelopes
+  // =========================================================================
+  // POST /orders (single create — data = {order,cds_warnings}).
+  EmrClinicalOrderCreateResponse: envelope('ClinicalOrderCreateData'),
+  // POST /orders/bulk (data = ClinicalOrderCreateResult[]).
+  EmrClinicalOrderBulkResponse: listEnvelope('ClinicalOrderCreateResult'),
+  // POST /orders/apply-set (data = ApplyOrderSetResult[] mixed).
+  EmrApplyOrderSetResponse: listEnvelope('ApplyOrderSetResult'),
+  // PUT verify/complete/cancel/discontinue (data = ClinicalOrder).
+  EmrClinicalOrderResponse: envelope('ClinicalOrderData'),
+  // GET /orders/patient/{uid} + /orders/encounter/{encounterId} — bare
+  // ClinicalOrder[]. patient list spreads pagination FLAT into meta (page/limit/
+  // total/totalPages/hasNext/hasPrev), encounter list has no meta — both typed
+  // loosely by listEnvelope's meta:{additionalProperties:true}.
+  EmrClinicalOrderListResponse: listEnvelope('ClinicalOrder'),
+  // GET /order-sets — bare OrderSet[].
+  EmrOrderSetListResponse: listEnvelope('OrderSet'),
+  // POST /order-sets — single OrderSet.
+  EmrOrderSetResponse: envelope('OrderSetData'),
+
+  // =========================================================================
+  // orders — request bodies (LOOSE; routes accept flat-or-nested intake +
+  // resolveOrderDetails coercion, so keep additionalProperties:true).
+  // =========================================================================
+  // CreateOrderRequest — patient_uid + order_type required; details derivable
+  // from flat fields (resolveOrderDetails) so not required at the schema level.
+  EmrCreateOrderRequest: {
+    type: 'object', additionalProperties: true,
+    required: ['patient_uid', 'order_type'],
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      order_type: { type: 'string' },
+      encounter_id: { type: 'string', format: 'uuid' },
+      er_visit_id: { type: 'integer' },
+      priority: { type: 'string', enum: ORDER_PRIORITY },
+      details: { type: 'object', additionalProperties: true },
+      route: { type: 'string' },
+      start_date: { type: 'string', format: 'date-time' },
+      end_date: { type: 'string', format: 'date-time' },
+      notes: { type: 'string' },
+    },
+  },
+  // BulkOrderRequest — { orders: [...] } (each item same flat-or-nested shape).
+  EmrBulkOrderRequest: {
+    type: 'object', additionalProperties: true, required: ['orders'],
+    properties: {
+      encounter_id: { type: 'string', format: 'uuid' },
+      orders: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    },
+  },
+  // ApplyOrderSetRequest — patient_uid + order_set_id required.
+  EmrApplyOrderSetRequest: {
+    type: 'object', additionalProperties: true,
+    required: ['patient_uid', 'order_set_id'],
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      order_set_id: { type: 'integer' },
+      encounter_id: { type: 'string', format: 'uuid' },
+    },
+  },
+  // OrderReasonRequest — cancel/discontinue require `reason`.
+  EmrOrderReasonRequest: {
+    type: 'object', additionalProperties: true, required: ['reason'],
+    properties: { reason: { type: 'string' } },
+  },
+  // CreateOrderSetRequest — name + category + orders required (loose items).
+  EmrCreateOrderSetRequest: {
+    type: 'object', additionalProperties: true,
+    required: ['name', 'category', 'orders'],
+    properties: {
+      name: { type: 'string' },
+      description: { type: 'string' },
+      category: { type: 'string' },
+      orders: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1754,6 +1996,30 @@ const EMR_ONLY_OPS = [
   ['GET /diagnosis/patient/{uid}/history', { response: 'EmrDiagnosisListResponse' }],
   // ICD-10 search — bare Icd10Row[] (no PHI). STRICT items.
   ['GET /icd10/search', { response: 'EmrIcd10SearchResponse' }],
+
+  // -------------------------------------------------------------------------
+  // orders sub-domain (orderRoutes.js → orderEntryService.js — EMR-only mount,
+  // NOT aliased to /api/v1/admissions). 11 ops. Every response wraps via
+  // success(res,data,…). order/order-set rows carry jsonb (details/payload) →
+  // loose objects; cds_warnings mixed string|object; apply-set mixed elements.
+  // -------------------------------------------------------------------------
+  // POST /orders — single create → { order, cds_warnings } (201).
+  ['POST /orders', { request: 'EmrCreateOrderRequest', response: 'EmrClinicalOrderCreateResponse' }],
+  // POST /orders/bulk — atomic batch → ClinicalOrderCreateResult[] (201).
+  ['POST /orders/bulk', { request: 'EmrBulkOrderRequest', response: 'EmrClinicalOrderBulkResponse' }],
+  // POST /orders/apply-set — apply order set → mixed ApplyOrderSetResult[] (201).
+  ['POST /orders/apply-set', { request: 'EmrApplyOrderSetRequest', response: 'EmrApplyOrderSetResponse' }],
+  // PUT lifecycle transitions → ClinicalOrder (single).
+  ['PUT /orders/{id}/verify', { response: 'EmrClinicalOrderResponse' }],
+  ['PUT /orders/{id}/complete', { response: 'EmrClinicalOrderResponse' }],
+  ['PUT /orders/{id}/cancel', { request: 'EmrOrderReasonRequest', response: 'EmrClinicalOrderResponse' }],
+  ['PUT /orders/{id}/discontinue', { request: 'EmrOrderReasonRequest', response: 'EmrClinicalOrderResponse' }],
+  // GET LIST (patient — flat-meta pagination / encounter — no meta). Bare ClinicalOrder[].
+  ['GET /orders/patient/{uid}', { response: 'EmrClinicalOrderListResponse' }],
+  ['GET /orders/encounter/{encounterId}', { response: 'EmrClinicalOrderListResponse' }],
+  // Order sets — GET list (bare OrderSet[]) + POST create (single OrderSet, 201).
+  ['GET /order-sets', { response: 'EmrOrderSetListResponse' }],
+  ['POST /order-sets', { request: 'EmrCreateOrderSetRequest', response: 'EmrOrderSetResponse' }],
 ];
 
 const PREFIXES = ['/api/v1/emr', '/api/v1/admissions'];

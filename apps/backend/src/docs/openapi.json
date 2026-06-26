@@ -1806,6 +1806,35 @@
           }
         }
       },
+      "ApplyOrderSetData": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ApplyOrderSetResult"
+        }
+      },
+      "ApplyOrderSetResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ClinicalOrderCreateResult"
+          },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "error",
+              "kind"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "ApplyRevisionResponse": {
         "type": "object",
         "required": [
@@ -4880,6 +4909,175 @@
           }
         }
       },
+      "ClinicalOrder": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "order_number",
+          "patient_uid",
+          "order_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "order_number": {
+            "type": "string"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "medication",
+              "investigation",
+              "nursing",
+              "diet",
+              "activity",
+              "consultation",
+              "ecg",
+              "radiology",
+              "procedure"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "stat",
+              "urgent",
+              "routine",
+              "prn"
+            ]
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "route": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ordered",
+              "verified",
+              "in_progress",
+              "completed",
+              "cancelled",
+              "discontinued"
+            ]
+          },
+          "ordered_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "verified_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancelled_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "cancel_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ClinicalOrderBulkData": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ClinicalOrderCreateResult"
+        }
+      },
+      "ClinicalOrderCreateData": {
+        "$ref": "#/components/schemas/ClinicalOrderCreateResult"
+      },
+      "ClinicalOrderCreateResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "order",
+          "cds_warnings"
+        ],
+        "properties": {
+          "order": {
+            "$ref": "#/components/schemas/ClinicalOrder"
+          },
+          "cds_warnings": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ClinicalOrderData": {
+        "$ref": "#/components/schemas/ClinicalOrder"
+      },
       "CloseDrawerRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -7799,6 +7997,53 @@
           }
         }
       },
+      "EmrApplyOrderSetRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "patient_uid",
+          "order_set_id"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "order_set_id": {
+            "type": "integer"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "EmrApplyOrderSetResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplyOrderSetResult"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "EmrAssignBedRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -7840,6 +8085,26 @@
           },
           "data": {
             "$ref": "#/components/schemas/BedOptionsData"
+          }
+        }
+      },
+      "EmrBulkOrderRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "orders"
+        ],
+        "properties": {
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
           }
         }
       },
@@ -7965,6 +8230,96 @@
           },
           "data": {
             "$ref": "#/components/schemas/ClinicalNoteData"
+          }
+        }
+      },
+      "EmrClinicalOrderBulkResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalOrderCreateResult"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrClinicalOrderCreateResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalOrderCreateData"
+          }
+        }
+      },
+      "EmrClinicalOrderListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalOrder"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrClinicalOrderResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalOrderData"
           }
         }
       },
@@ -8130,6 +8485,84 @@
           "content": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "EmrCreateOrderRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "patient_uid",
+          "order_type"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "order_type": {
+            "type": "string"
+          },
+          "encounter_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "er_visit_id": {
+            "type": "integer"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "stat",
+              "urgent",
+              "routine",
+              "prn"
+            ]
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "route": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrCreateOrderSetRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "category",
+          "orders"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
           }
         }
       },
@@ -8736,6 +9169,63 @@
           },
           "data": {
             "$ref": "#/components/schemas/NursingAmbientSessionData"
+          }
+        }
+      },
+      "EmrOrderReasonRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "EmrOrderSetListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderSet"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "EmrOrderSetResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OrderSetData"
           }
         }
       },
@@ -12493,6 +12983,118 @@
           "cashier_uid": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "OrderSet": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "name",
+          "orders"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderSetItem"
+            }
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderSetData": {
+        "$ref": "#/components/schemas/OrderSet"
+      },
+      "OrderSetItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "order_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "medication",
+              "investigation",
+              "nursing",
+              "diet",
+              "activity",
+              "consultation",
+              "ecg",
+              "radiology",
+              "procedure"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "stat",
+              "urgent",
+              "routine",
+              "prn"
+            ]
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "med",
+              "lab",
+              "radiology",
+              "diet",
+              "nursing",
+              "vitals",
+              "consult",
+              "note",
+              "monitor",
+              "other"
+            ]
+          },
+          "display_order": {
+            "type": "integer",
+            "nullable": true
+          },
+          "default_selected": {
+            "type": "boolean"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -56441,7 +57043,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrOrderSetListResponse"
                 }
               }
             }
@@ -56456,8 +57058,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrOrderSetResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCreateOrderSetRequest"
               }
             }
           }
@@ -56473,8 +57085,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderCreateResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrCreateOrderRequest"
               }
             }
           }
@@ -56490,8 +57112,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrApplyOrderSetResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrApplyOrderSetRequest"
               }
             }
           }
@@ -56507,8 +57139,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderBulkResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrBulkOrderRequest"
               }
             }
           }
@@ -56524,7 +57166,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderListResponse"
                 }
               }
             }
@@ -56551,7 +57193,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderListResponse"
                 }
               }
             }
@@ -56578,7 +57220,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderResponse"
                 }
               }
             }
@@ -56593,7 +57235,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrOrderReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/orders/{id}/complete": {
@@ -56605,7 +57257,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderResponse"
                 }
               }
             }
@@ -56632,7 +57284,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderResponse"
                 }
               }
             }
@@ -56647,7 +57299,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmrOrderReasonRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/emr/orders/{id}/verify": {
@@ -56659,7 +57321,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/EmrClinicalOrderResponse"
                 }
               }
             }
