@@ -71,8 +71,6 @@ const LOOKUP_STATE = [
 ];
 // translation result status.
 const TRANSLATION_STATUS = ['completed', 'needs_review'];
-// teach-back session status.
-const TEACHBACK_SESSION_STATUS = ['draft', 'in_progress', 'needs_clinician_review', 'completed'];
 // clinical-ai/config provider + supportedProviders.
 const CLINICAL_AI_PROVIDER = ['template', 'ollama', 'openai-compatible', 'openai', 'anthropic'];
 // command-board governance.ai_state (fallback-only today; kept null-free + loose
@@ -1138,23 +1136,25 @@ export const schemas = {
 
   // ---- ClinicalAiConfig --------------------------------------------------
   // GET /clinical-ai/config — provider readiness (NOT generated content).
-  // 11 fixed keys. STRICT. readiness/reason free string|null.
+  // serializeClinicalAiConfig (src/services/ai/localLlmClient.js:663) returns
+  // EXACTLY these 11 camelCase keys → STRICT. enabled=readiness.ready,
+  // readiness=readiness.reason (free string|null). model/moduleKey nullable.
   ClinicalAiConfig: {
     type: 'object',
     additionalProperties: false,
-    required: ['provider', 'enabled'],
+    required: ['provider', 'enabled', 'supportedProviders'],
     properties: {
+      moduleKey: { type: 'string', nullable: true },
+      tier: { type: 'string' },
       provider: { type: 'string', enum: CLINICAL_AI_PROVIDER },
-      enabled: { type: 'boolean' },
-      ready: { type: 'boolean' },
-      readiness: { type: 'string', nullable: true },
-      reason: { type: 'string', nullable: true },
       model: { type: 'string', nullable: true },
-      tier: { type: 'string', nullable: true },
-      base_url: { type: 'string', nullable: true },
+      enabled: { type: 'boolean' },
+      baseUrlConfigured: { type: 'boolean' },
+      apiKeyConfigured: { type: 'boolean' },
+      externalProvider: { type: 'boolean' },
+      externalAllowed: { type: 'boolean' },
+      readiness: { type: 'string', nullable: true },
       supportedProviders: { type: 'array', items: { type: 'string', enum: CLINICAL_AI_PROVIDER } },
-      decision_support_only: { type: 'boolean' },
-      human_review_required: { type: 'boolean' },
     },
   },
 
@@ -1199,39 +1199,6 @@ export const schemas = {
       created_at: { type: 'string', format: 'date-time', nullable: true },
       module_key: { type: 'string', nullable: true },
       patient_uid: { type: 'string', format: 'uuid', nullable: true },
-    },
-  },
-
-  // ---- TeachBackAnswersRow -----------------------------------------------
-  // POST /teach-back/{sessionId}/answers — full clinical_ai_teach_back_sessions
-  // raw row + evaluated_answers. All array/object cols are jsonb → parsed. LOOSE.
-  TeachBackAnswersRow: {
-    type: 'object',
-    additionalProperties: true,
-    required: ['id', 'status'],
-    properties: {
-      id: { type: 'integer' },
-      tenant_id: { type: 'string', format: 'uuid' },
-      patient_uid: { type: 'string', format: 'uuid' },
-      admission_id: { type: 'integer', nullable: true },
-      generation_id: { type: 'integer', nullable: true },
-      source_generation_id: { type: 'integer', nullable: true },
-      language: { type: 'string', nullable: true },
-      status: { type: 'string', enum: TEACHBACK_SESSION_STATUS },
-      questions: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      patient_answers: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      misunderstanding_flags: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      comprehension_score: { type: 'number', nullable: true },
-      source_citations: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      safety_flags: { type: 'array', items: aiSafetyFlag },
-      reviewer_decision: { type: 'string', nullable: true },
-      reviewed_by: { type: 'string', format: 'uuid', nullable: true },
-      reviewed_at: { type: 'string', format: 'date-time', nullable: true },
-      reviewer_note: { type: 'string', nullable: true },
-      metadata: { type: 'object', additionalProperties: true },
-      created_at: { type: 'string', format: 'date-time' },
-      updated_at: { type: 'string', format: 'date-time' },
-      evaluated_answers: { type: 'array', items: { type: 'object', additionalProperties: true } },
     },
   },
 
@@ -1320,13 +1287,11 @@ export const schemas = {
   },
 
   // Bare-data refs (data IS the object/array directly — no wrapper key).
-  AdmissionListData: { type: 'array', items: { $ref: '#/components/schemas/AdmissionListItem' } },
   AdmissionStatsData: { $ref: '#/components/schemas/AdmissionStats' },
   AdviseAdmissionData: { $ref: '#/components/schemas/AdviseAdmissionResult' },
   AdmissionLookupData: { $ref: '#/components/schemas/AdmissionLookup' },
   ClinicalAiConfigData: { $ref: '#/components/schemas/ClinicalAiConfig' },
   TranslationResultData: { $ref: '#/components/schemas/TranslationResult' },
-  TeachBackAnswersRowData: { $ref: '#/components/schemas/TeachBackAnswersRow' },
   DowntimeSnapshotData: { $ref: '#/components/schemas/DowntimeSnapshot' },
 
   // =========================================================================
@@ -1344,7 +1309,6 @@ export const schemas = {
   EmrClinicalAiConfigResponse: envelope('ClinicalAiConfigData'),
   EmrTranslationResultResponse: envelope('TranslationResultData'),
   EmrTranslationsListResponse: envelope('TranslationsListData'),
-  EmrTeachBackAnswersRowResponse: envelope('TeachBackAnswersRowData'),
   EmrDowntimeSnapshotResponse: envelope('DowntimeSnapshotData'),
 
   // =========================================================================
@@ -1866,14 +1830,8 @@ export const schemas = {
   ClinicalOrderCreateData: { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
   // PUT verify/complete/cancel/discontinue → ClinicalOrder directly.
   ClinicalOrderData: { $ref: '#/components/schemas/ClinicalOrder' },
-  // POST /orders/bulk → bare ClinicalOrderCreateResult[].
-  ClinicalOrderBulkData: {
-    type: 'array', items: { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
-  },
-  // POST /orders/apply-set → bare ApplyOrderSetResult[] (mixed success/error).
-  ApplyOrderSetData: {
-    type: 'array', items: { $ref: '#/components/schemas/ApplyOrderSetResult' },
-  },
+  // POST /orders/bulk → bare ClinicalOrderCreateResult[] (EmrClinicalOrderBulkResponse
+  // uses listEnvelope directly). POST /orders/apply-set → bare ApplyOrderSetResult[].
   // POST /order-sets → OrderSet directly.
   OrderSetData: { $ref: '#/components/schemas/OrderSet' },
 

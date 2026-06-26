@@ -550,12 +550,6 @@
           }
         }
       },
-      "AdmissionListData": {
-        "type": "array",
-        "items": {
-          "$ref": "#/components/schemas/AdmissionListItem"
-        }
-      },
       "AdmissionListItem": {
         "type": "object",
         "additionalProperties": true,
@@ -1994,12 +1988,6 @@
           "reason": {
             "type": "string"
           }
-        }
-      },
-      "ApplyOrderSetData": {
-        "type": "array",
-        "items": {
-          "$ref": "#/components/schemas/ApplyOrderSetResult"
         }
       },
       "ApplyOrderSetResult": {
@@ -4907,9 +4895,17 @@
         "additionalProperties": false,
         "required": [
           "provider",
-          "enabled"
+          "enabled",
+          "supportedProviders"
         ],
         "properties": {
+          "moduleKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "tier": {
+            "type": "string"
+          },
           "provider": {
             "type": "string",
             "enum": [
@@ -4920,29 +4916,26 @@
               "anthropic"
             ]
           },
-          "enabled": {
-            "type": "boolean"
-          },
-          "ready": {
-            "type": "boolean"
-          },
-          "readiness": {
-            "type": "string",
-            "nullable": true
-          },
-          "reason": {
-            "type": "string",
-            "nullable": true
-          },
           "model": {
             "type": "string",
             "nullable": true
           },
-          "tier": {
-            "type": "string",
-            "nullable": true
+          "enabled": {
+            "type": "boolean"
           },
-          "base_url": {
+          "baseUrlConfigured": {
+            "type": "boolean"
+          },
+          "apiKeyConfigured": {
+            "type": "boolean"
+          },
+          "externalProvider": {
+            "type": "boolean"
+          },
+          "externalAllowed": {
+            "type": "boolean"
+          },
+          "readiness": {
             "type": "string",
             "nullable": true
           },
@@ -4958,12 +4951,6 @@
                 "anthropic"
               ]
             }
-          },
-          "decision_support_only": {
-            "type": "boolean"
-          },
-          "human_review_required": {
-            "type": "boolean"
           }
         }
       },
@@ -5412,12 +5399,6 @@
             "type": "string",
             "format": "uuid"
           }
-        }
-      },
-      "ClinicalOrderBulkData": {
-        "type": "array",
-        "items": {
-          "$ref": "#/components/schemas/ClinicalOrderCreateResult"
         }
       },
       "ClinicalOrderCreateData": {
@@ -10719,25 +10700,6 @@
           },
           "data": {
             "$ref": "#/components/schemas/TeachBackAnswersData"
-          }
-        }
-      },
-      "EmrTeachBackAnswersRowResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "data"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": true
-          },
-          "message": {
-            "type": "string"
-          },
-          "data": {
-            "$ref": "#/components/schemas/TeachBackAnswersRowData"
           }
         }
       },
@@ -22373,148 +22335,6 @@
             "type": "string"
           }
         }
-      },
-      "TeachBackAnswersRow": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": [
-          "id",
-          "status"
-        ],
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "tenant_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "patient_uid": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "admission_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "generation_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "source_generation_id": {
-            "type": "integer",
-            "nullable": true
-          },
-          "language": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "in_progress",
-              "needs_clinician_review",
-              "completed"
-            ]
-          },
-          "questions": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "patient_answers": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "misunderstanding_flags": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "comprehension_score": {
-            "type": "number",
-            "nullable": true
-          },
-          "source_citations": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "safety_flags": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "severity": {
-                  "type": "string",
-                  "enum": [
-                    "low",
-                    "medium",
-                    "high",
-                    "critical"
-                  ]
-                },
-                "code": {
-                  "type": "string"
-                },
-                "message": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "reviewer_decision": {
-            "type": "string",
-            "nullable": true
-          },
-          "reviewed_by": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "reviewed_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "reviewer_note": {
-            "type": "string",
-            "nullable": true
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "evaluated_answers": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          }
-        }
-      },
-      "TeachBackAnswersRowData": {
-        "$ref": "#/components/schemas/TeachBackAnswersRow"
       },
       "TeachBackSessionDraftData": {
         "type": "object",
