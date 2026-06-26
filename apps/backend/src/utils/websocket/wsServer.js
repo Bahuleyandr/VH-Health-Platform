@@ -5,6 +5,24 @@ import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
 import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
 import { authorizeChannel } from './channelAuth.js';
+import { createWsFanout } from './wsRedisAdapter.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
+
+// One fan-out per wsServer module instance (= one per process in production).
+// Created here rather than imported as a shared singleton so the
+// differential-delivery harness can load two independent wsServer realms (via
+// query-string cache-busting) that own separate fan-outs over one shared bus.
+const fanout = createWsFanout();
+
+/** Wire this process's fan-out onto the Redis bus. Called from bin/www.js. */
+export function initWsFanout(opts) {
+  return fanout.init(opts);
+}
+
+/** Tear down this process's fan-out subscriber (graceful shutdown / tests). */
+export function closeWsFanout() {
+  return fanout.close();
+}
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();
@@ -256,33 +274,129 @@ async function authenticateAndRegister(ws, token) {
   ws.send(JSON.stringify({ event: 'connected', userId }));
 }
 
+// ---------------------------------------------------------------------------
+// Local (in-process) delivery loops.
+//
+// These are the ONLY place a socket.send() happens for a fan-out. They are
+// invoked two ways:
+//   1) directly, when the Redis bus is unavailable (degraded single-process), or
+//   2) by the wsRedisAdapter SUBSCRIBE consumer, when a broadcast/sendToUser
+//      published from THIS or ANY OTHER process arrives over the bus.
+// Either way the 1MB bufferedAmount backpressure guard and the per-broadcast
+// tenant filter apply identically.
+// ---------------------------------------------------------------------------
+
 /**
- * Broadcast to all clients subscribed to a channel.
+ * Per-broadcast tenant filter. A socket only receives a message whose tenant
+ * matches the socket's own tenant (captured from the ws ticket at connect time).
+ * `eventTenantId == null` means "no tenant scoping" (legacy / system events) and
+ * is delivered to everyone subscribed — but every first-party emit now carries a
+ * tenant, so the global staff:/admin: channels are tenant-isolated in practice.
  */
-export function broadcast(channel, data) {
+function tenantMatches(socketTenantId, eventTenantId) {
+  if (eventTenantId == null) return true;
+  return String(socketTenantId) === String(eventTenantId);
+}
+
+/** Deliver a channel broadcast to this process's subscribed sockets. */
+function deliverBroadcastLocal(channel, event, data, tenantId) {
   if (!wss) return;
-  const payload = JSON.stringify({ event: channel, data });
+  const payload = JSON.stringify({ event: event ?? channel, data });
   for (const [ws, meta] of socketMeta) {
-    if (meta.channels.has(channel) && ws.readyState === 1) {
-      // Skip slow clients to prevent memory buildup
-      if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-        logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
-        continue;
-      }
-      ws.send(payload);
+    if (!meta.channels.has(channel) || ws.readyState !== 1) continue;
+    // Cross-tenant realtime leak guard: drop messages for a different tenant.
+    if (!tenantMatches(meta.tenantId, tenantId)) continue;
+    // Skip slow clients to prevent memory buildup (1MB buffer cap).
+    if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+      logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+      continue;
     }
+    ws.send(payload);
   }
 }
 
-/**
- * Send a message to a specific user (all their connected sockets).
- */
-export function sendToUser(userId, event, data) {
+/** Deliver a user-targeted message to this process's sockets for that user. */
+function deliverUserLocal(userId, event, data, tenantId) {
   const sockets = clients.get(String(userId));
   if (!sockets) return;
   const payload = JSON.stringify({ event, data });
   for (const ws of sockets) {
-    if (ws.readyState === 1) ws.send(payload);
+    if (ws.readyState !== 1) continue;
+    const meta = socketMeta.get(ws);
+    if (!tenantMatches(meta?.tenantId, tenantId)) continue;
+    if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+      logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+      continue;
+    }
+    ws.send(payload);
+  }
+}
+
+// Register the local loops with the Redis adapter once, at module load. The
+// adapter's SUBSCRIBE consumer calls these on every bus message. This wiring is
+// independent of whether Redis is actually configured — if it isn't, the
+// publish() helpers below return false and we run these loops directly.
+fanout.registerLocalDelivery({
+  deliverBroadcast: deliverBroadcastLocal,
+  deliverUser: deliverUserLocal,
+});
+
+/**
+ * Resolve the tenant to stamp on a fan-out. A broadcast issued by a service has
+ * no per-message tenant, so we derive it from the request-scoped tenant context
+ * (AsyncLocalStorage) when present. Falls back to null (no scoping) so a missing
+ * context degrades to the pre-existing broadcast-to-all behaviour rather than
+ * dropping the event entirely.
+ */
+function resolveTenantId(explicitTenantId) {
+  if (explicitTenantId != null) return explicitTenantId;
+  try {
+    return getCurrentTenantId() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Broadcast to all clients subscribed to a channel, across EVERY process.
+ *
+ * Publishes the event onto the Redis bus so every process's SUBSCRIBE consumer
+ * delivers it to its own local sockets. When the bus is unavailable, falls back
+ * to delivering only to this process's sockets (degraded, single-process).
+ *
+ * @param {string} channel
+ * @param {*} data
+ * @param {object} [opts]
+ * @param {string} [opts.tenantId] - explicit tenant scope; defaults to the
+ *        request-scoped tenant context. Pass null to broadcast unscoped.
+ */
+export function broadcast(channel, data, opts = {}) {
+  if (!wss) return;
+  const tenantId = resolveTenantId(opts.tenantId);
+  const published = fanout.publishBroadcast(channel, channel, data, tenantId);
+  if (!published) {
+    // Redis down / not configured — deliver locally so single-process dev and
+    // degraded prod still work.
+    deliverBroadcastLocal(channel, channel, data, tenantId);
+  }
+}
+
+/**
+ * Send a message to a specific user (all their connected sockets) across EVERY
+ * process. Publishes onto the bus; falls back to local delivery when the bus is
+ * unavailable.
+ *
+ * @param {string} userId
+ * @param {string} event
+ * @param {*} data
+ * @param {object} [opts]
+ * @param {string} [opts.tenantId]
+ */
+export function sendToUser(userId, event, data, opts = {}) {
+  const tenantId = resolveTenantId(opts.tenantId);
+  const published = fanout.publishUser(userId, event, data, tenantId);
+  if (!published) {
+    deliverUserLocal(String(userId), event, data, tenantId);
   }
 }
 
