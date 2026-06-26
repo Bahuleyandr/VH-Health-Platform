@@ -272,12 +272,12 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         }
 
         const conflicts = await prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             a1.id as appointment1_id,
-            a1.appointment_date as appointment1_time,
+            (a1.appointment_date + a1.appointment_time::time) as appointment1_time,
             p1.name as patient1_name,
             a2.id as appointment2_id,
-            a2.appointment_date as appointment2_time,
+            (a2.appointment_date + a2.appointment_time::time) as appointment2_time,
             p2.name as patient2_name,
             d.name as doctor_name,
             dept.name as department
@@ -289,9 +289,12 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
-            AND a1.appointment_date < a2.appointment_date
-            AND a1.appointment_date + INTERVAL '30 minutes' > a2.appointment_date
-          ORDER BY a1.appointment_date
+            AND a1.appointment_date = a2.appointment_date
+            AND a1.appointment_time ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+            AND a2.appointment_time ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+            AND a1.appointment_time::time < a2.appointment_time::time
+            AND a1.appointment_time::time + INTERVAL '30 minutes' > a2.appointment_time::time
+          ORDER BY a1.appointment_date, a1.appointment_time
         `, ...params);
 
         success(res, {

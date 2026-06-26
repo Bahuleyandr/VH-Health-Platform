@@ -22,14 +22,16 @@
 //
 // NOTE on /conflicts: the DB enforces a partial unique index
 // (uniq_appointments_active_doctor_slot) that makes two ACTIVE appointments in
-// the same (tenant, doctor, date, time) slot impossible, AND the handler's
-// window predicate is computed on appointment_date (a DATE — the time-of-day
-// lives in the separate appointment_time VARCHAR), so the self-join can never
-// surface a same-day conflict regardless of status casing. That window logic is
-// a pre-existing semantic defect OUTSIDE this task's two root causes (status
-// casing + doctor join), so we do not rewrite it here. The /conflicts test below
-// asserts the two in-scope fixes don't break the endpoint (still 200, correct
-// shape) and documents the deeper bug as a finding.
+// the same (tenant, doctor, date, time) slot impossible — so a conflict fixture
+// must use DIFFERENT near-slot times (e.g. 10:00 vs 10:15), not an identical
+// slot. The handler ORIGINALLY computed its 30-min window on appointment_date
+// (a DATE — the time-of-day lives in the separate appointment_time VARCHAR), so
+// `date < date` (needs different days) and `date + 30min > date` (needs same
+// day) were mutually exclusive → totalConflicts was always 0. That window has
+// been fixed to compare the real slot time (appointment_date + appointment_time
+// ::time, regex-guarded against non-clock values like 'Walk-in'); the
+// /conflicts value test below seeds an isolated Doctor C with a 10:00↔10:15
+// near-slot pair (must conflict) + a 14:00 control (must not) on its own date.
 
 import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
@@ -42,19 +44,34 @@ const DOCTORA_UID = 'c9999999-9999-4999-8999-999999990b02';
 const DOCTORB_UID = 'c9999999-9999-4999-8999-999999990b03';
 const PATIENT1_UID = 'c9999999-9999-4999-8999-999999990b04';
 const PATIENT2_UID = 'c9999999-9999-4999-8999-999999990b05';
-const ALL_UIDS = [ADMIN_UID, DOCTORA_UID, DOCTORB_UID, PATIENT1_UID, PATIENT2_UID];
+// Doctor C + a 3rd patient: an ISOLATED fixture used only by the /conflicts
+// near-slot detection test, on its own date, so it can't perturb the
+// count-sensitive Doctor A analytics (scheduled=5) / capacity assertions.
+const DOCTORC_UID = 'c9999999-9999-4999-8999-999999990b06';
+const PATIENT3_UID = 'c9999999-9999-4999-8999-999999990b07';
+const ALL_UIDS = [
+  ADMIN_UID, DOCTORA_UID, DOCTORB_UID, PATIENT1_UID, PATIENT2_UID,
+  DOCTORC_UID, PATIENT3_UID,
+];
 
 const ADMIN_PHONE = `${PFX}01`;
 const DOCTORA_PHONE = `${PFX}02`;
 const DOCTORB_PHONE = `${PFX}03`;
 const PATIENT1_PHONE = `${PFX}04`;
 const PATIENT2_PHONE = `${PFX}05`;
-const ALL_PHONES = [ADMIN_PHONE, DOCTORA_PHONE, DOCTORB_PHONE, PATIENT1_PHONE, PATIENT2_PHONE];
+const DOCTORC_PHONE = `${PFX}06`;
+const PATIENT3_PHONE = `${PFX}07`;
+const ALL_PHONES = [
+  ADMIN_PHONE, DOCTORA_PHONE, DOCTORB_PHONE, PATIENT1_PHONE, PATIENT2_PHONE,
+  DOCTORC_PHONE, PATIENT3_PHONE,
+];
 
 const DEPT_A_NAME = 'AdminCorrectness Dept A';
 const DEPT_B_NAME = 'AdminCorrectness Dept B';
+const DEPT_C_NAME = 'AdminCorrectness Dept C';
 const DOCTOR_A_NAME = 'Dr. Correctness Alpha';
 const DOCTOR_B_NAME = 'Dr. Correctness Beta';
+const DOCTOR_C_NAME = 'Dr. Correctness Gamma';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
 function mkClient(role, uid, intId, phone) {
@@ -103,7 +120,7 @@ async function cleanup() {
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`, ALL_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM departments WHERE name IN ($1, $2)`, DEPT_A_NAME, DEPT_B_NAME,
+    `DELETE FROM departments WHERE name IN ($1, $2, $3)`, DEPT_A_NAME, DEPT_B_NAME, DEPT_C_NAME,
   ).catch(() => {});
 }
 
@@ -111,6 +128,9 @@ describe('Appointment admin-query correctness (status casing + doctor join) — 
   let adminIntId, doctorAUserId, doctorBUserId, patient1IntId, patient2IntId;
   let deptAId, deptBId;
   let admin;
+  // Doctor C + Patient 3 + their date: the isolated /conflicts fixture.
+  let doctorCUserId, patient3IntId, deptCId;
+  let conflictA1Id, conflictA2Id, conflictControlId;
   // In-window FUTURE date used for the bulk of the seeded appointments.
   const apptDate = futureDateISO(120);
   // A recent-PAST scheduled appt for the overdue flag.
@@ -118,6 +138,9 @@ describe('Appointment admin-query correctness (status casing + doctor join) — 
   // A separate past date for Patient 2's 2nd no-show (kept off apptDate so the
   // active-slot unique index is never challenged — NO_SHOW is exempt anyway).
   const noShowPastDate = pastDateISO(5);
+  // A UNIQUE date for Doctor C's near-slot /conflicts fixture, far from apptDate
+  // so it can't collide with the count-sensitive Doctor A fixtures.
+  const conflictDate = futureDateISO(200);
   let bulkApptId, cancelApptId, overdueApptId;
 
   beforeAll(async () => {
@@ -244,6 +267,65 @@ describe('Appointment admin-query correctness (status casing + doctor join) — 
     const od = await mkAppt({ patientId: patient1IntId, patientName: 'AdminCorrectness Patient One', date: overdueDate, time: '08:00', status: 'SCHEDULED' });
     overdueApptId = Number(od[0].id);
 
+    // --- ISOLATED /conflicts fixture: Doctor C + Patient 3 ------------------
+    // Dedicated department, doctor, and patient on a UNIQUE date so the three
+    // near-slot appointments below cannot perturb Doctor A's analytics counts.
+    const dC = await prisma.$queryRawUnsafe(
+      `INSERT INTO departments (name, is_active, updated_at) VALUES ($1, true, NOW()) RETURNING id`,
+      DEPT_C_NAME);
+    deptCId = Number(dC[0].id);
+
+    const dc = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2, $3, 'DOCTOR', true, NOW()) RETURNING id`,
+      DOCTORC_UID, DOCTORC_PHONE, DOCTOR_C_NAME);
+    doctorCUserId = Number(dc[0].id);
+
+    const p3 = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2, 'AdminCorrectness Patient Three', 'PATIENT', true, NOW()) RETURNING id`,
+      PATIENT3_UID, PATIENT3_PHONE);
+    patient3IntId = Number(p3[0].id);
+
+    // Doctor C profile: doctors.user_id = doctorCUserId, with its own high,
+    // collision-free doctors.id (so the correct user_id join attributes its
+    // appointments to Doctor C / Department C).
+    const seedC = await prisma.$queryRawUnsafe(
+      `SELECT GREATEST(
+         COALESCE((SELECT MAX(id) FROM users), 0),
+         COALESCE((SELECT MAX(id) FROM doctors), 0)
+       )::int + 72000 AS id`);
+    const doctorCProfileId = Number(seedC[0].id);
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO doctors (id, user_id, name, department, department_id, specialty,
+         is_active, is_available, max_appointments_per_day, available_days, updated_at)
+       VALUES ($1::int, $2::int, $3, $4, $5::int, 'Cardiologist',
+         true, true, 20, ARRAY['Mon','Tue'], NOW())`,
+      doctorCProfileId, doctorCUserId, DOCTOR_C_NAME, DEPT_C_NAME, deptCId);
+
+    // Three SCHEDULED appts for Doctor C on conflictDate:
+    //   10:00 and 10:15 → 15 min apart → WITHIN the 30-min window → CONFLICT
+    //   14:00          → >30 min from both → must NOT appear in any pair (control)
+    const mkApptC = ({ time }) =>
+      prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (uid, phone, patient_id, patient_name, doctor_id, doctor_name,
+            appointment_date, appointment_time, status, reason, department,
+            admin_override, reminder_sent, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2::int, 'AdminCorrectness Patient Three',
+            $3::int, $4, $5::date, $6, 'SCHEDULED', 'Conflict seed', $7,
+            false, false, NOW(), NOW())
+         RETURNING id`,
+        PATIENT3_PHONE, patient3IntId, doctorCUserId, DOCTOR_C_NAME,
+        conflictDate, time, DEPT_C_NAME);
+
+    const a1 = await mkApptC({ time: '10:00' });
+    conflictA1Id = Number(a1[0].id);
+    const a2 = await mkApptC({ time: '10:15' });
+    conflictA2Id = Number(a2[0].id);
+    const ctrl = await mkApptC({ time: '14:00' });
+    conflictControlId = Number(ctrl[0].id);
+
     admin = mkClient('ADMIN', ADMIN_UID, adminIntId, ADMIN_PHONE);
   });
 
@@ -329,17 +411,48 @@ describe('Appointment admin-query correctness (status casing + doctor join) — 
     expect(overdue.doctor_name).toBe(DOCTOR_A_NAME);
   });
 
-  // ── 5. CONFLICTS (shape only — see file header) ──────────────────────────
-  // The window predicate is computed on appointment_date (a DATE) so the
-  // self-join can't surface same-day conflicts, and the DB's active-slot unique
-  // index forbids two active same-slot rows. We only assert the two in-scope
-  // fixes (status casing + doctor join) keep the endpoint returning 200 with the
-  // right envelope shape; the deeper time-window semantics are a separate bug.
-  it('GET /conflicts → returns 200 with the conflicts envelope (status casing + doctor join applied)', async () => {
-    const res = await admin.get(`/api/v1/appointments/admin/conflicts?date=${apptDate}&doctor_id=${doctorAUserId}`);
+  // ── 5. CONFLICTS (near-slot detection — value) ───────────────────────────
+  // Doctor C has two SCHEDULED appts 15 min apart (10:00 + 10:15) on its own
+  // date → WITHIN the 30-min window → MUST surface as one conflict pair; plus a
+  // 14:00 control (>30 min away) that must NOT appear in any pair. The broken
+  // window compared appointment_date (a DATE — midnight only), making
+  // `date < date` (needs different days) and `date + 30min > date` (needs same
+  // day) mutually exclusive → totalConflicts always 0. The fix compares the
+  // real slot time (appointment_date + appointment_time::time), regex-guarded
+  // against non-clock values, so this pair is detected. The returned
+  // appointment1_time/appointment2_time must be REAL slot timestamps (the
+  // AppointmentConflict schema declares them format:date-time), not a bare DATE.
+  it('GET /conflicts → detects the 10:00↔10:15 near-slot pair (date+time window, not DATE)', async () => {
+    const res = await admin.get(`/api/v1/appointments/admin/conflicts?date=${conflictDate}&doctor_id=${doctorCUserId}`);
     expect(res.statusCode).toBe(200);
-    expect(Array.isArray(res.body.data.conflicts)).toBe(true);
-    expect(typeof res.body.data.totalConflicts).toBe('number');
+    const { conflicts, totalConflicts } = res.body.data;
+    expect(Array.isArray(conflicts)).toBe(true);
+    expect(Number(totalConflicts)).toBeGreaterThanOrEqual(1);
+
+    // The seeded 10:00 ↔ 10:15 pair must be present (either order).
+    const pair = conflicts.find((c) => {
+      const ids = [Number(c.appointment1_id), Number(c.appointment2_id)];
+      return ids.includes(conflictA1Id) && ids.includes(conflictA2Id);
+    });
+    expect(pair).toBeDefined();
+
+    // Doctor join still correct → Doctor C's name (not a collided doctors.id row).
+    expect(pair.doctor_name).toBe(DOCTOR_C_NAME);
+
+    // The returned slot times are real timestamps (date + time), parseable as
+    // dates — proves the SELECT emits date-time, not the bare DATE midnight.
+    expect(pair.appointment1_time).toBeTruthy();
+    expect(pair.appointment2_time).toBeTruthy();
+    expect(Number.isNaN(Date.parse(pair.appointment1_time))).toBe(false);
+    expect(Number.isNaN(Date.parse(pair.appointment2_time))).toBe(false);
+    // The two timestamps differ (10:00 vs 10:15 on the same day).
+    expect(Date.parse(pair.appointment1_time)).not.toBe(Date.parse(pair.appointment2_time));
+
+    // The 14:00 control appt is >30 min from both → never in any returned pair.
+    const controlAppears = conflicts.some((c) =>
+      Number(c.appointment1_id) === conflictControlId ||
+      Number(c.appointment2_id) === conflictControlId);
+    expect(controlAppears).toBe(false);
   });
 
   // ── 6. BULK-UPDATE-STATUS (write) ────────────────────────────────────────
