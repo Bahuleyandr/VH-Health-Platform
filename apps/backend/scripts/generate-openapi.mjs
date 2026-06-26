@@ -50,6 +50,12 @@ const proto = protoOwning(express.Router(), 'route');
 
 const routerRoutes = new Map();
 const edges = new Map();
+// Prefixes (per parent router) whose mount carries the __openapiSkipMount marker
+// (a runtime req.url-rewrite alias). Express 5 splits a multi-handler app.use
+// into one router.use call PER handler, so the marker handler and the child
+// router arrive in SEPARATE calls at the same prefix — record the marked prefix
+// when seen, then skip the child-router edge mounted at it.
+const skipPrefixes = new Map();
 // A router is either a function with its own .stack, OR a wrapAsync wrapper that
 // tagged the underlying router on __wrappedFn (routeWrapper.js) — the latter
 // happens for sub-routers mounted via wrapAutoRBAC/wrapRoutes `use:` maps.
@@ -79,11 +85,23 @@ proto.use = function patchedUse(first, ...rest) {
   } else {
     handlers = [first, ...rest];
   }
-  for (const h of handlers) {
-    const child = asRouter(h);
-    if (child) {
-      if (!edges.has(this)) edges.set(this, []);
-      edges.get(this).push({ prefix, child });
+  // Skip alias mounts that rewrite req.url at runtime (e.g. the MAR
+  // discoverability aliases in app.js). The rewrite makes the real served path
+  // differ from mount+route, so walking them would emit unreachable artifact
+  // paths (/api/v1/emr/mar/mar/*). The marker handler (__openapiSkipMount) and
+  // the child router arrive in separate per-handler calls at the same prefix.
+  if (handlers.some((h) => typeof h === 'function' && h.__openapiSkipMount)) {
+    if (!skipPrefixes.has(this)) skipPrefixes.set(this, new Set());
+    skipPrefixes.get(this).add(prefix);
+  }
+  const skipThisMount = skipPrefixes.has(this) && skipPrefixes.get(this).has(prefix);
+  if (!skipThisMount) {
+    for (const h of handlers) {
+      const child = asRouter(h);
+      if (child) {
+        if (!edges.has(this)) edges.set(this, []);
+        edges.get(this).push({ prefix, child });
+      }
     }
   }
   return origUse.call(this, first, ...rest);
