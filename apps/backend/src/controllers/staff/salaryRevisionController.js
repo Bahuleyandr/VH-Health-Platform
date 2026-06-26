@@ -192,7 +192,7 @@ export const applyRevision = async (req, res) => {
       vals.push(r.staff_uid);
       await prisma.$queryRawUnsafe(
         `UPDATE staff_salary SET ${updates.join(', ')} WHERE staff_uid = $${idx}`,
-        vals
+        ...vals
       );
     }
 

@@ -12,8 +12,9 @@ import { OPENAPI_BASE } from './openapi/base.mjs';
 import * as money from './openapi/schemas/money.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
 import * as discharge from './openapi/schemas/discharge.mjs';
+import * as payroll from './openapi/schemas/payroll.mjs';
 
-const SCHEMA_MODULES = [money, appointments, discharge];
+const SCHEMA_MODULES = [money, appointments, discharge, payroll];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the
  * union of module schemas sorted by name. Errors on duplicate names so two modules

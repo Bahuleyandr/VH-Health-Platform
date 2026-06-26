@@ -444,7 +444,7 @@ export const issuePayslips = async (req, res) => {
 
     // Require both HR and Admin signatures before issuing
     const run = await prisma.$queryRawUnsafe(
-      `SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`, month, year);
+      `SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`, month, year);
 
     if (run.length === 0) {
       return error(res, 'No payroll run found for this month. Run payroll first.', HTTP_STATUS.BAD_REQUEST);
@@ -915,7 +915,7 @@ export const hrSignPayrollRun = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
     if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (run[0].status !== 'completed') {
       return error(res, 'Payroll run must be in completed state before signing', HTTP_STATUS.BAD_REQUEST);
@@ -947,7 +947,7 @@ export const adminSignPayrollRun = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
     if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (!run[0].hr_approved_at) {
       return error(res, 'HR must sign before Admin countersign', HTTP_STATUS.BAD_REQUEST);
@@ -1527,7 +1527,7 @@ export const approveFnF = async (req, res) => {
   try {
     const { id } = req.params;
     const role = req.user?.role; const uid = req.user?.uid;
-    const fnf = await prisma.$queryRawUnsafe('SELECT id, staff_uid, settlement_date, last_working_day, total_dues, total_deductions, net_payable, status, approved_by, created_at, updated_at FROM full_final_settlements WHERE id=$1', id);
+    const fnf = await prisma.$queryRawUnsafe('SELECT id, staff_uid, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, admin_approved_by, created_at, updated_at FROM full_final_settlements WHERE id=$1', id);
     if (!fnf.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     const f = fnf[0];
     let update;
