@@ -55,19 +55,25 @@ export async function calculatePayslip(staffUid, month, year) {
   const daysPresent = parseInt(attRes[0]?.days_present || 0);
   const overtimeHours = parseFloat(attRes[0]?.total_overtime_hours || 0);
 
-  // Get approved leaves this month (leave_applications uses staff_uid UUID)
+  // Get approved leaves this month. leave_applications has NO staff_uid; the FK
+  // is staff_id INTEGER → users.id, and the date columns are start_date/end_date
+  // (NOT from_date/to_date). calculatePayslip is called with staffUid = users.uid
+  // (a UUID), so bridge uid→id in the WHERE. status values are lowercase
+  // ('approved' on review) — LOWER() for safety. The catch returns an ARRAY (not
+  // { rows: [...] }) so leaveRes[0]?.leave_days works on both the happy and the
+  // fallback path ($queryRawUnsafe yields a plain row array).
   const leaveRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(
-      LEAST(to_date::date, (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date)::date
-      - GREATEST(from_date::date, make_date($3::int, $2::int, 1))::date
+      LEAST(end_date::date, (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date)::date
+      - GREATEST(start_date::date, make_date($3::int, $2::int, 1))::date
       + 1
     ), 0) as leave_days
     FROM leave_applications
-    WHERE staff_uid = $1::uuid
-      AND status = 'approved'
-      AND from_date::date <= (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date
-      AND to_date::date >= make_date($3::int, $2::int, 1)
-  `, staffUid, month, year).catch(() => ({ rows: [{ leave_days: 0 }] }));
+    WHERE staff_id = (SELECT id FROM users WHERE uid = $1::uuid)
+      AND LOWER(status) = 'approved'
+      AND start_date::date <= (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date
+      AND end_date::date >= make_date($3::int, $2::int, 1)
+  `, staffUid, month, year).catch(() => [{ leave_days: 0 }]);
 
   const leaveDays = parseInt(leaveRes[0]?.leave_days || 0);
 
