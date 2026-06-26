@@ -278,26 +278,35 @@ export async function createHandover(data) {
       auditIdempotencyKey: `nurse_handovers:${createdRow.id}:audit:created`,
     }, { db: tx });
 
+    // A2 (audit): the handover-created event is SAFETY-CRITICAL (a shift-safety
+    // artifact downstream consumers act on). Write the outbox row INSIDE this
+    // business tx (on `tx`, with the explicit tenantId) so it is atomic with the
+    // handover + canonical write — a crash between commit and a post-commit
+    // best-effort publish would otherwise silently drop the event. publishEvent
+    // re-throws inside a tx, so an outbox failure rolls the handover back.
+    await publishEvent({
+      eventType: 'clinical.handover.created',
+      aggregateType: 'nurse_handover',
+      aggregateId: createdRow.id,
+      patientUid: patient_uid,
+      payload: {
+        shift: shift.toLowerCase(),
+        outgoing_nurse,
+        incoming_nurse: incoming_nurse || null,
+      },
+      tx,
+      tenantId: createdRow.tenant_id,
+    });
+
     return inserted;
   });
 
   logger.info(`Handover created by nurse ${outgoing_nurse} for patient ${patient_uid} (${shift} shift)`);
   const created = { ...rows[0], patient_uid, ward: ward || null, bed_number: bed_number || null, outgoing_nurse, incoming_nurse: incoming_nurse || null, shift: shift.toLowerCase() };
 
-  // Realtime emit + event outbox are fire-and-forget downstreams (Phase 1.5,
-  // post-commit) — they must never roll back the handover write.
+  // Realtime WS emit stays a fire-and-forget downstream (Phase 1.5, post-commit)
+  // — it is ephemeral and must never roll back the handover write.
   emitHandover(created);
-  await publishEvent({
-    eventType: 'clinical.handover.created',
-    aggregateType: 'nurse_handover',
-    aggregateId: rows[0].id,
-    patientUid: patient_uid,
-    payload: {
-      shift: shift.toLowerCase(),
-      outgoing_nurse,
-      incoming_nurse: incoming_nurse || null,
-    },
-  });
 
   return rows[0];
 }
@@ -363,18 +372,24 @@ export async function acknowledgeHandover(id, nurseUid) {
       auditIdempotencyKey: `nurse_handovers:${updatedRow.id}:audit:acknowledged`,
     }, { db: tx });
 
+    // A2 (audit): acknowledgement is the handover's safety-closing state. Write
+    // the outbox row INSIDE this tx (on `tx`, explicit tenantId) so the event is
+    // atomic with the ack flip + canonical write — no lost event on a partial
+    // commit. publishEvent re-throws inside a tx → an outbox failure rolls back.
+    await publishEvent({
+      eventType: 'clinical.handover.acknowledged',
+      aggregateType: 'nurse_handover',
+      aggregateId: updatedRow.id,
+      patientUid: updatedRow.patient_uid,
+      payload: { acknowledged_by: nurseUid },
+      tx,
+      tenantId: updatedRow.tenant_id,
+    });
+
     return updated;
   });
 
   logger.info(`Handover ${id} acknowledged by nurse ${nurseUid}`);
-  // Event outbox publish is a fire-and-forget downstream (Phase 1.5 post-commit).
-  await publishEvent({
-    eventType: 'clinical.handover.acknowledged',
-    aggregateType: 'nurse_handover',
-    aggregateId: id,
-    patientUid: rows[0].patient_uid,
-    payload: { acknowledged_by: nurseUid },
-  });
   return rows[0];
 }
 

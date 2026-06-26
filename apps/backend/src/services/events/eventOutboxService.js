@@ -43,11 +43,14 @@ function normalizePayload(payload) {
  *     events on a partial commit). In that mode the error is RE-THROWN, not
  *     swallowed: swallowing a Prisma error inside a $transaction silently aborts
  *     the whole tx (Phase-1.5 rule), so the caller must see the failure and roll
- *     back. The row's tenant_id comes from the GUC-reading column default, which
- *     a setTenantTx-wrapped tx has already set to the producer's tenant.
+ *     back. When `tx` is a setTenantTx-wrapped client the GUC-reading column
+ *     default already lands the producer's tenant on the row; pass an explicit
+ *     `tenantId` to write it directly (preferred — never rely on the GUC for a
+ *     value we already hold, matching the drain's enqueueDelivery posture).
  *
  * @param {Object} args
  * @param {import('@prisma/client').Prisma.TransactionClient} [args.tx] optional tx client.
+ * @param {string|null} [args.tenantId] optional explicit tenant uuid for the row.
  */
 export async function publishEvent({
   eventType,
@@ -56,6 +59,7 @@ export async function publishEvent({
   patientUid = null,
   payload = {},
   tx = null,
+  tenantId = null,
 }) {
   if (!eventType || !aggregateType) {
     logger.warn('Skipped event_outbox insert: missing eventType or aggregateType', {
@@ -66,17 +70,33 @@ export async function publishEvent({
   }
 
   const client = tx ?? prisma;
-  const insert = () => client.$queryRawUnsafe(
-    `INSERT INTO event_outbox
-       (event_type, aggregate_type, aggregate_id, patient_uid, payload, status, available_at, created_at)
-     VALUES ($1, $2, $3, $4::uuid, $5::jsonb, 'pending', NOW(), NOW())
-     RETURNING id, event_type, aggregate_type, aggregate_id, patient_uid, status, created_at`,
-    eventType,
-    aggregateType,
-    aggregateId ? String(aggregateId) : null,
-    patientUid || null,
-    JSON.stringify(normalizePayload(payload))
-  );
+  // When tenantId is supplied, write it explicitly ($6::uuid) instead of leaning
+  // on the GUC-reading column default; otherwise omit the column so the default
+  // fires (back-compat for the ~60 best-effort producers that pass no tenant).
+  const insert = () => (tenantId
+    ? client.$queryRawUnsafe(
+      `INSERT INTO event_outbox
+         (event_type, aggregate_type, aggregate_id, patient_uid, payload, tenant_id, status, available_at, created_at)
+       VALUES ($1, $2, $3, $4::uuid, $5::jsonb, $6::uuid, 'pending', NOW(), NOW())
+       RETURNING id, event_type, aggregate_type, aggregate_id, patient_uid, status, tenant_id, created_at`,
+      eventType,
+      aggregateType,
+      aggregateId ? String(aggregateId) : null,
+      patientUid || null,
+      JSON.stringify(normalizePayload(payload)),
+      String(tenantId),
+    )
+    : client.$queryRawUnsafe(
+      `INSERT INTO event_outbox
+         (event_type, aggregate_type, aggregate_id, patient_uid, payload, status, available_at, created_at)
+       VALUES ($1, $2, $3, $4::uuid, $5::jsonb, 'pending', NOW(), NOW())
+       RETURNING id, event_type, aggregate_type, aggregate_id, patient_uid, status, created_at`,
+      eventType,
+      aggregateType,
+      aggregateId ? String(aggregateId) : null,
+      patientUid || null,
+      JSON.stringify(normalizePayload(payload)),
+    ));
 
   // Inside a caller's tx, a swallowed error would silently abort the whole tx
   // (Phase-1.5 rule) — re-throw so the caller rolls back and sees the failure.
