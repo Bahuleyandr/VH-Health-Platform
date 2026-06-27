@@ -331,18 +331,30 @@ class ConflictRow extends StatelessWidget {
   static bool _isMarConflict(String endpoint) =>
       endpoint.contains('/clinical/mar/');
 
+  /// True for a queued clinical ORDER create (`/emr/orders`). Discarding one
+  /// means an ordered medication was never ordered — so it gets clinical
+  /// framing + a confirm-on-discard guard, like MAR.
+  static bool _isOrderConflict(String endpoint) =>
+      endpoint.contains('/emr/orders');
+
   Future<void> _handleDiscard(BuildContext context, String endpoint) async {
-    if (!_isMarConflict(endpoint)) {
+    final isMar = _isMarConflict(endpoint);
+    final isOrder = _isOrderConflict(endpoint);
+    if (!isMar && !isOrder) {
       onDiscard();
       return;
     }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('Discard administration record?'),
-        content: const Text(
-          'Discard this administration record? The medication was given but '
-          'will NOT be recorded.',
+        title: Text(
+          isOrder ? 'Discard medication order?' : 'Discard administration record?',
+        ),
+        content: Text(
+          isOrder
+              ? 'Discard this medication order? It was NOT placed on the server.'
+              : 'Discard this administration record? The medication was given but '
+                  'will NOT be recorded.',
         ),
         actions: [
           TextButton(
@@ -370,6 +382,7 @@ class ConflictRow extends StatelessWidget {
     final label = conflict['context_label'] as String? ?? endpoint;
     final reason = conflict['conflict_reason'] as String? ?? 'Conflict';
     final isMar = _isMarConflict(endpoint);
+    final isOrder = _isOrderConflict(endpoint);
     final createdAt = conflict['created_at'] as int?;
     final createdLabel = createdAt != null
         ? DateFormat(
@@ -379,6 +392,7 @@ class ConflictRow extends StatelessWidget {
 
     // For a MAR conflict the drug was physically given offline; surface a
     // clinically-clear, review-needed message instead of the bare reason.
+    // For an order conflict the ordered drug was never placed on the server.
     final reasonWidget = isMar
         ? Text(
             'Administration not recorded on the server — review needed. '
@@ -388,12 +402,20 @@ class ConflictRow extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           )
-        : Text(
-            reason,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: Colors.red.shade700,
-            ),
-          );
+        : isOrder
+            ? Text(
+                'Medication order not placed on the server — review needed. $reason.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.red.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            : Text(
+                reason,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.red.shade700,
+                ),
+              );
 
     return Card(
       elevation: 0,
