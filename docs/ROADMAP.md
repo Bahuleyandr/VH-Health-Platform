@@ -123,7 +123,7 @@ Not blockers for the core platform; build as customer demand surfaces.
 - **Provider credentialing & privileging module** — white-space (registration numbers, privilege/expiry alerts).
 - **NABH quality-indicator pack exporter** — indicators exist piecemeal; no consolidated exporter.
 - **eSign/DSC signing stack** on discharge summaries / MCCD / consent (the tamper-evident hash chain on `clinical_audit_events` is done — mig 324; signing needs the §4 provider).
-- **Minor security hardening** — M-5: drop `text/plain`/`text/csv`/`text/rtf` from the upload allowlist (`uploadConfig.js:17`, HTML-as-text XSS gap); ADM-2: remove `unsafe-eval` from the admin CSP (`apps/admin/src/middleware.ts:201`, pending Sentry/workbox eval removal).
+- **Minor security hardening** — ✅ **M-5 + ADM-2 DONE** (`main 8281c995`, 2026-06-27): M-5 dropped `text/plain`/`text/csv`/`text/rtf` from the global upload allowlist (`uploadConfig.js`; HTML-as-text stored-XSS — clinical-AI doc-intake keeps text/* via its OWN admin-only MIME sets, so non-breaking); ADM-2 dropped `unsafe-eval` from the PRODUCTION admin CSP (`middleware.ts buildCsp`; dev keeps it for Next HMR; nonce+strict-dynamic backstop intact). Gated: backend upload tests 11/11, admin middleware 79/79.
 - **Staff-app accessibility execution** — run `SCREEN_READER_TEST_PLAN` + add staff font-scaling.
 - **Depth (partial, demand-driven)** — scheduling optimization (provider templates / waitlist auto-fill / resource booking / overbook), patient-portal result-release-hold rules + longitudinal lab trends + dependent proxy consent, outbreak/infection-control workbench end-to-end, RDC-lite research CRFs, dental/ophthalmology/dialysis depth.
 
