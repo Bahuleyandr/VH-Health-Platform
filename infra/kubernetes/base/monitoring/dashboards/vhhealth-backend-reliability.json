@@ -85,6 +85,22 @@
           "legendFormat": "{{module}}"
         }
       ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "webhook_deliveries backlog (pending/failed)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "max(webhook_deliveries_pending_rows)",
+          "legendFormat": "pending"
+        },
+        {
+          "expr": "max(webhook_deliveries_failed_rows)",
+          "legendFormat": "failed (retrying)"
+        }
+      ]
     }
   ]
 }
