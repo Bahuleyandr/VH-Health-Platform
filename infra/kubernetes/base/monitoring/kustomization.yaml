@@ -9,3 +9,14 @@ resources:
   - backend-red-alerts.yaml
   - backend-reliability-alerts.yaml
   - backend-slo.yaml
+
+configMapGenerator:
+  - name: vhhealth-backend-dashboards
+    namespace: vhhealth-monitoring
+    options:
+      labels:
+        grafana_dashboard: "1"
+      disableNameSuffixHash: true
+    files:
+      - dashboards/vhhealth-backend-red.json
+      - dashboards/vhhealth-backend-reliability.json
