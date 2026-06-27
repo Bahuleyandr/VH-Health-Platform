@@ -1,0 +1,59 @@
+# monitoring/backend-slo.yaml — availability SLO 99.95% (error budget 0.05%).
+# Multi-window multi-burn-rate alerts (Google SRE workbook): a fast burn must
+# persist across a long AND a short window before paging, which suppresses the
+# transient false pages a single static threshold would cause — important on a
+# single backend Deployment where a rollout briefly burns budget.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vhhealth-backend-slo
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: rules
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: backend-slo-recording
+      interval: 30s
+      rules:
+        - record: job:slo_error:ratio_rate5m
+          expr: sum(rate(http_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1e-9)
+        - record: job:slo_error:ratio_rate30m
+          expr: sum(rate(http_requests_total{status_code=~"5.."}[30m])) / clamp_min(sum(rate(http_requests_total[30m])), 1e-9)
+        - record: job:slo_error:ratio_rate1h
+          expr: sum(rate(http_requests_total{status_code=~"5.."}[1h])) / clamp_min(sum(rate(http_requests_total[1h])), 1e-9)
+        - record: job:slo_error:ratio_rate6h
+          expr: sum(rate(http_requests_total{status_code=~"5.."}[6h])) / clamp_min(sum(rate(http_requests_total[6h])), 1e-9)
+    - name: backend-slo-burn
+      interval: 30s
+      rules:
+        - alert: BackendErrorBudgetBurnFast
+          # 14.4x burn of a 0.0005 budget = 0.0072, over 1h AND 5m.
+          expr: |
+            job:slo_error:ratio_rate1h > (14.4 * 0.0005)
+            and
+            job:slo_error:ratio_rate5m > (14.4 * 0.0005)
+          for: 2m
+          labels:
+            severity: critical
+            slo: availability
+          annotations:
+            summary: "Backend availability error budget burning >14.4x (99.95% SLO) — fast burn"
+            runbook: "docs/RUNBOOK_ONCALL.md#backenderrorbudgetburn"
+        - alert: BackendErrorBudgetBurnSlow
+          # 6x burn over 6h AND 30m.
+          expr: |
+            job:slo_error:ratio_rate6h > (6 * 0.0005)
+            and
+            job:slo_error:ratio_rate30m > (6 * 0.0005)
+          for: 15m
+          labels:
+            severity: warning
+            slo: availability
+          annotations:
+            summary: "Backend availability error budget burning >6x (99.95% SLO) — sustained slow burn"
+            runbook: "docs/RUNBOOK_ONCALL.md#backenderrorbudgetburn"

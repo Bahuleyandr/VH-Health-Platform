@@ -185,3 +185,17 @@ migration window.
    migration (`_migrations` table) and the schema-drift check.
 2. A migration mid-apply is transient; a sustained signal means a partition/table the
    fallback is masking should exist — investigate before it hides a real bug.
+
+## BackendErrorBudgetBurn
+
+Availability error budget for the **99.95% SLO** (~21 min/month) is burning fast
+(`BackendErrorBudgetBurnFast`, 14.4×) or sustained (`BackendErrorBudgetBurnSlow`, 6×).
+1. Which routes are 5xx-ing: Grafana → backend RED → errors by route, or
+   `kubectl -n vhhealth logs deploy/vhhealth-backend --since=15m | grep -E '"status":5'`.
+   Treat the burn like BackendHighErrorRate — the burn-rate just confirms it's eating budget.
+2. Recent deploy? A rollout on the single backend Deployment briefly burns budget;
+   `argocd app history vhhealth-backend` and roll back on suspicion.
+3. **Topology caveat:** 99.95% on one Deployment with rolling restarts is aggressive
+   — if this pages on routine deploys (not real incidents), the fix is to raise the
+   target to 99.9% in `backend-slo.yaml` OR add a 2nd replica + `maxUnavailable=0`
+   surge for zero-downtime deploys. Do NOT just silence it.

@@ -8,3 +8,4 @@ resources:
   - alert-rules.yaml
   - backend-red-alerts.yaml
   - backend-reliability-alerts.yaml
+  - backend-slo.yaml
