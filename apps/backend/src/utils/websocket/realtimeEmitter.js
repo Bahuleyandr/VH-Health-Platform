@@ -158,6 +158,23 @@ export function emitQueuePosition({ patientId, appointmentId, position, etaMinut
   }
 }
 
+/** ED tracking-board change (arrival / transition / triage-priority). */
+export function emitEdBoardEvent(kind, visit, { tenantId } = {}) {
+  try {
+    broadcast('admin:ed-board', {
+      kind,
+      id: visit?.id ?? null,
+      visitNumber: visit?.visit_number ?? null,
+      status: visit?.status ?? null,
+      triagePriority: visit?.triage_priority ?? null,
+      disposition: visit?.disposition ?? null,
+      at: new Date().toISOString(),
+    }, { tenantId });
+  } catch (err) {
+    logger.warn('emitEdBoardEvent failed:', err.message);
+  }
+}
+
 /** Admin KPI tile tick. */
 export function emitAdminKpi(tile, value) {
   try {
