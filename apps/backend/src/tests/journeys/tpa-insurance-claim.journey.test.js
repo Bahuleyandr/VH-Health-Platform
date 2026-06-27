@@ -307,7 +307,7 @@ describeJourney('Journey: tpa-insurance-claim', () => {
 
   describe('Step 4 — admitting doctor places the inpatient treatment order', () => {
     it('creates an investigation order and writes the canonical order triple', async () => {
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `tpa-claim-order-usg-${Date.now()}`).send({
         patient_uid: PATIENT_UID,
         order_type: 'investigation',
         priority: 'routine',

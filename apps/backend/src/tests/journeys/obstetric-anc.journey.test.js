@@ -349,7 +349,7 @@ describeJourney('Journey: obstetric-anc', () => {
 
   describe('Step 7 — OB doctor places an obstetric investigation order', () => {
     it('creates an investigation order (anomaly scan) and writes the canonical order timeline + audit triple', async () => {
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `obstetric-anc-order-scan-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'investigation',
         priority: 'routine',

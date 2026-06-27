@@ -291,7 +291,7 @@ describeJourney('Journey: dynamic-acute-abdomen', () => {
 
   describe('Step 5 — surgeon orders the workup (labs + imaging)', () => {
     it('places a STAT bloods investigation order (canonical order.created)', async () => {
-      const res = await surgeon.post('/api/v1/emr/orders').send({
+      const res = await surgeon.post('/api/v1/emr/orders').set('Idempotency-Key', `acute-abdomen-order-bloods-${Date.now()}`).send({
         patient_uid: patientUid,
         er_visit_id: erVisitId,
         order_type: 'investigation',
@@ -310,7 +310,7 @@ describeJourney('Journey: dynamic-acute-abdomen', () => {
     });
 
     it('places a STAT imaging order (imaging → radiology; canonical order.created)', async () => {
-      const res = await surgeon.post('/api/v1/emr/orders').send({
+      const res = await surgeon.post('/api/v1/emr/orders').set('Idempotency-Key', `acute-abdomen-order-ct-${Date.now()}`).send({
         patient_uid: patientUid,
         er_visit_id: erVisitId,
         order_type: 'imaging',

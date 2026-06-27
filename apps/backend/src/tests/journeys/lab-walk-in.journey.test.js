@@ -122,7 +122,7 @@ describeJourney('Journey: lab-walk-in', () => {
 
   describe('Step 2 — doctor places the lab order (CPOE)', () => {
     it('creates a lab order, writes the canonical order triple, and materializes an investigation', async () => {
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `lab-walkin-order-troponin-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'lab',
         priority: 'STAT',

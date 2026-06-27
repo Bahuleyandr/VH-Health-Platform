@@ -196,7 +196,7 @@ describeJourney('Journey: emergency-walk-in', () => {
 
   describe('Step 5 — ED doctor places a STAT order scoped to the ER visit', () => {
     it('creates a STAT investigation order and writes the canonical order triple', async () => {
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `emergency-walkin-order-stat-${Date.now()}`).send({
         patient_uid: patientUid,
         er_visit_id: erVisitId,
         order_type: 'investigation',

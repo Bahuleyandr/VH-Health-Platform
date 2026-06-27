@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'api_client.dart';
 import 'clinical_platform_api_service.dart';
+import 'order_payloads.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
 /// health records, vitals, diagnosis, clinical notes, and CDS.
@@ -533,23 +534,20 @@ class MedicalApiService {
     String priority = 'routine',
     DateTime? startDate,
   }) async {
-    return _post('/emr/orders', {
-      'patient_uid': patientUid,
-      'encounter_id': ?encounterId,
-      'order_type': 'medication',
-      'priority': priority,
-      'start_date': (startDate ?? DateTime.now()).toUtc().toIso8601String(),
-      'details': {
-        'medication_name': medicationName,
-        'dose': dose,
-        'route': route,
-        'frequency': frequency,
-        'duration_days': ?durationDays,
-        'dose_times': ?doseTimes,
-        'food_timing': ?foodTiming,
-        'instructions': ?instructions,
-      },
-    });
+    return _post('/emr/orders', buildInpatientMedicationOrderBody(
+      patientUid: patientUid,
+      encounterId: encounterId,
+      medicationName: medicationName,
+      dose: dose,
+      route: route,
+      frequency: frequency,
+      durationDays: durationDays,
+      doseTimes: doseTimes,
+      foodTiming: foodTiming,
+      instructions: instructions,
+      priority: priority,
+      startDate: startDate ?? DateTime.now(),
+    ));
   }
 
   /// GET /pharmacy-orders/catalog — shared formulary suggestions for inpatient

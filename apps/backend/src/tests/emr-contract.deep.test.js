@@ -175,7 +175,7 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
   }, 120000);
 
   it('orders: create + list + verify + complete + order-sets', async () => {
-    const ord = await A.post('/api/v1/emr/orders').send({
+    const ord = await A.post('/api/v1/emr/orders').set('Idempotency-Key', `emr-contract-order-cbc-${Date.now()}`).send({
       patient_uid: PATIENT_UID, encounter_id: encounterId, order_type: 'investigation',
       priority: 'routine', details: { test_name: 'CBC' },
     });

@@ -237,7 +237,7 @@ describeJourney('Journey: walk-in-opd', () => {
 
   describe('Step 5 — doctor places an investigation order', () => {
     it('creates an investigation order and writes the canonical order timeline + audit triple', async () => {
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `walkin-opd-order-cbc-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'investigation',
         priority: 'routine',
