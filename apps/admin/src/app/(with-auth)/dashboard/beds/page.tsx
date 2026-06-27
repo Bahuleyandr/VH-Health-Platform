@@ -452,6 +452,12 @@ export default function BedsPage() {
             <h1 className="text-3xl font-bold text-foreground">Bed Management</h1>
             <span
               data-testid="beds-realtime-indicator"
+              role="status"
+              aria-label={
+                subscribed
+                  ? "Live — real-time bed updates active"
+                  : "Polling — real-time updates unavailable"
+              }
               title={liveTitle}
               className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
             >
