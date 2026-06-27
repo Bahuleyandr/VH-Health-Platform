@@ -76,6 +76,15 @@ Fallback: 5-min safety poll while subscribed; 60s poll if WS down.
 
 Units 1–2 are unit/component-tested in jest (mocked WS). The end-to-end live push is verified MANUALLY against the local dev stack (documented recipe) — it is NOT an automated test, because there's no WS in jsdom and deploy is HELD (no cluster). The plan/PR state this explicitly; no "real-time verified" claim beyond the unit tests + the manual recipe.
 
+**Manual live-verification recipe (local dev stack):**
+1. Backend: `cd apps/backend && npm run dev` (Postgres on :5433 up; Redis optional — without it the fan-out degrades to local single-process delivery, still fine for a one-process dev check).
+2. Admin: `cd apps/admin && npm run dev` (:3001).
+3. Log in, open `/dashboard/beds` → the indicator next to "Bed Management" shows **● Live** once the `admin:beds` subscription is accepted.
+4. Trigger a bed change — admit/discharge/edit via the dashboard's own actions, a second browser, or a direct `PUT /api/v1/beds/:id` — and watch the occupancy grid + summary update within ~1s, WITHOUT waiting for a poll.
+5. Stop Redis (or the backend) → the indicator falls to **○ Polling** and the 60s safety poll keeps the grid fresh; restart → it returns to **● Live** on reconnect.
+
+**Automated coverage (what the jest suites prove):** the hook invalidates exactly the passed keys on an event + returns connection state (`useRealtimeInvalidation.test.tsx`, 3); the fallback cadence is 5-min-live / 60s-fallback (`beds/realtime.test.ts`, 2); the page renders the ●Live/○Polling indicator per `subscribed` and subscribes to `admin:beds` with `[["beds"]]` (`beds/page.test.tsx`, +2). Gates: type-check 0, lint 0, jest 447/447, next build ✓.
+
 ## Out of scope / follow-ups (later slices)
 
 - Other admin dashboards (OR Board, Audit, Anesthesia, Attendance) — most need a NEW backend channel + producer; each is its own follow-on slice reusing `useRealtimeInvalidation`.
