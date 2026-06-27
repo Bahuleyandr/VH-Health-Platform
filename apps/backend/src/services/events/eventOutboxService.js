@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { recordEventDeadLettered } from '../../observability/reliabilityMetrics.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -245,6 +246,7 @@ export async function markFailed(eventId, message) {
           ? [eventId, reason, nextAttempts]
           : [eventId, reason, nextAttempts, backoff]),
       );
+      if (deadLetter) recordEventDeadLettered();
       return rows[0] || null;
     });
   } catch (err) {

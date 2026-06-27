@@ -1,0 +1,106 @@
+{
+  "uid": "vhhealth-backend-reliability",
+  "title": "VH Health — Backend Reliability",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["vhhealth", "backend"],
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "event_outbox pending",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "max(event_outbox_pending_rows)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "event_outbox oldest pending age (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "max(event_outbox_oldest_pending_age_seconds)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "event_outbox dead-letter rows",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "max(event_outbox_dead_letter_rows)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "webhook_deliveries dead rows",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "max(webhook_deliveries_dead_rows)"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "WS broadcast drops/s by reason",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (reason)(rate(ws_broadcast_dropped_total[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "DB circuit breaker open",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "max(db_circuit_breaker_open)"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Clinical-AI template fallback/s by module",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum by (module)(rate(clinical_ai_deep_template_fallback_total[15m]))",
+          "legendFormat": "{{module}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "webhook_deliveries backlog (pending/failed)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "max(webhook_deliveries_pending_rows)",
+          "legendFormat": "pending"
+        },
+        {
+          "expr": "max(webhook_deliveries_failed_rows)",
+          "legendFormat": "failed (retrying)"
+        }
+      ]
+    }
+  ]
+}

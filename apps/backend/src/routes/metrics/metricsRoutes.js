@@ -4,12 +4,13 @@
 
 import { Router } from 'express';
 import { serializeMetrics } from '../../middleware/prometheusMiddleware.js';
+import { serializeReliabilityMetrics } from '../../observability/reliabilityMetrics.js';
 
 const router = Router();
 
 router.get('/', (_req, res) => {
   res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-  res.send(serializeMetrics());
+  res.send(serializeMetrics() + '\n' + serializeReliabilityMetrics());
 });
 
 export default router;
