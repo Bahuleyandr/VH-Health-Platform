@@ -8,7 +8,7 @@
 // per-dashboard logic. The reusable unit for the real-time-dashboards epic.
 import { useCallback, useRef } from "react";
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
-import { useRealtimeChannel, type RealtimeMessage } from "./useRealtimeChannel";
+import { useRealtimeChannel } from "./useRealtimeChannel";
 
 export function useRealtimeInvalidation(
   channel: string,
@@ -25,7 +25,7 @@ export function useRealtimeInvalidation(
   keysRef.current = queryKeys;
 
   const onEvent = useCallback(
-    (_msg: RealtimeMessage) => {
+    () => {
       lastEventAtRef.current = Date.now();
       for (const key of keysRef.current) {
         queryClient.invalidateQueries({ queryKey: key });

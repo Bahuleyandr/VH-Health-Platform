@@ -459,8 +459,8 @@ export default function BedsPage() {
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Occupancy grid + admit / discharge / transfer flow. Auto-refreshes
-            every 60s.
+            Occupancy grid + admit / discharge / transfer flow. Live updates via
+            WebSocket; falls back to polling if unavailable.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
