@@ -9,8 +9,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
+import '../../../core/platform_info.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/prescription_payloads.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -20,6 +23,7 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
 import '../../ipd/utils/drug_chart_utils.dart';
+import '../prescription_offline_rx.dart';
 import '../widgets/cds_blocker_modal.dart';
 
 /// E-Prescriptions screen — structured prescription entry with medicine type-ahead.
@@ -891,6 +895,68 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     try {
       final meds = _medications.map((m) => m.toJson()).toList();
 
+      if (!ConnectivitySyncService.instance.isOnline) {
+        // Photo prescriptions can't be queued — the offline queue is JSON-only.
+        if (_handwrittenPhoto != null) {
+          if (mounted) {
+            ErrorToast.show(
+              context,
+              'Photo prescriptions need a connection. Reconnect and try again.',
+            );
+            setState(() => _submitting = false);
+          }
+          return;
+        }
+        final intent = buildOfflineRxIntent(
+          deviceType: currentDeviceType,
+          patientId: _patientId!,
+          doctorId: _doctorId!,
+          appointmentId: _appointmentId,
+          diagnosis: _diagnosisCtrl.text.trim(),
+          clinicalNotes: _clinicalNotesCtrl.text.trim().isEmpty
+              ? null
+              : _clinicalNotesCtrl.text.trim(),
+          medications: meds,
+          followUpDate: _followUpDate != null
+              ? DateFormat('yyyy-MM-dd').format(_followUpDate!)
+              : null,
+          followUpNotes: _followUpNotesCtrl.text.trim().isEmpty
+              ? null
+              : _followUpNotesCtrl.text.trim(),
+          vitals: _buildVitals(),
+        );
+        if (intent.block) {
+          if (mounted) {
+            ErrorToast.show(context, intent.reason!);
+            setState(() => _submitting = false);
+          }
+          return; // keep the form; NEVER enqueue on a blocked device
+        }
+        final firstName = meds.isNotEmpty
+            ? (meds.first['name'] ?? meds.first['medication_name'] ?? 'medication')
+            : 'medication';
+        await ConnectivitySyncService.instance.enqueue(
+          endpoint: intent.endpoint,
+          method: 'POST',
+          body: intent.body,
+          contextLabel: 'Prescription — $firstName',
+        );
+        if (mounted) {
+          SuccessToast.show(
+            context,
+            'Prescription queued — will be safety-checked on sync',
+          );
+          _formKey.currentState!.reset();
+          setState(() {
+            if (widget.prefilledAppointment == null) {
+              _resetPrescriptionDraft(keepPatientContext: false);
+            }
+            _submitting = false;
+          });
+        }
+        return;
+      }
+
       // ── CDS hard-block preview ──
       // Run safety-check first so we can drive the modal without burning the
       // clinician's form state on a server-side 409.
@@ -915,23 +981,24 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         overrideReason = outcome.overrideReason;
       }
 
-      final body = <String, dynamic>{
-        'patient_id': _patientId,
-        'doctor_id': _doctorId,
-        if (_appointmentId != null) 'appointment_id': _appointmentId,
-        'diagnosis': _diagnosisCtrl.text.trim(),
-        'clinical_notes': _clinicalNotesCtrl.text.trim().isEmpty
+      final body = buildPrescriptionBody(
+        patientId: _patientId!,
+        doctorId: _doctorId!,
+        appointmentId: _appointmentId,
+        diagnosis: _diagnosisCtrl.text.trim(),
+        clinicalNotes: _clinicalNotesCtrl.text.trim().isEmpty
             ? null
             : _clinicalNotesCtrl.text.trim(),
-        'medications': meds,
-        if (_followUpDate != null)
-          'follow_up_date': DateFormat('yyyy-MM-dd').format(_followUpDate!),
-        if (_followUpNotesCtrl.text.trim().isNotEmpty)
-          'follow_up_notes': _followUpNotesCtrl.text.trim(),
-        if (overrideReason != null) 'override': {'reason': overrideReason},
-      };
-      final vitals = _buildVitals();
-      if (vitals != null) body['vitals'] = vitals;
+        medications: meds,
+        followUpDate: _followUpDate != null
+            ? DateFormat('yyyy-MM-dd').format(_followUpDate!)
+            : null,
+        followUpNotes: _followUpNotesCtrl.text.trim().isEmpty
+            ? null
+            : _followUpNotesCtrl.text.trim(),
+        override: overrideReason != null ? {'reason': overrideReason} : null,
+        vitals: _buildVitals(),
+      );
 
       final editingPrescriptionId = _appointmentPrescriptionId;
       final result = editingPrescriptionId != null
