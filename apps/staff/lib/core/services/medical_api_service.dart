@@ -458,11 +458,14 @@ class MedicalApiService {
     required String scannedPatientUid,
     required String scannedBarcode,
     String? overrideReason,
+    DateTime? administeredAt,
   }) async {
     return _post('/clinical/mar/$maId/administer-with-scan', {
       'scanned_patient_uid': scannedPatientUid,
       'scanned_barcode': scannedBarcode,
       'override_reason': ?overrideReason,
+      if (administeredAt != null)
+        'administered_at': administeredAt.toUtc().toIso8601String(),
     });
   }
 
