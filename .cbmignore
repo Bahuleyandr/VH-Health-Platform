@@ -1,0 +1,19 @@
+# .cbmignore — codebase-memory-mcp index excludes (gitignore syntax)
+# Keeps the knowledge graph to first-party source. The Flutter platform dirs
+# vendor plugin sources under */flutter/ephemeral/.plugin_symlinks, which pollute
+# name-based call resolution (e.g. Flutter `Column` mis-linking to a React `card.tsx`).
+
+# Flutter native platform dirs (contain */flutter/ephemeral/.plugin_symlinks)
+**/android/
+**/ios/
+**/macos/
+**/windows/
+**/linux/
+**/ephemeral/
+**/.plugin_symlinks/
+**/local_plugins/
+
+# Generated / build output (mostly covered by .gitignore already)
+**/build/
+**/.dart_tool/
+**/lib/api/generated/
