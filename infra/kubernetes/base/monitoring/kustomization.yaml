@@ -7,3 +7,4 @@ resources:
   - chart-tracker.yaml
   - alert-rules.yaml
   - backend-red-alerts.yaml
+  - backend-reliability-alerts.yaml

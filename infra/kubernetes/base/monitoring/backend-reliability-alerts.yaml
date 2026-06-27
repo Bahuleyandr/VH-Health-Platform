@@ -1,0 +1,121 @@
+# monitoring/backend-reliability-alerts.yaml — application reliability alerts.
+# Metric names come from the backend exporter
+# (src/observability/reliabilityMetrics.js). Gauges are reported per-pod, so
+# every expr collapses the identical series with max().
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vhhealth-backend-reliability-alerts
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: rules
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: backend-reliability
+      interval: 30s
+      rules:
+        - alert: EventOutboxDrainStalled
+          expr: max(event_outbox_oldest_pending_age_seconds) > 600
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Oldest pending event_outbox row is >10m old — the drain cron is stalled"
+            runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdrainstalled"
+        - alert: EventOutboxBacklogGrowing
+          expr: max(event_outbox_pending_rows) > 500
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "event_outbox pending backlog >500 for 10m"
+            runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxbacklog"
+        - alert: EventOutboxDeadLettersPresent
+          expr: max(event_outbox_dead_letter_rows) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "event_outbox dead-letter rows present — events permanently undelivered (clinical/billing consumers never saw them)"
+            runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdeadletters"
+        - alert: EventOutboxDeadLetterRateRising
+          expr: increase(event_outbox_dead_lettered_total[15m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Events are crossing into dead-letter (rate>0 over 15m)"
+            runbook: "docs/RUNBOOK_ONCALL.md#eventoutboxdeadletters"
+        - alert: WebhookDeliveriesDead
+          expr: max(webhook_deliveries_dead_rows) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webhook_deliveries in terminal dead status — outbound webhooks permanently undelivered"
+            runbook: "docs/RUNBOOK_ONCALL.md#webhookdeliveriesdead"
+        - alert: WebhookDeliveryBacklog
+          expr: max(webhook_deliveries_pending_rows) > 200
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webhook_deliveries pending backlog >200 for 15m"
+            runbook: "docs/RUNBOOK_ONCALL.md#webhookbacklog"
+        - alert: NotificationOutboxBacklog
+          expr: max(notification_outbox_pending_rows) > 500
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "notification_outbox PENDING backlog >500 for 15m"
+            runbook: "docs/RUNBOOK_ONCALL.md#notificationbacklog"
+        - alert: WsBroadcastDropsDetected
+          expr: sum(rate(ws_broadcast_dropped_total[5m])) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Real-time WS broadcasts dropping (slow-consumer backpressure or cross-process fan-out fallback) — clinical realtime (vitals/alerts) may not reach all sessions"
+            description: "By reason: {{ $labels.reason }}. The invisible Redis-failover drop is proxied by ws_fanout_subscriber_errors_total."
+            runbook: "docs/RUNBOOK_ONCALL.md#wsbroadcastdrops"
+        - alert: WsFanoutSubscriberErrorsHigh
+          expr: sum(rate(ws_fanout_subscriber_errors_total[5m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "WS Redis fan-out subscriber erroring/reconnecting — the window where broadcasts can be silently dropped (at-most-once)"
+            runbook: "docs/RUNBOOK_ONCALL.md#wsbroadcastdrops"
+        - alert: DbCircuitBreakerOpen
+          expr: max(db_circuit_breaker_open) == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prisma DB circuit breaker is OPEN — queries are being rejected fast"
+            runbook: "docs/RUNBOOK_ONCALL.md#dbcircuitbreakeropen"
+    - name: backend-safety-signals
+      interval: 30s
+      rules:
+        - alert: ClinicalAiDeepTemplateFallback
+          expr: increase(clinical_ai_deep_template_fallback_total[15m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Deep/critical clinical-AI module {{ $labels.module }} silently fell back to a TEMPLATE draft — clinicians may believe it is AI-assisted"
+            runbook: "docs/RUNBOOK_ONCALL.md#clinicalaitemplatefallback"
+        - alert: DbUndefinedTableFallback
+          expr: increase(db_undefined_table_fallback_total[15m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres 42P01 undefined_table graceful fallbacks firing — likely schema drift or a missing partition"
+            runbook: "docs/RUNBOOK_ONCALL.md#dbundefinedtablefallback"
