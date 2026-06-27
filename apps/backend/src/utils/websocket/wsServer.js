@@ -7,6 +7,7 @@ import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
 import { authorizeChannel } from './channelAuth.js';
 import { createWsFanout } from './wsRedisAdapter.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
+import { recordWsBroadcastDropped } from '../../observability/reliabilityMetrics.js';
 
 // One fan-out per wsServer module instance (= one per process in production).
 // Created here rather than imported as a shared singleton so the
@@ -308,6 +309,7 @@ function deliverBroadcastLocal(channel, event, data, tenantId) {
     if (!tenantMatches(meta.tenantId, tenantId)) continue;
     // Skip slow clients to prevent memory buildup (1MB buffer cap).
     if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+      recordWsBroadcastDropped('backpressure');
       logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
       continue;
     }
@@ -325,6 +327,7 @@ function deliverUserLocal(userId, event, data, tenantId) {
     const meta = socketMeta.get(ws);
     if (!tenantMatches(meta?.tenantId, tenantId)) continue;
     if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+      recordWsBroadcastDropped('backpressure');
       logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
       continue;
     }
@@ -375,6 +378,7 @@ export function broadcast(channel, data, opts = {}) {
   const tenantId = resolveTenantId(opts.tenantId);
   const published = fanout.publishBroadcast(channel, channel, data, tenantId);
   if (!published) {
+    recordWsBroadcastDropped('fanout_local_fallback');
     // Redis down / not configured — deliver locally so single-process dev and
     // degraded prod still work.
     deliverBroadcastLocal(channel, channel, data, tenantId);
@@ -396,6 +400,7 @@ export function sendToUser(userId, event, data, opts = {}) {
   const tenantId = resolveTenantId(opts.tenantId);
   const published = fanout.publishUser(userId, event, data, tenantId);
   if (!published) {
+    recordWsBroadcastDropped('fanout_local_fallback');
     deliverUserLocal(String(userId), event, data, tenantId);
   }
 }

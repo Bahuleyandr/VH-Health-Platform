@@ -55,6 +55,7 @@
 // Do not represent this as guaranteed delivery.
 
 import logger from '../../logging/logger.js';
+import { recordWsFanoutSubscriberError } from '../../observability/reliabilityMetrics.js';
 
 const BROADCAST_PREFIX = 'ws:broadcast:';
 const USER_PREFIX = 'ws:user:';
@@ -149,7 +150,10 @@ export function createWsFanout() {
     // Re-assert the pattern subscription after any reconnect (Sentinel failover,
     // transient drop). ioredis emits 'ready' on (re)connect.
     sub.on?.('ready', doSubscribe);
-    sub.on?.('error', (err) => logger.error('WS fan-out subscriber error:', err?.message || err));
+    sub.on?.('error', (err) => {
+      recordWsFanoutSubscriberError();
+      logger.error('WS fan-out subscriber error:', err?.message || err);
+    });
 
     doSubscribe();
     enabled = true;
