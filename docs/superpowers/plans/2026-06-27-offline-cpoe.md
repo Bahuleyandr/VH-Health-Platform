@@ -64,11 +64,12 @@ const API_KEY = process.env.API_KEY || 'test-api-key';
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
+const TENANT_ID = '00000000-0000-4000-8000-000000000001'; // platform default tenant
 const PATIENT_UID = 'c0de0002-0001-4c0d-8c0d-c0de00020001';
 const DOCTOR_UID = 'c0de0002-0002-4c0d-8c0d-c0de00020002';
 
 function doctor() {
-  const t = generateTestToken('DOCTOR', { uid: DOCTOR_UID, id: 880771, deviceType: 'desktop' });
+  const t = generateTestToken('DOCTOR', { uid: DOCTOR_UID, id: 880771, deviceType: 'desktop', tenant_id: TENANT_ID });
   const h = (r) => r.set('x-api-key', API_KEY).set('Authorization', `Bearer ${t}`);
   return { post: (p) => h(request(app).post(p)) };
 }
@@ -93,6 +94,7 @@ async function clean() {
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'clinical_orders'`,
     `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid AND resource_table = 'clinical_orders'`,
     `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`,
+    `DELETE FROM admissions WHERE patient_uid = $1::uuid`,
   ]) await prisma.$executeRawUnsafe(sql, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
@@ -102,10 +104,17 @@ d('CPOE order-create idempotency (POST /emr/orders required:true)', () => {
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at) VALUES
-        ($1::uuid,'9320000021','CPOE Idem Patient','PATIENT',true,NOW()),
-        ($2::uuid,'9320000022','CPOE Idem Doctor','DOCTOR',true,NOW())`,
-      PATIENT_UID, DOCTOR_UID);
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at) VALUES
+        ($1::uuid,'9320000021','CPOE Idem Patient','PATIENT',true,$3::uuid,NOW()),
+        ($2::uuid,'9320000022','CPOE Idem Doctor','DOCTOR',true,$3::uuid,NOW())`,
+      PATIENT_UID, DOCTOR_UID, TENANT_ID);
+    // guardClinicalOrderWrite requires a doctor↔patient relationship; an active
+    // admission with this doctor as attending satisfies findAdmissionRelationship
+    // (accessDecisionService.js). Columns mirror careteam-abac-shadow.deep.test.js.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions (patient_uid, tenant_id, admitting_doctor, attending_doctor, status, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $3::uuid, 'ADMITTED', NOW(), NOW())`,
+      PATIENT_UID, TENANT_ID, DOCTOR_UID);
   }, 60000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 60000);
   beforeEach(async () => {
