@@ -358,7 +358,7 @@ router.post('/mar/:id/administer-with-scan',
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { scanned_patient_uid, scanned_barcode, override_reason } = req.body;
+      const { scanned_patient_uid, scanned_barcode, override_reason, administered_at } = req.body;
       const record = await marFiveRightsService.administerWithScan({
         ma_id: parseInt(id, 10),
         scanned_patient_uid,
@@ -366,6 +366,7 @@ router.post('/mar/:id/administer-with-scan',
         administeredBy: req.user.uid,
         overrideReason: override_reason && override_reason.trim().length >= 5 ? override_reason.trim() : null,
         tenantId: req.tenantId,
+        administeredAt: administered_at || null,
       });
       return success(res, record, 'Medication administration recorded');
     } catch (err) {
