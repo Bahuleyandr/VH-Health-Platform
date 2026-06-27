@@ -80,6 +80,48 @@ DRAIN (reconnect): ConnectivitySyncService re-sends with the stable idempotency 
 - **Unit 4 (backend):** a deep test on the QA cluster — `administer-with-scan` with a past `administered_at` records that time + evaluates time-right against it (not NOW); a re-send 409s without a second `administered` row (the DB guard); a future/absurd `administered_at` is rejected.
 - **Honest boundary:** the true offline→reconnect→drain round-trip on a real device is **manual** (no emulated airplane-mode in CI; deploy HELD). The Dart tests cover the client logic with a mocked seam; the backend test covers the server change. The spec/PR document the manual device recipe and claim nothing more.
 
+### Manual device-verification recipe (honest boundary — NOT automatable)
+
+This round-trip cannot be unit-tested: there is no emulated airplane-mode in
+CI, and the deploy is HELD, so the steps below are run **by hand** on a real
+emulator/device against a live backend. The automated tests already cover every
+*deterministic* piece (client 5-rights / Unit 2, due-dose cache / Unit 1,
+offline-administer intent + body incl. `administered_at` / Unit 3, the
+MAR conflict-row clinical copy + confirm-on-discard / Unit 5, and the backend
+`administered_at` accommodation + dedup / Unit 4). What's left to eyeball is
+only the airplane-mode → reconnect → drain seam between them.
+
+**Happy path (offline administer → drain → recorded):**
+1. Boot an Android emulator (or a device) and log into the STAFF app online.
+2. Open a patient's MAR while still **online** — this primes Unit 1's
+   encrypted due-dose cache (the screen shows the "cached Ns ago" note).
+3. Put the device in **airplane mode** (offline).
+4. Scan + administer a due dose. The client-side 5-rights runs (Unit 2);
+   on pass, expect **"Recorded — pending sync"** (distinct from the online
+   "Recorded ✓") and the `OfflineSyncBadge` shows the write **queued**.
+5. Turn airplane mode **off** (online). On reconnect `ConnectivitySyncService`
+   auto-drains the queue; the badge clears and the administration appears on the
+   server-side MAR with the **bedside** `administered_at` (not the drain time).
+
+**Conflict path (server rejects on drain → clinical conflict for review):**
+1. Steps 1–4 above, but BEFORE reconnecting, **discontinue the order**
+   server-side (admin/another nurse) so the queued administer is no longer
+   valid.
+2. Reconnect. The drain re-sends; the server returns 409/422 and the write is
+   marked a conflict.
+3. Open the `SyncStatusSheet` from the badge. Confirm the MAR conflict shows the
+   **clinical copy** — "Administration not recorded on the server — review
+   needed. <reason>. The medication was given offline." — and that tapping
+   **Discard** raises the **confirmation dialog** ("Discard this administration
+   record? The medication was given but will NOT be recorded.") before anything
+   is removed. Retry re-queues without a dialog. The DB unique index
+   (`uniq_mar_administered_dose`) guarantees no double-charting even if the same
+   write drains more than once.
+
+State honestly: only the airplane-mode/drain seam is manual; the client logic
+(5-rights, cache, offline-administer intent, conflict-row UX) and the backend
+`administered_at` behaviour are covered by the automated suites above.
+
 ## Out of scope / follow-ups (later slices)
 
 - Drug-chart / CPOE orders (`POST /emr/orders`) and e-Rx (`POST /prescriptions/create`) — reuse Units 1/3/5, but each is a POST-create with **optional** idempotency, so before going offline their middleware should flip to `required: true` (defense-in-depth; the queue already sends the key). Their own slices.
