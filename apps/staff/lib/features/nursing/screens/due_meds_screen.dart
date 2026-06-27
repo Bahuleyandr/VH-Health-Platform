@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/mar_offline_cache.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -57,11 +58,34 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       final rows = await MedicalApiService.getDueMedications();
       if (!mounted) return;
       setState(() => _rows = rows);
+      // Prime the offline MAR cache: a successful fetch means we are online, so
+      // snapshot each patient's due doses now. Without this the bedside flow has
+      // nothing to verify against when connectivity later drops (offline MAR is
+      // inert without a populated cache). Best-effort — never blocks the list.
+      await _primeOfflineCache(rows);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Group the due-meds rows by patient and cache each patient's doses so the
+  /// MAR scan flow can run the 5-rights check offline (MarOfflineCache).
+  Future<void> _primeOfflineCache(List<Map<String, dynamic>> rows) async {
+    final byPatient = <String, List<Map<String, dynamic>>>{};
+    for (final r in rows) {
+      final uid = r['patient_uid'] as String?;
+      if (uid == null || uid.isEmpty) continue;
+      (byPatient[uid] ??= []).add(r);
+    }
+    for (final entry in byPatient.entries) {
+      try {
+        await MarOfflineCache.cacheDueDoses(entry.key, entry.value);
+      } catch (_) {
+        // best-effort priming; a cache-write failure must never block the UI.
+      }
     }
   }
 
