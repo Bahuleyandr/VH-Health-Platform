@@ -337,25 +337,37 @@ class ConflictRow extends StatelessWidget {
   static bool _isOrderConflict(String endpoint) =>
       endpoint.contains('/emr/orders');
 
+  /// True for a queued e-PRESCRIPTION create (`/prescriptions/`). Discarding one means a
+  /// prescription the clinician composed was never recorded — clinical framing + confirm.
+  static bool _isPrescriptionConflict(String endpoint) =>
+      endpoint.contains('/prescriptions/');
+
   Future<void> _handleDiscard(BuildContext context, String endpoint) async {
     final isMar = _isMarConflict(endpoint);
     final isOrder = _isOrderConflict(endpoint);
-    if (!isMar && !isOrder) {
+    final isRx = _isPrescriptionConflict(endpoint);
+    if (!isMar && !isOrder && !isRx) {
       onDiscard();
       return;
+    }
+    final String title;
+    final String message;
+    if (isRx) {
+      title = 'Discard prescription?';
+      message = 'Discard this prescription? It was NOT recorded on the server.';
+    } else if (isOrder) {
+      title = 'Discard medication order?';
+      message = 'Discard this medication order? It was NOT placed on the server.';
+    } else {
+      title = 'Discard administration record?';
+      message = 'Discard this administration record? The medication was given but '
+          'will NOT be recorded.';
     }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text(
-          isOrder ? 'Discard medication order?' : 'Discard administration record?',
-        ),
-        content: Text(
-          isOrder
-              ? 'Discard this medication order? It was NOT placed on the server.'
-              : 'Discard this administration record? The medication was given but '
-                  'will NOT be recorded.',
-        ),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogCtx).pop(false),
@@ -383,6 +395,7 @@ class ConflictRow extends StatelessWidget {
     final reason = conflict['conflict_reason'] as String? ?? 'Conflict';
     final isMar = _isMarConflict(endpoint);
     final isOrder = _isOrderConflict(endpoint);
+    final isRx = _isPrescriptionConflict(endpoint);
     final createdAt = conflict['created_at'] as int?;
     final createdLabel = createdAt != null
         ? DateFormat(
@@ -393,6 +406,7 @@ class ConflictRow extends StatelessWidget {
     // For a MAR conflict the drug was physically given offline; surface a
     // clinically-clear, review-needed message instead of the bare reason.
     // For an order conflict the ordered drug was never placed on the server.
+    // For a prescription conflict the prescription was never recorded on the server.
     final reasonWidget = isMar
         ? Text(
             'Administration not recorded on the server — review needed. '
@@ -410,12 +424,20 @@ class ConflictRow extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               )
-            : Text(
-                reason,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.red.shade700,
-                ),
-              );
+            : isRx
+                ? Text(
+                    'Prescription not recorded on the server — review needed. $reason.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                : Text(
+                    reason,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.red.shade700,
+                    ),
+                  );
 
     return Card(
       elevation: 0,
