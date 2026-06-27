@@ -28,6 +28,7 @@ import { runMigrations } from '../utils/migrations/runMigrations.js';
 import { runAllScheduledTasksNow, stopAllScheduledTasks } from '../utils/scheduler.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
 import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
+import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 
 
 
@@ -188,6 +189,11 @@ async function onListening() {
   }
 }
 
+// Timer handle for the reliability metrics collector (set after server.listen).
+// Box wrapper keeps ESLint prefer-const happy while allowing the timer to be
+// set after listen() and cleared in the pre-existing gracefulShutdown closure.
+const reliabilityMetricsBox = { timer: null };
+
 // Graceful shutdown
 function gracefulShutdown(signal) {
   logger.info(`${signal} received. Starting graceful shutdown...`);
@@ -198,6 +204,7 @@ function gracefulShutdown(signal) {
     // shutdown never stops crons"). .stop() prevents future invocations; any
     // in-flight tick finishes against the still-open pool below.
     try {
+      clearInterval(reliabilityMetricsBox.timer);
       stopAllScheduledTasks();
     } catch (err) {
       logger.error('Error stopping scheduled tasks:', err.message);
@@ -253,5 +260,13 @@ process.on('unhandledRejection', (reason, promise) => {
 server.on('error', onError);
 server.on('listening', onListening);
 server.listen(PORT);
+
+// Reliability metrics collector — refresh DB-derived gauges every 20s. unref()
+// so it never holds the event loop open during graceful shutdown. Runs per-pod
+// (each reports its own view of the global gauges; alerts collapse with max()).
+const RELIABILITY_METRICS_INTERVAL_MS = 20_000;
+collectReliabilityMetrics(); // prime immediately so the first scrape isn't empty
+reliabilityMetricsBox.timer = setInterval(collectReliabilityMetrics, RELIABILITY_METRICS_INTERVAL_MS);
+reliabilityMetricsBox.timer.unref();
 
 export default server;

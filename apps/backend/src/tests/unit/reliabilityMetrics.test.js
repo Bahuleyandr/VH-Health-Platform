@@ -40,6 +40,26 @@ describe('reliabilityMetrics serialization', () => {
   });
 });
 
+import request from 'supertest';
+describe('metrics route composition', () => {
+  it('GET /metrics includes both RED and reliability sections', async () => {
+    // requireProductionMonitoringAccess always requires a token (fails closed in all envs).
+    // Set a test token before importing the app so the gate lets the request through.
+    const TEST_MONITORING_TOKEN = 'test-monitoring-token';
+    process.env.MONITORING_TOKEN = TEST_MONITORING_TOKEN;
+
+    const app = (await import('../../app.js')).default;
+    const res = await request(app)
+      .get('/metrics')
+      .set('x-monitoring-token', TEST_MONITORING_TOKEN)
+      .set('x-api-key', process.env.API_KEY || 'test-api-key');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('http_requests_total');
+    expect(res.text).toContain('# TYPE event_outbox_pending_rows gauge');
+    expect(res.text).toContain('# TYPE ws_broadcast_dropped_total counter');
+  }, 30_000);
+});
+
 import { jest } from '@jest/globals';
 
 describe('collectReliabilityMetrics tolerance', () => {
