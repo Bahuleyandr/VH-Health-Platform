@@ -389,7 +389,7 @@ describeJourney('Journey: surgical-day-care', () => {
 
   describe('Step 6 — surgeon places a post-op order', () => {
     it('creates a post-op medication order and writes the canonical order triple', async () => {
-      const res = await surgeon.post('/api/v1/emr/orders').send({
+      const res = await surgeon.post('/api/v1/emr/orders').set('Idempotency-Key', `surgical-daycare-order-mox-${Date.now()}`).send({
         patient_uid: PATIENT_UID,
         order_type: 'medication',
         priority: 'routine',

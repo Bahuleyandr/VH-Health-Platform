@@ -271,7 +271,7 @@ describeJourney('Journey: pediatric-opd', () => {
 
   describe('Step 4 — doctor places a weight-based medication order', () => {
     it('refuses a medication order from a nurse (prescriber RBAC)', async () => {
-      const res = await nurse.post('/api/v1/emr/orders').send({
+      const res = await nurse.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-nurse-order-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'medication',
         priority: 'routine',
@@ -291,7 +291,7 @@ describeJourney('Journey: pediatric-opd', () => {
       // = 150 mg/dose — within the 10-15 mg/kg therapeutic band and well under
       // the platform's paediatric per-dose ceiling (CDS hard-block), so the
       // order is clinically valid and passes the prescription-safety gate.
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-doctor-order-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'medication',
         priority: 'routine',

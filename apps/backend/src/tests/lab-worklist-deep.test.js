@@ -180,7 +180,7 @@ describe('Lab worklist + manual result validation — deep integration', () => {
 
   describe('GET /api/v1/lab/worklist', () => {
     it('materializes a STAT clinical lab order onto the lab worklist', async () => {
-      const res = await doctor.post('/api/v1/emr/orders').send({
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `lab-worklist-order-troponin-${Date.now()}`).send({
         patient_uid: PATIENT_ER_UID,
         er_visit_id: null,
         order_type: 'lab',

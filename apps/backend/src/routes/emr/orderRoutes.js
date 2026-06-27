@@ -149,7 +149,7 @@ function resolveOrderDetails(body) {
 // POST /emr/orders — Create a clinical order
 // ===================================================================
 
-router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order' }), guardClinicalOrderWrite, async (req, res, next) => {
+router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ required: true, scope: 'clinical_order' }), guardClinicalOrderWrite, async (req, res, next) => {
   try {
     const {
       encounter_id, er_visit_id, patient_uid, order_type, priority,
