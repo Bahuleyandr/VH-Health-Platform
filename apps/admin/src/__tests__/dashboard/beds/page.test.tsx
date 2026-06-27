@@ -9,6 +9,16 @@ jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
 }));
 
+const mockRealtime = jest.fn(() => ({
+  connected: false,
+  subscribed: false,
+  denied: null,
+  lastEventAt: null,
+}));
+jest.mock("@/hooks/useRealtimeInvalidation", () => ({
+  useRealtimeInvalidation: (...args: unknown[]) => mockRealtime(...args),
+}));
+
 const mockedFetchAdminAPI = fetchAdminAPI as jest.MockedFunction<typeof fetchAdminAPI>;
 
 function renderWithQuery(ui: ReactElement) {
@@ -21,6 +31,7 @@ function renderWithQuery(ui: ReactElement) {
 describe("<BedsPage />", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRealtime.mockReturnValue({ connected: false, subscribed: false, denied: null, lastEventAt: null });
 
     mockedFetchAdminAPI.mockImplementation(async (endpoint, init) => {
       if (!init && endpoint === "/beds") {
@@ -199,5 +210,19 @@ describe("<BedsPage />", () => {
     } finally {
       promptSpy.mockRestore();
     }
+  });
+
+  it("shows ○ Polling when the realtime subscription is not live", async () => {
+    renderWithQuery(<BedsPage />);
+    const ind = await screen.findByTestId("beds-realtime-indicator");
+    expect(ind).toHaveTextContent("Polling");
+    expect(mockRealtime).toHaveBeenCalledWith("admin:beds", [["beds"]]);
+  });
+
+  it("shows ● Live when subscribed", async () => {
+    mockRealtime.mockReturnValue({ connected: true, subscribed: true, denied: null, lastEventAt: Date.now() });
+    renderWithQuery(<BedsPage />);
+    const ind = await screen.findByTestId("beds-realtime-indicator");
+    expect(ind).toHaveTextContent("Live");
   });
 });
