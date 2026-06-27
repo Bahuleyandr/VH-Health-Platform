@@ -25,13 +25,13 @@ Map<String, dynamic> buildPrescriptionBody({
   return {
     'patient_id': patientId,
     'doctor_id': doctorId,
-    if (appointmentId != null) 'appointment_id': appointmentId,
+    'appointment_id': ?appointmentId,
     'diagnosis': diagnosis,
     'clinical_notes': clinicalNotes,
     'medications': medications,
-    if (followUpDate != null) 'follow_up_date': followUpDate,
+    'follow_up_date': ?followUpDate,
     if (followUpNotes != null && followUpNotes.isNotEmpty) 'follow_up_notes': followUpNotes,
-    if (override != null) 'override': override,
-    if (vitals != null) 'vitals': vitals,
+    'override': ?override,
+    'vitals': ?vitals,
   };
 }
