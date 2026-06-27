@@ -696,4 +696,49 @@ describe("middleware — CSP header (M9)", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps 'unsafe-eval' in script-src in development (Next HMR needs it)", async () => {
+    (process.env as Record<string, string>).NODE_ENV = "development";
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard", token);
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const scriptSrc = (cspCall![1] as string)
+      .split(";")
+      .find((d: string) => d.trim().startsWith("script-src"))!;
+    expect(scriptSrc).toContain("'unsafe-eval'");
+  });
+
+  it("DROPS 'unsafe-eval' from script-src in production (M-ADM-2)", async () => {
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    process.env.ADMIN_IP_ALLOWLIST = "203.0.113.0/24";
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard", token, {
+      headers: { "x-forwarded-for": "203.0.113.10" },
+    });
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    const scriptSrc = (cspCall![1] as string)
+      .split(";")
+      .find((d: string) => d.trim().startsWith("script-src"))!;
+    // The hardening: prod CSP no longer permits eval (Sentry/workbox/app are eval-free).
+    expect(scriptSrc).not.toContain("unsafe-eval");
+    // The nonce + strict-dynamic XSS backstop stays intact.
+    expect(scriptSrc).toContain("'strict-dynamic'");
+    expect(scriptSrc).toContain("'nonce-");
+  });
 });
