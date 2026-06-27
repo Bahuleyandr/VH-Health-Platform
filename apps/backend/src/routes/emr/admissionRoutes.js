@@ -803,7 +803,8 @@ router.put(
       admissionId,
       discharge_summary,
       req.user?.uid,
-      role
+      role,
+      req.tenantId
     );
 
     success(res, result, `Discharge summary ${result.action} (still a draft — requires doctor signature)`);

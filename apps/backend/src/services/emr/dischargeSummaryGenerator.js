@@ -1087,7 +1087,7 @@ export async function generateDischargeSummary(admissionId, requestedBy, req) {
   return summary;
 }
 
-export async function saveDischargeSummary(admissionId, summary, savedBy, savedByRole) {
+export async function saveDischargeSummary(admissionId, summary, savedBy, savedByRole, tenantId = null) {
   if (!savedBy) throw AppError.badRequest('savedBy is required');
   if (!savedByRole) throw AppError.badRequest('savedByRole is required');
   if (!summary || typeof summary !== 'object') throw AppError.badRequest('summary is required');
@@ -1106,88 +1106,104 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
     reviewed_at: new Date().toISOString(),
   };
 
-  // Match the pre-ORM ORDER BY version DESC, id DESC LIMIT 1.
-  const existing = await prisma.clinical_notes.findFirst({
-    where: {
-      encounter_id: admission.encounter_id,
-      note_type: 'discharge',
-      is_addendum: false,
-    },
-    select: DISCHARGE_NOTE_SELECT,
-    orderBy: [{ version: 'desc' }, { id: 'desc' }],
-  });
+  // The existing-draft read, the create/update, the ai-generation status bump,
+  // the first-edit denormalize, and the outbox publish all run in ONE
+  // tenant-scoped tx (mirrors signDischargeSummary). A2 (audit): a saved draft
+  // summary is a canonical-timeline event (efficiency dashboards, T1 first-edit)
+  // downstream consumers key off — write the outbox row INSIDE this tx (on `tx`,
+  // explicit tenantId) so it is atomic with the note write. publishEvent
+  // re-throws inside a tx → an outbox failure rolls the save back (no orphaned
+  // draft, no lost event). The explicit tenantId also scopes the new draft to
+  // the admission's tenant rather than the GUC-default literal.
+  const result = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    // Match the pre-ORM ORDER BY version DESC, id DESC LIMIT 1.
+    const existing = await tx.clinical_notes.findFirst({
+      where: {
+        encounter_id: admission.encounter_id,
+        note_type: 'discharge',
+        is_addendum: false,
+      },
+      select: DISCHARGE_NOTE_SELECT,
+      orderBy: [{ version: 'desc' }, { id: 'desc' }],
+    });
 
-  let result;
-  if (existing) {
-    if (existing.is_signed) {
-      throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
+    let saved;
+    if (existing) {
+      if (existing.is_signed) {
+        throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
+      }
+
+      const updated = await tx.clinical_notes.update({
+        where: { id: existing.id },
+        data: {
+          content,
+          version: { increment: 1 },
+          ai_generation_id: content.draft_generation_id || null,
+          updated_at: new Date(),
+        },
+        select: { id: true },
+      });
+      saved = { noteId: updated.id, action: 'updated' };
+    } else {
+      const created = await tx.clinical_notes.create({
+        data: {
+          encounter_id: admission.encounter_id,
+          patient_uid: admission.patient_uid,
+          author_uid: savedBy,
+          author_role: savedByRole,
+          note_type: 'discharge',
+          title: 'Draft discharge summary',
+          content,
+          version: 1,
+          is_addendum: false,
+          is_signed: false,
+          ai_generation_id: content.draft_generation_id || null,
+        },
+        select: { id: true },
+      });
+      saved = { noteId: created.id, action: 'created' };
     }
 
-    const updated = await prisma.clinical_notes.update({
-      where: { id: existing.id },
-      data: {
-        content,
-        version: { increment: 1 },
-        ai_generation_id: content.draft_generation_id || null,
-        updated_at: new Date(),
-      },
-      select: { id: true },
-    });
-    result = { noteId: updated.id, action: 'updated' };
-  } else {
-    const created = await prisma.clinical_notes.create({
-      data: {
-        encounter_id: admission.encounter_id,
-        patient_uid: admission.patient_uid,
-        author_uid: savedBy,
-        author_role: savedByRole,
-        note_type: 'discharge',
-        title: 'Draft discharge summary',
-        content,
-        version: 1,
-        is_addendum: false,
-        is_signed: false,
-        ai_generation_id: content.draft_generation_id || null,
-      },
-      select: { id: true },
-    });
-    result = { noteId: created.id, action: 'created' };
-  }
+    if (content.draft_generation_id) {
+      await tx.clinical_ai_generations.update({
+        where: { id: content.draft_generation_id },
+        data: {
+          draft: content,
+          reviewed_by: savedBy,
+          status: 'reviewed',
+          updated_at: new Date(),
+        },
+      });
+    }
 
-  if (content.draft_generation_id) {
-    await prisma.clinical_ai_generations.update({
-      where: { id: content.draft_generation_id },
-      data: {
-        draft: content,
-        reviewed_by: savedBy,
-        status: 'reviewed',
-        updated_at: new Date(),
+    // Denormalize first-edit timestamp on the admission (T1) — only stamp
+    // if not already set. Lets efficiency dashboards compute T1−T0 without
+    // joining clinical_notes. Migration 173. Best-effort (updateMany is a
+    // no-op, not a throw, when the row is absent or already stamped).
+    try {
+      await tx.admissions.updateMany({
+        where: { id: admissionId, summary_first_edit_at: null },
+        data: { summary_first_edit_at: new Date(), updated_at: new Date() },
+      });
+    } catch (e) {
+      logger.warn(`saveDischargeSummary: failed to denormalize summary_first_edit_at on admission ${admissionId}: ${e.message}`);
+    }
+
+    await publishEvent({
+      eventType: 'clinical_document.discharge_summary.saved',
+      aggregateType: 'clinical_note',
+      aggregateId: saved.noteId,
+      patientUid: admission.patient_uid,
+      payload: {
+        admission_id: admissionId,
+        action: saved.action,
+        generation_id: content.draft_generation_id || null,
       },
+      tx,
+      tenantId: requireTenantId(tenantId),
     });
-  }
 
-  // Denormalize first-edit timestamp on the admission (T1) — only stamp
-  // if not already set. Lets efficiency dashboards compute T1−T0 without
-  // joining clinical_notes. Migration 173. Best-effort.
-  try {
-    await prisma.admissions.updateMany({
-      where: { id: admissionId, summary_first_edit_at: null },
-      data: { summary_first_edit_at: new Date(), updated_at: new Date() },
-    });
-  } catch (e) {
-    logger.warn(`saveDischargeSummary: failed to denormalize summary_first_edit_at on admission ${admissionId}: ${e.message}`);
-  }
-
-  await publishEvent({
-    eventType: 'clinical_document.discharge_summary.saved',
-    aggregateType: 'clinical_note',
-    aggregateId: result.noteId,
-    patientUid: admission.patient_uid,
-    payload: {
-      admission_id: admissionId,
-      action: result.action,
-      generation_id: content.draft_generation_id || null,
-    },
+    return saved;
   });
 
   return result;

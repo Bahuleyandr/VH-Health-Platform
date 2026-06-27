@@ -1853,7 +1853,10 @@ export const schemas = {
       admission_id: { type: 'integer', nullable: true },
       patient_uid: { type: 'string', format: 'uuid' },
       patient_name: { type: 'string', nullable: true },
-      overall_score: { type: 'number', nullable: true },
+      // `clinical_longitudinal_risk.overall_score` is NUMERIC(5,2) NOT NULL
+      // (migration 018) and the route projects the column directly, so it is
+      // never null — keep the spec tight (it is also in `required` above).
+      overall_score: { type: 'number' },
       band: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
       adherence_score: { type: 'number', nullable: true },
       adherence_source: { type: 'string', nullable: true },
