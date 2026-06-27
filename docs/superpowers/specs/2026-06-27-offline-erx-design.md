@@ -88,10 +88,17 @@ screen.
    prescription stays online-only (rare; noted, not built). E-sign / pharmacy-order / PDF /
    follow-up-booking are post-drain online steps, out of scope. The multi-item array is
    atomic per the server (all-or-nothing) — no per-item handling.
-6. **Idempotency flip scoped to `POST /prescriptions/create`** → `required:true`. Safe:
-   the staff app auto-mints a stable `Idempotency-Key` via `VHHttpClient` on every POST.
-   The backend task verifies blast radius (other callers) + backfills any keyless
-   `/prescriptions/create` test, exactly as CPOE-T1 did.
+6. **No backend idempotency flip** (revised during plan-writing after the blast-radius
+   check). The route stays `required:false`. Offline dedup is already guaranteed: the
+   offline queue always sends a stable per-row `Idempotency-Key`, and the idempotency
+   middleware dedups any *keyed* request regardless of the `required` flag (the flag only
+   governs the *missing*-key case). Flipping to `required:true` is unnecessary for offline
+   safety AND would 400 the online handwritten-photo path — `VHHttpClient.multipart`
+   ([http_client.dart](../../packages/vhhealth_core/lib/services/http_client.dart)) sends
+   no `Idempotency-Key` (unlike `post/put/patch`). So the backend task is a **regression
+   deep test only** (no route change, no test backfills) proving keyed-replay → one
+   `e_prescriptions` row. The pre-existing online photo keyless-dup gap (multipart sends no
+   key) is a documented follow-on, out of scope.
 
 ## 4. Architecture
 
@@ -102,18 +109,18 @@ shared pure builder so the offline request is byte-identical to the online one.
 
 ## 5. Components / files
 
-### 5.1 Backend (1 line + test)
+### 5.1 Backend (regression test only — NO code change)
 
-- **Modify** `apps/backend/src/routes/prescription/index.js` — `POST /prescriptions/create`
-  → `requireIdempotencyKey({ required: true, scope: 'prescription_create' })`. Leave
-  `/prescriptions/:id/order-pharmacy`, `/prescriptions/:id/refill`, `/prescriptions/:id/sign`
-  unchanged.
-- **Test** (deep, QA cluster): same prescription + same `Idempotency-Key` → exactly one
-  `e_prescriptions` row + replayed response; missing key → 400. **No relationship seed
-  needed** (the route has no `guardClinical*` guard) — seed a PATIENT + a DOCTOR user under
-  the default tenant; mint a `deviceType:'desktop'` doctor token (passes
-  `rejectMobileClinicalWrite`). A no-allergy patient → CDS passes → 201. Backfill a
-  run-unique key on any existing test that POSTs `/prescriptions/create` keyless.
+- **No route change.** `POST /prescriptions/create` stays `requireIdempotencyKey({
+  required: false })` (see decision 6).
+- **Test** (deep, QA cluster): prove the offline-safety property under the EXISTING
+  `required:false` — same prescription body + same `Idempotency-Key` sent twice → exactly
+  one `e_prescriptions` row + replayed response (the offline drain always sends a key, so
+  this is what protects a redrain from duplicating). **No relationship seed needed** (the
+  route has no `guardClinical*` guard) — seed a PATIENT + a DOCTOR user under the default
+  tenant `00000000-0000-4000-8000-000000000001`; mint a `deviceType:'desktop'` doctor token
+  (passes `rejectMobileClinicalWrite`). A no-allergy patient → CDS passes → 201. (No keyless
+  → 400 case, since `required` stays false; no existing-test backfills needed.)
 
 ### 5.2 Shared core (`packages/vhhealth_core`)
 
@@ -128,15 +135,17 @@ shared pure builder so the offline request is byte-identical to the online one.
 
 - **Create** `lib/core/services/prescription_payloads.dart` (pure, no Flutter imports) —
   `Map<String,dynamic> buildPrescriptionBody({ required int patientId, required int doctorId,
-  int? appointmentId, int? admissionId, String visitType='outpatient', String? diagnosis,
-  String? clinicalNotes, required List<Map<String,dynamic>> medications, String? followUpDate,
-  String? followUpNotes, Map<String,dynamic>? vitals, Map<String,dynamic>? override })`.
-  Returns the canonical `/prescriptions/create` body (optionals omitted when null;
-  `medications` passed through). **It must reproduce the screen's CURRENT inline body
-  exactly** (all fields it sends today, incl. `vitals` and `override`) — the exact field
-  set is pinned during plan-writing from `_submit` (~lines 918-934). The online `_submit`
-  path is refactored to call this builder too, so the online request is unchanged and the
-  offline request is byte-identical by construction.
+  int? appointmentId, required String diagnosis, String? clinicalNotes,
+  required List<Map<String,dynamic>> medications, String? followUpDate, String? followUpNotes,
+  Map<String,dynamic>? override, Map<String,dynamic>? vitals })`. **Reproduces the screen's
+  CURRENT inline body EXACTLY** (`_submit` ~lines 918-934): `patient_id`, `doctor_id`,
+  `appointment_id` (omit-if-null), `diagnosis` (always present, may be empty),
+  `clinical_notes` (always-present key, value null when empty), `medications`, `follow_up_date`
+  (omit-if-null), `follow_up_notes` (omit-if-empty), `override` (omit-if-null), `vitals`
+  (add-if-non-null). **NOTE:** the screen does NOT send `admission_id` or `visit_type` (the
+  backend defaults `visit_type`) — the builder omits them too. The online `_submit` path is
+  refactored to call this builder, so the online request is unchanged and the offline request
+  is byte-identical by construction.
 - **Create** `lib/features/doctor/prescription_offline_rx.dart` (pure) —
   `class OfflineRxIntent { bool block; bool enqueue; String endpoint; Map<String,dynamic> body;
   String? reason; }` and `OfflineRxIntent buildOfflineRxIntent({ required String deviceType,
@@ -214,6 +223,10 @@ screen's online submit path aren't injectable) — same approach as MAR + CPOE. 
 - Offline pharmacy-order / PDF / follow-up-booking (post-drain online steps).
 - A richer conflict schema surfacing `blockers[]` detail (current copy uses the server
   message string — sufficient for review-only).
+- **Online handwritten-photo keyless-dup** — `VHHttpClient.multipart` sends no
+  `Idempotency-Key`, so an online photo-prescription double-submit can duplicate. Pre-
+  existing (not introduced by this slice); closing it needs a multipart-key change +
+  flipping the route to `required:true`. Documented follow-on.
 
 ## 10. Closeout (per standing workflow)
 
