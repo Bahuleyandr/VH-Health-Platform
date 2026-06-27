@@ -54,11 +54,16 @@ the ROADMAP's "missing alert tier" framing implies**:
    metrics finds nothing. `event_outbox` pending depth / oldest-pending age /
    dead-letter count, `notification_outbox` backlog, `webhook_deliveries`
    backlog/failures, and WS dropped-broadcast count are all invisible.
-2. **The "BEAM tripwire" is not measurable.** The deferred-BEAM decision rests on
-   "if code-blue/vitals broadcasts drop under Sentinel failover, that justifies
-   BEAM" — but there is no metric counting dropped broadcasts, so the tripwire
-   can never fire. A `ws_broadcast_dropped_total` counter + an alert is what makes
-   it real.
+2. **Lost real-time broadcasts are invisible.** The cross-process WS fan-out is
+   at-most-once (Redis pub/sub): a broadcast can be dropped under Redis Sentinel
+   failover, a Redis-down fallback, or the 1MB bufferedAmount backpressure guard.
+   For clinical real-time data (vitals, critical alerts) a silently dropped
+   broadcast is a reliability incident — but nothing counts them today. A
+   `ws_broadcast_dropped_total` counter + alert is justified **on its own** as a
+   WS-reliability signal. (Side note: the same data would also be the measured
+   evidence any *future* event-runtime/BEAM evaluation would need — but that
+   evaluation is **undecided**, and this build neither assumes nor depends on it.
+   No part of this slice ties to BEAM.)
 3. **Two exposed safety counters are unalerted.**
    `clinical_ai_deep_template_fallback_total` (a clinical-safety signal whose own
    code comment says "ops can alert per-module") and `db_undefined_table_fallback_total`
@@ -127,7 +132,7 @@ New `src/observability/reliabilityMetrics.js`:
 **Counters (incremented inline at the event site):**
 | Metric | Increment site |
 |---|---|
-| `ws_broadcast_dropped_total{reason}` | every drop path in `wsRedisAdapter`/`wsServer` (Redis-down fallback, 1MB bufferedAmount guard, at-most-once loss) — **the BEAM tripwire metric**; `reason` is a bounded low-cardinality label |
+| `ws_broadcast_dropped_total{reason}` | every drop path in `wsRedisAdapter`/`wsServer` (Redis-down fallback, 1MB bufferedAmount guard, at-most-once loss) — a standalone WS-reliability signal (lost real-time clinical broadcasts); `reason` is a bounded low-cardinality label |
 | `event_outbox_dead_lettered_total` | `eventOutboxService.markFailed` when a row crosses MAX_ATTEMPTS into the terminal state (rate-of-loss signal; complements the gauge's current-count) |
 
 **Collector:** `collectReliabilityMetrics()` runs the gauge queries in one batched
@@ -163,7 +168,7 @@ label, same shape as the existing files). Alert group `backend-reliability`:
 | `WebhookDeliveryBacklog` | `max(webhook_deliveries_pending_rows) > 200 for 15m` | warning |
 | `WebhookDeliveryFailures` | `max(webhook_deliveries_failed_rows) > 0 for 10m` | warning |
 | `NotificationOutboxBacklog` | `max(notification_outbox_pending_rows) > 500 for 15m` | warning |
-| `WsBroadcastDropsUnderFailover` | `sum(rate(ws_broadcast_dropped_total[5m])) > 0 for 5m` — **the BEAM tripwire**; annotation links the deferred-BEAM decision | critical |
+| `WsBroadcastDropsDetected` | `sum(rate(ws_broadcast_dropped_total[5m])) > 0 for 5m` — real-time clinical broadcasts (vitals/alerts) dropped under Redis failover or backpressure | critical |
 | `DbCircuitBreakerOpen` | `max(db_circuit_breaker_open) == 1 for 2m` | critical |
 | `ClinicalAiDeepTemplateFallback` | `increase(clinical_ai_deep_template_fallback_total[15m]) > 0` — per-`module` (clinicians got a template believing it was AI-assisted) | warning |
 | `DbUndefinedTableFallback` | `increase(db_undefined_table_fallback_total[15m]) > 0` (schema drift) | warning |
