@@ -16445,6 +16445,472 @@
       "LongitudinalRiskScoreData": {
         "$ref": "#/components/schemas/LongitudinalRiskScore"
       },
+      "MarAdministerRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "type": "string"
+          },
+          "witness_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "override_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "MarAdministerWithScanRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scanned_patient_uid",
+          "scanned_barcode"
+        ],
+        "properties": {
+          "scanned_patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scanned_barcode": {
+            "type": "string"
+          },
+          "override_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "MarDueItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "medication_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "dose": {
+            "type": "string",
+            "nullable": true
+          },
+          "dosage": {
+            "type": "string",
+            "nullable": true
+          },
+          "route": {
+            "type": "string",
+            "nullable": true
+          },
+          "scheduled_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "bed_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "ward_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ward_name": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "MarDueListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarDueItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MarFiveRights": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "patient",
+          "drug",
+          "dose",
+          "route",
+          "time"
+        ],
+        "properties": {
+          "patient": {
+            "type": "boolean"
+          },
+          "drug": {
+            "type": "boolean"
+          },
+          "dose": {
+            "type": "boolean"
+          },
+          "route": {
+            "type": "boolean"
+          },
+          "time": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MarHoldRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "MarMissRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "MarRecord": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prescription_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "medication_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "dose": {
+            "type": "string",
+            "nullable": true
+          },
+          "dosage": {
+            "type": "string",
+            "nullable": true
+          },
+          "route": {
+            "type": "string",
+            "nullable": true
+          },
+          "scheduled_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "administered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "administered_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "witness_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "override_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "hold_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "refusal_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "rights_passed": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "all_rights_passed": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "scanned_patient_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "scanned_barcode": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_scanned_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "medication_scanned_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MarRecordListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarRecord"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MarRecordResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MarRecord"
+          }
+        }
+      },
+      "MarScheduleRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "patient_uid"
+        ],
+        "properties": {
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prescription_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "medications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "MarVerifyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ma_id",
+          "scanned_patient_uid",
+          "scanned_barcode"
+        ],
+        "properties": {
+          "ma_id": {
+            "type": "integer"
+          },
+          "scanned_patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scanned_barcode": {
+            "type": "string"
+          }
+        }
+      },
+      "MarVerifyResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MarVerifyResult"
+          }
+        }
+      },
+      "MarVerifyResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ma",
+          "rights",
+          "allPassed",
+          "context"
+        ],
+        "properties": {
+          "ma": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "patient_uid": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "medication_name": {
+                "type": "string",
+                "nullable": true
+              },
+              "dose": {
+                "type": "string",
+                "nullable": true
+              },
+              "route": {
+                "type": "string",
+                "nullable": true
+              },
+              "scheduled_time": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "status": {
+                "type": "string"
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid",
+                "nullable": true
+              }
+            }
+          },
+          "rights": {
+            "$ref": "#/components/schemas/MarFiveRights"
+          },
+          "allPassed": {
+            "type": "boolean"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "MarkForDischargeData": {
         "type": "object",
         "additionalProperties": true,
@@ -55167,7 +55633,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarDueListResponse"
                 }
               }
             }
@@ -55184,7 +55650,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordListResponse"
                 }
               }
             }
@@ -55201,7 +55667,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordListResponse"
                 }
               }
             }
@@ -55228,8 +55694,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordListResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarScheduleRequest"
               }
             }
           }
@@ -55245,8 +55721,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarVerifyResponse"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarVerifyRequest"
               }
             }
           }
@@ -55262,7 +55748,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordResponse"
                 }
               }
             }
@@ -55277,7 +55763,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarAdministerRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/clinical/mar/{id}/administer-with-scan": {
@@ -55289,7 +55785,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordResponse"
                 }
               }
             }
@@ -55304,7 +55800,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarAdministerWithScanRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/clinical/mar/{id}/hold": {
@@ -55316,7 +55822,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordResponse"
                 }
               }
             }
@@ -55331,7 +55837,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarHoldRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/clinical/mar/{id}/miss": {
@@ -55343,7 +55859,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/MarRecordResponse"
                 }
               }
             }
@@ -55358,7 +55874,17 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarMissRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/clinical/news2/patient/{patientUid}": {
