@@ -56,6 +56,13 @@ jobs:
       - name: Validate rendered Kubernetes manifests
         run: node scripts/validate-kubernetes-manifests.mjs
 
+      - name: Validate monitoring rules + dashboards
+        run: |
+          PROM_VER=2.55.1
+          curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VER}/prometheus-${PROM_VER}.linux-amd64.tar.gz" | tar xz
+          sudo mv "prometheus-${PROM_VER}.linux-amd64/promtool" /usr/local/bin/
+          node infra/kubernetes/base/monitoring/validate-monitoring.mjs
+
       - name: Notify Discord on failure
         if: failure() && inputs.notify_on_failure
         env:
