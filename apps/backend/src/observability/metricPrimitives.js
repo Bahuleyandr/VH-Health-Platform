@@ -72,7 +72,8 @@ export class Counter {
     const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} counter`];
     for (const [, entry] of this.data) {
       const lblStr = this.labelNames.map((n) => `${n}="${entry.labels[n] || ''}"`).join(',');
-      lines.push(`${this.name}{${lblStr}} ${entry.value}`);
+      const lblPart = lblStr ? `{${lblStr}}` : '';
+      lines.push(`${this.name}${lblPart} ${entry.value}`);
     }
     return lines.join('\n');
   }
