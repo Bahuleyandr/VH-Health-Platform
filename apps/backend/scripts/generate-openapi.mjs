@@ -15,8 +15,9 @@ import * as discharge from './openapi/schemas/discharge.mjs';
 import * as payroll from './openapi/schemas/payroll.mjs';
 import * as emr from './openapi/schemas/emr.mjs';
 import * as clinicalAi from './openapi/schemas/clinicalAi.mjs';
+import * as clinicalMar from './openapi/schemas/clinicalMar.mjs';
 
-const SCHEMA_MODULES = [money, appointments, discharge, payroll, emr, clinicalAi];
+const SCHEMA_MODULES = [money, appointments, discharge, payroll, emr, clinicalAi, clinicalMar];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the
  * union of module schemas sorted by name. Errors on duplicate names so two modules

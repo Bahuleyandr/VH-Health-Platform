@@ -2080,6 +2080,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
       summary,
       requestedBy,
       normalizeRole(requestedByRole) || 'SYSTEM',
+      tenantId,
     );
     attendingDoctors = await buildAttendingDoctorsSnapshot(phase1.encounter_id);
 
