@@ -14,7 +14,13 @@ export const HOSPITAL_UPLOAD_CONFIG = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/plain', 'text/csv', 'text/rtf',
+    // NOTE: text/plain, text/csv, text/rtf are intentionally excluded (M-5).
+    // text/* skips magic-byte verification (validateMagicBytes relaxed clause)
+    // and is served inline from R2 signed URLs => an attacker-uploaded HTML
+    // payload labelled text/plain renders as a page (stored XSS). The clinical-AI
+    // document-intake routes (documentRoutes.js / knowledgeBaseRoutes.js) keep
+    // text/* for OCR via their OWN admin-only MIME allowlists — they do not use
+    // this global list, so removing it here does not affect them.
     // Medical specific formats
     'application/dicom', // DICOM medical imaging
     'application/hl7-v2+er7', // HL7 medical data exchange
