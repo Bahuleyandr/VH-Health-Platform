@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { bedsRefetchMs } from "./realtime";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { MetricCard } from "@/components/MetricCard";
@@ -105,6 +107,9 @@ export default function BedsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [wardFilter, setWardFilter] = useState<string>("");
 
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation("admin:beds", [["beds"]]);
+  const bedsPollMs = bedsRefetchMs(subscribed);
+
   const {
     data: occupancy,
     error: occErr,
@@ -115,7 +120,7 @@ export default function BedsPage() {
       const r = await fetchAdminAPI<unknown>("/beds/occupancy");
       return unwrap<OccupancySummary>(r);
     },
-    refetchInterval: 60_000,
+    refetchInterval: bedsPollMs,
   });
 
   const {
@@ -128,7 +133,7 @@ export default function BedsPage() {
       const r = await fetchAdminAPI<unknown>("/beds");
       return unwrapList<Bed>(r, "beds", "rows");
     },
-    refetchInterval: 60_000,
+    refetchInterval: bedsPollMs,
   });
 
   const {
@@ -141,7 +146,7 @@ export default function BedsPage() {
       const r = await fetchAdminAPI<unknown>("/wards");
       return unwrapList<Ward>(r, "wards", "rows");
     },
-    refetchInterval: 60_000,
+    refetchInterval: bedsPollMs,
   });
 
   function invalidateBedMaster() {
@@ -430,11 +435,29 @@ export default function BedsPage() {
     createBedMut.isPending ||
     deleteWardMut.isPending;
 
+  const liveLabel = subscribed ? "● Live" : "○ Polling";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via admin:beds — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via admin:beds"
+    : connected
+      ? "Connecting…"
+      : "Polling every 60s (real-time unavailable)";
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Bed Management</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-foreground">Bed Management</h1>
+            <span
+              data-testid="beds-realtime-indicator"
+              title={liveTitle}
+              className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+            >
+              {liveLabel}
+            </span>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             Occupancy grid + admit / discharge / transfer flow. Auto-refreshes
             every 60s.
