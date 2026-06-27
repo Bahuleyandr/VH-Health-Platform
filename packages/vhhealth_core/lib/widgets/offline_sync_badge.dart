@@ -247,7 +247,19 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                   return Column(
                     children: conflicts
                         .map(
-                          (c) => _ConflictTile(conflict: c, onChanged: _reload),
+                          (c) => ConflictRow(
+                            conflict: c,
+                            onDiscard: () async {
+                              await ConnectivitySyncService.instance
+                                  .discardConflict(c['id'] as int);
+                              _reload();
+                            },
+                            onRetry: () async {
+                              await ConnectivitySyncService.instance
+                                  .retryConflict(c['id'] as int);
+                              _reload();
+                            },
+                          ),
                         )
                         .toList(),
                   );
@@ -283,25 +295,105 @@ class _StatusRow extends StatelessWidget {
   }
 }
 
-class _ConflictTile extends StatelessWidget {
+/// A single conflicted offline-write row, with Discard / Retry actions.
+///
+/// Pure widget: it takes the conflict map plus [onDiscard] / [onRetry]
+/// callbacks, so it can be driven directly in tests without faking the
+/// `ConnectivitySyncService` singleton (a DB-backed [ChangeNotifier]).
+///
+/// MAR administrations (`endpoint` containing `/clinical/mar/`) get a
+/// clinically-framed message — the drug was PHYSICALLY given offline, so a
+/// server rejection is "not recorded on the server, review needed", never a
+/// silent drop — and **Discard is gated behind a confirmation dialog**
+/// (discarding a MAR conflict = an un-recorded administration of a drug that
+/// was actually given). Non-MAR conflicts keep the generic rendering and
+/// discard immediately.
+class ConflictRow extends StatelessWidget {
   final Map<String, dynamic> conflict;
-  final VoidCallback onChanged;
-  const _ConflictTile({required this.conflict, required this.onChanged});
+
+  /// Called when the user confirms discarding this conflicted write. For MAR
+  /// conflicts this fires only AFTER the confirmation dialog is accepted.
+  final VoidCallback onDiscard;
+
+  /// Called when the user retries this conflicted write.
+  final VoidCallback onRetry;
+
+  const ConflictRow({
+    super.key,
+    required this.conflict,
+    required this.onDiscard,
+    required this.onRetry,
+  });
+
+  /// True for a MAR administration write (a medication that was physically
+  /// given at the bedside). Such conflicts need clinical framing + a
+  /// confirm-on-discard guard.
+  static bool _isMarConflict(String endpoint) =>
+      endpoint.contains('/clinical/mar/');
+
+  Future<void> _handleDiscard(BuildContext context, String endpoint) async {
+    if (!_isMarConflict(endpoint)) {
+      onDiscard();
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Discard administration record?'),
+        content: const Text(
+          'Discard this administration record? The medication was given but '
+          'will NOT be recorded.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      onDiscard();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final id = conflict['id'] as int;
     final endpoint = conflict['endpoint'] as String? ?? '';
     final method = conflict['method'] as String? ?? '';
     final label = conflict['context_label'] as String? ?? endpoint;
     final reason = conflict['conflict_reason'] as String? ?? 'Conflict';
+    final isMar = _isMarConflict(endpoint);
     final createdAt = conflict['created_at'] as int?;
     final createdLabel = createdAt != null
         ? DateFormat(
             'dd MMM HH:mm',
           ).format(DateTime.fromMillisecondsSinceEpoch(createdAt))
         : '';
+
+    // For a MAR conflict the drug was physically given offline; surface a
+    // clinically-clear, review-needed message instead of the bare reason.
+    final reasonWidget = isMar
+        ? Text(
+            'Administration not recorded on the server — review needed. '
+            '$reason. The medication was given offline.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : Text(
+            reason,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+            ),
+          );
 
     return Card(
       elevation: 0,
@@ -345,29 +437,18 @@ class _ConflictTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
-              reason,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.red.shade700,
-              ),
-            ),
+            reasonWidget,
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: () async {
-                    await ConnectivitySyncService.instance.discardConflict(id);
-                    onChanged();
-                  },
+                  onPressed: () => _handleDiscard(context, endpoint),
                   child: const Text('Discard'),
                 ),
                 const SizedBox(width: 4),
                 FilledButton.tonal(
-                  onPressed: () async {
-                    await ConnectivitySyncService.instance.retryConflict(id);
-                    onChanged();
-                  },
+                  onPressed: onRetry,
                   child: const Text('Retry'),
                 ),
               ],

@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
+import 'package:vhhealth_core/services/mar_five_rights.dart';
+import 'package:vhhealth_core/services/mar_offline_cache.dart';
+// OfflineSyncBadge is already mounted by StaffScaffold's AppBar actions
+// (see core/widgets/staff_scaffold.dart), so this screen inherits it — no
+// second badge is added here to avoid a duplicate in the app bar.
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../mar_offline_administer.dart';
 
 /// Bedside medication administration with 5-rights barcode verification.
 ///
@@ -53,6 +60,10 @@ class _MarScanScreenState extends State<MarScanScreen> {
   bool _busy = false;
   String? _errorMessage;
 
+  /// Set when the administer was queued offline (re-verified server-side on
+  /// drain). Switches the done panel to "Recorded — pending sync".
+  bool _pendingSync = false;
+
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
   );
@@ -90,6 +101,10 @@ class _MarScanScreenState extends State<MarScanScreen> {
       _errorMessage = null;
     });
     try {
+      if (!ConnectivitySyncService.instance.isOnline) {
+        await _runVerifyOffline();
+        return;
+      }
       final result = await MedicalApiService.verify5Rights(
         maId: widget.maId,
         scannedPatientUid: _patientUid!,
@@ -105,17 +120,55 @@ class _MarScanScreenState extends State<MarScanScreen> {
     }
   }
 
+  /// Offline 5-rights: verify against the encrypted cached dose using the same
+  /// client-side check the queued administer will use. Shapes [_verifyResult]
+  /// to mirror the server's `{rights, allPassed, ma}` envelope so the existing
+  /// verify-panel rendering works unchanged.
+  Future<void> _runVerifyOffline() async {
+    final dose = await MarOfflineCache.getCachedDose(_patientUid!, widget.maId);
+    if (dose == null) {
+      setState(
+        () => _errorMessage =
+            'No offline data for this dose — connect to administer.',
+      );
+      return;
+    }
+    final rights = evaluateFiveRights(
+      dose: dose,
+      scannedPatientUid: _patientUid!,
+      scannedBarcode: _barcode!,
+      at: DateTime.now().toUtc(),
+    );
+    setState(() {
+      _verifyResult = {
+        'rights': rights.toMap(),
+        'allPassed': rights.allPassed,
+        'ma': {
+          'medication_name': dose['medication_name'],
+          'dose': dose['dose'] ?? dose['dosage'],
+          'route': dose['route'],
+        },
+      };
+    });
+  }
+
   Future<void> _administer({String? overrideReason}) async {
     setState(() {
       _busy = true;
       _errorMessage = null;
     });
     try {
+      if (!ConnectivitySyncService.instance.isOnline) {
+        await _administerOffline(overrideReason: overrideReason);
+        return;
+      }
       await MedicalApiService.administerWithScan(
         maId: widget.maId,
         scannedPatientUid: _patientUid!,
         scannedBarcode: _barcode!,
         overrideReason: overrideReason,
+        // Record the true bedside time; harmless online — the server COALESCEs.
+        administeredAt: DateTime.now().toUtc(),
       );
       if (!mounted) return;
       setState(() => _step = _Step.done);
@@ -128,6 +181,56 @@ class _MarScanScreenState extends State<MarScanScreen> {
     }
   }
 
+  /// Offline administer: re-run the pure decision against the cached dose and
+  /// enqueue only when it is SAFE. INVARIANT: a patient/drug hard-stop NEVER
+  /// enqueues a write — it aborts back to a re-scan. The server re-verifies the
+  /// full 5-rights when the queued write drains.
+  Future<void> _administerOffline({String? overrideReason}) async {
+    final dose = await MarOfflineCache.getCachedDose(_patientUid!, widget.maId);
+    if (dose == null) {
+      setState(
+        () => _errorMessage =
+            'No offline data for this dose — connect to administer.',
+      );
+      return;
+    }
+    final intent = buildOfflineAdministerIntent(
+      dose: dose,
+      scannedPatientUid: _patientUid!,
+      scannedBarcode: _barcode!,
+      at: DateTime.now().toUtc(),
+      overrideReason: overrideReason,
+    );
+    if (intent.hardStop) {
+      // Wrong-patient / wrong-drug never-event — re-scan, no write queued.
+      setState(
+        () => _errorMessage =
+            'Patient/drug mismatch — administration blocked. Re-scan.',
+      );
+      return;
+    }
+    if (!intent.enqueue) {
+      // Soft rights failed and no valid override yet — surface the override UI
+      // (the verify panel already renders _OverrideSection for soft-fails).
+      setState(
+        () => _errorMessage =
+            'Override reason required to administer this dose offline.',
+      );
+      return;
+    }
+    await ConnectivitySyncService.instance.enqueue(
+      endpoint: intent.endpoint,
+      method: 'POST',
+      body: intent.body,
+      contextLabel: 'MAR: ${dose['medication_name'] ?? ''}',
+    );
+    if (!mounted) return;
+    setState(() {
+      _pendingSync = true;
+      _step = _Step.done;
+    });
+  }
+
   void _reset() {
     setState(() {
       _step = _Step.scanWristband;
@@ -135,6 +238,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
       _barcode = null;
       _verifyResult = null;
       _errorMessage = null;
+      _pendingSync = false;
     });
   }
 
@@ -366,14 +470,16 @@ class _MarScanScreenState extends State<MarScanScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.check_circle,
-              color: AppTheme.successGreen,
+            Icon(
+              _pendingSync ? Icons.cloud_off : Icons.check_circle,
+              color: _pendingSync
+                  ? AppTheme.textSecondary
+                  : AppTheme.successGreen,
               size: 72,
             ),
             const SizedBox(height: 12),
             Text(
-              s.marScanRecorded,
+              _pendingSync ? 'Recorded — pending sync' : s.marScanRecorded,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),

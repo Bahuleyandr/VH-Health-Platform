@@ -39,11 +39,17 @@ function _norm(s) {
  * Compute the 5-rights result for a medication_administrations row.
  * Does not write anything.
  */
-export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes = DEFAULT_WINDOW_MINUTES }) {
+export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes = DEFAULT_WINDOW_MINUTES, at = null }) {
   if (!ma_id) throw AppError.badRequest('ma_id is required');
   if (!scanned_patient_uid) throw AppError.badRequest('scanned_patient_uid is required');
   if (!scanned_barcode) throw AppError.badRequest('scanned_barcode is required');
 
+  // Offline-MAR: when a bedside administration time is supplied (a dose given
+  // offline at T but drained later), the right-time must be evaluated against
+  // that real bedside time T — NOT drain-time NOW() — so an offline dose isn't
+  // spuriously time-rejected. Default (online) path is unchanged: CURRENT_TIMESTAMP.
+  const atExpr = at ? '$2::timestamptz' : "(CURRENT_TIMESTAMP AT TIME ZONE current_setting('TimeZone'))";
+  const params = at ? [ma_id, at] : [ma_id];
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, medication_name, dose, dosage, route,
             scheduled_time, status, tenant_id,
@@ -51,13 +57,13 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
               WHEN scheduled_time IS NULL THEN NULL
               ELSE ROUND(
                 EXTRACT(EPOCH FROM (
-                  (CURRENT_TIMESTAMP AT TIME ZONE current_setting('TimeZone')) - scheduled_time
+                  ${atExpr} - scheduled_time
                 )) / 60
               )::int
             END AS minutes_from_scheduled
        FROM medication_administrations
       WHERE id = $1`,
-    ma_id,
+    ...params,
   );
   if (rows.length === 0) throw AppError.notFound('Medication administration record not found');
   const ma = rows[0];
@@ -175,8 +181,20 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
  *   run inside setTenantTx(tenantId) so they are provably tenant-isolated.
  * @param {number} [params.windowMinutes] right-time tolerance
  */
-export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, tenantId = null, windowMinutes = DEFAULT_WINDOW_MINUTES }) {
-  const evaluation = await evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes });
+export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, tenantId = null, windowMinutes = DEFAULT_WINDOW_MINUTES, administeredAt = null }) {
+  // Offline-MAR: an optional bedside administration time (the real time a dose
+  // was given offline). When present it is bounded — a bad client clock must not
+  // corrupt the MAR. Absent → null → the online path falls through to NOW() below.
+  let admAt = null;
+  if (administeredAt) {
+    const t = new Date(administeredAt);
+    if (Number.isNaN(t.getTime())) throw AppError.badRequest('administered_at is not a valid time');
+    const skewMs = Date.now() - t.getTime();
+    // Not in the future (allow 60s clock skew); not older than 12h (a long offline window).
+    if (skewMs < -60_000 || skewMs > 12 * 3600_000) throw AppError.badRequest('administered_at is out of the accepted range');
+    admAt = t.toISOString();
+  }
+  const evaluation = await evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes, at: admAt });
 
   // Wrong-patient / wrong-drug HARD-STOP (audit 2026-06-22 F-H1). This endpoint
   // ALWAYS carries a scan (scanned_patient_uid + scanned_barcode are required),
@@ -241,15 +259,15 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     const rows = await tx.$queryRawUnsafe(
       `UPDATE medication_administrations
          SET status                = 'administered',
-             administered_at       = NOW(),
+             administered_at       = COALESCE($9::timestamptz, NOW()),
              administered_by       = $2::uuid,
              scanned_patient_uid   = $3::uuid,
              scanned_barcode       = $4,
              rights_passed         = $5::jsonb,
              all_rights_passed     = $6,
              override_reason       = $7,
-             patient_scanned_at    = NOW(),
-             medication_scanned_at = NOW()
+             patient_scanned_at    = COALESCE($9::timestamptz, NOW()),
+             medication_scanned_at = COALESCE($9::timestamptz, NOW())
        WHERE id = $1 AND tenant_id = $8::uuid
        RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
                  status, notes, tenant_id, created_at, updated_at,
@@ -264,6 +282,7 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
       evaluation.allPassed,
       overrideReason,
       tid,
+      admAt,
     );
 
     const updated = rows[0];
