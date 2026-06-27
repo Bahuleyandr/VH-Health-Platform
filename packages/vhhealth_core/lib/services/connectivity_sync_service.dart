@@ -6,6 +6,28 @@ import 'package:flutter/foundation.dart';
 import 'http_client.dart';
 import 'offline_queue.dart';
 
+/// How a drained offline write's HTTP status maps to a queue disposition.
+enum SyncDisposition { success, conflict, retry }
+
+/// Classify a drain response. A *definitive* client rejection that a blind retry
+/// can never fix becomes a conflict the user must resolve; anything transient
+/// (auth refresh, timeout, rate-limit, server error) is retried.
+///
+/// Conflict set: 400 (e.g. CDS_BLOCKER), 403 (device-posture clinical-write
+/// gate), 409 (in-flight / state conflict), 422 (idempotency body mismatch /
+/// validation). 401 stays transient — VHHttpClient refresh-retries it and a
+/// persistent auth failure is a re-login problem, not a clinical conflict.
+SyncDisposition dispositionForStatus(int statusCode) {
+  if (statusCode >= 200 && statusCode < 300) return SyncDisposition.success;
+  if (statusCode == 400 ||
+      statusCode == 403 ||
+      statusCode == 409 ||
+      statusCode == 422) {
+    return SyncDisposition.conflict;
+  }
+  return SyncDisposition.retry;
+}
+
 /// Monitors connectivity, auto-syncs pending offline writes when back online,
 /// and exposes observable state (isOnline / isSyncing / counts) to the UI.
 ///
@@ -207,7 +229,8 @@ class ConnectivitySyncService extends ChangeNotifier {
             if (kDebugMode) {
               debugPrint('ConnectivitySync: synced id=$id ($endpoint)');
             }
-          } else if (resp.statusCode == 409 || resp.statusCode == 422) {
+          } else if (dispositionForStatus(resp.statusCode) ==
+              SyncDisposition.conflict) {
             final reason =
                 resp.message ?? 'Resource was modified on the server';
             await OfflineQueue.markConflict(id, reason);
