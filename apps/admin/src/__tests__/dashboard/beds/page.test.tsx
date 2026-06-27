@@ -9,12 +9,16 @@ jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
 }));
 
-const mockRealtime = jest.fn(() => ({
-  connected: false,
-  subscribed: false,
-  denied: null,
-  lastEventAt: null,
-}));
+const mockRealtime = jest.fn(
+  // args are captured for toHaveBeenCalledWith; the mock's return is what matters.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  (..._args: unknown[]) => ({
+    connected: false,
+    subscribed: false,
+    denied: null as string | null,
+    lastEventAt: null as number | null,
+  }),
+);
 jest.mock("@/hooks/useRealtimeInvalidation", () => ({
   useRealtimeInvalidation: (...args: unknown[]) => mockRealtime(...args),
 }));
