@@ -24,7 +24,7 @@ Map<String, dynamic> buildInpatientMedicationOrderBody({
 }) {
   return {
     'patient_uid': patientUid,
-    if (encounterId != null) 'encounter_id': encounterId,
+    'encounter_id': ?encounterId,
     'order_type': 'medication',
     'priority': priority,
     'start_date': startDate.toUtc().toIso8601String(),
@@ -33,10 +33,10 @@ Map<String, dynamic> buildInpatientMedicationOrderBody({
       'dose': dose,
       'route': route,
       'frequency': frequency,
-      if (durationDays != null) 'duration_days': durationDays,
-      if (doseTimes != null) 'dose_times': doseTimes,
-      if (foodTiming != null) 'food_timing': foodTiming,
-      if (instructions != null) 'instructions': instructions,
+      'duration_days': ?durationDays,
+      'dose_times': ?doseTimes,
+      'food_timing': ?foodTiming,
+      'instructions': ?instructions,
     },
   };
 }
