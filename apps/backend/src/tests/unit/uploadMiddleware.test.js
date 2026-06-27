@@ -6,6 +6,7 @@ import {
   validateGenericDocumentUpload,
   validatePatientUpload,
 } from '../../middleware/uploadMiddleware.js';
+import { HOSPITAL_UPLOAD_CONFIG } from '../../config/uploadConfig.js';
 
 function runMiddleware(middleware, req) {
   const res = {
@@ -184,5 +185,23 @@ describe('uploadMiddleware generic document validation', () => {
     const svgGenericValidation = runMiddleware(validateGenericDocumentUpload, svgReq);
     expect(svgGenericValidation.next).not.toHaveBeenCalled();
     expect(svgGenericValidation.res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('uploadConfig global allowlist hardening (M-5)', () => {
+  // text/* skips magic-byte verification (validateMagicBytes relaxed clause) and
+  // is served inline from R2 signed URLs => an HTML payload labelled text/plain
+  // renders as a page (stored XSS). The clinical-AI document-intake routes keep
+  // text/* for OCR via their OWN admin-only MIME sets, NOT this global list.
+  it('excludes text/plain, text/csv, text/rtf', () => {
+    expect(HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes).not.toContain('text/plain');
+    expect(HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes).not.toContain('text/csv');
+    expect(HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes).not.toContain('text/rtf');
+  });
+
+  it('still allows the legitimate medical document types', () => {
+    expect(HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes).toContain('application/pdf');
+    expect(HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes).toContain('image/jpeg');
+    expect(HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes).toContain('application/dicom');
   });
 });

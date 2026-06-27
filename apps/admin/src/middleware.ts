@@ -190,15 +190,22 @@ function isIpAllowed(request: NextRequest): boolean {
 // CSP as an XSS backstop. The CSP now comes from this middleware with a
 // per-request nonce + 'strict-dynamic': Next.js App Router picks the nonce up
 // from the request CSP header and stamps it on its own inline scripts.
-// 'unsafe-eval' is still present pending the Sentry/workbox eval removal
-// (staged step 2 of M9 — tracked in docs/PLATFORM_REMEDIATION_PLAN.md);
-// 'unsafe-inline' (the injection-relevant directive) is GONE.
+// 'unsafe-eval' is needed ONLY by the Next.js dev server (HMR / react-refresh
+// evaluate modules via eval) — production bundles are eval-free (Sentry v10 and
+// workbox do not eval at browser runtime; no app code uses eval/Function), so it
+// is DROPPED from the prod CSP (M-ADM-2, staged step 2 of audit M9). Both
+// 'unsafe-inline' (injection-relevant) and prod 'unsafe-eval' are GONE.
 function buildCsp(nonce: string): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
   const wsOrigin = apiUrl.replace(/^http/, "ws");
+  // Keep 'unsafe-eval' in dev for HMR; remove it from production.
+  const isDev = process.env.NODE_ENV !== "production";
+  const scriptSrc = isDev
+    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`,
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     `connect-src 'self' ${apiUrl} ${wsOrigin} https://*.sentry.io https://*.ingest.sentry.io`,
     "img-src 'self' data: blob:",
