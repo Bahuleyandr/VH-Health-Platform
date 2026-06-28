@@ -142,4 +142,25 @@ describe('requireIdempotencyKey', () => {
     await mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
   });
+
+  // DELTA-001: required routes must FAIL CLOSED when the store is unavailable.
+  it('DELTA-001: required route rejects (503) when the claim errors', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+    const mw = requireIdempotencyKey({ required: true, scope: 'orders' });
+    const { req, res } = makeReqRes({ headers: { 'idempotency-key': 'k1' } });
+    const next = jest.fn();
+    await mw(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('DELTA-001: required route rejects (503) on schema-missing', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "idempotency_keys" does not exist'));
+    const mw = requireIdempotencyKey({ required: true, scope: 'orders' });
+    const { req, res } = makeReqRes({ headers: { 'idempotency-key': 'k1' } });
+    const next = jest.fn();
+    await mw(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(503);
+  });
 });

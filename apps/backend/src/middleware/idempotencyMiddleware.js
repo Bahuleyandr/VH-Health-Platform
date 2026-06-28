@@ -65,8 +65,14 @@ export function requireIdempotencyKey({ required = true, scope = 'generic' } = {
         requestBodyHash,
       });
     } catch (err) {
-      logger.warn('Idempotency claim failed:', { error: err.message, scope });
-      // Fail open — don't block real requests on idempotency infra issues.
+      logger.error('Idempotency claim failed:', { error: err.message, scope });
+      // DELTA-001: a `required: true` route (e.g. clinical orders) MUST fail
+      // closed when the idempotency store is unavailable — otherwise an offline
+      // re-drain of a lost-2xx can create a duplicate clinical record. Only
+      // explicitly noncritical (`required: false`) routes fail open.
+      if (required) {
+        return error(res, 'Idempotency store unavailable; request rejected to prevent duplication', 503, { scope });
+      }
       return next();
     }
 
@@ -89,7 +95,16 @@ export function requireIdempotencyKey({ required = true, scope = 'generic' } = {
     }
 
     // Claimed — let the handler run, capture the response.
-    if (!claim.id || claim.schemaMissing) return next();
+    // DELTA-001: schema-missing (idempotency table not migrated) is an infra
+    // fault — fail closed on required routes rather than silently running the
+    // handler unprotected.
+    if (claim.schemaMissing) {
+      if (required) {
+        return error(res, 'Idempotency store not available; request rejected to prevent duplication', 503, { scope });
+      }
+      return next();
+    }
+    if (!claim.id) return next();
 
     const claimId = claim.id;
     const originalJson = res.json.bind(res);
