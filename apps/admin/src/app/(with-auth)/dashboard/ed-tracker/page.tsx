@@ -119,7 +119,7 @@ export default function EdTrackerPage() {
     queryKey: ["ed", "visits", "active"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
-        "/admin/ed/visits?openOnly=true&limit=200",
+        "/admin/ed/visits?open_only=true&limit=200",
       );
       return unwrapList<EdVisit>(r);
     },
@@ -130,7 +130,7 @@ export default function EdTrackerPage() {
     mutationFn: async (vars: { id: number; status: string }) =>
       fetchAdminAPI(`/admin/ed/visits/${vars.id}/transition`, {
         method: "PATCH",
-        body: { status: vars.status },
+        body: { next_status: vars.status },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ed"] }),
   });

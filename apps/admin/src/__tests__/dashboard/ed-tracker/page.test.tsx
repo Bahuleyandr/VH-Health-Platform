@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import EdTrackerPage from "@/app/(with-auth)/dashboard/ed-tracker/page";
@@ -61,5 +62,26 @@ describe("<EdTrackerPage />", () => {
     renderWithQuery(<EdTrackerPage />);
     const ind = await screen.findByTestId("ed-realtime-indicator");
     expect(ind).toHaveTextContent("Live");
+  });
+
+  it("requests only open visits via open_only", async () => {
+    renderWithQuery(<EdTrackerPage />);
+    await screen.findByTestId("ed-realtime-indicator");
+    expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
+      expect.stringContaining("open_only=true"),
+    );
+  });
+
+  it("transitions a visit using the next_status body key", async () => {
+    const user = userEvent.setup();
+    renderWithQuery(<EdTrackerPage />);
+    await user.click(await screen.findByText("ED-001"));
+    await user.click(await screen.findByRole("button", { name: "→ In treatment" }));
+    await waitFor(() => {
+      expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
+        "/admin/ed/visits/1/transition",
+        expect.objectContaining({ method: "PATCH", body: { next_status: "in_treatment" } }),
+      );
+    });
   });
 });
