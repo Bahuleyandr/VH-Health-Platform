@@ -1,6 +1,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // GET /api/v1/admin/audit/logs
@@ -15,6 +16,11 @@ export const getAuditLogs = async (req, res) => {
     const conditions = [];
     const params = [];
     let idx = 1;
+
+    // CAN-042: always scope the audit feed to the caller's tenant (defense-in-depth
+    // alongside RLS). The count query reuses these condition params (it slices off
+    // only the trailing limit/offset), so this predicate applies to both.
+    conditions.push(`al.tenant_id = $${idx++}`); params.push(resolveTenantOrThrow(req));
 
     if (user_id)                        { conditions.push(`al.user_id = $${idx++}`); params.push(user_id); }
     if (mod)                            { conditions.push(`al.module = $${idx++}`); params.push(mod); }
@@ -119,7 +125,7 @@ export const getUnifiedAuditLogs = async (req, res) => {
       WITH combined AS (
         SELECT
           'request'::text AS source,
-          NULL::text AS tenant_id,
+          al.tenant_id::text AS tenant_id, -- CAN-042: was NULL, which made request rows bypass the tenant filter
           al.id::text AS id,
           al.created_at AS occurred_at,
           al.user_id::text AS actor_uid,
@@ -226,6 +232,8 @@ export const getAuditSummary = async (req, res) => {
   try {
     const { hours = 24 } = req.query;
     const interval = `${parseInt(hours)} hours`;
+    // CAN-042: scope every summary aggregate to the caller's tenant.
+    const tenantId = resolveTenantOrThrow(req);
 
     const [activity, topUsers, topModules, errors, slowRequests] = await Promise.all([
       prisma.$queryRawUnsafe(`
@@ -238,7 +246,8 @@ export const getAuditSummary = async (req, res) => {
           MAX(response_time_ms) as max_response_ms
         FROM audit_log
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, interval),
+          AND tenant_id = $2::uuid
+      `, interval, tenantId),
 
       prisma.$queryRawUnsafe(`
         SELECT user_name, user_role, COUNT(*) as action_count,
@@ -247,33 +256,37 @@ export const getAuditSummary = async (req, res) => {
         FROM audit_log
         WHERE created_at >= NOW() - $1::INTERVAL
           AND user_id IS NOT NULL
+          AND tenant_id = $2::uuid
         GROUP BY user_name, user_role
         ORDER BY action_count DESC LIMIT 10
-      `, interval),
+      `, interval, tenantId),
 
       prisma.$queryRawUnsafe(`
         SELECT module, COUNT(*) as count,
                COUNT(*) FILTER (WHERE success = false) as failures
         FROM audit_log
         WHERE created_at >= NOW() - $1::INTERVAL
+          AND tenant_id = $2::uuid
         GROUP BY module ORDER BY count DESC
-      `, interval),
+      `, interval, tenantId),
 
       prisma.$queryRawUnsafe(`
         SELECT id, user_name, method, path, status_code, error_message, created_at, response_time_ms
         FROM audit_log
         WHERE success = false
           AND created_at >= NOW() - $1::INTERVAL
+          AND tenant_id = $2::uuid
         ORDER BY created_at DESC LIMIT 20
-      `, interval),
+      `, interval, tenantId),
 
       prisma.$queryRawUnsafe(`
         SELECT id, user_name, method, path, response_time_ms, created_at
         FROM audit_log
         WHERE response_time_ms > 2000
           AND created_at >= NOW() - $1::INTERVAL
+          AND tenant_id = $2::uuid
         ORDER BY response_time_ms DESC LIMIT 10
-      `, interval),
+      `, interval, tenantId),
     ]);
 
     success(res, {
@@ -296,6 +309,8 @@ export const getUserAuditHistory = async (req, res) => {
   try {
     const { userId } = req.params;
     const { limit = 200, days = 30 } = req.query;
+    // CAN-042: scope the per-user audit history to the caller's tenant.
+    const tenantId = resolveTenantOrThrow(req);
 
     const logs = await prisma.$queryRawUnsafe(`
       SELECT id, method, path, module, action, status_code, response_time_ms,
@@ -303,9 +318,10 @@ export const getUserAuditHistory = async (req, res) => {
       FROM audit_log
       WHERE user_id = $1
         AND created_at >= NOW() - $2::INTERVAL
+        AND tenant_id = $4::uuid
       ORDER BY created_at DESC
       LIMIT $3
-    `, userId, `${parseInt(days)} days`, Math.min(parseInt(limit), 500));
+    `, userId, `${parseInt(days)} days`, Math.min(parseInt(limit), 500), tenantId);
 
     const stats = await prisma.$queryRawUnsafe(`
       SELECT
@@ -316,7 +332,8 @@ export const getUserAuditHistory = async (req, res) => {
       FROM audit_log
       WHERE user_id = $1
         AND created_at >= NOW() - $2::INTERVAL
-    `, userId, `${parseInt(days)} days`);
+        AND tenant_id = $3::uuid
+    `, userId, `${parseInt(days)} days`, tenantId);
 
     success(res, {
       user_id: userId,
@@ -333,8 +350,10 @@ export const getUserAuditHistory = async (req, res) => {
 // GET /api/v1/admin/audit/modules
 export const getAuditModules = async (req, res) => {
   try {
-    const modules = await prisma.$queryRawUnsafe(`SELECT DISTINCT module FROM audit_log WHERE module IS NOT NULL ORDER BY module`);
-    const actions = await prisma.$queryRawUnsafe(`SELECT DISTINCT action FROM audit_log WHERE action IS NOT NULL ORDER BY action`);
+    // CAN-042: scope the distinct module/action facets to the caller's tenant.
+    const tenantId = resolveTenantOrThrow(req);
+    const modules = await prisma.$queryRawUnsafe(`SELECT DISTINCT module FROM audit_log WHERE module IS NOT NULL AND tenant_id = $1::uuid ORDER BY module`, tenantId);
+    const actions = await prisma.$queryRawUnsafe(`SELECT DISTINCT action FROM audit_log WHERE action IS NOT NULL AND tenant_id = $1::uuid ORDER BY action`, tenantId);
     success(res, {
       modules: modules.map(r => r.module),
       actions: actions.map(r => r.action),
