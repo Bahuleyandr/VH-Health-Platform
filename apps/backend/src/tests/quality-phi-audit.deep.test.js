@@ -20,14 +20,11 @@ function admin() {
 
 async function waitForAudit(patientId, recordType, ms = 3000) {
   const deadline = Date.now() + ms;
-  // eslint-disable-next-line no-await-in-loop
   while (Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
     const rows = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM hipaa_access_log WHERE patient_id = $1 AND record_type = $2 LIMIT 1`,
       String(patientId), recordType);
     if (rows.length) return true;
-    // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => setTimeout(r, 100));
   }
   return false;
