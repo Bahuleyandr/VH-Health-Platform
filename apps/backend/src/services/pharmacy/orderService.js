@@ -43,6 +43,10 @@ const ORDER_LIST_SELECT = {
 
 export const createOrder = async (orderData) => {
   const { phone, order_note, file_key, urgent, delivery_type, requestedBy, requestedByRole } = orderData;
+  // CAN-033: scope the phone→patient lookup and the order insert to the caller's
+  // tenant so an order can never resolve/attach a patient in another tenant
+  // (defense-in-depth alongside RLS). requireTenantId throws if absent.
+  const tenantId = requireTenantId(orderData.tenantId);
   const priority = urgent ? 'urgent' : 'normal';
   // Controller is authoritative for the enum; fall back to the DB
   // default ('delivery') when the caller didn't pass it.
@@ -62,6 +66,7 @@ export const createOrder = async (orderData) => {
   const users = await prisma.$queryRaw`
     SELECT id, name FROM users
     WHERE phone IN (${trimmedPhone}, ${normalizedPhone}, ${nationalPhone})
+      AND tenant_id = ${tenantId}::uuid
     LIMIT 1
   `;
   const patientId = users[0]?.id ?? null;
@@ -73,11 +78,11 @@ export const createOrder = async (orderData) => {
   const order = await prisma.$queryRaw`
     INSERT INTO pharmacy_orders (
       phone, patient_id, patient_name, order_note, file_key,
-      priority, status, prescribed_by, delivery_type, ordered_at, updated_at
+      priority, status, prescribed_by, delivery_type, tenant_id, ordered_at, updated_at
     ) VALUES (
       ${phone}, ${patientId}, ${patientName}, ${order_note},
       ${file_key ?? null}, ${priority}, ${ORDER_STATUS.PENDING},
-      ${prescribedBy}::uuid, ${resolvedDeliveryType}, NOW(), NOW()
+      ${prescribedBy}::uuid, ${resolvedDeliveryType}, ${tenantId}::uuid, NOW(), NOW()
     )
     RETURNING id, uid, phone, patient_id, patient_name, order_note, file_key,
       priority, status, prescribed_by, delivery_type, ordered_at, updated_at
