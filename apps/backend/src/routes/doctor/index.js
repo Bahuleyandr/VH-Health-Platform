@@ -47,7 +47,17 @@ wrapAutoRBAC(
 
 // Mount routes
 router.use('/', doctorRoutes);
-router.use('/stats', doctorStatsRoutes);
+// HEAD-003: the wrapAutoRBAC above is a no-op (empty routeMap attaches no role
+// middleware) and the /api/v1/doctors parent mount is publicCache-only, so the
+// doctor stats endpoint (workload / patient-volume / revenue aggregates) was
+// reachable by ANY authenticated user — the controller only restricts a DOCTOR
+// to their own id, not patients/general staff. Gate the mount to admin/clinical
+// leadership + doctors; the controller still enforces doctor-self-only.
+router.use(
+  '/stats',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT', 'DOCTOR'),
+  doctorStatsRoutes,
+);
 // CAN-003: the wrapAutoRBAC above is a no-op (empty routeMap attaches no role
 // middleware), and the /api/v1/doctors parent mount is publicCache-only with no
 // requireRole — so the admin doctor-management mutations were reachable by any
