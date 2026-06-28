@@ -3,6 +3,7 @@ import express from 'express';
 import * as healthStatsController from '../../controllers/health/healthStatsController.js';
 import * as patientHealthController from '../../controllers/health/patientHealthController.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   activeOnlyValidator,
   patientIdValidator,
@@ -82,8 +83,12 @@ router.get('/patient/:patient_id/sync-status',
   patientHealthController.getVitalsSyncStatus
 );
 
-// Statistics routes
+// Statistics routes — CAN-053: platform-wide health_records aggregates must NOT
+// be exposed to patients or broad staff. Restrict to admin/clinical-leadership
+// analytics roles. (Tenant-scoping of the counts is part of the health-router
+// tenant-context cluster CAN-028.)
 router.get('/stats/overview',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'),
   healthStatsController.getHealthStatistics
 );
 
