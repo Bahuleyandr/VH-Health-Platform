@@ -80,6 +80,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:appointments':       { description: 'Appointment + queue status changes (staff view)', roles: 'staff' },
   'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },
   'admin:kpi':                { description: 'Live KPI tile updates for admin dashboard', roles: 'admin' },
+  'admin:daily-ops':          { description: 'Daily operations snapshot — OPD/IP/OR/collections/claims headline numbers', roles: 'admin' },
   'staff:ed-board':           { description: 'ED tracking board — visit arrivals, transitions, triage priority', roles: 'staff' },
   'admin:audit':              { description: 'Security-audit events (logins, lockouts, role changes)', roles: 'admin' },
   'patient:<userId>:queue':   { description: 'Queue position for the patient\'s active appointment', roles: 'owner-or-clinical' },

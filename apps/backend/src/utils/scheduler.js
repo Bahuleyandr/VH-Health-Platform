@@ -247,6 +247,7 @@ import { runEscalationSweep } from '../services/workflow/escalationEngineService
 // points are intentionally NOT imported here anymore — those jobs are owned by
 // dedicated k8s CronJobs (audit C-5), not the in-process scheduler.
 import { tickAdminKpi } from './kpiAggregator.js';
+import { tickDailyOps } from './dailyOpsBroadcaster.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
@@ -868,6 +869,8 @@ if (process.env.NODE_ENV !== 'test') {
   // tickAdminKpi runs two indexed count queries and emits over WebSocket only.
   // withJobLock guarantees no overlap if a tick ever backs up.
   registerCron('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
+  // Every 60s — daily-ops snapshot push (per-tenant). withJobLock = one runner across processes.
+  registerCron('0 * * * * *', withJobLock('daily-ops-tick', tickDailyOps));
 
   // Every 30 seconds — clinical-AI workflow resume scheduler (Phase 5 of
   // the rollout, docs/CLINICAL_AI_ROLLOUT_PLAN.md). Polls
@@ -910,6 +913,7 @@ if (process.env.NODE_ENV !== 'test') {
   // without waiting up to 30s for the next cron tick.
   setImmediate(async () => {
     try { await tickAdminKpi(); } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
+    try { await tickDailyOps(); } catch (e) { logger.warn('Initial daily-ops tick failed:', e.message); }
   });
 }
 
