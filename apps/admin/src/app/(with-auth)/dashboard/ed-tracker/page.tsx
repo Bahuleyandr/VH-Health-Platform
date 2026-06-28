@@ -13,7 +13,7 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
-import { edRefetchMs } from "./realtime";
+import { edRefetchMs, ED_FALLBACK_POLL_MS } from "./realtime";
 
 interface EdVisit {
   id: number;
@@ -213,7 +213,7 @@ export default function EdTrackerPage() {
       : "Real-time via admin:ed-board"
     : connected
       ? "Connecting…"
-      : "Polling every 30s (real-time unavailable)";
+      : `Polling every ${ED_FALLBACK_POLL_MS / 1000}s (real-time unavailable)`;
 
   return (
     <div className="p-6 space-y-6">
