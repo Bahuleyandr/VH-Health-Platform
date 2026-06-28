@@ -4,6 +4,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { calculatePayslip, savePayslip, generateAnnualTaxSummary, calculateArrears } from '../../services/staff/payrollService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { escapeCsvField } from '../../utils/csv.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
@@ -303,7 +304,9 @@ export const runPayroll = async (req, res) => {
         });
     const runId = run.id;
 
-    // Get all staff with salary config
+    // Get all staff with salary config. CAN-016: scope the enumeration to the
+    // caller's tenant so a payroll run never generates payslips for another
+    // tenant's staff (defense-in-depth alongside RLS).
     const staffList = await prisma.$queryRawUnsafe(`
       SELECT ss.staff_uid, u.name, u.role, u.email,
              COALESCE(s.department, ss.department) as department
@@ -311,7 +314,8 @@ export const runPayroll = async (req, res) => {
       JOIN users u ON ss.staff_uid = u.uid
       LEFT JOIN staff s ON s.user_id = u.uid
       WHERE ss.is_active = true
-    `);
+        AND ss.tenant_id = $1::uuid
+    `, resolveTenantOrThrow(req));
 
     let processed = 0, failed = 0;
     let totalGross = 0, totalNet = 0, totalDeductions = 0;
