@@ -4,6 +4,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { calculatePayslip, savePayslip, generateAnnualTaxSummary, calculateArrears } from '../../services/staff/payrollService.js';
+import { escapeCsvField } from '../../utils/csv.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -1204,20 +1205,21 @@ export const exportPayrollSummary = async (req, res) => {
 
     const csvRows = [headers.join(',')];
     for (const r of payslips) {
+      // CAN-005: formula-neutralize + quote the user-influenceable text fields.
       const row = [
-        `"${r.employee_name || ''}"`,
-        `"${r.employee_id || ''}"`,
-        `"${r.designation || ''}"`,
-        `"${r.department || ''}"`,
-        `"${r.bank_account ? '****' + String(r.bank_account).slice(-4) : ''}"`,
-        `"${r.bank_ifsc || ''}"`,
+        escapeCsvField(r.employee_name || ''),
+        escapeCsvField(r.employee_id || ''),
+        escapeCsvField(r.designation || ''),
+        escapeCsvField(r.department || ''),
+        escapeCsvField(r.bank_account ? '****' + String(r.bank_account).slice(-4) : ''),
+        escapeCsvField(r.bank_ifsc || ''),
         r.days_present, r.days_absent, r.lop_days || 0, r.overtime_hours || 0,
         r.basic_earned, r.hra_earned, r.da_earned, r.special_allowance_earned,
         r.transport_allowance_earned, r.medical_allowance_earned,
         r.overtime_pay, r.bonus, r.arrears, r.gross_salary,
         r.pf_employee, r.esi_employee, r.professional_tax, r.tds,
         r.advance_deduction, r.total_deductions, r.net_salary,
-        `"${r.status}"`,
+        escapeCsvField(r.status),
       ];
       csvRows.push(row.join(','));
     }
@@ -1276,8 +1278,8 @@ export const exportPFRegister = async (req, res) => {
 
       rows.push([
         i + 1,
-        r.pf_uan || '',
-        `"${r.name}"`,
+        escapeCsvField(r.pf_uan || ''),
+        escapeCsvField(r.name),
         parseFloat(r.basic_earned).toFixed(2),
         epfWages.toFixed(2),
         epsWages.toFixed(2),
@@ -1325,7 +1327,7 @@ export const exportESIRegister = async (req, res) => {
 
     payslips.forEach((r, i) => {
       const total = parseFloat(r.esi_employee) + parseFloat(r.esi_employer);
-      rows.push(`${i+1},"${r.name}","${r.employee_id || ''}",${parseFloat(r.gross_salary).toFixed(2)},${parseFloat(r.esi_employee).toFixed(2)},${parseFloat(r.esi_employer).toFixed(2)},${total.toFixed(2)}`);
+      rows.push(`${i + 1},${escapeCsvField(r.name)},${escapeCsvField(r.employee_id || '')},${parseFloat(r.gross_salary).toFixed(2)},${parseFloat(r.esi_employee).toFixed(2)},${parseFloat(r.esi_employer).toFixed(2)},${total.toFixed(2)}`);
     });
 
     const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];

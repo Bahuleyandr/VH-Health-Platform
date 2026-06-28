@@ -2,6 +2,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { rowsToCsv } from '../../utils/csv.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
@@ -403,7 +404,8 @@ async function exportAttendanceData(department, start_date, end_date) {
     row.hours_worked?.toFixed(2) || ''
   ]);
 
-  return [headers, ...rows].map(row => row.join(',')).join('\n');
+  // CAN-005: escape + formula-neutralize employee fields (name etc.).
+  return rowsToCsv(headers, rows);
 }
 
 async function exportPerformanceData(_department, _start_date, _end_date) {

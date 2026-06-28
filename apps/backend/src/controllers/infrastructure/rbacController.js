@@ -3,6 +3,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { RBACService } from '../../services/infrastructure/rbacService.js';
+import { rowsToCsv } from '../../utils/csv.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Get public role information
@@ -420,15 +421,17 @@ export const exportRBACData = async (req, res) => {
     }
     
     if (format === 'csv') {
-      // Convert to CSV format
-      let csv = 'UID,Phone,Name,Email,Role,IsActive,RegisteredAt,LastLogin,RoleUpdatedAt\n';
-      allUsers.forEach(user => {
-        csv += `${user.uid},${user.phone},"${user.name || ''}","${user.email || ''}",${user.role},${user.is_active},${user.registered_at},${user.last_login || ''},${user.role_updated_at || ''}\n`;
-      });
-      
+      // CAN-005: build through the formula-neutralizing helper — user name/email
+      // are attacker-influenceable and must never be interpolated raw.
+      const headers = ['UID', 'Phone', 'Name', 'Email', 'Role', 'IsActive', 'RegisteredAt', 'LastLogin', 'RoleUpdatedAt'];
+      const rows = allUsers.map((user) => [
+        user.uid, user.phone, user.name || '', user.email || '', user.role,
+        user.is_active, user.registered_at, user.last_login || '', user.role_updated_at || '',
+      ]);
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename=rbac_export.csv');
-      return res.send(csv);
+      return res.send(rowsToCsv(headers, rows));
     }
     
     success(res, exportData, 'RBAC data exported successfully');

@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import adminDepartmentService from '../../services/department/adminDepartmentService.js';
 import departmentAuditService from '../../services/department/departmentAuditService.js';
 import departmentExportService from '../../services/department/departmentExportService.js';
+import { rowsToCsv } from '../../utils/csv.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const getDepartmentOverview = async (req, res) => {
@@ -240,12 +241,9 @@ export const exportDepartmentsCSV = async (req, res) => {
     const { status } = req.query;
     const exportData = await departmentExportService.exportDepartmentsToCSV({ status });
     
-    // Convert to CSV format
-    const csvContent = [
-      exportData.headers.join(','),
-      ...exportData.rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
-    
+    // CAN-005: neutralize spreadsheet formula injection via the shared helper.
+    const csvContent = rowsToCsv(exportData.headers, exportData.rows);
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=departments_export.csv');
     res.send(csvContent);
