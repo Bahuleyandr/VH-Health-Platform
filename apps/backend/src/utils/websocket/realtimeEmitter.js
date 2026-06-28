@@ -158,7 +158,12 @@ export function emitQueuePosition({ patientId, appointmentId, position, etaMinut
   }
 }
 
-/** ED tracking-board change (arrival / transition / triage-priority). */
+/**
+ * ED tracking-board change (arrival / transition / triage-priority).
+ * The ED route handlers pass an explicit { tenantId } (req.tenantId) for
+ * robust tenant scoping; broadcast() also falls back to the request-scoped
+ * tenant context when tenantId is omitted.
+ */
 export function emitEdBoardEvent(kind, visit, { tenantId } = {}) {
   try {
     broadcast('admin:ed-board', {

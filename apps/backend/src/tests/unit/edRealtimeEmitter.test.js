@@ -28,6 +28,7 @@ describe('emitEdBoardEvent', () => {
         status: 'in_treatment',
         triagePriority: 'esi_2',
         disposition: null,
+        at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       }),
       { tenantId: 't-1' },
     );
