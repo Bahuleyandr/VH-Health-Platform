@@ -11,6 +11,7 @@ import * as orBoard from '../../services/theatre/orBoardService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const router = Router();
 
@@ -66,9 +67,14 @@ router.post('/bookings/conflict-check', requireStaffOrAdmin, wrap(async (req) =>
   orBoard.findConflicts({ ...req.body, tenantId: tenantOf(req) }),
 ));
 
-router.post('/bookings', requireStaffOrAdmin, wrap(async (req) =>
-  orBoard.scheduleWithConflictCheck({ ...req.body, tenantId: tenantOf(req) }),
-));
+router.post('/bookings', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const result = await orBoard.scheduleWithConflictCheck({ ...req.body, tenantId });
+  // Real-time OR board: a case created via the conflict-aware booking path also
+  // surfaces live (mirrors the emit on POST /theatre/schedule in theatreRoutes.js).
+  emitOrBoardEvent('scheduled', { scheduleId: result?.schedule?.id, status: result?.schedule?.status, tenantId });
+  return result;
+}));
 
 // ── OR board (today's view) ─────────────────────────────────────────
 router.get('/board', requireStaffOrAdmin, wrap(async (req) =>
