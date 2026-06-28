@@ -928,17 +928,24 @@ app.use('/api/v1/credentials', requireRole(...CLINICAL_STAFF_ROLES, 'HR_STAFF', 
 
 // Research/registry capture (roadmap D6) — CRFs bound to clinical data;
 // enrollments/responses are PHI, exports de-identified by default.
-app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'CMO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('RESEARCH'), researchRoutes);
+// CAN-049: registry enrollments/exports expose subject identity + CRF data;
+// add the care-team-governed patient guard as a baseline (study-team membership
+// scoping tracked as a follow-up in the service layer).
+app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'CMO', 'MEDICAL_SUPERINTENDENT'), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('RESEARCH'), researchRoutes);
 
 // Oncology/chemo foundations (roadmap D1) — protocols, BSA dosing, cycle
 // scheduling, two-person administration verification, cumulative ceilings.
-app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+// CAN-046/047/048: specialty clinical modules previously had role RBAC + PHI
+// logging but NO patient-relationship guard, so any in-role clinician could
+// read/mutate arbitrary patients. Mount the care-team-governed guard (shadow
+// by default → telemetry now, real 403 once the tenant flips to 'enforce').
+app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
 
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
-app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('DENTAL'), dentalRoutes);
+app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);
 
 // Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
-app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
+app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
@@ -1102,8 +1109,8 @@ app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStep
 // Radiology
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
-// Dietary / Nutrition
-app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), phiAccessLogger('DIETARY'), dietaryRoutes);
+// Dietary / Nutrition — CAN-050: add the care-team-governed patient guard.
+app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
@@ -1129,7 +1136,9 @@ app.use(
   surgicalDocumentationRoutes,
 );
 app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patientAccessGuard('MICROBIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
-app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), phiAccessLogger('PCPNDT'), pcpndtRoutes);
+// CAN-051: Form-F pregnancy/USG records are legally sensitive — add the
+// care-team-governed patient guard (was role + PHI logger only).
+app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
