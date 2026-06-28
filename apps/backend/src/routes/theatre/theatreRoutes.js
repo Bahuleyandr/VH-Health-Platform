@@ -8,6 +8,7 @@ import theatreService from '../../services/theatre/theatreService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -45,6 +46,7 @@ router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_
     };
 
     const schedule = await theatreService.scheduleSurgery(scheduleData);
+    emitOrBoardEvent('scheduled', { scheduleId: schedule?.id, status: schedule?.status, tenantId: tenantOf(req) });
     return success(res, schedule, 'Surgery scheduled successfully', 201);
   } catch (err) {
     if (err.isOperational) {
@@ -109,6 +111,7 @@ router.put('/:id/status', paramId(), validate, async (req, res, next) => {
     const result = await theatreService.updateStatus(parseInt(id, 10), status, req.user?.uid, {
       tenantId: tenantOf(req),
     });
+    emitOrBoardEvent('status-changed', { scheduleId: result?.id, status: result?.status, tenantId: tenantOf(req) });
     return success(res, result, 'Surgery status updated successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -152,6 +155,7 @@ router.delete('/:id', paramId(), validate, async (req, res, next) => {
     const result = await theatreService.cancelSurgery(parseInt(id, 10), req.user?.uid, {
       tenantId: tenantOf(req),
     });
+    emitOrBoardEvent('cancelled', { scheduleId: Number(id), status: 'cancelled', tenantId: tenantOf(req) });
     return success(res, result, 'Surgery cancelled successfully');
   } catch (err) {
     if (err.isOperational) {
