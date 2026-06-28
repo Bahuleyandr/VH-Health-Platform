@@ -20,6 +20,7 @@ describe('tickDailyOps', () => {
     expect(getDailyOpsSnapshot).toHaveBeenCalledWith({ tenantId: 't-1' });
     expect(getDailyOpsSnapshot).toHaveBeenCalledWith({ tenantId: 't-2' });
     expect(emitDailyOpsMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't-1' }), { tenantId: 't-1' });
+    expect(emitDailyOpsMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't-2' }), { tenantId: 't-2' });
     expect(emitDailyOpsMock).toHaveBeenCalledTimes(2);
   });
 
