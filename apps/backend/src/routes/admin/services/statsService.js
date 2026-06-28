@@ -253,9 +253,14 @@ export async function getStaffStats(tenantId) {
       )
     : [{ present_today: 0 }];
 
-  const pendingReviews = (await tableExists('performance_reviews'))
+  // A pending review = review_date IS NULL. The table is staff_performance_reviews
+  // (no `performance_reviews` table/view exists) and it has NO `status` column —
+  // the canonical "pending" predicate is review_date IS NULL (see
+  // staffAdminDashboardController hr_pending). Was silently always 0: the old
+  // `performance_reviews` tableExists gate never matched.
+  const pendingReviews = (await tableExists('staff_performance_reviews'))
     ? await safeQuery(
-        `SELECT COUNT(*)::int AS c FROM performance_reviews WHERE status = 'pending' AND tenant_id = $1::uuid`,
+        `SELECT COUNT(*)::int AS c FROM staff_performance_reviews WHERE review_date IS NULL AND tenant_id = $1::uuid`,
         [tenantId],
         'staff.reviews'
       )
