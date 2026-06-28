@@ -17,7 +17,8 @@ const SIGNED_INTEGRATION_SECRET_HELP =
   'ABDM_CALLBACK_SECRET signs public ABDM callbacks.';
 
 // Define the expected environment variables schema
-const envSchema = Joi.object({
+// Exported for unit tests (the module-level validation below runs at import).
+export const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
   HL7_INBOUND_ENABLED: Joi.string().valid('true', 'false').default('false').label('HL7_INBOUND_ENABLED'),
   HL7_INBOUND_SHARED_SECRET: Joi.when('HL7_INBOUND_ENABLED', {
@@ -250,6 +251,20 @@ const envSchema = Joi.object({
     then: Joi.string().min(MIN_KEY_LENGTH).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('ABDM_CALLBACK_SECRET'),
+  // CAN-026: Consent-Manager artefact signature verification is a mandatory
+  // trust layer for the national health network — an ABDM-enabled deployment
+  // must run with it ON and a CM public key present, so it can't silently accept
+  // unsigned/forged consent artefacts.
+  ABDM_VERIFY_CONSENT_ARTEFACT: Joi.when('ABDM_ENABLED', {
+    is: 'true',
+    then: Joi.string().valid('true').required(),
+    otherwise: Joi.string().valid('true', 'false').allow('').optional(),
+  }).label('ABDM_VERIFY_CONSENT_ARTEFACT'),
+  ABDM_CM_PUBLIC_KEY: Joi.when('ABDM_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('ABDM_CM_PUBLIC_KEY'),
 }).unknown(true);
 
 // Validate the current environment variables
