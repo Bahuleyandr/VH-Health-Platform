@@ -130,6 +130,10 @@ router.post('/session/start', async (req, res) => {
         user_uid: uid,
         started_at: new Date(),
         is_active: true,
+        // CAN-012: the in-app pedometer walk is device-measured (the phone's
+        // step sensor) → attested reward_eligible=true. A future user-typed
+        // step entry must leave reward_eligible at its fail-safe default (false).
+        reward_eligible: true,
       },
     });
 
@@ -217,10 +221,13 @@ router.post('/health-sync', async (req, res) => {
       }
 
       const inserted = await prisma.$queryRawUnsafe(
+        // CAN-012: health-platform syncs are device/app-measured → attested
+        // reward_eligible=true (re-syncs keep it true).
         `INSERT INTO step_sessions (
             user_uid, started_at, ended_at, steps, distance_meters,
             duration_seconds, is_active, source, source_day, sleep_minutes,
-            active_energy_kcal, source_device, source_app, recorded_at_source
+            active_energy_kcal, source_device, source_app, recorded_at_source,
+            reward_eligible
           )
           VALUES (
             $1::uuid,
@@ -236,7 +243,8 @@ router.post('/health-sync', async (req, res) => {
             $7::numeric,
             $8::varchar,
             $9::varchar,
-            $10::timestamptz
+            $10::timestamptz,
+            true
           )
           ON CONFLICT (user_uid, source, source_day)
           WHERE source_day IS NOT NULL
@@ -250,7 +258,8 @@ router.post('/health-sync', async (req, res) => {
             recorded_at_source = EXCLUDED.recorded_at_source,
             ended_at = EXCLUDED.ended_at,
             duration_seconds = EXCLUDED.duration_seconds,
-            is_active = false
+            is_active = false,
+            reward_eligible = true
           RETURNING id, source_day, steps, distance_meters, sleep_minutes, active_energy_kcal`,
         uid,
         source,

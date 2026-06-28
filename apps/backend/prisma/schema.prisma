@@ -9023,6 +9023,7 @@ model step_sessions {
   source_app         String?   @db.VarChar(120)
   recorded_at_source DateTime? @db.Timestamptz(6)
   tenant_id          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  reward_eligible    Boolean   @default(false)
   tenants            tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_step_sessions_tenant")
 
   @@unique([user_uid, source, source_day], map: "idx_step_sessions_user_source_day", where: raw("(source_day IS NOT NULL)"))

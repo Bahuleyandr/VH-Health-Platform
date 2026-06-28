@@ -237,18 +237,19 @@ export async function awardStepPoints(userUid, dailyGoal, tenantId = null) {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
     // Get today's total steps (CAN-012: tenant-scoped when resolvable).
-    // NOTE: reward-eligibility attestation is intentionally NOT filtered on
-    // `source <> 'manual'` here — in this codebase the in-app pedometer walk
-    // (/steps/session/*) writes rows with the schema-default source='manual', so
-    // excluding 'manual' would silently break the primary legitimate earning
-    // path (the device-sensor walk session that immediately calls this function).
-    // A correct attestation needs a real "device-measured vs user-declared"
-    // signal, not the source='manual' proxy — tracked as a separate design task.
+    // ATTESTATION: only reward_eligible rows count toward the reward, so a
+    // user-typed/self-declared step entry can't farm points. reward_eligible is
+    // a fail-safe (default-deny) column set true by the trusted device ingestion
+    // paths — the in-app pedometer session (/steps/session/start) and the
+    // health-platform sync (/steps/health-sync) — NOT keyed off `source` (the
+    // in-app pedometer legitimately uses source='manual', which also drives the
+    // hasSyncedSource UX). See migration 348.
     const stepRows = await prisma.$queryRawUnsafe(
       `SELECT COALESCE(SUM(steps), 0)::int AS total_steps
        FROM step_sessions
        WHERE user_uid = $1::uuid
          AND is_active = false
+         AND reward_eligible = true
          AND DATE(started_at AT TIME ZONE 'UTC') = $2::date${tenantId ? ' AND tenant_id = $3::uuid' : ''}`,
       ...(tenantId ? [userUid, today, tenantId] : [userUid, today])
     );

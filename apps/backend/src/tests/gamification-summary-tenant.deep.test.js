@@ -49,8 +49,8 @@ d('Health-point summary tenant scope + step attestation (CAN-012)', () => {
 
     // A goal-meeting session in tenant B (in-app pedometer rows are source='manual').
     await prisma.$executeRawUnsafe(
-      `INSERT INTO step_sessions (user_uid, started_at, steps, is_active, source, tenant_id)
-       VALUES ($1::uuid, $3::timestamp, 12000, false, 'manual', $2::uuid)`, STEP_USER, TENANT_B, startedAt);
+      `INSERT INTO step_sessions (user_uid, started_at, steps, is_active, source, reward_eligible, tenant_id)
+       VALUES ($1::uuid, $3::timestamp, 12000, false, 'manual', true, $2::uuid)`, STEP_USER, TENANT_B, startedAt);
 
     // Scored under tenant A → the tenant-B session is excluded → no award.
     const crossTenant = await awardStepPoints(STEP_USER, 8000, TENANT_A);
