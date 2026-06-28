@@ -201,3 +201,17 @@ export function emitDailyOps(snapshot, { tenantId } = {}) {
     logger.warn('emitDailyOps failed:', err.message);
   }
 }
+
+/** OR board change (case scheduled / status changed / cancelled). */
+export function emitOrBoardEvent(kind, { scheduleId, status, tenantId } = {}) {
+  try {
+    broadcast('staff:or-board', {
+      kind,
+      scheduleId: scheduleId ?? null,
+      status: status ?? null,
+      at: new Date().toISOString(),
+    }, { tenantId });
+  } catch (err) {
+    logger.warn('emitOrBoardEvent failed:', err.message);
+  }
+}
