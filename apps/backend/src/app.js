@@ -1201,7 +1201,11 @@ app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_
 app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('DISCHARGE_SUMMARY', { careTeamModeGoverned: true }), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
-app.use('/api/v1/quality', qualityRoutes);
+// CAN-035: incident + infection-control endpoints carry patient_uid/organism/
+// treatment PHI but emitted no patient-attributed audit trail. Mount the PHI
+// access logger so quality PHI access is breach-detectable like adjacent
+// clinical routes.
+app.use('/api/v1/quality', phiAccessLogger('QUALITY'), qualityRoutes);
 
 // Referral Management (route-level role checks)
 app.use('/api/v1/referrals', patientAccessGuard('REFERRAL', { careTeamModeGoverned: true }), phiAccessLogger('REFERRAL'), referralRoutes);
