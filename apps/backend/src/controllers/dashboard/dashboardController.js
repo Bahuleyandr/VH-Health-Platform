@@ -98,7 +98,7 @@ export async function getPatientDashboard(req, res) {
     // --- 5. Next appointment detail + visit progress (fire-and-forget) ---
     let nextAppointmentDetail = null;
     try {
-      const visitProgress = await pointService.getNextVisitProgress(normalizedPhone);
+      const visitProgress = await pointService.getNextVisitProgress(normalizedPhone, tenantId); // CAN-019: tenant-scope
       if (visitProgress && visitProgress.nextAppointment) {
         const next = visitProgress.nextAppointment;
         nextAppointmentDetail = {
@@ -124,7 +124,7 @@ export async function getPatientDashboard(req, res) {
         tenantId
       );
       if (userUidResult.length > 0) {
-        const summary = await pointService.getUserPointSummary(userUidResult[0].uid);
+        const summary = await pointService.getUserPointSummary(userUidResult[0].uid, tenantId); // CAN-012: tenant-scope
         healthPoints = {
           totalPoints: summary.totalPoints,
           currentTier: summary.currentTier,

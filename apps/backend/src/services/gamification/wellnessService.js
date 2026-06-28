@@ -18,13 +18,13 @@ const WALKING_STEP_LENGTH_METERS = 0.75;
  * Vitals regularity: awards up to 20 points for logging vitals on distinct
  * days during the last 7 days (e.g. 5 days logged → ~14 points).
  */
-async function scoreVitalsRegularity(userUid) {
+async function scoreVitalsRegularity(userUid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT COUNT(DISTINCT DATE(recorded_at AT TIME ZONE 'UTC'))::int AS days
        FROM patient_vitals
       WHERE patient_uid = $1::uuid
-        AND recorded_at >= NOW() - INTERVAL '7 days'`,
-    userUid
+        AND recorded_at >= NOW() - INTERVAL '7 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+    ...(tenantId ? [userUid, tenantId] : [userUid])
   );
   const days = rows[0]?.days || 0;
   const score = Math.min(DIMENSION_MAX, Math.round((days / 7) * DIMENSION_MAX));
@@ -35,15 +35,15 @@ async function scoreVitalsRegularity(userUid) {
  * Appointment adherence: % of appointments the user completed (vs missed) in
  * the last 90 days. If the user has no appointments, returns a neutral score.
  */
-async function scoreAppointmentAdherence(userUid) {
+async function scoreAppointmentAdherence(userUid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT
         COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS completed,
         COUNT(*) FILTER (WHERE status IN ('COMPLETED','NO_SHOW','CANCELLED'))::int AS decided
        FROM appointments
-      WHERE phone = (SELECT phone FROM users WHERE uid = $1::uuid LIMIT 1)
-        AND appointment_date >= CURRENT_DATE - INTERVAL '90 days'`,
-    userUid
+      WHERE phone = (SELECT phone FROM users WHERE uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''} LIMIT 1)
+        AND appointment_date >= CURRENT_DATE - INTERVAL '90 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+    ...(tenantId ? [userUid, tenantId] : [userUid])
   );
   const completed = rows[0]?.completed || 0;
   const decided = rows[0]?.decided || 0;
@@ -62,7 +62,7 @@ async function scoreAppointmentAdherence(userUid) {
  * expired (issued_at + duration_days still in future). No active
  * prescriptions → neutral full score (nothing to adhere to).
  */
-async function scoreMedicationCompliance(userUid) {
+async function scoreMedicationCompliance(userUid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT
         COUNT(*)::int AS total,
@@ -72,8 +72,8 @@ async function scoreMedicationCompliance(userUid) {
               OR issued_at + (duration_days || ' days')::interval >= NOW())
         )::int AS on_track
        FROM prescriptions
-      WHERE patient_uid = $1::uuid`,
-    userUid
+      WHERE patient_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+    ...(tenantId ? [userUid, tenantId] : [userUid])
   );
   const total = rows[0]?.total || 0;
   const onTrack = rows[0]?.on_track || 0;
@@ -94,7 +94,7 @@ async function scoreMedicationCompliance(userUid) {
  * is converted to an equivalent step count when a source provides distance
  * without reliable steps.
  */
-async function scoreActivityLevel(userUid) {
+async function scoreActivityLevel(userUid, tenantId = null) {
   const profile = await prisma.step_profiles.findUnique({
     where: { user_uid: userUid },
     select: { daily_goal: true },
@@ -111,9 +111,9 @@ async function scoreActivityLevel(userUid) {
        FROM step_sessions
       WHERE user_uid = $1::uuid
         AND is_active = false
-        AND DATE(started_at AT TIME ZONE 'UTC') >= CURRENT_DATE - INTERVAL '6 days'
+        AND DATE(started_at AT TIME ZONE 'UTC') >= CURRENT_DATE - INTERVAL '6 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}
       GROUP BY DATE(started_at AT TIME ZONE 'UTC')`,
-    userUid
+    ...(tenantId ? [userUid, tenantId] : [userUid])
   );
 
   let progressTotal = 0;
@@ -160,13 +160,13 @@ async function scoreActivityLevel(userUid) {
  * Health engagement: scales points earned this calendar month.
  * 200+ points → full 20, linear below.
  */
-async function scoreHealthEngagement(userUid) {
+async function scoreHealthEngagement(userUid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT COALESCE(SUM(points), 0)::int AS points
        FROM health_point_ledger
       WHERE user_uid = $1::uuid
-        AND earned_at >= DATE_TRUNC('month', NOW())`,
-    userUid
+        AND earned_at >= DATE_TRUNC('month', NOW())${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+    ...(tenantId ? [userUid, tenantId] : [userUid])
   );
   const points = rows[0]?.points || 0;
   const score = Math.min(DIMENSION_MAX, Math.round((points / 200) * DIMENSION_MAX));
@@ -175,13 +175,16 @@ async function scoreHealthEngagement(userUid) {
 
 // ── Public: wellness score ───────────────────────────────────────────────────
 
-export async function computeWellnessScore(userUid) {
+export async function computeWellnessScore(userUid, tenantId = null) {
+  // CAN-019/012: thread the caller's tenant into every dimension scorer so the
+  // wellness score reads only this tenant's rows (defense-in-depth alongside RLS;
+  // a phone is unique only per tenant — mig 333).
   const [vitals, adherence, meds, activity, engagement] = await Promise.all([
-    scoreVitalsRegularity(userUid),
-    scoreAppointmentAdherence(userUid),
-    scoreMedicationCompliance(userUid),
-    scoreActivityLevel(userUid),
-    scoreHealthEngagement(userUid),
+    scoreVitalsRegularity(userUid, tenantId),
+    scoreAppointmentAdherence(userUid, tenantId),
+    scoreMedicationCompliance(userUid, tenantId),
+    scoreActivityLevel(userUid, tenantId),
+    scoreHealthEngagement(userUid, tenantId),
   ]);
 
   const total = vitals.score + adherence.score + meds.score + activity.score + engagement.score;
@@ -209,10 +212,11 @@ export async function computeWellnessScore(userUid) {
  * insight has { type, priority, title, message, actionRoute? }.
  * Priority: higher = more important. Callers sort/truncate.
  */
-export async function computeHealthInsights(userUid, limit = 3) {
+export async function computeHealthInsights(userUid, limit = 3, tenantId = null) {
   const insights = [];
 
   try {
+    // CAN-019/012: every insight read is tenant-scoped when a tenant is resolvable.
     // — Refill nudge: prescriptions ending in ≤7 days —
     const expiring = await prisma.$queryRawUnsafe(
       `SELECT medication_name,
@@ -221,10 +225,10 @@ export async function computeHealthInsights(userUid, limit = 3) {
         WHERE patient_uid = $1::uuid
           AND status = 'active'
           AND duration_days IS NOT NULL
-          AND issued_at + (duration_days || ' days')::interval BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+          AND issued_at + (duration_days || ' days')::interval BETWEEN NOW() AND NOW() + INTERVAL '7 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}
         ORDER BY days_left ASC
         LIMIT 1`,
-      userUid
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     if (expiring.length > 0) {
       const e = expiring[0];
@@ -239,8 +243,8 @@ export async function computeHealthInsights(userUid, limit = 3) {
 
     // — Vitals logging nudge —
     const lastVitals = await prisma.$queryRawUnsafe(
-      `SELECT MAX(recorded_at) AS last_at FROM patient_vitals WHERE patient_uid = $1::uuid`,
-      userUid
+      `SELECT MAX(recorded_at) AS last_at FROM patient_vitals WHERE patient_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     const lastAt = lastVitals[0]?.last_at;
     if (!lastAt) {
@@ -270,9 +274,9 @@ export async function computeHealthInsights(userUid, limit = 3) {
           COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS completed,
           COUNT(*) FILTER (WHERE status = 'NO_SHOW')::int AS missed
          FROM appointments
-        WHERE phone = (SELECT phone FROM users WHERE uid = $1::uuid LIMIT 1)
-          AND appointment_date >= CURRENT_DATE - INTERVAL '90 days'`,
-      userUid
+        WHERE phone = (SELECT phone FROM users WHERE uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''} LIMIT 1)
+          AND appointment_date >= CURRENT_DATE - INTERVAL '90 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     const completed = adherence[0]?.completed || 0;
     const missed = adherence[0]?.missed || 0;
@@ -291,8 +295,8 @@ export async function computeHealthInsights(userUid, limit = 3) {
          FROM health_point_ledger
         WHERE user_uid = $1::uuid
           AND activity_type = 'DAILY_CHECKIN'
-          AND earned_at >= NOW() - INTERVAL '30 days'`,
-      userUid
+          AND earned_at >= NOW() - INTERVAL '30 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     const streakDays = streak[0]?.days || 0;
     if (streakDays >= 7) {
@@ -309,10 +313,10 @@ export async function computeHealthInsights(userUid, limit = 3) {
       `SELECT blood_sugar, recorded_at
          FROM patient_vitals
         WHERE patient_uid = $1::uuid
-          AND blood_sugar IS NOT NULL
+          AND blood_sugar IS NOT NULL${tenantId ? ' AND tenant_id = $2::uuid' : ''}
         ORDER BY recorded_at DESC
         LIMIT 10`,
-      userUid
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     if (sugars.length >= 6) {
       const recent = sugars.slice(0, 5).map((r) => r.blood_sugar);
@@ -350,15 +354,15 @@ export async function computeHealthInsights(userUid, limit = 3) {
  * Returns true if the user has already submitted a check-in today. Used by
  * the dashboard to decide whether to show the check-in prompt.
  */
-export async function hasCheckedInToday(userUid) {
+export async function hasCheckedInToday(userUid, tenantId = null) {
   const today = new Date().toISOString().split('T')[0];
   const rows = await prisma.$queryRawUnsafe(
     `SELECT 1 FROM health_point_ledger
       WHERE user_uid = $1::uuid
         AND activity_type = 'DAILY_CHECKIN'
-        AND activity_ref_id = $2
+        AND activity_ref_id = $2${tenantId ? ' AND tenant_id = $3::uuid' : ''}
       LIMIT 1`,
-    userUid, today
+    ...(tenantId ? [userUid, today, tenantId] : [userUid, today])
   );
   return rows.length > 0;
 }
@@ -366,15 +370,15 @@ export async function hasCheckedInToday(userUid) {
 /**
  * Count of consecutive days (including today) the user has checked in.
  */
-export async function getCheckInStreak(userUid) {
+export async function getCheckInStreak(userUid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT DISTINCT activity_ref_id AS day
        FROM health_point_ledger
       WHERE user_uid = $1::uuid
         AND activity_type = 'DAILY_CHECKIN'
-        AND earned_at >= NOW() - INTERVAL '120 days'
+        AND earned_at >= NOW() - INTERVAL '120 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}
       ORDER BY activity_ref_id DESC`,
-    userUid
+    ...(tenantId ? [userUid, tenantId] : [userUid])
   );
   if (rows.length === 0) return 0;
 

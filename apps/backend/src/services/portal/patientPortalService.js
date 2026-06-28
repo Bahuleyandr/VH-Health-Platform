@@ -528,7 +528,7 @@ export async function getPatientCommandCenter({
     safeCommandSection('uploads', () => listPatientUploadsForCommandCenter({ patient_id: patientId }), []),
     safeCommandSection('hospital_docs', () => countHospitalDocuments({ patient_id: patientId }), 0),
     safeCommandSection('clinical_notes', () => listMyClinicalNotes({ patient_uid, limit: 25 }), []),
-    safeCommandSection('health_points', () => pointService.getUserPointSummary(patient_uid), {
+    safeCommandSection('health_points', () => pointService.getUserPointSummary(patient_uid, tenantId), {
       totalPoints: 0,
       currentTier: null,
       unclaimedCount: 0,

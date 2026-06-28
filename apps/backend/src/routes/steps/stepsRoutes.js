@@ -168,7 +168,7 @@ router.post('/session/stop', async (req, res) => {
 
     // Gamification: fire-and-forget step goal check
     const profile = await prisma.step_profiles.findUnique({ where: { user_uid: uid } });
-    pointService.awardStepPoints(uid, profile?.daily_goal || DEFAULT_DAILY_GOAL).catch(err =>
+    pointService.awardStepPoints(uid, profile?.daily_goal || DEFAULT_DAILY_GOAL, req.tenantId || req.user?.tenant_id || req.user?.tenantId || null).catch(err =>
       logger.warn('Gamification: step point award failed', { error: err.message })
     );
 
@@ -273,7 +273,7 @@ router.post('/health-sync', async (req, res) => {
       return day === today;
     })) {
       const profile = await prisma.step_profiles.findUnique({ where: { user_uid: uid } });
-      pointService.awardStepPoints(uid, profile?.daily_goal || DEFAULT_DAILY_GOAL).catch(err =>
+      pointService.awardStepPoints(uid, profile?.daily_goal || DEFAULT_DAILY_GOAL, req.tenantId || req.user?.tenant_id || req.user?.tenantId || null).catch(err =>
         logger.warn('Gamification: health-sync step point award failed', { error: err.message })
       );
     }
