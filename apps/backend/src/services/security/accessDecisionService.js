@@ -140,6 +140,27 @@ function cleanInt(value) {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= PG_INT4_MAX ? parsed : null;
 }
 
+// Postgres `bigint` (int8) upper bound, for resolvers keyed on a BigInt id column
+// (e.g. investigation_bookings.id). cleanInt() above is correctly int4-bounded to
+// stop a phone string overflowing an `id = $N::int` comparison — but that bound
+// is WRONG for a bigint id, which would silently reject any value above int4 max.
+// Parse with BigInt (not parseInt → float) so ids beyond 2^53 stay precise, and
+// return the canonical digit string, which binds safely to a `$N::bigint` param.
+const PG_INT8_MAX = 9223372036854775807n;
+
+function cleanBigInt(value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return null; // positive digits only — never a phone like '+91…'
+  let parsed;
+  try {
+    parsed = BigInt(text);
+  } catch {
+    return null;
+  }
+  return parsed > 0n && parsed <= PG_INT8_MAX ? text : null;
+}
+
 function normalizeRole(value) {
   return String(value || '').trim().toUpperCase();
 }
@@ -240,6 +261,23 @@ async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
 
 async function patientFromResourceQuery(req, sql, idValue) {
   const resourceId = cleanInt(idValue);
+  if (!resourceId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    deriveTenantIdFromRequest(req),
+    resourceId,
+  );
+  const row = rows[0] || null;
+  return row?.uid ? { id: row.id ?? null, uid: row.uid } : null;
+}
+
+// Variant of patientFromResourceQuery for resources whose id column is a BigInt
+// (e.g. investigation_bookings.id). Uses the int8-bounded cleanBigInt so ids
+// above int4 max still resolve; binds the canonical digit string to the
+// `$N::bigint` param in the query. Returns the same { id, uid } patient shape
+// (the projected id is still the PATIENT's int4 users.id, not the bigint id).
+async function patientFromBigintResourceQuery(req, sql, idValue) {
+  const resourceId = cleanBigInt(idValue);
   if (!resourceId) return null;
   const rows = await prisma.$queryRawUnsafe(
     sql,
@@ -445,8 +483,10 @@ export async function resolvePatientForResourceAccess(req, {
       // CAN-017: the booking workflow handlers (/bookings/:id[/confirm|...]) address
       // the patient indirectly through the booking id (a path param the parent
       // INVESTIGATION guard can't resolve), so they ran without a relationship
-      // check. Resolve the patient from the booking row itself.
-      return patientFromResourceQuery(
+      // check. Resolve the patient from the booking row itself. investigation_bookings.id
+      // is a BigInt, so this MUST use the int8-bounded bigint resolver — the
+      // int4-bounded cleanInt would silently drop any id above int4 max.
+      return patientFromBigintResourceQuery(
         req,
         `SELECT p.id, p.uid
            FROM investigation_bookings ib
