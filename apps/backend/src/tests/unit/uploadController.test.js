@@ -140,7 +140,7 @@ describe('uploadController.getFileByKey', () => {
     }));
   });
 
-  it('requires an explicit internal admin override to fetch non-clean files', async () => {
+  it('blocks non-clean files even for admins with the legacy override header (CAN-022)', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([fileMeta({ scan_status: 'failed' })]);
     getSignedFileUrlMock.mockResolvedValueOnce('https://signed.test/failed.pdf');
 
@@ -153,8 +153,9 @@ describe('uploadController.getFileByKey', () => {
 
     await getFileByKey(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(getSignedFileUrlMock).toHaveBeenCalledTimes(1);
+    // The client header no longer bypasses the scan gate: 423 + no signed URL.
+    expect(res.status).toHaveBeenCalledWith(423);
+    expect(getSignedFileUrlMock).not.toHaveBeenCalled();
   });
 });
 

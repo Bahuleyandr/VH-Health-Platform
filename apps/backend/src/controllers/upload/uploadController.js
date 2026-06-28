@@ -18,7 +18,6 @@ import { error, success } from '../../utils/responseHelper.js';
 const SIGNED_URL_TTL_SECONDS = 3600;
 const DOWNLOAD_BLOCKED_STATUS = 423;
 const CLEAN_SCAN_STATUSES = new Set(['clean', 'cleaned', 'passed']);
-const INTERNAL_DOWNLOAD_HEADER = 'x-vh-internal-download';
 const INTERNAL_ADMIN_ROLES = new Set([
   'ADMIN',
   'SUPER_ADMIN',
@@ -45,12 +44,6 @@ function normalizeScanStatus(status) {
 
 function isScanClean(status) {
   return CLEAN_SCAN_STATUSES.has(normalizeScanStatus(status));
-}
-
-function hasExplicitInternalDownloadOverride(req) {
-  if (!isInternalAdminRole(req.user?.role)) return false;
-  const value = String(req.get?.(INTERNAL_DOWNLOAD_HEADER) || '').trim().toLowerCase();
-  return value === '1' || value === 'true' || value === 'yes';
 }
 
 function storageKeyIsBoundToUploader(meta) {
@@ -112,7 +105,11 @@ export const getFileByKey = async (req, res) => {
       return error(res, 'Not authorized to access this file', HTTP_STATUS.FORBIDDEN);
     }
 
-    if (!isScanClean(meta.scan_status) && !hasExplicitInternalDownloadOverride(req)) {
+    // CAN-022: a non-clean file is NEVER downloadable through this endpoint —
+    // the previous client-supplied `x-vh-internal-download` header let admin
+    // browser/API sessions bypass malware-scan blocking. Quarantine review must
+    // use a dedicated, server-identity-proven, audited path, not a request header.
+    if (!isScanClean(meta.scan_status)) {
       return denyUntilCleanScan(res, meta);
     }
 
