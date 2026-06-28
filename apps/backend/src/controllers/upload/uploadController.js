@@ -12,6 +12,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizeUploadMimeType } from '../../middleware/uploadMiddleware.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { getSignedFileUrl, uploadFileToR2 } from '../../utils/r2Storage.js';
 import { error, success } from '../../utils/responseHelper.js';
 
@@ -83,13 +84,18 @@ export const getFileByKey = async (req, res) => {
       return error(res, 'fileKey is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // CAN-023: scope the by-key lookup to the caller's tenant so a file key
+    // can never resolve another tenant's file (and so the internal-admin bypass
+    // in canAccessGenericUpload stays within-tenant). Defense-in-depth alongside
+    // RLS auto-scoping.
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, file_name, file_type, storage_key, file_size,
               uploaded_by, scan_status, is_active
        FROM file_metadata
        WHERE storage_key = $1
+         AND tenant_id = $2::uuid
        LIMIT 1`,
-      fileKey
+      fileKey, resolveTenantOrThrow(req)
     );
     if (!rows.length) {
       return error(res, 'File not found', HTTP_STATUS.NOT_FOUND);
@@ -162,13 +168,16 @@ export const uploadFile = async (req, res) => {
       return error(res, 'File upload failed', 503);
     }
 
+    // CAN-023: stamp the tenant explicitly rather than relying on the GUC
+    // default, so the row is correctly attributed even if the request runs
+    // outside an RLS context.
     await prisma.$queryRawUnsafe(
       `INSERT INTO file_metadata
          (file_name, file_type, storage_key, storage_url, file_size,
-          uploaded_by, scan_status, privacy_level, is_active, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::uuid, 'PENDING', 'RESTRICTED', TRUE, NOW())
+          uploaded_by, scan_status, privacy_level, is_active, tenant_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::uuid, 'PENDING', 'RESTRICTED', TRUE, $7::uuid, NOW())
        ON CONFLICT (storage_key) DO NOTHING`,
-      safeName, contentType, storageKey, storageUrl, req.file.size, callerUid
+      safeName, contentType, storageKey, storageUrl, req.file.size, callerUid, resolveTenantOrThrow(req)
     );
 
     return success(res, {
