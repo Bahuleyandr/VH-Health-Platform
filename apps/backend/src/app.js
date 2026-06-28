@@ -19,6 +19,7 @@ import { auditLogMiddleware } from './middleware/auditLog.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import {
+  requireDowntimeAccess,
   requireProductionInfrastructureAdmin,
   requireProductionMonitoringAccess,
 } from './middleware/infrastructureAccessMiddleware.js';
@@ -536,10 +537,14 @@ app.use('/health', genericLimiter, uptimeRoutes);
 // packs stay reachable when the DB/auth layer is DOWN — this is mounted BEFORE
 // validateApiKey and jwtAuth on purpose (an outage takes those down too). It
 // reads ONLY the filesystem, never prisma. Packs contain PHI, so it mirrors the
-// /metrics posture: token-gated in production via requireProductionMonitoringAccess
-// (no-op outside prod) + rate-limited. It cannot DB-audit during an outage, so
-// access is Winston-file logged inside the router instead.
-app.use('/downtime/static', genericLimiter, requireProductionMonitoringAccess, staticDowntimeRoutes);
+// /metrics posture: token-gated + rate-limited, ALWAYS-ON (no NODE_ENV bypass).
+// CAN-054: it uses a DEDICATED downtime token (requireDowntimeAccess) rather
+// than the shared monitoring token, so a leaked metrics/scrape token can NOT
+// also unlock PHI ward packs. When no dedicated token is configured it falls
+// back to the monitoring token (logged) so outage packs stay reachable. It
+// cannot DB-audit during an outage, so access is Winston-file logged inside the
+// router instead.
+app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntimeRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE
