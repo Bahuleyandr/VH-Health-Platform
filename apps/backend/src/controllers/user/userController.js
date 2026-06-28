@@ -1,8 +1,10 @@
 // src/controllers/user/userController.js
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { USER_CONFIG } from '../../config/userConfig.js';
 import logger from '../../logging/logger.js';
 import { UserService } from '../../services/user/userService.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export class UserController {
@@ -18,11 +20,40 @@ export class UserController {
         });
       }
       
+      const role = req.user?.role;
+      const isPrivilegedActor = role === USER_CONFIG.ROLES.ADMIN || role === 'SUPER_ADMIN';
+      const body = { ...req.body };
+
+      if (!isPrivilegedActor) {
+        // CAN-001/CAN-002: self-service callers may only create/edit THEIR OWN
+        // row and may never assign their own role. Identity comes from the
+        // verified token, never the request body. Fail closed when the token
+        // carries no trusted identity.
+        const tokenPhone = req.user?.phone ? normalizePhone(req.user.phone) : null;
+        const tokenUid = req.user?.uid || null;
+        if (!tokenPhone && !tokenUid) {
+          return error(res, 'Authenticated identity required for profile self-service', HTTP_STATUS.FORBIDDEN);
+        }
+        const bodyPhone = (body.phone || body.phoneNumber)
+          ? normalizePhone(body.phone || body.phoneNumber)
+          : null;
+        if (bodyPhone && tokenPhone && bodyPhone !== tokenPhone) {
+          return error(res, 'You can only edit your own profile', HTTP_STATUS.FORBIDDEN);
+        }
+        // Bind the write to the token identity and strip any caller-supplied role.
+        if (tokenPhone) {
+          body.phone = tokenPhone;
+          delete body.phoneNumber;
+        }
+        delete body.role;
+      }
+
       const result = await UserService.createOrUpdateProfile(
-        req.body,
-        req.user?.uid || 'system'
+        body,
+        req.user?.uid || 'system',
+        { isPrivilegedActor, callerUid: req.user?.uid }
       );
-      
+
       success(res, {
         user: result.user,
         isNew: result.isNew

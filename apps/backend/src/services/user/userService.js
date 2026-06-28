@@ -160,17 +160,32 @@ function applyPrivacyFilters(user, userRole) {
 
 export class UserService {
   // Create or update user profile
-  static async createOrUpdateProfile(data, createdBy) {
+  static async createOrUpdateProfile(data, createdBy, opts = {}) {
+    const isPrivilegedActor = !!opts.isPrivilegedActor;
     const phone = normalizePhone(data.phone || data.phoneNumber);
 
     try {
       // phone is unique per-tenant now (mig 333: @@unique([tenant_id, phone])),
       // so findUnique/update keyed on phone alone are invalid. findFirst to
       // locate, then update by the unique uid.
-      const existingUser = await prisma.users.findFirst({
-        where: { phone },
-        select: { uid: true, role: true }
-      });
+      //
+      // CAN-001/CAN-002: self-service identity is bound by the controller from
+      // the verified token (req.user) — `phone` here is the caller's own (or,
+      // for a privileged actor, an explicitly targeted) number. Fall back to
+      // the caller's uid when a self-service token is uid-only; never resolve a
+      // body phone we were not handed.
+      let existingUser = null;
+      if (phone) {
+        existingUser = await prisma.users.findFirst({
+          where: { phone },
+          select: { uid: true, role: true }
+        });
+      } else if (!isPrivilegedActor && opts.callerUid) {
+        existingUser = await prisma.users.findFirst({
+          where: { uid: opts.callerUid },
+          select: { uid: true, role: true }
+        });
+      }
 
       if (existingUser) {
         const updateData = {
@@ -191,11 +206,20 @@ export class UserService {
         return { user: mapUserSummary(updatedUser), isNew: false };
       }
 
+      if (!phone) {
+        // Self-service create with no resolvable identity phone — refuse rather
+        // than insert a row with a null/forged phone.
+        throw new Error('Cannot create profile without a phone number');
+      }
+
       const createdUser = await prisma.users.create({
         data: {
           phone,
-          ...buildProfileUpdateData(data, true),
-          role: data.role || USER_CONFIG.ROLES.PATIENT,
+          ...buildProfileUpdateData(data),
+          // CAN-001: role is NEVER taken from the request body for self-service.
+          // Only a privileged actor (admin/super-admin) may set a non-default
+          // role here; every other caller is forced to PATIENT.
+          role: isPrivilegedActor ? (data.role || USER_CONFIG.ROLES.PATIENT) : USER_CONFIG.ROLES.PATIENT,
           registered_at: new Date(),
           updated_at: new Date()
         },
