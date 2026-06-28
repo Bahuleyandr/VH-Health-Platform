@@ -5,6 +5,7 @@ import { Router } from 'express';
 import * as gamificationController from '../../controllers/gamification/gamificationController.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { scoreAdherenceRisk } from '../../services/gamification/adherenceRiskService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -25,7 +26,7 @@ router.get('/adherence-risk/:patientId', requireClinicalRole, patientAccessGuard
   try {
     const pid = parseInt(req.params.patientId, 10);
     if (!Number.isFinite(pid)) return error(res, 'Invalid patientId', 400);
-    const result = await scoreAdherenceRisk(pid);
+    const result = await scoreAdherenceRisk(pid, resolveTenantOrThrow(req)); // CAN-037: tenant-scope
     if (!result) return error(res, 'Patient not found', 404);
     return success(res, result, 'Adherence risk score');
   } catch (_e) {
