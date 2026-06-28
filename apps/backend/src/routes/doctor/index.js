@@ -1,6 +1,7 @@
 // src/routes/doctor/index.js
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import adminDoctorRoutes from './adminDoctorRoutes.js';
 import doctorRoutes from './doctorRoutes.js';
 import doctorStatsRoutes from './doctorStatsRoutes.js';
@@ -47,6 +48,11 @@ wrapAutoRBAC(
 // Mount routes
 router.use('/', doctorRoutes);
 router.use('/stats', doctorStatsRoutes);
-router.use('/admin', adminDoctorRoutes);
+// CAN-003: the wrapAutoRBAC above is a no-op (empty routeMap attaches no role
+// middleware), and the /api/v1/doctors parent mount is publicCache-only with no
+// requireRole — so the admin doctor-management mutations were reachable by any
+// authenticated user. Gate the admin sub-mount explicitly. (The regular doctor
+// directory at '/' stays broadly readable by design — patient doctor picker.)
+router.use('/admin', requireRole('ADMIN'), adminDoctorRoutes);
 
 export default router;
