@@ -78,6 +78,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:beds':               { description: 'Bed occupancy + admission/discharge events', roles: 'staff' },
   'staff:handovers':          { description: 'New nurse-handover notes', roles: 'staff' },
   'staff:appointments':       { description: 'Appointment + queue status changes (staff view)', roles: 'staff' },
+  'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },
   'admin:kpi':                { description: 'Live KPI tile updates for admin dashboard', roles: 'admin' },
   'admin:ed-board':           { description: 'ED tracking board — visit arrivals, transitions, triage priority', roles: 'admin' },
   'admin:audit':              { description: 'Security-audit events (logins, lockouts, role changes)', roles: 'admin' },

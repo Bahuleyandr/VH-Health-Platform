@@ -12,3 +12,10 @@ describe('admin:ed-board channel', () => {
     expect(authorizeChannel('admin:ed-board', { role: 'NURSING_STAFF', userId: '3' }).allowed).toBe(false);
   });
 });
+
+describe('admin:beds catalog parity', () => {
+  test('admin:beds is listed in the channel catalog', () => {
+    expect(CHANNEL_CATALOG['admin:beds']).toBeDefined();
+    expect(CHANNEL_CATALOG['admin:beds'].roles).toBe('admin');
+  });
+});
