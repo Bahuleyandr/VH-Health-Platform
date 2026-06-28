@@ -66,29 +66,38 @@ export class LookupService {
       throw new Error('Lookup rate limit exceeded. Please try again later.');
     }
 
-    const conditions = [];
+    const searchConditions = [];
 
     if (phone) {
-      conditions.push(Prisma.sql`phone = ${normalizePhone(phone)}`);
+      searchConditions.push(Prisma.sql`phone = ${normalizePhone(phone)}`);
     }
 
     if (uid) {
-      conditions.push(Prisma.sql`uid = ${uid}::uuid`);
+      searchConditions.push(Prisma.sql`uid = ${uid}::uuid`);
     }
 
     if (name) {
-      conditions.push(Prisma.sql`LOWER(name) LIKE ${`%${name.toLowerCase()}%`}`);
+      searchConditions.push(Prisma.sql`LOWER(name) LIKE ${`%${name.toLowerCase()}%`}`);
     }
 
     if (email && ['ADMIN', 'DOCTOR'].includes(userRole)) {
-      conditions.push(Prisma.sql`LOWER(email) LIKE ${`%${email.toLowerCase()}%`}`);
+      searchConditions.push(Prisma.sql`LOWER(email) LIKE ${`%${email.toLowerCase()}%`}`);
     }
 
+    if (searchConditions.length === 0) {
+      // e.g. a non-admin/doctor supplying only `email` — no usable criterion.
+      throw new Error('Provide at least one usable search parameter');
+    }
+
+    // CAN-056: OR the search criteria together, but AND the non-admin role
+    // restriction onto the whole group. Previously the role guard was pushed
+    // into the same OR list, so a non-matching lookup degraded to
+    // `WHERE <miss> OR role != 'ADMIN'` and leaked the entire non-admin roster.
+    const whereParts = [Prisma.sql`(${Prisma.join(searchConditions, ' OR ')})`];
     if (userRole !== USER_CONFIG.ROLES.ADMIN) {
-      conditions.push(Prisma.sql`role != 'ADMIN'`);
+      whereParts.push(Prisma.sql`role != ${USER_CONFIG.ROLES.ADMIN}`);
     }
-
-    const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' OR ')}`;
+    const whereClause = Prisma.sql`WHERE ${Prisma.join(whereParts, ' AND ')}`;
     const parsedLimit = Math.min(parseInt(limit, 10) || 10, userRole === 'ADMIN' ? 50 : 20);
 
     const result = await prisma.$queryRaw(
