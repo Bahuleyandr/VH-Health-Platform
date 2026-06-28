@@ -1006,6 +1006,7 @@ app.use('/api/v1/emr', patientAccessGuardForPaths('DIAGNOSIS', EMR_DIAGNOSIS_PAT
 app.use(
   '/api/v1/admin/clinical-ai',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  requireSuperAdminStepUp, // CAN-043: SUPER_ADMIN must complete MFA step-up for the control plane
   adminIpAllowlist,
   adminRateLimiter,
   clinicalAiAdminRoutes
@@ -1013,6 +1014,7 @@ app.use(
 app.use(
   '/api/v1/clinical-ai/control',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  requireSuperAdminStepUp, // CAN-043
   adminIpAllowlist,
   adminRateLimiter,
   clinicalAiAdminRoutes
@@ -1031,6 +1033,7 @@ app.use(
 app.use(
   '/api/v1/admin/forecast',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  requireSuperAdminStepUp, // CAN-043
   adminIpAllowlist,
   adminRateLimiter,
   adminForecastRoutes
@@ -1038,6 +1041,7 @@ app.use(
 app.use(
   '/api/v1/admin/tenants',
   requireRole('SUPER_ADMIN'),
+  requireSuperAdminStepUp, // CAN-043
   adminIpAllowlist,
   adminRateLimiter,
   tenantRoutes
