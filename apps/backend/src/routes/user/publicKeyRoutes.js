@@ -32,10 +32,14 @@ router.post('/me/public-key', async (req, res) => {
     }
     const uid = req.user?.id;
     if (!uid) return error(res, 'Unauthenticated', 401);
+    // CAN-038: scope by tenant so a key write can only ever touch the caller's
+    // own tenant row (defense-in-depth alongside RLS / the self-only id).
+    const tenantId = req.tenantId || req.user?.tenant_id || null;
     await prisma.$queryRawUnsafe(
-      `UPDATE users SET e2e_public_key = $1, e2e_key_updated_at = NOW() WHERE id = $2`,
+      `UPDATE users SET e2e_public_key = $1, e2e_key_updated_at = NOW() WHERE id = $2 AND tenant_id = $3::uuid`,
       publicKey,
       uid,
+      tenantId,
     );
     return success(res, { publicKey, updatedAt: new Date().toISOString() }, 'Public key updated');
   } catch (err) {
@@ -47,9 +51,15 @@ router.post('/me/public-key', async (req, res) => {
 // GET /users/:id/public-key — fetch a peer's key for message encryption.
 router.get('/:id/public-key', async (req, res) => {
   try {
+    // CAN-038: scope the key directory to the caller's tenant so peer keys /
+    // account existence cannot be enumerated across tenants by global numeric
+    // id. The 404 is intentionally uniform for "no such user", "wrong tenant",
+    // and "no key published" so it cannot be used as an existence oracle.
+    const tenantId = req.tenantId || req.user?.tenant_id || null;
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, e2e_public_key, e2e_key_updated_at FROM users WHERE id = $1`,
+      `SELECT id, e2e_public_key, e2e_key_updated_at FROM users WHERE id = $1 AND tenant_id = $2::uuid`,
       parseInt(req.params.id, 10),
+      tenantId,
     );
     if (rows.length === 0 || !rows[0].e2e_public_key) {
       return error(res, 'Peer has not published a public key', 404);
