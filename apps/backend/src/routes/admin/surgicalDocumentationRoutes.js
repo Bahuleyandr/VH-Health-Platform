@@ -53,6 +53,7 @@ import {
   upsertPreopChecklist,
   upsertSafetyChecklistPhase,
 } from '../../services/theatre/surgicalDocumentationService.js';
+import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const router = express.Router();
 
@@ -164,6 +165,7 @@ router.post('/intraop', async (req, res, next) => {
       aiAssistGenerationId: body.ai_assist_generation_id,
       metadata: body.metadata,
     });
+    emitOrBoardEvent('note', { scheduleId: Number(body.ot_schedule_id), tenantId: req.tenantId });
     return success(res, row, 'Intraop note created', 201);
   } catch (err) { return next(err); }
 });
@@ -224,6 +226,7 @@ router.post('/postop', async (req, res, next) => {
       aiAssistGenerationId: body.ai_assist_generation_id,
       metadata: body.metadata,
     });
+    emitOrBoardEvent('note', { scheduleId: Number(body.ot_schedule_id), tenantId: req.tenantId });
     return success(res, row, 'Postop note created', 201);
   } catch (err) { return next(err); }
 });
@@ -399,6 +402,7 @@ router.put('/safety/:scheduleId/:phase', async (req, res, next) => {
       notes: body.notes,
       metadata: body.metadata,
     });
+    emitOrBoardEvent('safety-phase', { scheduleId: Number(req.params.scheduleId), tenantId: req.tenantId });
     return success(res, row, 'Safety checklist phase saved');
   } catch (err) { return next(err); }
 });
@@ -437,6 +441,7 @@ router.post('/complications', async (req, res, next) => {
       aiAlertGenerationId: body.ai_alert_generation_id,
       metadata: body.metadata,
     });
+    emitOrBoardEvent('complication', { scheduleId: Number(body.ot_schedule_id), tenantId: req.tenantId });
     return success(res, row, 'Complication alert recorded', 201);
   } catch (err) { return next(err); }
 });
@@ -478,6 +483,7 @@ router.patch('/complications/:id/resolve', async (req, res, next) => {
       interventionAt: body.intervention_at,
       clavienDindoGrade: body.clavien_dindo_grade,
     });
+    emitOrBoardEvent('complication-resolved', { scheduleId: row?.ot_schedule_id ?? null, tenantId: req.tenantId });
     return success(res, row, 'Complication alert resolved');
   } catch (err) { return next(err); }
 });
