@@ -1,6 +1,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { sendSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -9,11 +10,15 @@ import { success, error } from '../../utils/responseHelper.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 
 async function resolveBookingPatient(req) {
+  // CAN-032: scope every patient resolution + the new-patient create to the
+  // caller's tenant so a booking can never be attached to a patient in another
+  // tenant (defense-in-depth alongside RLS auto-scoping).
+  const tenantId = resolveTenantOrThrow(req);
   const role = String(req.user?.role || '').toUpperCase();
   if (role === 'PATIENT') {
     const patient = await prisma.$queryRawUnsafe(
-      'SELECT id, name, phone FROM users WHERE id=$1 LIMIT 1',
-      req.user?.id,
+      'SELECT id, name, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1',
+      req.user?.id, tenantId,
     );
     return patient[0] || { id: req.user?.id, name: null, phone: null };
   }
@@ -21,8 +26,8 @@ async function resolveBookingPatient(req) {
   const explicitId = parseInt(req.body.patient_id, 10);
   if (Number.isFinite(explicitId)) {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, name, phone, role FROM users WHERE id=$1 LIMIT 1`,
-      explicitId,
+      `SELECT id, name, phone, role FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1`,
+      explicitId, tenantId,
     );
     if (!rows.length) {
       const err = new Error('Patient not found');
@@ -48,11 +53,13 @@ async function resolveBookingPatient(req) {
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, name, phone, role
        FROM users
-      WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
+      WHERE (phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2)
+        AND tenant_id = $3::uuid
       ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
       LIMIT 1`,
     patientPhone,
     `%${last10}`,
+    tenantId,
   );
 
   if (existing.length > 0) {
@@ -66,11 +73,12 @@ async function resolveBookingPatient(req) {
 
   const patientName = String(req.body.patient_name || '').trim() || 'New Patient';
   const created = await prisma.$queryRawUnsafe(
-    `INSERT INTO users (phone, name, role, registered_at, updated_at)
-     VALUES ($1, $2, 'PATIENT', NOW(), NOW())
+    `INSERT INTO users (phone, name, role, tenant_id, registered_at, updated_at)
+     VALUES ($1, $2, 'PATIENT', $3::uuid, NOW(), NOW())
      RETURNING id, name, phone`,
     patientPhone,
     patientName,
+    tenantId,
   );
   return created[0];
 }
@@ -141,6 +149,8 @@ export const createBooking = async (req, res) => {
       ? parsedAppointmentId
       : null;
 
+    // CAN-032: stamp tenant_id explicitly so the booking is tenant-attributed
+    // even outside an RLS context (rather than relying on the GUC default).
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO investigation_bookings (
         patient_id, patient_phone, patient_name,
@@ -148,8 +158,8 @@ export const createBooking = async (req, res) => {
         collection_type, collection_address, collection_landmark,
         collection_lat, collection_lng,
         preferred_date, preferred_time_slot,
-        estimated_cost, appointment_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16)
+        estimated_cost, appointment_id, tenant_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16,$17::uuid)
       RETURNING id, booking_number, patient_id, patient_name, patient_phone,
         selected_tests, custom_test_names, slip_photo_key, notes,
         collection_type, collection_address, collection_landmark,
@@ -161,7 +171,7 @@ export const createBooking = async (req, res) => {
       collection_type || 'home', collection_address || null, collection_landmark || null,
       collection_lat || null, collection_lng || null,
       preferred_date || null, preferred_time_slot || null,
-      estimatedCost || null, resolvedAppointmentId
+      estimatedCost || null, resolvedAppointmentId, resolveTenantOrThrow(req)
     );
 
     // Log status
