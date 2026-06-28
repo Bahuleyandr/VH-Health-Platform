@@ -3,7 +3,7 @@
 // OR Board (Sprint 6) — coordinator's single-screen view of today's
 // surgical cases. Shows scheduled cases per room with checklist
 // progress, WHO 3-phase safety status, intra/postop note counts and
-// open complication alerts. Auto-refreshes every 60s.
+// open complication alerts. Live via the staff:or-board WS push, 60s polling fallback.
 
 "use client";
 
