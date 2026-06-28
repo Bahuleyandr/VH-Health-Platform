@@ -6,6 +6,7 @@ import {
 } from '../../config/rolePolicyGraph.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
@@ -125,10 +126,18 @@ function cleanUuid(value) {
   return UUID_RE.test(text) ? text : null;
 }
 
+// Postgres `integer` (int4) upper bound. A phone parsed with parseInt()
+// (e.g. '9000090011' or '+91XXXXXXXXXX') yields a value far above this; binding
+// it to an `id = $N::int` comparison throws 22003 "value out of range for type
+// integer". No real SERIAL id can exceed int4, so rejecting out-of-range values
+// here is correct AND closes the phone-as-id overflow the phone-resolution path
+// below would otherwise hit.
+const PG_INT4_MAX = 2147483647;
+
 function cleanInt(value) {
   if (value == null || value === '') return null;
   const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= PG_INT4_MAX ? parsed : null;
 }
 
 function normalizeRole(value) {
@@ -585,10 +594,18 @@ export async function resolvePatientForAccess(req, providedPatient = null) {
 
   const raw = requestedPatientToken(req);
   if (!raw) return null;
-  const asId = cleanInt(raw);
   const text = String(raw).trim();
+  // A phone-shaped token must NEVER reach the int id column: cleanInt is now
+  // int4-bounded, so parseInt('+91XXXXXXXXXX') / parseInt('9000090011') returns
+  // null here instead of an out-of-range integer (Postgres 22003).
+  const asId = cleanInt(text);
+  // Phone identification: normalise to the stored E.164 +91 form and match the
+  // varchar phone column directly — never cast a phone to int. normalizePhone
+  // maps '9000090011', '919000090011', '+91 90000 90011' all to '+919000090011'.
+  const normalizedPhone = normalizePhone(text);
+  // Digits-only fallback for legacy rows stored without the +91 country code.
   const digits = text.replace(/\D/g, '');
-  const normalizedPhone = digits.length >= 10 ? digits.slice(-10) : null;
+  const phoneDigits = digits.length >= 10 ? digits.slice(-10) : null;
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, uid
@@ -606,8 +623,8 @@ export async function resolvePatientForAccess(req, providedPatient = null) {
     tenantId,
     asId,
     cleanUuid(text),
-    text || null,
     normalizedPhone,
+    phoneDigits,
   );
   const row = rows[0];
   return row ? { id: row.id, uid: row.uid } : null;
