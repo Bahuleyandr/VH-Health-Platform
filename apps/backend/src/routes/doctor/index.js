@@ -1,6 +1,5 @@
 // src/routes/doctor/index.js
 import express from 'express';
-import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import adminDoctorRoutes from './adminDoctorRoutes.js';
 import doctorRoutes from './doctorRoutes.js';
@@ -8,42 +7,11 @@ import doctorStatsRoutes from './doctorStatsRoutes.js';
 
 const router = express.Router();
 
-// Apply RBAC to regular doctor routes
-wrapAutoRBAC(
-  doctorRoutes,
-  'doctorRoutes',
-  {},
-  {
-    requireUID: true,
-    requirePhone: false,
-    auditLog: true,
-    rateLimiting: true
-  }
-);
-
-// Apply RBAC to stats routes
-wrapAutoRBAC(
-  doctorStatsRoutes,
-  'doctorRoutes',
-  {},
-  {
-    requireUID: true,
-    requirePhone: false,
-    auditLog: true,
-    rateLimiting: true
-  }
-);
-
-// Apply RBAC to admin routes (more restrictive)
-wrapAutoRBAC(
-  adminDoctorRoutes,
-  'adminDoctorRoutes',
-  {},
-  {
-    requireUID: false,
-    requirePhone: false
-  }
-);
+// RBAC is applied at the per-prefix mounts below (requireRole on /stats and
+// /admin; the '/' doctor directory is intentionally broad for the patient
+// doctor-picker). The previous wrapAutoRBAC(<subrouter>, 'key', {}) calls here
+// were inert no-ops (a subrouter passed as the 1st arg with an empty routeMap
+// attaches no middleware) and were removed — see the no-op-RBAC guard test.
 
 // Mount routes
 router.use('/', doctorRoutes);
