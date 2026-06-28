@@ -73,3 +73,33 @@ export default function fhirPatientContext(req, _res, next) {
   }
   return next();
 }
+
+// CAN-030: a FHIR resource COLLECTION search (GET /Observation, /Condition, …)
+// with no ?patient/subject enumerates tenant PHI. Require a patient context for
+// PHI collection searches; instance reads (/<Type>/<id>), /metadata, and an
+// explicit export-role carve-out are unaffected. The care-team relationship for
+// patient-scoped searches is still handled by the downstream guard.
+const PHI_SEARCH_RESOURCES = new Set([
+  'Observation', 'MedicationRequest', 'Condition', 'DiagnosticReport',
+  'AllergyIntolerance', 'Encounter', 'DocumentReference', 'ServiceRequest',
+  'Procedure', 'Immunization', 'CarePlan', 'MedicationStatement',
+  'MedicationAdministration', 'MedicationDispense',
+]);
+const FHIR_EXPORT_ROLES = new Set(['MEDICAL_RECORDS', 'ADMIN', 'SUPER_ADMIN']);
+
+export function requireFhirSearchPatientContext(req, res, next) {
+  if (req.method !== 'GET') return next();
+  const rel = String(req.path || '').replace(/^\/api\/v1\/fhir/i, '');
+  const segs = rel.split('/').filter(Boolean);
+  // Only collection-level searches (exactly the resource-type segment, no id).
+  if (segs.length !== 1 || !PHI_SEARCH_RESOURCES.has(segs[0])) return next();
+  // A patient-scoped search is fine (fhirPatientContext resolved the uid).
+  if (req.phiContext?.patientUid) return next();
+  // Explicit export/records roles may run an unscoped directory search.
+  if (FHIR_EXPORT_ROLES.has(req.user?.role)) return next();
+  return res.status(403).json({
+    success: false,
+    code: 'FHIR_PATIENT_CONTEXT_REQUIRED',
+    message: 'FHIR resource search requires a patient/subject parameter',
+  });
+}

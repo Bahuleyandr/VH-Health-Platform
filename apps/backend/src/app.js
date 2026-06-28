@@ -33,7 +33,7 @@ import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
-import fhirPatientContext from './middleware/fhirPatientContext.js';
+import fhirPatientContext, { requireFhirSearchPatientContext } from './middleware/fhirPatientContext.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
   patientRateLimiter,
@@ -790,6 +790,9 @@ app.use(
   '/api/v1/fhir',
   requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES),
   fhirPatientContext,
+  // CAN-030: deny unscoped PHI collection searches (no ?patient) for non-export
+  // roles so FHIR can't be used to enumerate tenant PHI.
+  requireFhirSearchPatientContext,
   patientAccessGuard('FHIR_RESOURCE', { careTeamModeGoverned: true }),
   phiAccessLogger('FHIR_RESOURCE'),
   fhirRoutes,
