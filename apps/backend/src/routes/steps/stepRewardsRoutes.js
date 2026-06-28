@@ -1,5 +1,6 @@
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -317,12 +318,11 @@ router.get('/my-monthly-rank', async (req, res) => {
 });
 
 // ── POST /rewards/issue-monthly — admin: compute and issue monthly rewards ─────
-router.post('/issue-monthly', async (req, res) => {
+// CAN-034: this issues discount-bearing benefit records, so it is gated to
+// ADMIN/SUPER_ADMIN at the route (not just an inline check) and writes a batch
+// audit entry, even though it lives on the patient-facing rewards mount.
+router.post('/issue-monthly', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user?.role)) {
-      return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
-    }
-
     const { month_year } = req.body;
     if (!month_year || !/^\d{4}-\d{2}$/.test(month_year)) {
       return error(res, 'Invalid month_year format (YYYY-MM)', HTTP_STATUS.BAD_REQUEST);
@@ -402,6 +402,18 @@ router.post('/issue-monthly', async (req, res) => {
 
       issued.push({ rank, displayName: winner.display_name, rewardType });
     }
+
+    // CAN-034: batch audit so benefit issuance is attributable (actor + month + count).
+    await prisma.audit_logs.create({
+      data: {
+        uid: req.user?.uid,
+        role: req.user?.role,
+        action: 'STEP_REWARDS_ISSUE_MONTHLY',
+        resource: 'step_rewards',
+        resource_id: month_year,
+        metadata: { month_year, count: issued.length, tenant_id: req.tenantId ?? null },
+      },
+    }).catch((e) => logger.warn('issue-monthly audit log failed', { error: e.message }));
 
     return success(res, { month_year, issued }, `Monthly rewards issued for ${month_year}`);
   } catch (err) {
