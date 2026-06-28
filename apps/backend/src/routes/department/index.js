@@ -1,27 +1,24 @@
 // src/routes/department/index.js
 import express from 'express';
-import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import adminDepartmentRoutes from './adminDepartmentRoutes.js';
 import departmentRoutes from './departmentRoutes.js';
 import departmentStatsRoutes from './departmentStatsRoutes.js';
 
 const router = express.Router();
 
-// Mount sub-routes
+// Mount sub-routes. RBAC is applied per sub-router, NOT here:
+//   * adminDepartmentRoutes applies router.use(checkAdminPermission) (ADMIN/
+//     SUPER_ADMIN) to every /admin route;
+//   * departmentRoutes gates its write verbs inline (checkDepartmentPermission /
+//     checkAdminPermission); its reads are the broad department directory.
+// The previous `export default wrapAutoRBAC(router,'departmentRoutes',{},{...})`
+// here was an inert no-op — the empty routeMap attaches nothing and the
+// `roles:` key in the options arg is NOT honored by wrapAutoRBAC — so it applied
+// NO RBAC and only made the file look protected. Removed; see the no-op-RBAC
+// guard test. (/stats stays broadly readable as before — non-PHI department
+// analytics.)
 router.use('/', departmentRoutes);
 router.use('/stats', departmentStatsRoutes);
 router.use('/admin', adminDepartmentRoutes);
 
-// Apply RBAC wrapper to the main router
-export default wrapAutoRBAC(
-  router,
-  'departmentRoutes',
-  {},
-  {
-    requireUID: true,       // Require user authentication
-    requirePhone: false,    // Phone not required for department operations
-    auditLog: true,        // Enable audit logging
-    rateLimiting: true,    // Enable rate limiting
-    roles: ['ADMIN', 'DOCTOR', 'NURSE', 'PATIENT'] // Different access levels for different operations
-  }
-);
+export default router;
