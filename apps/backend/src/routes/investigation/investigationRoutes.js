@@ -7,6 +7,7 @@ import * as investigationController from '../../controllers/investigation/invest
 import * as orderController from '../../controllers/investigation/orderController.js';
 import * as uploadController from '../../controllers/investigation/uploadController.js';
 import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { validateFileContent, validateGenericDocumentUpload, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { 
@@ -27,6 +28,17 @@ const upload = multer({
 
 const router = express.Router();
 
+// CAN-017: booking-by-id workflow handlers address the patient through the
+// booking id (a path param the parent INVESTIGATION guard can't resolve), so
+// they bypassed the care-team relationship check. This per-route guard resolves
+// the patient from the booking row and applies the same governed ABAC posture
+// (shadow by default → non-breaking; enforce-mode denies an unrelated clinician).
+const bookingPatientGuard = patientAccessGuardForResource('INVESTIGATION', {
+  resourceType: 'investigation_booking',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+});
+
 // Patient & Medical Staff Routes
 wrapAutoRBAC(router, 'investigationRoutes', {
   get: [
@@ -40,7 +52,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     ['/bookings/my', bookingController.getMyBookings],
     ['/bookings/queue', bookingController.getBookingQueue],
     ['/bookings/sla', bookingController.getBookingSLADashboard],
-    ['/bookings/:id', bookingController.getBookingDetail],
+    ['/bookings/:id', bookingPatientGuard, bookingController.getBookingDetail],
 
     // Self-service: caller's own investigations, patient derived from the JWT.
     ['/my', investigationController.getMyInvestigations],
@@ -57,11 +69,11 @@ wrapAutoRBAC(router, 'investigationRoutes', {
   post: [
     // Booking routes (static before parameterized)
     ['/bookings/create', rejectMobileClinicalWrite, upload.single('slip_photo'), validateFileContent, validatePatientUpload, sanitizeInvestigationFields, bookingController.createBooking],
-    ['/bookings/:id/confirm', rejectMobileClinicalWrite, bookingController.confirmBooking],
-    ['/bookings/:id/dispatch', rejectMobileClinicalWrite, bookingController.dispatchCollector],
-    ['/bookings/:id/collected', rejectMobileClinicalWrite, bookingController.markCollected],
-    ['/bookings/:id/processing', rejectMobileClinicalWrite, bookingController.startProcessing],
-    ['/bookings/:id/result', rejectMobileClinicalWrite, upload.single('file'), validateFileContent, validateGenericDocumentUpload, bookingController.uploadResult],
+    ['/bookings/:id/confirm', rejectMobileClinicalWrite, bookingPatientGuard, bookingController.confirmBooking],
+    ['/bookings/:id/dispatch', rejectMobileClinicalWrite, bookingPatientGuard, bookingController.dispatchCollector],
+    ['/bookings/:id/collected', rejectMobileClinicalWrite, bookingPatientGuard, bookingController.markCollected],
+    ['/bookings/:id/processing', rejectMobileClinicalWrite, bookingPatientGuard, bookingController.startProcessing],
+    ['/bookings/:id/result', rejectMobileClinicalWrite, bookingPatientGuard, upload.single('file'), validateFileContent, validateGenericDocumentUpload, bookingController.uploadResult],
 
     ['/catalog', investigationController.upsertTestCatalog],
     ['/order', rejectMobileClinicalWrite, investigationRequestValidator, orderController.orderInvestigation],

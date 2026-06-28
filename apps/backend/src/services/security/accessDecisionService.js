@@ -432,6 +432,23 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'investigation_booking':
+      // CAN-017: the booking workflow handlers (/bookings/:id[/confirm|...]) address
+      // the patient indirectly through the booking id (a path param the parent
+      // INVESTIGATION guard can't resolve), so they ran without a relationship
+      // check. Resolve the patient from the booking row itself.
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM investigation_bookings ib
+           JOIN users p ON p.id = ib.patient_id
+          WHERE ib.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND ib.id = $2::bigint
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'prescription':
       return patientFromResourceQuery(
         req,
