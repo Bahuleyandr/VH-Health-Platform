@@ -12,6 +12,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { edRefetchMs } from "./realtime";
 
 interface EdVisit {
   id: number;
@@ -107,6 +109,8 @@ export default function EdTrackerPage() {
   const [editVisit, setEditVisit] = useState<EdVisit | null>(null);
   const [showRegister, setShowRegister] = useState(false);
 
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation("admin:ed-board", [["ed"]]);
+
   const {
     data: visits = [],
     error,
@@ -119,7 +123,7 @@ export default function EdTrackerPage() {
       );
       return unwrapList<EdVisit>(r);
     },
-    refetchInterval: 30_000,
+    refetchInterval: edRefetchMs(subscribed),
   });
 
   const transitionMut = useMutation({
@@ -202,15 +206,40 @@ export default function EdTrackerPage() {
     priorityMut.error
   )?.toString();
 
+  const liveLabel = subscribed ? "● Live" : "○ Polling";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via admin:ed-board — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via admin:ed-board"
+    : connected
+      ? "Connecting…"
+      : "Polling every 30s (real-time unavailable)";
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">
-            ED Tracking Board
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-foreground">
+              ED Tracking Board
+            </h1>
+            <span
+              data-testid="ed-realtime-indicator"
+              role="status"
+              aria-label={
+                subscribed
+                  ? "Live — real-time ED updates active"
+                  : "Polling — real-time updates unavailable"
+              }
+              title={liveTitle}
+              className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+            >
+              {liveLabel}
+            </span>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Live emergency department flow. Auto-refreshes every 30s.
+            Live emergency department flow. Real-time via WebSocket; falls back to
+            polling if unavailable.
           </p>
         </div>
         <div className="flex gap-2">
