@@ -300,7 +300,10 @@ export async function exportSystemLogs(req, res) {
 function buildCsv(rows, columns) {
   const escape = (v) => {
     if (v === null || v === undefined) return '';
-    const str = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    let str = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    // CAN-005: neutralize spreadsheet formula injection before quoting — log
+    // content (user_agent, metadata, action) is attacker-influenceable.
+    if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
     return `"${str.replace(/"/g, '""')}"`;
   };
 

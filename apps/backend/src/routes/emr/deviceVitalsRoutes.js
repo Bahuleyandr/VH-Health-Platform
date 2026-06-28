@@ -34,6 +34,7 @@ router.post('/vitals/ingest', async (req, res) => {
     const result = await ingestDeviceVitals({
       message: req.body.message,
       deviceCode: req.body.device_code || null,
+      tenantId: req.tenantId, // CAN-045: scope to the caller's tenant (no default)
     }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
     return success(res, result, 'Device vitals ingested (unverified)', HTTP_STATUS.CREATED);
   } catch (err) {
@@ -46,6 +47,7 @@ router.get('/vitals/unverified', async (req, res) => {
     const rows = await listUnverifiedDeviceVitals({
       patientUid: req.query.patient_uid || null,
       limit: req.query.limit,
+      tenantId: req.tenantId, // CAN-045
     });
     return success(res, { vitals: rows, count: rows.length }, 'Unverified device vitals');
   } catch (err) {
@@ -59,7 +61,7 @@ router.post('/vitals/:id/verify', async (req, res) => {
       return error(res, 'Only clinical staff can verify device vitals', HTTP_STATUS.FORBIDDEN);
     }
     const row = await verifyDeviceVitals(Number.parseInt(req.params.id, 10), {
-      actorUid: req.user?.uid || null, actorRole: req.user?.role || null,
+      actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: req.tenantId, // CAN-045
     });
     return success(res, { vitals: row }, 'Device vitals verified');
   } catch (err) {

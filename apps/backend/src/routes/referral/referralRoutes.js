@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import referralService from '../../services/referral/referralService.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -345,7 +346,9 @@ router.put('/:id/decline', rejectMobileClinicalWrite, paramId(), requiredString(
  * GET /referrals/patient/:uid
  * Get all referrals for a patient — clinical roles
  */
-router.get('/patient/:uid', async (req, res, next) => {
+// CAN-020: the parent mount's patientAccessGuard can't see this child :uid, so
+// guard at the child route where the param is bound (governed; shadow→enforce).
+router.get('/patient/:uid', patientAccessGuard('REFERRAL', { careTeamModeGoverned: true }), async (req, res, next) => {
   try {
     const role = req.user?.role;
     if (!canViewReferrals(role)) {

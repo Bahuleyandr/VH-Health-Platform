@@ -6,6 +6,7 @@ import {
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { isAdmin, isLeadership } from '../../utils/roleHelpers.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
@@ -257,6 +258,21 @@ export const getInvestigations = async (page, limit, filters, userRole, userId, 
       // No matching user: ensure zero rows (impossible id sentinel)
       where.id = -1;
     }
+  }
+
+  // CAN-031: a non-privileged caller must scope the chart-review list to a
+  // patient (or their own requested-by doctor filter). Only ops/records/
+  // leadership roles may run an unscoped cross-patient worklist; PATIENT is
+  // self-scoped above; the lab collection queue is a separate endpoint. Without
+  // this, a broad clinical role with no filter enumerated every patient's
+  // investigations + results.
+  const opsOrRecordsRole = isAdmin(userRole) || isLeadership(userRole)
+    || userRole === 'MEDICAL_RECORDS' || userRole === 'SUPER_ADMIN';
+  if (userRole !== 'PATIENT' && !opsOrRecordsRole && !patient_id && !patient_uid && !doctor_id) {
+    throw AppError.forbidden(
+      'A patient_id or patient_uid filter is required to list investigations',
+      'INVESTIGATION_PATIENT_FILTER_REQUIRED',
+    );
   }
 
   if (type) where.test_type = type.toUpperCase();

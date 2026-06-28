@@ -267,8 +267,10 @@ export async function recordPatientVitals(req, res) {
       requestId: req.id
     });
 
-    // Gamification: fire-and-forget vitals points
-    pointService.awardVitalsPoints(uid).catch(err =>
+    // Gamification: fire-and-forget vitals points (CAN-012: pass tenant so the
+    // ledger row is correctly attributed; non-throwing resolve since this is
+    // best-effort).
+    pointService.awardVitalsPoints(uid, req.tenantId || req.user?.tenant_id || req.user?.tenantId || null).catch(err =>
       logger.warn('Gamification: vitals point award failed', { error: err.message })
     );
 

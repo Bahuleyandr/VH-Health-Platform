@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 function computeRevisionHash(revision) {
@@ -249,6 +250,8 @@ export const getRevisions = async (req, res) => {
     const params = [];
     let idx = 1;
 
+    // CAN-016: always scope the revision list to the caller's tenant.
+    conditions.push(`sr.tenant_id = $${idx++}::uuid`); params.push(resolveTenantOrThrow(req));
     if (status) { conditions.push(`sr.status = $${idx++}`); params.push(status); }
     if (staff_uid) { conditions.push(`sr.staff_uid = $${idx++}`); params.push(staff_uid); }
 
@@ -287,6 +290,8 @@ export const getRevisions = async (req, res) => {
 export const getAnnualReviewStatus = async (req, res) => {
   try {
     const year = new Date().getFullYear();
+    // CAN-016: scope the annual-review enumeration to the caller's tenant.
+    const tenantId = resolveTenantOrThrow(req);
 
     const dueForReview = await prisma.$queryRawUnsafe(`
       SELECT u.uid, u.name, COALESCE(s.department, ss.department) as department, u.role,
@@ -307,8 +312,9 @@ export const getAnnualReviewStatus = async (req, res) => {
       WHERE ss.is_active = true
         AND ss.date_of_joining IS NOT NULL
         AND ss.date_of_joining::date <= CURRENT_DATE - INTERVAL '11 months'
+        AND ss.tenant_id = $2::uuid
       ORDER BY ss.date_of_joining ASC
-    `, year);
+    `, year, tenantId);
 
     success(res, { year, staff: dueForReview }, 'Annual review status fetched');
   } catch (err) {

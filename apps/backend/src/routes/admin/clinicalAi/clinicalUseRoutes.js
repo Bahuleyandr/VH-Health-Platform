@@ -126,6 +126,17 @@ const guardInvoiceExplainer = patientAccessGuardForResource('PRESCRIPTION', {
   careTeamModeGoverned: true,
 });
 
+// CAN-010: OP AI assist endpoints accept caller-supplied patient/appointment/
+// investigation ids — guard the care relationship (governed; shadow→enforce).
+const guardOpPatient = patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true });
+const guardOpAppointment = patientAccessGuardForResource('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
+  resourceType: 'appointment',
+  idSelector: (req) => req.body?.appointment_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+
 function clampInt(value, { min = 1, max = 100, fallback = 25 } = {}) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -183,8 +194,10 @@ function requireOpAiDoctorUse(req, res, next) {
 
 // ---------------------------------------------------------------------------
 // POST /admission-ai-draft — generate a draft for an admission + module
+// CAN-009: guard the admission's patient relationship (mirrors discharge
+// compose) before any PHI-rich context is gathered.
 // ---------------------------------------------------------------------------
-router.post('/admission-ai-draft', async (req, res, next) => {
+router.post('/admission-ai-draft', guardComposeAdmission, async (req, res, next) => {
   try {
     const admissionId = req.body?.admission_id;
     const moduleKey = req.body?.module_key;
@@ -488,7 +501,7 @@ router.get('/op/services', requireOpAiDoctorUse, async (req, res, next) => {
   }
 });
 
-router.post('/op/visit-prep', requireOpAiDoctorUse, async (req, res, next) => {
+router.post('/op/visit-prep', requireOpAiDoctorUse, guardOpAppointment, async (req, res, next) => {
   try {
     const result = await generateOpVisitPrep({
       tenantId: req.tenantId,
@@ -502,7 +515,7 @@ router.post('/op/visit-prep', requireOpAiDoctorUse, async (req, res, next) => {
   }
 });
 
-router.post('/op/prescription-safety', requireOpAiDoctorUse, async (req, res, next) => {
+router.post('/op/prescription-safety', requireOpAiDoctorUse, guardOpPatient, async (req, res, next) => {
   try {
     const result = await generateOpPrescriptionSafetyReview({
       patientId: req.body?.patient_id || null,
@@ -517,7 +530,7 @@ router.post('/op/prescription-safety', requireOpAiDoctorUse, async (req, res, ne
   }
 });
 
-router.post('/op/investigation-review', requireOpAiDoctorUse, async (req, res, next) => {
+router.post('/op/investigation-review', requireOpAiDoctorUse, guardOpPatient, guardLabExplainer, async (req, res, next) => {
   try {
     const result = await generateOpInvestigationReview({
       tenantId: req.tenantId,
@@ -534,7 +547,7 @@ router.post('/op/investigation-review', requireOpAiDoctorUse, async (req, res, n
   }
 });
 
-router.post('/op/differential-red-flags', requireOpAiDoctorUse, async (req, res, next) => {
+router.post('/op/differential-red-flags', requireOpAiDoctorUse, guardOpPatient, async (req, res, next) => {
   try {
     const result = await generateOpDifferentialRedFlags({
       tenantId: req.tenantId,
@@ -554,7 +567,7 @@ router.post('/op/differential-red-flags', requireOpAiDoctorUse, async (req, res,
   }
 });
 
-router.post('/op/follow-up-plan', requireOpAiDoctorUse, async (req, res, next) => {
+router.post('/op/follow-up-plan', requireOpAiDoctorUse, guardOpPatient, async (req, res, next) => {
   try {
     const result = await generateOpFollowUpPlan({
       tenantId: req.tenantId,
@@ -571,7 +584,7 @@ router.post('/op/follow-up-plan', requireOpAiDoctorUse, async (req, res, next) =
   }
 });
 
-router.post('/op/referral-draft', requireOpAiDoctorUse, async (req, res, next) => {
+router.post('/op/referral-draft', requireOpAiDoctorUse, guardOpPatient, async (req, res, next) => {
   try {
     const result = await generateOpReferralDraft({
       tenantId: req.tenantId,

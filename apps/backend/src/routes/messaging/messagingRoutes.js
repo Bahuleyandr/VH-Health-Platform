@@ -6,6 +6,7 @@ import { body, param, validationResult } from 'express-validator';
 import { HOSPITAL_UPLOAD_CONFIG } from '../../config/uploadConfig.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredString, paramId } from '../../validators/sharedValidators.js';
@@ -18,6 +19,12 @@ const validate = (req, res, next) => {
 };
 
 const router = express.Router();
+
+// CAN-013/014: patient-linked staff discussions are PHI. When a patient_uid is
+// present (body for send/broadcast, param for the patient thread read), require
+// the sender/reader to have a care relationship. Governed (shadow→enforce); a
+// message with no patient context is unaffected (allowNoPatientResource).
+const guardPatientMessaging = patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true });
 const messageAttachmentUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -75,6 +82,7 @@ router.post(
   requiredString('body', 2000),
   validate,
   sanitizeMessageFields,
+  guardPatientMessaging,
   async (req, res, next) => {
     try {
       const senderUid = req.user?.uid;
@@ -122,6 +130,7 @@ router.post(
   requiredString('body', 2000),
   validate,
   sanitizeMessageFields,
+  guardPatientMessaging,
   async (req, res, next) => {
     try {
       const senderUid = req.user?.uid;
@@ -260,6 +269,7 @@ router.post(
     .withMessage('priority must be one of: normal, urgent, critical'),
   validate,
   sanitizeMessageFields,
+  guardPatientMessaging,
   async (req, res, next) => {
     try {
       const senderUid = req.user?.uid;
@@ -525,7 +535,7 @@ router.get('/thread/:otherStaffUid', async (req, res, next) => {
  * GET /messaging/patient/:patientUid
  * Get all messages about a specific patient.
  */
-router.get('/patient/:patientUid', async (req, res, next) => {
+router.get('/patient/:patientUid', guardPatientMessaging, async (req, res, next) => {
   try {
     const staffUid = req.user?.uid;
     if (!staffUid) {

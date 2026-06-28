@@ -12,6 +12,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 function rate(n, d) {
@@ -21,6 +22,10 @@ function rate(n, d) {
 export async function getComplianceIndicators(req, res) {
   try {
     const windowDays = Math.max(1, Math.min(parseInt(req.query.days, 10) || 30, 180));
+    // CAN-036: scope every compliance count to the caller's tenant so the
+    // NABH/JCI digest can't blend other tenants' rows (defense-in-depth
+    // alongside RLS).
+    const tenantId = resolveTenantOrThrow(req);
 
     // Medication errors & patient-ID errors from the 5-rights audit columns we
     // landed for MAR. A "medication error" here is any MAR row with
@@ -33,16 +38,17 @@ export async function getComplianceIndicators(req, res) {
          COUNT(*) FILTER (WHERE (rights_passed->>'patient') = 'false')::int         AS patient_id_errors,
          COUNT(*) FILTER (WHERE override_reason IS NOT NULL)::int                   AS overrides
        FROM medication_administrations
-       WHERE administered_at >= NOW() - ($1 || ' days')::interval`,
-      String(windowDays),
+       WHERE administered_at >= NOW() - ($1 || ' days')::interval
+         AND tenant_id = $2::uuid`,
+      String(windowDays), tenantId,
     );
 
     // CDS overrides per prescription (allergy/duplicate conflicts pressed through).
     const [cdsRow] = await prisma.$queryRawUnsafe(
       `SELECT
-         (SELECT COUNT(*)::int FROM e_prescriptions WHERE created_at >= NOW() - ($1 || ' days')::interval) AS prescriptions,
-         (SELECT COUNT(*)::int FROM prescription_safety_overrides WHERE created_at >= NOW() - ($1 || ' days')::interval) AS overrides`,
-      String(windowDays),
+         (SELECT COUNT(*)::int FROM e_prescriptions WHERE created_at >= NOW() - ($1 || ' days')::interval AND tenant_id = $2::uuid) AS prescriptions,
+         (SELECT COUNT(*)::int FROM prescription_safety_overrides WHERE created_at >= NOW() - ($1 || ' days')::interval AND tenant_id = $2::uuid) AS overrides`,
+      String(windowDays), tenantId,
     );
 
     // Unacknowledged critical alerts — a strong proxy for response-time
@@ -56,8 +62,9 @@ export async function getComplianceIndicators(req, res) {
          COUNT(*) FILTER (WHERE severity = 'CRITICAL')::int                             AS critical_total,
          COUNT(*) FILTER (WHERE severity = 'CRITICAL' AND acknowledged = FALSE)::int    AS critical_unack
        FROM clinical_alerts
-       WHERE created_at >= NOW() - ($1 || ' days')::interval`,
-      String(windowDays),
+       WHERE created_at >= NOW() - ($1 || ' days')::interval
+         AND tenant_id = $2::uuid`,
+      String(windowDays), tenantId,
     );
 
     const indicators = {

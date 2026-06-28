@@ -666,7 +666,10 @@ export async function verifyCrfResponse(responseId, { actorUid = null, tenantId 
 
 function csvEscape(value) {
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  let s = String(value);
+  // CAN-005: neutralize spreadsheet formula injection (CRF free-text fields are
+  // clinician/subject-influenceable) before RFC-4180 quoting.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

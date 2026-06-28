@@ -1,7 +1,13 @@
 // src/routes/admin/services/activityService.js
+//
+// CAN-015 (audit 2026-06-27): the recent-activity feed unions rows from
+// appointments, users and sos_alerts. The caller's tenant id is threaded in as
+// the first arg and every source query ANDs `tenant_id = $1::uuid` (parameterized;
+// limit/offset shift to $2/$3) so an admin only sees its own tenant's activity.
+// Defense-in-depth alongside RLS.
 import { tableExists, safeQuery } from './common.js';
 
-export async function getRecentActivity(limit = 50, offset = 0) {
+export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
   const sources = [];
 
   if (await tableExists('appointments')) {
@@ -14,10 +20,11 @@ export async function getRecentActivity(limit = 50, offset = 0) {
                NULL::text AS user_id
         FROM appointments
         WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+          AND tenant_id = $1::uuid
         ORDER BY created_at DESC
-        LIMIT $1 OFFSET $2
+        LIMIT $2 OFFSET $3
         `,
-        [limit, offset],
+        [tenantId, limit, offset],
         'activity.appt_created'
       ),
       safeQuery(
@@ -29,10 +36,11 @@ export async function getRecentActivity(limit = 50, offset = 0) {
         FROM appointments
         WHERE status = 'completed'
           AND COALESCE(updated_at, created_at) >= CURRENT_DATE - INTERVAL '7 days'
+          AND tenant_id = $1::uuid
         ORDER BY COALESCE(updated_at, created_at) DESC
-        LIMIT $1 OFFSET $2
+        LIMIT $2 OFFSET $3
         `,
-        [limit, offset],
+        [tenantId, limit, offset],
         'activity.appt_completed'
       )
     );
@@ -50,10 +58,11 @@ export async function getRecentActivity(limit = 50, offset = 0) {
                (uid)::text AS user_id
         FROM users
         WHERE registered_at >= CURRENT_DATE - INTERVAL '7 days'
+          AND tenant_id = $1::uuid
         ORDER BY registered_at DESC
-        LIMIT $1 OFFSET $2
+        LIMIT $2 OFFSET $3
         `,
-        [limit, offset],
+        [tenantId, limit, offset],
         'activity.users'
       )
     );
@@ -69,10 +78,11 @@ export async function getRecentActivity(limit = 50, offset = 0) {
                NULL::text AS user_id
         FROM sos_alerts
         WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+          AND tenant_id = $1::uuid
         ORDER BY created_at DESC
-        LIMIT $1 OFFSET $2
+        LIMIT $2 OFFSET $3
         `,
-        [limit, offset],
+        [tenantId, limit, offset],
         'activity.sos'
       )
     );

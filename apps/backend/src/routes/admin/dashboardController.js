@@ -16,6 +16,7 @@
 // no consumer contract changes.
 
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { error, success } from '../../utils/responseHelper.js';
 import {
   getUserStats,
@@ -81,8 +82,10 @@ export function testInfo(_req, res) {
 
 /* ------------------------------- dashboard -------------------------------- */
 
-export async function dashboard(_req, res) {
+export async function dashboard(req, res) {
   try {
+    // CAN-015: scope every stat/activity aggregate to the caller's tenant.
+    const tenantId = resolveTenantOrThrow(req);
     const [
       userStats,
       doctorStats,
@@ -94,14 +97,14 @@ export async function dashboard(_req, res) {
       recentActivityData,
       moduleHealth,
     ] = await Promise.all([
-      getUserStats(),
-      getDoctorStats(),
-      getDepartmentStats(),
-      getAppointmentStats(),
-      getRecordStats(),
-      getEmergencyStats(),
-      getStaffStats(),
-      getRecentActivity(),
+      getUserStats(tenantId),
+      getDoctorStats(tenantId),
+      getDepartmentStats(tenantId),
+      getAppointmentStats(tenantId),
+      getRecordStats(tenantId),
+      getEmergencyStats(tenantId),
+      getStaffStats(tenantId),
+      getRecentActivity(tenantId),
       getModuleHealth(),
     ]);
 
@@ -140,72 +143,72 @@ export async function dashboard(_req, res) {
 
 /* ----------------------------- stat endpoints ----------------------------- */
 
-export async function statsQuick(_req, res) {
+export async function statsQuick(req, res) {
   try {
-    success(res, await getQuickStats(), 'Quick stats');
+    success(res, await getQuickStats(resolveTenantOrThrow(req)), 'Quick stats');
   } catch (e) {
     logger.error('Quick stats error:', e);
     error(res, 'Failed to get quick stats', 500, { safe: true });
   }
 }
 
-export async function statsUsers(_req, res) {
+export async function statsUsers(req, res) {
   try {
-    success(res, await getUserStats(), 'User stats');
+    success(res, await getUserStats(resolveTenantOrThrow(req)), 'User stats');
   } catch (e) {
     logger.error('User stats error:', e);
     error(res, 'Failed to get user stats', 500, { safe: true });
   }
 }
 
-export async function statsDoctors(_req, res) {
+export async function statsDoctors(req, res) {
   try {
-    success(res, await getDoctorStats(), 'Doctor stats');
+    success(res, await getDoctorStats(resolveTenantOrThrow(req)), 'Doctor stats');
   } catch (e) {
     logger.error('Doctor stats error:', e);
     error(res, 'Failed to get doctor stats', 500, { safe: true });
   }
 }
 
-export async function statsAppointments(_req, res) {
+export async function statsAppointments(req, res) {
   try {
-    success(res, await getAppointmentStats(), 'Appointment stats');
+    success(res, await getAppointmentStats(resolveTenantOrThrow(req)), 'Appointment stats');
   } catch (e) {
     logger.error('Appointment stats error:', e);
     error(res, 'Failed to get appointment stats', 500, { safe: true });
   }
 }
 
-export async function statsRecords(_req, res) {
+export async function statsRecords(req, res) {
   try {
-    success(res, await getRecordStats(), 'Record stats');
+    success(res, await getRecordStats(resolveTenantOrThrow(req)), 'Record stats');
   } catch (e) {
     logger.error('Record stats error:', e);
     error(res, 'Failed to get record stats', 500, { safe: true });
   }
 }
 
-export async function statsEmergency(_req, res) {
+export async function statsEmergency(req, res) {
   try {
-    success(res, await getEmergencyStats(), 'Emergency stats');
+    success(res, await getEmergencyStats(resolveTenantOrThrow(req)), 'Emergency stats');
   } catch (e) {
     logger.error('Emergency stats error:', e);
     error(res, 'Failed to get emergency stats', 500, { safe: true });
   }
 }
 
-export async function statsStaff(_req, res) {
+export async function statsStaff(req, res) {
   try {
-    success(res, await getStaffStats(), 'Staff stats');
+    success(res, await getStaffStats(resolveTenantOrThrow(req)), 'Staff stats');
   } catch (e) {
     logger.error('Staff stats error:', e);
     error(res, 'Failed to get staff stats', 500, { safe: true });
   }
 }
 
-export async function statsDepartments(_req, res) {
+export async function statsDepartments(req, res) {
   try {
-    success(res, await getDepartmentStats(), 'Department stats');
+    success(res, await getDepartmentStats(resolveTenantOrThrow(req)), 'Department stats');
   } catch (e) {
     logger.error('Department stats error:', e);
     error(res, 'Failed to get department stats', 500, { safe: true });
@@ -217,7 +220,7 @@ export async function statsDepartments(_req, res) {
 export async function recentActivity(req, res) {
   try {
     const { limit = 50, offset = 0 } = req.query;
-    success(res, await getRecentActivity(Number(limit), Number(offset)), 'Recent activity');
+    success(res, await getRecentActivity(resolveTenantOrThrow(req), Number(limit), Number(offset)), 'Recent activity');
   } catch (e) {
     logger.error('Recent activity error:', e);
     error(res, 'Failed to get recent activity', 500, { safe: true });
@@ -254,9 +257,9 @@ export async function systemHealth(_req, res) {
 
 // Bespoke shape: { success, data, links } — kept verbatim (success() would drop
 // the top-level links block).
-export async function staffSummary(_req, res) {
+export async function staffSummary(req, res) {
   try {
-    const summary = await getStaffStats();
+    const summary = await getStaffStats(resolveTenantOrThrow(req));
     res.json({
       success: true,
       data: summary,
@@ -273,9 +276,9 @@ export async function staffSummary(_req, res) {
   }
 }
 
-export async function appointmentsSummary(_req, res) {
+export async function appointmentsSummary(req, res) {
   try {
-    const summary = await getAppointmentSummary();
+    const summary = await getAppointmentSummary(resolveTenantOrThrow(req));
     res.json({
       success: true,
       data: summary,

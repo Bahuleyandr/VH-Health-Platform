@@ -1,7 +1,11 @@
 // src/routes/health/index.js
 import express from 'express';
-import { wrapRoutes, wrapAutoRBAC } from '../../config/routeWrapper.js';
+import { wrapRoutes } from '../../config/routeWrapper.js';
+import rbacConfig from '../../config/rbacConfig.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
+import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
 import validateApiKey from '../../middleware/validateApiKey.js';
 import logger from '../../logging/logger.js';
 import protectedRoutes from './protectedRoutes.js';
@@ -32,12 +36,24 @@ router.use('/', publicRoutes);
 // Uptime monitoring endpoints (public, no auth)
 router.use('/', uptimeRoutes);
 
-// Protected routes with RBAC
-// Note: This module is mounted before global jwtAuth in app.js (public health checks),
-// so we apply API key + JWT auth inline for patient-data routes.
-wrapAutoRBAC(protectedRoutes, 'healthRecordsRoutes');
-
-// Use protected routes — require API key + JWT for patient health data
-router.use('/', validateApiKey, jwtAuth, protectedRoutes);
+// Protected routes (patient health data). This module is mounted BEFORE the
+// global jwtAuth + tenant middleware in app.js (so the public health checks
+// above stay open), so the full PHI middleware chain is applied inline here.
+//
+// CAN-028/029: the previous `wrapAutoRBAC(protectedRoutes, 'healthRecordsRoutes')`
+// passed an EMPTY routeMap → a no-op, so these routes were reachable by ANY
+// authenticated user with no tenant scoping. Apply real RBAC (the
+// healthRecordsRoutes role set), tenant context, and RLS so reads/writes are
+// role-gated and tenant-scoped (raw queries here auto-scope under the AsyncLocal
+// tenant context when AUTH_ENFORCE_TENANT_RLS=true).
+router.use(
+  '/',
+  validateApiKey,
+  jwtAuth,
+  tenantContextMiddleware,
+  tenantRlsMiddleware,
+  requireRole(...rbacConfig.healthRecordsRoutes),
+  protectedRoutes,
+);
 
 export default router;

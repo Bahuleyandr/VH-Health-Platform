@@ -20,7 +20,7 @@ BigInt.prototype.toJSON = function bigIntToJSON() {
 
 import http from 'http';
 import app from '../app.js';
-import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
+import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants, tenantRlsPostureMustFailClosed } from '../lib/prisma.js';
 import { initRedis, getRedisClient, disconnectRedis } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
@@ -149,7 +149,19 @@ async function onListening() {
   // ERROR if the effective DB role bypasses RLS (superuser/BYPASSRLS) or owns
   // unforced tenant_isolation tables, so a deployment can't silently ship
   // inert tenant isolation. Best-effort.
-  await logTenantRlsRolePosture();
+  const rlsPosture = await logTenantRlsRolePosture();
+  // CAN-040: fail closed in production when the posture is unsafe (RLS off or
+  // inert) unless an audited single-tenant override is set — don't serve PHI
+  // with tenant isolation silently disabled.
+  if (tenantRlsPostureMustFailClosed(rlsPosture)) {
+    logger.error(
+      'FATAL: tenant-RLS posture is unsafe in production — refusing to start. '
+      + 'Set AUTH_ENFORCE_TENANT_RLS=true and connect as a non-superuser/non-BYPASSRLS role, '
+      + 'or set AUTH_TENANT_RLS_FAIL_OPEN=true to override for a confirmed single-tenant maintenance window.',
+      { enforced: rlsPosture?.enforced, ok: rlsPosture?.ok, reason: rlsPosture?.reason },
+    );
+    process.exit(1);
+  }
 
   // NB: database pool health monitor was removed with the DatabaseManager
   // shim — Prisma doesn't expose pool counts directly. Circuit-breaker

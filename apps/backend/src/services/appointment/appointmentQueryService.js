@@ -409,7 +409,7 @@ function appointmentOrderBy(sortBy, sortOrder) {
 }
 
 export class AppointmentQueryService {
-  async getAppointments(filters = {}, pagination = {}, userRole = null, userId = null) {
+  async getAppointments(filters = {}, pagination = {}, userRole = null, userId = null, tenantId = null) {
     try {
       const listQuery = parseListQuery({ ...filters, ...pagination }, {
         defaultPage: APPOINTMENT_CONFIG.DEFAULT_PAGINATION.PAGE,
@@ -431,6 +431,10 @@ export class AppointmentQueryService {
       });
 
       const where = {};
+      // CAN-018: explicit tenant predicate on the appointment list (defense-in-depth
+      // alongside RLS auto-scoping). Only applied when a tenant is supplied so the
+      // unit tests that exercise the query shape without a tenant are unaffected.
+      if (tenantId) where.tenant_id = tenantId;
       const andFilters = [];
       const isDoctorScopedRole = DOCTOR_SCOPED_APPOINTMENT_ROLES.has(userRole);
       if (isDoctorScopedRole) {

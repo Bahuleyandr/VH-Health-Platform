@@ -221,11 +221,19 @@ class ABDMService {
       try {
         await abdmGateway.verifyABHA(abhaNumber);
       } catch (err) {
-        logger.warn('ABDM ABHA verification failed, proceeding with local registration', {
-          abhaNumber,
-          error: err.message,
-        });
-        // Don't block registration if gateway is unreachable — record locally
+        logger.warn('ABDM ABHA verification failed', { abhaNumber, error: err.message });
+        // CAN-025: FAIL CLOSED — do not bind an unverified national health
+        // identifier while ABDM is enabled (was: proceed on gateway error). An
+        // explicit, audited override permits local-only linkage during a
+        // confirmed gateway outage.
+        if (String(process.env.ABDM_ABHA_ALLOW_UNVERIFIED || '').toLowerCase() !== 'true') {
+          throw new AppError(
+            'ABHA could not be verified with the ABDM gateway; linkage refused',
+            503,
+            'ABHA_VERIFICATION_FAILED',
+          );
+        }
+        logger.warn('ABDM_ABHA_ALLOW_UNVERIFIED override active — linking unverified ABHA', { abhaNumber });
       }
     }
 
@@ -613,7 +621,7 @@ class ABDMService {
    * @param {Object} dataRequest - Data request payload from ABDM
    * @returns {Object} Created data request record
    */
-  async handleDataRequest(dataRequest) {
+  async handleDataRequest(dataRequest, opts = {}) {
     const {
       transactionId,
       consentId,
@@ -658,6 +666,17 @@ class ABDMService {
       // A consent with no tenant cannot be safely scoped — refuse rather than
       // export under the default tenant.
       throw AppError.forbidden('Consent has no tenant binding', 'ABDM_CONSENT_NO_TENANT');
+    }
+    // CAN-007: when the callback was authenticated by a PER-TENANT secret
+    // (resolved from x-hip-id), the consent it names MUST belong to that same
+    // tenant — otherwise a tenant-A HIP callback could pull tenant-B PHI to its
+    // own dataPushUrl. The shared-secret/default path (opts.strict false) keeps
+    // the legacy single-tenant behavior.
+    if (opts.strict && opts.callbackTenantId && String(tenantId) !== String(opts.callbackTenantId)) {
+      throw AppError.forbidden(
+        'Consent tenant does not match the authenticated callback tenant',
+        'ABDM_CONSENT_TENANT_MISMATCH',
+      );
     }
 
     if (consent.status !== 'GRANTED') {

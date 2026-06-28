@@ -7,14 +7,19 @@ import logger from '../../logging/logger.js';
 
 // ── Core idempotent point award ───────────────────────────────────────────────
 
-export async function awardPoints(userUid, { activityType, activityRefId, points, description }) {
+export async function awardPoints(userUid, { activityType, activityRefId, points, description }, tenantId = null) {
   try {
-    // Idempotency check
+    // CAN-012: when a tenant is resolvable, scope the idempotency check and stamp
+    // the ledger row explicitly. These awards fire from event/background hooks
+    // where the RLS AsyncLocalStorage isn't seeded, so without the explicit
+    // tenant_id the INSERT would fall back to the GUC DEFAULT tenant — wrong for
+    // a non-default tenant. user_uid is globally unique so the read risk is low;
+    // this is defense-in-depth + write-correctness.
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id FROM health_point_ledger
-       WHERE user_uid = $1::uuid AND activity_type = $2 AND activity_ref_id = $3
+       WHERE user_uid = $1::uuid AND activity_type = $2 AND activity_ref_id = $3${tenantId ? ' AND tenant_id = $4::uuid' : ''}
        LIMIT 1`,
-      userUid, activityType, activityRefId
+      ...(tenantId ? [userUid, activityType, activityRefId, tenantId] : [userUid, activityType, activityRefId])
     );
 
     if (existing.length > 0) {
@@ -22,10 +27,10 @@ export async function awardPoints(userUid, { activityType, activityRefId, points
     }
 
     const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO health_point_ledger (user_uid, points, activity_type, activity_ref_id, description)
-       VALUES ($1::uuid, $2, $3, $4, $5)
+      `INSERT INTO health_point_ledger (user_uid, points, activity_type, activity_ref_id, description${tenantId ? ', tenant_id' : ''})
+       VALUES ($1::uuid, $2, $3, $4, $5${tenantId ? ', $6::uuid' : ''})
        RETURNING id, user_uid, points, activity_type, activity_ref_id, description, earned_at`,
-      userUid, points, activityType, activityRefId, description
+      ...(tenantId ? [userUid, points, activityType, activityRefId, description, tenantId] : [userUid, points, activityType, activityRefId, description])
     );
 
     return rows[0] || null;
@@ -46,11 +51,18 @@ export async function awardAppointmentPoints(appointment) {
     const phone = appointment.phone;
     if (!phone) return null;
 
-    // Look up user_uid from users table by phone
-    const users = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-      phone
-    );
+    // CAN-019: resolve the user within the appointment's tenant. These award
+    // hooks run from event/background contexts where the RLS AsyncLocalStorage
+    // is not seeded, so the explicit tenant predicate is the only scoping — a
+    // phone is unique only per tenant (mig 333).
+    const apptTenantId = appointment.tenant_id || appointment.tenantId || null;
+    const users = apptTenantId
+      ? await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 AND tenant_id = $2::uuid LIMIT 1`,
+          phone, apptTenantId)
+      : await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
+          phone);
     if (users.length === 0) return null;
     const userUid = users[0].uid;
 
@@ -59,13 +71,13 @@ export async function awardAppointmentPoints(appointment) {
       activityRefId: String(appointment.id),
       points: 50,
       description: 'Completed appointment visit',
-    });
+    }, apptTenantId);
 
     // If already awarded, skip streak check
     if (!result) return null;
 
     // Fire streak check
-    await checkAppointmentStreak(userUid);
+    await checkAppointmentStreak(userUid, apptTenantId);
 
     return result;
   } catch (err) {
@@ -81,10 +93,15 @@ export async function awardOnTimeBonus(appointment) {
     const phone = appointment.phone;
     if (!phone) return null;
 
-    const users = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-      phone
-    );
+    // CAN-019: resolve within the appointment's tenant (see awardAppointmentPoints).
+    const apptTenantId = appointment.tenant_id || appointment.tenantId || null;
+    const users = apptTenantId
+      ? await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 AND tenant_id = $2::uuid LIMIT 1`,
+          phone, apptTenantId)
+      : await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
+          phone);
     if (users.length === 0) return null;
     const userUid = users[0].uid;
 
@@ -104,7 +121,7 @@ export async function awardOnTimeBonus(appointment) {
         activityRefId: String(appointment.id),
         points: 25,
         description: 'On-time appointment bonus',
-      });
+      }, apptTenantId);
     }
 
     return null;
@@ -116,14 +133,16 @@ export async function awardOnTimeBonus(appointment) {
 
 // ── Appointment streak check ──────────────────────────────────────────────────
 
-export async function checkAppointmentStreak(userUid) {
+export async function checkAppointmentStreak(userUid, tenantId = null) {
   try {
+    // CAN-019: scope the appointment streak window (and the phone subquery) to
+    // the user's tenant when resolvable — a phone is unique only per tenant.
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM appointments
-       WHERE phone = (SELECT phone FROM users WHERE uid = $1::uuid LIMIT 1)
+       WHERE phone = (SELECT phone FROM users WHERE uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''} LIMIT 1)${tenantId ? ' AND tenant_id = $2::uuid' : ''}
        ORDER BY appointment_date DESC, appointment_time DESC
        LIMIT 10`,
-      userUid
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
 
     // Count consecutive COMPLETED from most recent
@@ -143,7 +162,7 @@ export async function checkAppointmentStreak(userUid) {
         activityRefId: String(rows[2].id),
         points: 100,
         description: '3 consecutive completed appointments streak bonus',
-      });
+      }, tenantId);
     }
 
     // 6-appointment streak: 250 pts
@@ -153,7 +172,7 @@ export async function checkAppointmentStreak(userUid) {
         activityRefId: String(rows[5].id),
         points: 250,
         description: '6 consecutive completed appointments streak bonus',
-      });
+      }, tenantId);
     }
   } catch (err) {
     logger.warn('checkAppointmentStreak error', { error: err.message });
@@ -162,7 +181,7 @@ export async function checkAppointmentStreak(userUid) {
 
 // ── Daily vitals log: 10 pts ──────────────────────────────────────────────────
 
-export async function awardVitalsPoints(userUid) {
+export async function awardVitalsPoints(userUid, tenantId = null) {
   try {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const activityRefId = `${userUid}:${today}`;
@@ -172,10 +191,10 @@ export async function awardVitalsPoints(userUid) {
       activityRefId,
       points: 10,
       description: 'Daily vitals log recorded',
-    });
+    }, tenantId);
 
     // Check 7-day vitals streak
-    await checkVitalsStreak(userUid);
+    await checkVitalsStreak(userUid, tenantId);
 
     return result;
   } catch (err) {
@@ -184,16 +203,16 @@ export async function awardVitalsPoints(userUid) {
   }
 }
 
-async function checkVitalsStreak(userUid) {
+async function checkVitalsStreak(userUid, tenantId = null) {
   try {
-    // Count distinct days with VITALS_LOG in last 7 calendar days
+    // Count distinct days with VITALS_LOG in last 7 calendar days (CAN-012: tenant-scoped).
     const rows = await prisma.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT DATE(earned_at))::int AS day_count
        FROM health_point_ledger
        WHERE user_uid = $1::uuid
          AND activity_type = 'VITALS_LOG'
-         AND earned_at >= NOW() - INTERVAL '7 days'`,
-      userUid
+         AND earned_at >= NOW() - INTERVAL '7 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
 
     const dayCount = rows[0]?.day_count || 0;
@@ -204,7 +223,7 @@ async function checkVitalsStreak(userUid) {
         activityRefId: `${userUid}:week:${weekId}`,
         points: 50,
         description: '7-day vitals logging streak bonus',
-      });
+      }, tenantId);
     }
   } catch (err) {
     logger.warn('checkVitalsStreak error', { error: err.message });
@@ -213,18 +232,26 @@ async function checkVitalsStreak(userUid) {
 
 // ── Step daily goal: 15 pts ───────────────────────────────────────────────────
 
-export async function awardStepPoints(userUid, dailyGoal) {
+export async function awardStepPoints(userUid, dailyGoal, tenantId = null) {
   try {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // Get today's total steps
+    // Get today's total steps (CAN-012: tenant-scoped when resolvable).
+    // ATTESTATION: only reward_eligible rows count toward the reward, so a
+    // user-typed/self-declared step entry can't farm points. reward_eligible is
+    // a fail-safe (default-deny) column set true by the trusted device ingestion
+    // paths — the in-app pedometer session (/steps/session/start) and the
+    // health-platform sync (/steps/health-sync) — NOT keyed off `source` (the
+    // in-app pedometer legitimately uses source='manual', which also drives the
+    // hasSyncedSource UX). See migration 348.
     const stepRows = await prisma.$queryRawUnsafe(
       `SELECT COALESCE(SUM(steps), 0)::int AS total_steps
        FROM step_sessions
        WHERE user_uid = $1::uuid
          AND is_active = false
-         AND DATE(started_at AT TIME ZONE 'UTC') = $2::date`,
-      userUid, today
+         AND reward_eligible = true
+         AND DATE(started_at AT TIME ZONE 'UTC') = $2::date${tenantId ? ' AND tenant_id = $3::uuid' : ''}`,
+      ...(tenantId ? [userUid, today, tenantId] : [userUid, today])
     );
 
     const totalSteps = stepRows[0]?.total_steps || 0;
@@ -235,10 +262,10 @@ export async function awardStepPoints(userUid, dailyGoal) {
       activityRefId: today,
       points: 15,
       description: `Daily step goal achieved (${totalSteps} steps)`,
-    });
+    }, tenantId);
 
     // Check 7-day and 30-day streaks
-    await checkStepStreaks(userUid);
+    await checkStepStreaks(userUid, tenantId);
 
     return result;
   } catch (err) {
@@ -247,16 +274,17 @@ export async function awardStepPoints(userUid, dailyGoal) {
   }
 }
 
-async function checkStepStreaks(userUid) {
+async function checkStepStreaks(userUid, tenantId = null) {
   try {
+    // CAN-012: tenant-scope the streak ledger reads when resolvable.
     // Count distinct days with STEP_DAILY_GOAL in last 7 days
     const rows7 = await prisma.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT activity_ref_id)::int AS day_count
        FROM health_point_ledger
        WHERE user_uid = $1::uuid
          AND activity_type = 'STEP_DAILY_GOAL'
-         AND earned_at >= NOW() - INTERVAL '7 days'`,
-      userUid
+         AND earned_at >= NOW() - INTERVAL '7 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
 
     if ((rows7[0]?.day_count || 0) >= 7) {
@@ -266,7 +294,7 @@ async function checkStepStreaks(userUid) {
         activityRefId: `week:${weekId}`,
         points: 75,
         description: '7-day step goal streak bonus',
-      });
+      }, tenantId);
     }
 
     // Count distinct days with STEP_DAILY_GOAL in last 30 days
@@ -275,8 +303,8 @@ async function checkStepStreaks(userUid) {
        FROM health_point_ledger
        WHERE user_uid = $1::uuid
          AND activity_type = 'STEP_DAILY_GOAL'
-         AND earned_at >= NOW() - INTERVAL '30 days'`,
-      userUid
+         AND earned_at >= NOW() - INTERVAL '30 days'${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
 
     if ((rows30[0]?.day_count || 0) >= 30) {
@@ -286,7 +314,7 @@ async function checkStepStreaks(userUid) {
         activityRefId: `month:${monthId}`,
         points: 200,
         description: '30-day step goal streak bonus',
-      });
+      }, tenantId);
     }
   } catch (err) {
     logger.warn('checkStepStreaks error', { error: err.message });
@@ -295,14 +323,16 @@ async function checkStepStreaks(userUid) {
 
 // ── User point summary ────────────────────────────────────────────────────────
 
-export async function getUserPointSummary(userUid) {
+export async function getUserPointSummary(userUid, tenantId = null) {
   try {
-    // Total points
+    // CAN-012: scope the per-user ledger/claim reads to the caller's tenant when
+    // resolvable (health_milestones is a global catalog with no tenant_id, so it
+    // is intentionally left unscoped).
     const totalRows = await prisma.$queryRawUnsafe(
       `SELECT COALESCE(SUM(points), 0)::int AS total_points
        FROM health_point_ledger
-       WHERE user_uid = $1::uuid`,
-      userUid
+       WHERE user_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     const totalPoints = totalRows[0]?.total_points || 0;
 
@@ -334,9 +364,9 @@ export async function getUserPointSummary(userUid) {
          AND hm.points_required <= $1
          AND NOT EXISTS (
            SELECT 1 FROM health_milestone_claims hmc
-           WHERE hmc.milestone_id = hm.id AND hmc.user_uid = $2::uuid
+           WHERE hmc.milestone_id = hm.id AND hmc.user_uid = $2::uuid${tenantId ? ' AND hmc.tenant_id = $3::uuid' : ''}
          )`,
-      totalPoints, userUid
+      ...(tenantId ? [totalPoints, userUid, tenantId] : [totalPoints, userUid])
     );
     const unclaimedCount = unclaimedRows[0]?.count || 0;
 
@@ -348,19 +378,19 @@ export async function getUserPointSummary(userUid) {
        JOIN health_milestones hm ON hm.id = hmc.milestone_id
        WHERE hmc.user_uid = $1::uuid
          AND hmc.is_redeemed = false
-         AND hmc.expires_at > NOW()
+         AND hmc.expires_at > NOW()${tenantId ? ' AND hmc.tenant_id = $2::uuid' : ''}
        ORDER BY hmc.claimed_at DESC`,
-      userUid
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
 
     // Recent 5 point entries
     const recentEntries = await prisma.$queryRawUnsafe(
       `SELECT id, points, activity_type, description, earned_at
        FROM health_point_ledger
-       WHERE user_uid = $1::uuid
+       WHERE user_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}
        ORDER BY earned_at DESC
        LIMIT 5`,
-      userUid
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
 
     return {
@@ -395,16 +425,19 @@ export async function getUserPointSummary(userUid) {
 
 // ── Next visit progress ───────────────────────────────────────────────────────
 
-export async function getNextVisitProgress(phone) {
+export async function getNextVisitProgress(phone, tenantId = null) {
   try {
+    // CAN-019: scope by tenant when resolvable — a phone is unique only per
+    // tenant (mig 333), so an unscoped phone match could surface another
+    // tenant's appointments.
     // Last COMPLETED appointment
     const lastRows = await prisma.$queryRawUnsafe(
       `SELECT id, appointment_date, appointment_time, doctor_name, status
        FROM appointments
-       WHERE phone = $1 AND status = 'COMPLETED'
+       WHERE phone = $1 AND status = 'COMPLETED'${tenantId ? ' AND tenant_id = $2::uuid' : ''}
        ORDER BY appointment_date DESC, appointment_time DESC
        LIMIT 1`,
-      phone
+      ...(tenantId ? [phone, tenantId] : [phone])
     );
 
     // Next SCHEDULED/CONFIRMED appointment
@@ -412,10 +445,10 @@ export async function getNextVisitProgress(phone) {
       `SELECT id, appointment_date, appointment_time, doctor_name, status
        FROM appointments
        WHERE phone = $1 AND status IN ('SCHEDULED', 'CONFIRMED')
-         AND appointment_date >= CURRENT_DATE
+         AND appointment_date >= CURRENT_DATE${tenantId ? ' AND tenant_id = $2::uuid' : ''}
        ORDER BY appointment_date ASC, appointment_time ASC
        LIMIT 1`,
-      phone
+      ...(tenantId ? [phone, tenantId] : [phone])
     );
 
     const lastAppt = lastRows[0] || null;
@@ -471,9 +504,9 @@ export async function getNextVisitProgress(phone) {
 
 // ── Claim milestone ───────────────────────────────────────────────────────────
 
-export async function claimMilestone(userUid, milestoneId) {
+export async function claimMilestone(userUid, milestoneId, tenantId = null) {
   try {
-    // Get milestone
+    // Get milestone (health_milestones is a global catalog — no tenant_id).
     const milestoneRows = await prisma.$queryRawUnsafe(
       `SELECT id, name, points_required, reward_type, reward_value,
               reward_description, is_active
@@ -491,12 +524,12 @@ export async function claimMilestone(userUid, milestoneId) {
       return { error: 'Milestone is no longer active', status: 400 };
     }
 
-    // Verify user has enough points
+    // Verify user has enough points (CAN-012: tenant-scoped ledger total).
     const totalRows = await prisma.$queryRawUnsafe(
       `SELECT COALESCE(SUM(points), 0)::int AS total_points
        FROM health_point_ledger
-       WHERE user_uid = $1::uuid`,
-      userUid
+       WHERE user_uid = $1::uuid${tenantId ? ' AND tenant_id = $2::uuid' : ''}`,
+      ...(tenantId ? [userUid, tenantId] : [userUid])
     );
     const totalPoints = totalRows[0]?.total_points || 0;
 
@@ -504,16 +537,17 @@ export async function claimMilestone(userUid, milestoneId) {
       return { error: 'Insufficient points to claim this milestone', status: 400 };
     }
 
-    // Generate voucher code and insert claim
+    // Generate voucher code and insert claim. CAN-012: stamp tenant_id explicitly
+    // so the claim is correctly attributed even outside an RLS context.
     const voucherCode = generateVoucherCode();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 90); // 90-day expiry
 
     const claimRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO health_milestone_claims (user_uid, milestone_id, voucher_code, expires_at)
-       VALUES ($1::uuid, $2, $3, $4)
+      `INSERT INTO health_milestone_claims (user_uid, milestone_id, voucher_code, expires_at${tenantId ? ', tenant_id' : ''})
+       VALUES ($1::uuid, $2, $3, $4${tenantId ? ', $5::uuid' : ''})
        RETURNING id, voucher_code, claimed_at, expires_at`,
-      userUid, milestone.id, voucherCode, expiresAt
+      ...(tenantId ? [userUid, milestone.id, voucherCode, expiresAt, tenantId] : [userUid, milestone.id, voucherCode, expiresAt])
     );
 
     if (claimRows.length === 0) {

@@ -1,21 +1,36 @@
 // src/routes/admin/services/statsService.js
+//
+// CAN-015 (audit 2026-06-27): every aggregate below is tenant-scoped. The caller's
+// tenant id (resolveTenantOrThrow(req) in dashboardController) is threaded into each
+// function signature and every COUNT/SUM/SELECT ANDs `tenant_id = $1::uuid`
+// (parameterized). Defense-in-depth — RLS auto-scopes in prod (AUTH_ENFORCE_TENANT_RLS)
+// but is latent under single-tenant (ALLOW_DEFAULT_TENANT=true), and these reads ran
+// on plain `prisma` with no explicit predicate, so an admin's totals blended every
+// tenant's rows. For multi-table joins the FACT table is scoped.
 import { tableExists, columnExists, safeQuery, safeScalar } from './common.js';
 
 /* ------------------------------- User stats ------------------------------- */
-export async function getUserStats() {
+export async function getUserStats(tenantId) {
   if (!(await tableExists('users'))) {
     return { total: 0, active: 0, newToday: 0, growth: [] };
   }
 
-  const total = await safeScalar(`SELECT COUNT(*) FROM users`);
+  const total = await safeScalar(
+    `SELECT COUNT(*) FROM users WHERE tenant_id = $1::uuid`,
+    [tenantId]
+  );
   const active = (await columnExists('users', 'is_active'))
-    ? await safeScalar(`SELECT COUNT(*) FROM users WHERE is_active = true`)
+    ? await safeScalar(
+        `SELECT COUNT(*) FROM users WHERE is_active = true AND tenant_id = $1::uuid`,
+        [tenantId]
+      )
     : 0;
   // The users table has no `created_at` — the canonical new-user timestamp
   // is `registered_at` (see prisma/schema.prisma#users).
   const newToday = (await columnExists('users', 'registered_at'))
     ? await safeScalar(
-        `SELECT COUNT(*) FROM users WHERE (registered_at)::date = CURRENT_DATE`
+        `SELECT COUNT(*) FROM users WHERE (registered_at)::date = CURRENT_DATE AND tenant_id = $1::uuid`,
+        [tenantId]
       )
     : 0;
 
@@ -25,10 +40,11 @@ export async function getUserStats() {
         SELECT date_trunc('day', registered_at) AS date, COUNT(*)::int AS count
         FROM users
         WHERE registered_at >= CURRENT_DATE - INTERVAL '30 days'
+          AND tenant_id = $1::uuid
         GROUP BY 1
         ORDER BY 1
         `,
-        [],
+        [tenantId],
         'users.growth'
       )
     : [];
@@ -37,16 +53,23 @@ export async function getUserStats() {
 }
 
 /* ------------------------------ Doctor stats ------------------------------ */
-export async function getDoctorStats() {
+export async function getDoctorStats(tenantId) {
   if (!(await tableExists('doctors'))) return { total: 0, available: 0, onDuty: 0 };
 
-  const total = await safeScalar(`SELECT COUNT(*) FROM doctors`);
+  const total = await safeScalar(
+    `SELECT COUNT(*) FROM doctors WHERE tenant_id = $1::uuid`,
+    [tenantId]
+  );
   const available = (await columnExists('doctors', 'is_available'))
-    ? await safeScalar(`SELECT COUNT(*) FROM doctors WHERE is_available = true`)
+    ? await safeScalar(
+        `SELECT COUNT(*) FROM doctors WHERE is_available = true AND tenant_id = $1::uuid`,
+        [tenantId]
+      )
     : 0;
   const onDuty = (await columnExists('doctors', 'is_on_leave'))
     ? await safeScalar(
-        `SELECT COUNT(*) FROM doctors WHERE COALESCE(is_on_leave,false) = false`
+        `SELECT COUNT(*) FROM doctors WHERE COALESCE(is_on_leave,false) = false AND tenant_id = $1::uuid`,
+        [tenantId]
       )
     : 0;
 
@@ -54,13 +77,16 @@ export async function getDoctorStats() {
 }
 
 /* ---------------------------- Department stats ---------------------------- */
-export async function getDepartmentStats() {
+export async function getDepartmentStats(tenantId) {
   if (!(await tableExists('departments'))) return { total: 0, utilization: [] };
 
-  const total = await safeScalar(`SELECT COUNT(*) FROM departments`);
+  const total = await safeScalar(
+    `SELECT COUNT(*) FROM departments WHERE tenant_id = $1::uuid`,
+    [tenantId]
+  );
   const names = await safeQuery(
-    `SELECT name FROM departments ORDER BY name LIMIT 20`,
-    [],
+    `SELECT name FROM departments WHERE tenant_id = $1::uuid ORDER BY name LIMIT 20`,
+    [tenantId],
     'depts.names'
   );
 
@@ -75,7 +101,7 @@ export async function getDepartmentStats() {
 }
 
 /* --------------------------- Appointment stats ---------------------------- */
-export async function getAppointmentStats() {
+export async function getAppointmentStats(tenantId) {
   if (!(await tableExists('appointments'))) {
     return {
       today: 0,
@@ -97,8 +123,9 @@ export async function getAppointmentStats() {
       COUNT(*) FILTER (WHERE status = 'no_show')::int AS no_shows,
       COUNT(*)::int AS total
     FROM appointments
+    WHERE tenant_id = $1::uuid
     `,
-    [],
+    [tenantId],
     'appts.core'
   );
   const r = core[0] || {
@@ -116,10 +143,11 @@ export async function getAppointmentStats() {
            COUNT(*) FILTER (WHERE status = 'completed')::int AS completed
     FROM appointments
     WHERE appointment_date >= CURRENT_DATE - INTERVAL '7 days'
+      AND tenant_id = $1::uuid
     GROUP BY 1
     ORDER BY 1
     `,
-    [],
+    [tenantId],
     'appts.trends'
   );
 
@@ -129,8 +157,9 @@ export async function getAppointmentStats() {
     FROM appointments
     WHERE status = 'completed'
       AND (appointment_date)::date = CURRENT_DATE
+      AND tenant_id = $1::uuid
     `,
-    [],
+    [tenantId],
     'appts.wait'
   );
 
@@ -149,7 +178,7 @@ export async function getAppointmentStats() {
 }
 
 /* ------------------------------ Record stats ------------------------------ */
-export async function getRecordStats() {
+export async function getRecordStats(tenantId) {
   if (!(await tableExists('medical_records')))
     return { total: 0, createdToday: 0 };
 
@@ -159,15 +188,16 @@ export async function getRecordStats() {
       COUNT(*)::int AS total,
       COUNT(*) FILTER (WHERE (created_at)::date = CURRENT_DATE)::int AS createdtoday
     FROM medical_records
+    WHERE tenant_id = $1::uuid
     `,
-    [],
+    [tenantId],
     'records.core'
   );
   return { total: rows[0]?.total ?? 0, createdToday: rows[0]?.createdtoday ?? 0 };
 }
 
 /* ----------------------------- Emergency stats ---------------------------- */
-export async function getEmergencyStats() {
+export async function getEmergencyStats(tenantId) {
   if (!(await tableExists('sos_alerts'))) return { active: 0, last24Hours: 0 };
 
   const rows = await safeQuery(
@@ -176,15 +206,16 @@ export async function getEmergencyStats() {
       COUNT(*) FILTER (WHERE status = 'active')::int AS active,
       COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '24 hours')::int AS last24hours
     FROM sos_alerts
+    WHERE tenant_id = $1::uuid
     `,
-    [],
+    [tenantId],
     'sos.core'
   );
   return { active: rows[0]?.active ?? 0, last24Hours: rows[0]?.last24hours ?? 0 };
 }
 
 /* ------------------------------- Staff stats ------------------------------ */
-export async function getStaffStats() {
+export async function getStaffStats(tenantId) {
   if (!(await tableExists('staff'))) {
     return {
       total_staff: 0,
@@ -203,8 +234,9 @@ export async function getStaffStats() {
       COUNT(*) FILTER (WHERE COALESCE(is_active, true) = true)::int AS active_staff,
       COUNT(*) FILTER (WHERE COALESCE(on_leave, false) = true)::int AS on_leave
     FROM staff
+    WHERE tenant_id = $1::uuid
     `,
-    [],
+    [tenantId],
     'staff.core'
   );
 
@@ -214,24 +246,30 @@ export async function getStaffStats() {
         SELECT COUNT(DISTINCT staff_id)::int AS present_today
         FROM staff_attendance
         WHERE (check_in_time)::date = CURRENT_DATE
+          AND tenant_id = $1::uuid
         `,
-        [],
+        [tenantId],
         'staff.present'
       )
     : [{ present_today: 0 }];
 
-  const pendingReviews = (await tableExists('performance_reviews'))
+  // A pending review = review_date IS NULL. The table is staff_performance_reviews
+  // (no `performance_reviews` table/view exists) and it has NO `status` column —
+  // the canonical "pending" predicate is review_date IS NULL (see
+  // staffAdminDashboardController hr_pending). Was silently always 0: the old
+  // `performance_reviews` tableExists gate never matched.
+  const pendingReviews = (await tableExists('staff_performance_reviews'))
     ? await safeQuery(
-        `SELECT COUNT(*)::int AS c FROM performance_reviews WHERE status = 'pending'`,
-        [],
+        `SELECT COUNT(*)::int AS c FROM staff_performance_reviews WHERE review_date IS NULL AND tenant_id = $1::uuid`,
+        [tenantId],
         'staff.reviews'
       )
     : [{ c: 0 }];
 
   const pendingLeaves = (await tableExists('leave_applications'))
     ? await safeQuery(
-        `SELECT COUNT(*)::int AS c FROM leave_applications WHERE status = 'pending'`,
-        [],
+        `SELECT COUNT(*)::int AS c FROM leave_applications WHERE status = 'pending' AND tenant_id = $1::uuid`,
+        [tenantId],
         'staff.leaves'
       )
     : [{ c: 0 }];
@@ -247,32 +285,44 @@ export async function getStaffStats() {
 }
 
 /* ------------------------------- Quick stats ------------------------------ */
-export async function getQuickStats() {
+export async function getQuickStats(tenantId) {
   const [appointments, users, staff, revenue] = await Promise.all([
     (async () => {
       if (!(await tableExists('appointments'))) return { today: 0, week: 0 };
       const today = await safeScalar(
-        `SELECT COUNT(*) FROM appointments WHERE appointment_date::date = CURRENT_DATE`
+        `SELECT COUNT(*) FROM appointments WHERE appointment_date::date = CURRENT_DATE AND tenant_id = $1::uuid`,
+        [tenantId]
       );
       const week = await safeScalar(
-        `SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN NOW() AND NOW() + INTERVAL '7 days'`
+        `SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN NOW() AND NOW() + INTERVAL '7 days' AND tenant_id = $1::uuid`,
+        [tenantId]
       );
       return { today, week };
     })(),
     (async () => {
       if (!(await tableExists('users'))) return { total: 0, active: 0 };
-      const total = await safeScalar(`SELECT COUNT(*) FROM users`);
+      const total = await safeScalar(
+        `SELECT COUNT(*) FROM users WHERE tenant_id = $1::uuid`,
+        [tenantId]
+      );
       const active = (await columnExists('users', 'is_active'))
-        ? await safeScalar(`SELECT COUNT(*) FROM users WHERE is_active = true`)
+        ? await safeScalar(
+            `SELECT COUNT(*) FROM users WHERE is_active = true AND tenant_id = $1::uuid`,
+            [tenantId]
+          )
         : 0;
       return { total, active };
     })(),
     (async () => {
       if (!(await tableExists('staff'))) return { total: 0, present: 0 };
-      const total = await safeScalar(`SELECT COUNT(*) FROM staff`);
+      const total = await safeScalar(
+        `SELECT COUNT(*) FROM staff WHERE tenant_id = $1::uuid`,
+        [tenantId]
+      );
       const present = (await tableExists('staff_attendance'))
         ? await safeScalar(
-            `SELECT COUNT(*) FROM staff_attendance WHERE check_in_time::date = CURRENT_DATE`
+            `SELECT COUNT(*) FROM staff_attendance WHERE check_in_time::date = CURRENT_DATE AND tenant_id = $1::uuid`,
+            [tenantId]
           )
         : 0;
       return { total, present };
@@ -282,10 +332,12 @@ export async function getQuickStats() {
       // pharmacy_orders has `ordered_at` (and `created_at`) — never `placed_at`.
       // See prisma/schema.prisma#pharmacy_orders.
       const today = await safeScalar(
-        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE DATE(ordered_at) = CURRENT_DATE`
+        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE DATE(ordered_at) = CURRENT_DATE AND tenant_id = $1::uuid`,
+        [tenantId]
       );
       const month = await safeScalar(
-        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE ordered_at >= DATE_TRUNC('month', CURRENT_DATE)`
+        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE ordered_at >= DATE_TRUNC('month', CURRENT_DATE) AND tenant_id = $1::uuid`,
+        [tenantId]
       );
       return { today: Number(today), month: Number(month) };
     })(),
@@ -295,7 +347,7 @@ export async function getQuickStats() {
 }
 
 /* ------------------------- Appointments: summary card --------------------- */
-export async function getAppointmentSummary() {
+export async function getAppointmentSummary(tenantId) {
   if (!(await tableExists('appointments'))) {
     return {
       today_total: 0,
@@ -311,7 +363,7 @@ export async function getAppointmentSummary() {
 
   const rows = await safeQuery(
     `
-    SELECT 
+    SELECT
       COUNT(*) FILTER (WHERE appointment_date::date = CURRENT_DATE)::int as today_total,
       COUNT(*) FILTER (WHERE appointment_date::date = CURRENT_DATE AND status = 'scheduled')::int as today_scheduled,
       COUNT(*) FILTER (WHERE appointment_date::date = CURRENT_DATE AND status = 'completed')::int as today_completed,
@@ -319,13 +371,14 @@ export async function getAppointmentSummary() {
       COUNT(*) FILTER (WHERE appointment_date < NOW() AND status = 'no_show')::int as total_no_shows,
       COUNT(DISTINCT patient_id)::int as unique_patients,
       COUNT(DISTINCT doctor_id)::int as active_doctors,
-      ROUND(AVG(CASE WHEN status = 'completed' THEN 
-        EXTRACT(EPOCH FROM (updated_at - appointment_date))/60 
+      ROUND(AVG(CASE WHEN status = 'completed' THEN
+        EXTRACT(EPOCH FROM (updated_at - appointment_date))/60
       END))::int as avg_wait_time_minutes
     FROM appointments
     WHERE appointment_date >= CURRENT_DATE - INTERVAL '30 days'
+      AND tenant_id = $1::uuid
     `,
-    [],
+    [tenantId],
     'appts.summary'
   );
 

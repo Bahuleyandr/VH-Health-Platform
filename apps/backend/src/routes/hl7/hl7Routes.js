@@ -54,11 +54,17 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
   // unrecognized receiver with no usable secret is rejected.
   let tenantId = await resolveTenantBySender('hl7_inbound', receivingFacility);
   let secret = tenantId ? await getInteropSecret(tenantId, 'hl7_inbound') : null;
+  // CAN-021: a per-tenant inbound secret authenticates a SPECIFIC tenant's feed,
+  // so the named patient MUST belong to that tenant (strict). The shared-secret
+  // fallback is the legacy single-tenant/default path and writes to the
+  // patient's own resolved tenant (not strict) — see hl7-receive-tenant-binding.
+  let strictTenant = !!(tenantId && secret);
   if (!secret && process.env.HL7_INBOUND_SHARED_SECRET) {
     const configuredFacility = String(process.env.HL7_RECEIVING_FACILITY || '').trim();
     if (!configuredFacility || String(receivingFacility || '').trim() === configuredFacility) {
       tenantId = DEFAULT_TENANT_ID;
       secret = process.env.HL7_INBOUND_SHARED_SECRET;
+      strictTenant = false;
     }
   }
   if (!tenantId || !secret) {
@@ -87,6 +93,7 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
     codePrefix: 'HL7_INBOUND',
   });
   req.tenantId = tenantId; // the authenticated destination tenant
+  req.hl7StrictTenant = strictTenant; // CAN-021: enforce patient-tenant match on the per-tenant-secret path
 }
 
 // Resolve the patient by uid GLOBALLY (the sender's tenant is not in the
@@ -95,7 +102,7 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
 // belong to — but EVERY subsequent write is then scoped to that patient's
 // tenant via setTenant(), so a non-default patient's clinical rows can never be
 // stamped into the default (or any other) tenant. Returns null if not found.
-async function loadHl7Patient(patientUid) {
+async function loadHl7Patient(patientUid, authenticatedTenantId, strictTenant) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT uid, tenant_id::text AS tenant_id, phone FROM users WHERE uid = $1::uuid AND is_active = true LIMIT 1`,
     patientUid,
@@ -104,6 +111,10 @@ async function loadHl7Patient(patientUid) {
   // A patient with no tenant_id cannot be safely scoped — refuse rather than
   // fall back to the default tenant for a non-default patient.
   if (row && !row.tenant_id) return null;
+  // CAN-021: on the per-tenant-secret path, a tenant-A feed must not write to a
+  // tenant-B patient. Refuse the mismatch (handler returns the same "not
+  // registered at this facility" AE as an unknown patient).
+  if (strictTenant && row && String(row.tenant_id) !== String(authenticatedTenantId)) return null;
   return row;
 }
 
@@ -168,7 +179,7 @@ router.post(
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
         }
-        const patientRow = await loadHl7Patient(patient.uid);
+        const patientRow = await loadHl7Patient(patient.uid, req.tenantId, req.hl7StrictTenant);
         if (!patientRow) {
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
@@ -218,7 +229,7 @@ router.post(
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
         }
-        const patientRow = await loadHl7Patient(patient.uid);
+        const patientRow = await loadHl7Patient(patient.uid, req.tenantId, req.hl7StrictTenant);
         if (!patientRow) {
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
@@ -250,7 +261,7 @@ router.post(
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
         }
-        const patientRow = await loadHl7Patient(patientUid);
+        const patientRow = await loadHl7Patient(patientUid, req.tenantId, req.hl7StrictTenant);
         if (!patientRow) {
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));

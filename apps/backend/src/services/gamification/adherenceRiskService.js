@@ -58,11 +58,18 @@ export function bandFor(score) {
   return score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
 }
 
-export async function scoreAdherenceRisk(patientId) {
+export async function scoreAdherenceRisk(patientId, tenantId = null) {
+  // CAN-037: when a tenant is supplied, scope every read to it (defense-in-depth
+  // alongside RLS; this also runs from non-request contexts via the longitudinal
+  // risk service where the RLS AsyncLocalStorage isn't seeded). The extra
+  // predicate binds as $2 and is omitted when no tenant is provided.
+  const tClause = tenantId ? ' AND tenant_id = $2::uuid' : '';
+  const tArgs = tenantId ? [tenantId] : [];
+
   // Patient wristband UUID (keyed by users.id).
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid FROM users WHERE id = $1`,
-    patientId,
+    `SELECT id, uid FROM users WHERE id = $1${tClause}`,
+    patientId, ...tArgs,
   );
   if (rows.length === 0) return null;
   const patientUid = rows[0].uid;
@@ -74,8 +81,8 @@ export async function scoreAdherenceRisk(patientId) {
        COUNT(*) FILTER (WHERE override_reason IS NOT NULL
                         AND administered_at >= NOW() - INTERVAL '30 days')::int                            AS overrides_30
      FROM medication_administrations
-     WHERE patient_uid = $1::uuid`,
-    patientUid,
+     WHERE patient_uid = $1::uuid${tClause}`,
+    patientUid, ...tArgs,
   );
 
   // "Late refill" heuristic — Rx with end_date in the past but no refill in the
@@ -86,16 +93,16 @@ export async function scoreAdherenceRisk(patientId) {
        FROM e_prescriptions
       WHERE patient_id = $1
         AND created_at >= NOW() - INTERVAL '90 days'
-        AND status = 'ACTIVE'`,
-    patientId,
+        AND status = 'ACTIVE'${tClause}`,
+    patientId, ...tArgs,
   ).catch(() => [{ late_refills: 0 }]);
 
   // Days since last patient_vitals row.
   const [vital] = await prisma.$queryRawUnsafe(
     `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(recorded_at))) / 86400 AS days_since
        FROM patient_vitals
-      WHERE patient_uid = $1::uuid`,
-    patientUid,
+      WHERE patient_uid = $1::uuid${tClause}`,
+    patientUid, ...tArgs,
   );
   const daysSince = vital?.days_since ? Math.min(Math.floor(vital.days_since), 60) : 60;
 

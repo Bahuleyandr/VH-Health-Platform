@@ -299,8 +299,13 @@ const convertToCSV = (data) => {
   const csvHeaders = headers.join(',');
 
   const csvRows = data.map((row) => headers.map((header) => {
-    const value = row[header];
-    if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+    let value = row[header];
+    if (value === null || value === undefined) return '';
+    value = String(value);
+    // CAN-005: neutralize spreadsheet formula injection (employee/payroll text
+    // fields are user-influenceable) before RFC-4180 quoting.
+    if (/^[=+\-@\t\r]/.test(value)) value = `'${value}`;
+    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
       return `"${value.replace(/"/g, '""')}"`;
     }
     return value;

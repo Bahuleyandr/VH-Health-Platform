@@ -19,6 +19,7 @@ import { auditLogMiddleware } from './middleware/auditLog.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import {
+  requireDowntimeAccess,
   requireProductionInfrastructureAdmin,
   requireProductionMonitoringAccess,
 } from './middleware/infrastructureAccessMiddleware.js';
@@ -33,7 +34,7 @@ import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
-import fhirPatientContext from './middleware/fhirPatientContext.js';
+import fhirPatientContext, { requireFhirSearchPatientContext } from './middleware/fhirPatientContext.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
   patientRateLimiter,
@@ -536,10 +537,14 @@ app.use('/health', genericLimiter, uptimeRoutes);
 // packs stay reachable when the DB/auth layer is DOWN — this is mounted BEFORE
 // validateApiKey and jwtAuth on purpose (an outage takes those down too). It
 // reads ONLY the filesystem, never prisma. Packs contain PHI, so it mirrors the
-// /metrics posture: token-gated in production via requireProductionMonitoringAccess
-// (no-op outside prod) + rate-limited. It cannot DB-audit during an outage, so
-// access is Winston-file logged inside the router instead.
-app.use('/downtime/static', genericLimiter, requireProductionMonitoringAccess, staticDowntimeRoutes);
+// /metrics posture: token-gated + rate-limited, ALWAYS-ON (no NODE_ENV bypass).
+// CAN-054: it uses a DEDICATED downtime token (requireDowntimeAccess) rather
+// than the shared monitoring token, so a leaked metrics/scrape token can NOT
+// also unlock PHI ward packs. When no dedicated token is configured it falls
+// back to the monitoring token (logged) so outage packs stay reachable. It
+// cannot DB-audit during an outage, so access is Winston-file logged inside the
+// router instead.
+app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntimeRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE
@@ -790,6 +795,9 @@ app.use(
   '/api/v1/fhir',
   requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES),
   fhirPatientContext,
+  // CAN-030: deny unscoped PHI collection searches (no ?patient) for non-export
+  // roles so FHIR can't be used to enumerate tenant PHI.
+  requireFhirSearchPatientContext,
   patientAccessGuard('FHIR_RESOURCE', { careTeamModeGoverned: true }),
   phiAccessLogger('FHIR_RESOURCE'),
   fhirRoutes,
@@ -928,17 +936,24 @@ app.use('/api/v1/credentials', requireRole(...CLINICAL_STAFF_ROLES, 'HR_STAFF', 
 
 // Research/registry capture (roadmap D6) — CRFs bound to clinical data;
 // enrollments/responses are PHI, exports de-identified by default.
-app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'CMO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('RESEARCH'), researchRoutes);
+// CAN-049: registry enrollments/exports expose subject identity + CRF data;
+// add the care-team-governed patient guard as a baseline (study-team membership
+// scoping tracked as a follow-up in the service layer).
+app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'CMO', 'MEDICAL_SUPERINTENDENT'), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('RESEARCH'), researchRoutes);
 
 // Oncology/chemo foundations (roadmap D1) — protocols, BSA dosing, cycle
 // scheduling, two-person administration verification, cumulative ceilings.
-app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+// CAN-046/047/048: specialty clinical modules previously had role RBAC + PHI
+// logging but NO patient-relationship guard, so any in-role clinician could
+// read/mutate arbitrary patients. Mount the care-team-governed guard (shadow
+// by default → telemetry now, real 403 once the tenant flips to 'enforce').
+app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
 
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
-app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('DENTAL'), dentalRoutes);
+app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DENTAL'), dentalRoutes);
 
 // Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
-app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
+app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
@@ -1006,6 +1021,7 @@ app.use('/api/v1/emr', patientAccessGuardForPaths('DIAGNOSIS', EMR_DIAGNOSIS_PAT
 app.use(
   '/api/v1/admin/clinical-ai',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  requireSuperAdminStepUp, // CAN-043: SUPER_ADMIN must complete MFA step-up for the control plane
   adminIpAllowlist,
   adminRateLimiter,
   clinicalAiAdminRoutes
@@ -1013,6 +1029,7 @@ app.use(
 app.use(
   '/api/v1/clinical-ai/control',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  requireSuperAdminStepUp, // CAN-043
   adminIpAllowlist,
   adminRateLimiter,
   clinicalAiAdminRoutes
@@ -1031,6 +1048,7 @@ app.use(
 app.use(
   '/api/v1/admin/forecast',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  requireSuperAdminStepUp, // CAN-043
   adminIpAllowlist,
   adminRateLimiter,
   adminForecastRoutes
@@ -1038,6 +1056,7 @@ app.use(
 app.use(
   '/api/v1/admin/tenants',
   requireRole('SUPER_ADMIN'),
+  requireSuperAdminStepUp, // CAN-043
   adminIpAllowlist,
   adminRateLimiter,
   tenantRoutes
@@ -1098,8 +1117,8 @@ app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStep
 // Radiology
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
-// Dietary / Nutrition
-app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), phiAccessLogger('DIETARY'), dietaryRoutes);
+// Dietary / Nutrition — CAN-050: add the care-team-governed patient guard.
+app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
@@ -1125,7 +1144,9 @@ app.use(
   surgicalDocumentationRoutes,
 );
 app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patientAccessGuard('MICROBIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
-app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), phiAccessLogger('PCPNDT'), pcpndtRoutes);
+// CAN-051: Form-F pregnancy/USG records are legally sensitive — add the
+// care-team-governed patient guard (was role + PHI logger only).
+app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
@@ -1201,7 +1222,11 @@ app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_
 app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('DISCHARGE_SUMMARY', { careTeamModeGoverned: true }), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
-app.use('/api/v1/quality', qualityRoutes);
+// CAN-035: incident + infection-control endpoints carry patient_uid/organism/
+// treatment PHI but emitted no patient-attributed audit trail. Mount the PHI
+// access logger so quality PHI access is breach-detectable like adjacent
+// clinical routes.
+app.use('/api/v1/quality', phiAccessLogger('QUALITY'), qualityRoutes);
 
 // Referral Management (route-level role checks)
 app.use('/api/v1/referrals', patientAccessGuard('REFERRAL', { careTeamModeGoverned: true }), phiAccessLogger('REFERRAL'), referralRoutes);

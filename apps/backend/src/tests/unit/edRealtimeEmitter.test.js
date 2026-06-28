@@ -11,7 +11,7 @@ const { emitEdBoardEvent } = await import('../../utils/websocket/realtimeEmitter
 describe('emitEdBoardEvent', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test('broadcasts on admin:ed-board with kind, visit fields, and tenantId', () => {
+  test('broadcasts on staff:ed-board with kind, visit fields, and tenantId', () => {
     emitEdBoardEvent(
       'transition',
       { id: 7, visit_number: 'ED-007', status: 'in_treatment', triage_priority: 'esi_2', disposition: null },
@@ -20,7 +20,7 @@ describe('emitEdBoardEvent', () => {
 
     expect(broadcast).toHaveBeenCalledTimes(1);
     expect(broadcast).toHaveBeenCalledWith(
-      'admin:ed-board',
+      'staff:ed-board',
       expect.objectContaining({
         kind: 'transition',
         id: 7,

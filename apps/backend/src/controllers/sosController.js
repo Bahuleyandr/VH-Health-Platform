@@ -390,7 +390,11 @@ export const getPerformanceReport = async (req, res) => {
   try {
     if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
-    const report = await prisma.$queryRaw`
+    // CAN-006: scope the responder performance report to the caller's tenant.
+    // sos_alerts.tenant_id is indexed; an explicit predicate keeps the report
+    // tenant-correct even if RLS auto-scoping is misconfigured (defense-in-depth,
+    // matching the sibling SOS_TENANT_FILTER queries above).
+    const report = await prisma.$queryRawUnsafe(`
       SELECT
         sa.responded_by,
         u.name AS responder_name,
@@ -401,10 +405,11 @@ export const getPerformanceReport = async (req, res) => {
       FROM sos_alerts sa
       LEFT JOIN users u ON u.uid = sa.responded_by
       WHERE sa.responded_by IS NOT NULL
+        AND sa.tenant_id = $1::uuid
       GROUP BY sa.responded_by, u.name
       ORDER BY alerts_handled DESC
       LIMIT 50
-    `;
+    `, tenantOf(req));
     success(res, { responders: report }, 'Performance report');
   } catch (err) {
     logger.error('Performance Report Error:', err);

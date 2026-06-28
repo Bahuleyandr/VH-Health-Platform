@@ -1,6 +1,7 @@
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as orderService from '../../services/pharmacy/orderService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { broadcast } from '../../utils/websocket/wsServer.js';
@@ -45,7 +46,8 @@ export const placeOrder = async (req, res) => {
       urgent,
       delivery_type: resolvedDeliveryType,
       requestedBy,
-      requestedByRole
+      requestedByRole,
+      tenantId: resolveTenantOrThrow(req), // CAN-033: scope phone lookup + insert
     });
 
     success(res, order, RESPONSE_MESSAGES.ORDER_PLACED);

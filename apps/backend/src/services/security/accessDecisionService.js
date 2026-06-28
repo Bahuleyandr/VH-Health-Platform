@@ -6,6 +6,7 @@ import {
 } from '../../config/rolePolicyGraph.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
@@ -125,10 +126,39 @@ function cleanUuid(value) {
   return UUID_RE.test(text) ? text : null;
 }
 
+// Postgres `integer` (int4) upper bound. A phone parsed with parseInt()
+// (e.g. '9000090011' or '+91XXXXXXXXXX') yields a value far above this; binding
+// it to an `id = $N::int` comparison throws 22003 "value out of range for type
+// integer". No real SERIAL id can exceed int4, so rejecting out-of-range values
+// here is correct AND closes the phone-as-id overflow the phone-resolution path
+// below would otherwise hit.
+const PG_INT4_MAX = 2147483647;
+
 function cleanInt(value) {
   if (value == null || value === '') return null;
   const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= PG_INT4_MAX ? parsed : null;
+}
+
+// Postgres `bigint` (int8) upper bound, for resolvers keyed on a BigInt id column
+// (e.g. investigation_bookings.id). cleanInt() above is correctly int4-bounded to
+// stop a phone string overflowing an `id = $N::int` comparison — but that bound
+// is WRONG for a bigint id, which would silently reject any value above int4 max.
+// Parse with BigInt (not parseInt → float) so ids beyond 2^53 stay precise, and
+// return the canonical digit string, which binds safely to a `$N::bigint` param.
+const PG_INT8_MAX = 9223372036854775807n;
+
+function cleanBigInt(value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return null; // positive digits only — never a phone like '+91…'
+  let parsed;
+  try {
+    parsed = BigInt(text);
+  } catch {
+    return null;
+  }
+  return parsed > 0n && parsed <= PG_INT8_MAX ? text : null;
 }
 
 function normalizeRole(value) {
@@ -231,6 +261,23 @@ async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
 
 async function patientFromResourceQuery(req, sql, idValue) {
   const resourceId = cleanInt(idValue);
+  if (!resourceId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    deriveTenantIdFromRequest(req),
+    resourceId,
+  );
+  const row = rows[0] || null;
+  return row?.uid ? { id: row.id ?? null, uid: row.uid } : null;
+}
+
+// Variant of patientFromResourceQuery for resources whose id column is a BigInt
+// (e.g. investigation_bookings.id). Uses the int8-bounded cleanBigInt so ids
+// above int4 max still resolve; binds the canonical digit string to the
+// `$N::bigint` param in the query. Returns the same { id, uid } patient shape
+// (the projected id is still the PATIENT's int4 users.id, not the bigint id).
+async function patientFromBigintResourceQuery(req, sql, idValue) {
+  const resourceId = cleanBigInt(idValue);
   if (!resourceId) return null;
   const rows = await prisma.$queryRawUnsafe(
     sql,
@@ -432,6 +479,25 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'investigation_booking':
+      // CAN-017: the booking workflow handlers (/bookings/:id[/confirm|...]) address
+      // the patient indirectly through the booking id (a path param the parent
+      // INVESTIGATION guard can't resolve), so they ran without a relationship
+      // check. Resolve the patient from the booking row itself. investigation_bookings.id
+      // is a BigInt, so this MUST use the int8-bounded bigint resolver — the
+      // int4-bounded cleanInt would silently drop any id above int4 max.
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM investigation_bookings ib
+           JOIN users p ON p.id = ib.patient_id
+          WHERE ib.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND ib.id = $2::bigint
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'prescription':
       return patientFromResourceQuery(
         req,
@@ -568,10 +634,18 @@ export async function resolvePatientForAccess(req, providedPatient = null) {
 
   const raw = requestedPatientToken(req);
   if (!raw) return null;
-  const asId = cleanInt(raw);
   const text = String(raw).trim();
+  // A phone-shaped token must NEVER reach the int id column: cleanInt is now
+  // int4-bounded, so parseInt('+91XXXXXXXXXX') / parseInt('9000090011') returns
+  // null here instead of an out-of-range integer (Postgres 22003).
+  const asId = cleanInt(text);
+  // Phone identification: normalise to the stored E.164 +91 form and match the
+  // varchar phone column directly — never cast a phone to int. normalizePhone
+  // maps '9000090011', '919000090011', '+91 90000 90011' all to '+919000090011'.
+  const normalizedPhone = normalizePhone(text);
+  // Digits-only fallback for legacy rows stored without the +91 country code.
   const digits = text.replace(/\D/g, '');
-  const normalizedPhone = digits.length >= 10 ? digits.slice(-10) : null;
+  const phoneDigits = digits.length >= 10 ? digits.slice(-10) : null;
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, uid
@@ -589,8 +663,8 @@ export async function resolvePatientForAccess(req, providedPatient = null) {
     tenantId,
     asId,
     cleanUuid(text),
-    text || null,
     normalizedPhone,
+    phoneDigits,
   );
   const row = rows[0];
   return row ? { id: row.id, uid: row.uid } : null;

@@ -292,7 +292,7 @@ export async function scoreLongitudinalRisk({ admissionId, req = null } = {}) {
   // 1. Adherence (existing service).
   let adherence = null;
   try {
-    adherence = await scoreAdherenceRisk(admission.patient_id);
+    adherence = await scoreAdherenceRisk(admission.patient_id, tenantId); // CAN-037: tenant-scope
   } catch (err) {
     logger.debug('Adherence scoring failed; proceeding without it', { error: err.message });
   }

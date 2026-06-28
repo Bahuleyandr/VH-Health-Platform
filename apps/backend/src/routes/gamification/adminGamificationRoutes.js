@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -121,6 +122,10 @@ router.post('/vouchers/:code/redeem', async (req, res) => {
   try {
     const voucherCode = req.params.code;
     const redeemedBy = req.body.redeemedBy || req.user?.uid || 'admin';
+    // CAN-012: scope the voucher lookup to the caller's tenant so an admin can
+    // only redeem vouchers issued within their own tenant (defense-in-depth
+    // alongside RLS).
+    const tenantId = resolveTenantOrThrow(req);
 
     if (!voucherCode) {
       return error(res, 'Voucher code is required', HTTP_STATUS.BAD_REQUEST);
@@ -133,8 +138,9 @@ router.post('/vouchers/:code/redeem', async (req, res) => {
        FROM health_milestone_claims hmc
        JOIN health_milestones hm ON hm.id = hmc.milestone_id
        WHERE hmc.voucher_code = $1
+         AND hmc.tenant_id = $2::uuid
        LIMIT 1`,
-      voucherCode
+      voucherCode, tenantId
     );
 
     if (existing.length === 0) {

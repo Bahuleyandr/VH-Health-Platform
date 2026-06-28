@@ -5,6 +5,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as wellnessService from '../../services/gamification/wellnessService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -16,7 +17,7 @@ export async function getSummary(req, res) {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const summary = await pointService.getUserPointSummary(uid);
+    const summary = await pointService.getUserPointSummary(uid, resolveTenantOrThrow(req)); // CAN-012: tenant-scope
 
     return success(res, summary, 'Health points summary retrieved');
   } catch (err) {
@@ -134,7 +135,7 @@ export async function claimMilestone(req, res) {
       return error(res, 'Invalid milestone ID', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await pointService.claimMilestone(uid, milestoneId);
+    const result = await pointService.claimMilestone(uid, milestoneId, resolveTenantOrThrow(req)); // CAN-012: tenant-scope
 
     if (result.error) {
       return error(res, result.error, result.status || HTTP_STATUS.BAD_REQUEST);
@@ -155,7 +156,7 @@ export async function getWellnessScore(req, res) {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const result = await wellnessService.computeWellnessScore(uid);
+    const result = await wellnessService.computeWellnessScore(uid, resolveTenantOrThrow(req)); // CAN-019/012: tenant-scope
     return success(res, result, 'Wellness score computed');
   } catch (err) {
     logger.error('Gamification getWellnessScore error', { error: err.message });
@@ -172,7 +173,7 @@ export async function getInsights(req, res) {
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const limit = Math.min(5, Math.max(1, parseInt(req.query.limit, 10) || 3));
-    const insights = await wellnessService.computeHealthInsights(uid, limit);
+    const insights = await wellnessService.computeHealthInsights(uid, limit, resolveTenantOrThrow(req)); // CAN-019/012: tenant-scope
     return success(res, { insights }, 'Health insights retrieved');
   } catch (err) {
     logger.error('Gamification getInsights error', { error: err.message });
@@ -188,9 +189,10 @@ export async function getCheckInStatus(req, res) {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
+    const tenantId = resolveTenantOrThrow(req); // CAN-012: tenant-scope check-in reads
     const [done, streak] = await Promise.all([
-      wellnessService.hasCheckedInToday(uid),
-      wellnessService.getCheckInStreak(uid),
+      wellnessService.hasCheckedInToday(uid, tenantId),
+      wellnessService.getCheckInStreak(uid, tenantId),
     ]);
     return success(res, { checkedInToday: done, streak }, 'Check-in status');
   } catch (err) {
@@ -215,14 +217,15 @@ export async function recordCheckIn(req, res) {
     }
 
     const today = new Date().toISOString().split('T')[0];
+    const tenantId = resolveTenantOrThrow(req); // CAN-012: tenant-scope + stamp
     const awarded = await pointService.awardPoints(uid, {
       activityType: 'DAILY_CHECKIN',
       activityRefId: today,
       points: 10,
       description: `Daily check-in (${String(mood).toLowerCase()})`,
-    });
+    }, tenantId);
 
-    const streak = await wellnessService.getCheckInStreak(uid);
+    const streak = await wellnessService.getCheckInStreak(uid, tenantId);
     return success(res, {
       alreadyCheckedIn: awarded === null,
       pointsAwarded: awarded ? 10 : 0,

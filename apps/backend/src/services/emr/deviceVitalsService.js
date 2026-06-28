@@ -22,7 +22,6 @@ import { recordVitals } from './vitalsChartService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 
 /**
  * Extract patient uid + OBX observations from a parsed ORU message.
@@ -53,8 +52,13 @@ export function extractVitalsFromOru(parsed) {
  * ingested/failed); vitals land through the standard write path.
  */
 export async function ingestDeviceVitals({
-  message, deviceCode = null, tenantId = DEFAULT_TENANT,
+  message, deviceCode = null, tenantId = null,
 } = {}, context = {}) {
+  // CAN-045: never fall back to a hardcoded default tenant — the caller's
+  // authenticated tenant must scope the inbox row, patient lookup and audit.
+  if (!tenantId) {
+    throw AppError.badRequest('tenantId is required to ingest device vitals', 'DEVICE_VITALS_NO_TENANT');
+  }
   if (!message || !String(message).trim().startsWith('MSH|')) {
     throw AppError.badRequest('message must be an HL7 payload starting with MSH|', 'DEVICE_VITALS_BAD_MESSAGE');
   }
@@ -77,9 +81,10 @@ export async function ingestDeviceVitals({
       );
     }
     const patientRows = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`, patientUid,
+      `SELECT uid FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`, patientUid, tenantId,
     );
     if (!patientRows.length) {
+      // CAN-045: a patient in another tenant must not be ingested under this one.
       throw AppError.notFound('Patient not found for PID-3 uid', 'DEVICE_VITALS_PATIENT_NOT_FOUND');
     }
 
@@ -140,9 +145,11 @@ export async function ingestDeviceVitals({
 }
 
 /** ICU review queue: unverified device vitals, newest first. */
-export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50 } = {}) {
-  const params = [];
-  let where = `source = 'device' AND device_verified = false`;
+export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50, tenantId = null } = {}) {
+  // CAN-045: scope the review queue to the caller's tenant.
+  if (!tenantId) throw AppError.badRequest('tenantId is required', 'DEVICE_VITALS_NO_TENANT');
+  const params = [tenantId];
+  let where = `source = 'device' AND device_verified = false AND tenant_id = $1::uuid`;
   if (patientUid) {
     params.push(patientUid);
     where += ` AND patient_uid = $${params.length}::uuid`;
@@ -162,19 +169,21 @@ export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50
 /** Clinician verification of a device vitals row (audited). */
 export async function verifyDeviceVitals(vitalsId, context = {}) {
   if (!context.actorUid) throw AppError.unauthorized('Verifier identity missing');
+  // CAN-045: scope the verify update to the caller's tenant; no default-tenant.
+  if (!context.tenantId) throw AppError.badRequest('tenantId is required', 'DEVICE_VITALS_NO_TENANT');
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE vitals_chart SET
        device_verified = true, verified_by = $2::uuid, verified_at = NOW()
-     WHERE id = $1 AND source = 'device' AND device_verified = false
+     WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
      RETURNING id, patient_uid, source_device, device_verified, verified_at`,
-    vitalsId, context.actorUid,
+    vitalsId, context.actorUid, context.tenantId,
   );
   if (!rows.length) {
     throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
   }
   const row = rows[0];
   await recordClinicalAuditEvent({
-    tenantId: DEFAULT_TENANT,
+    tenantId: context.tenantId,
     patientUid: row.patient_uid,
     action: 'vitals.device_verified',
     actorUid: context.actorUid,

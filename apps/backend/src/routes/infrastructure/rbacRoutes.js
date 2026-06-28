@@ -2,6 +2,7 @@
 import express from 'express';
 import { wrapAsync, wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
 import * as rbacController from '../../controllers/infrastructure/rbacController.js';
+import authenticatedTenantContext from '../../middleware/authenticatedTenantContext.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { ADMIN } from '../../utils/roles.js';
 import { 
@@ -16,6 +17,14 @@ import {
 } from '../../validators/infrastructure/rbacValidator.js';
 
 const router = express.Router();
+
+// CAN-004: infrastructure routes mount before the app-level tenant middleware,
+// so the RBAC user/analytics/audit/export reads below otherwise ran with no
+// tenant context and could span tenants. Once a request is authenticated (the
+// production infra-admin gate at the mount, or a route's own jwtAuth, populates
+// req.user), resolve the tenant and seed RLS so those queries are tenant-scoped.
+// Unauthenticated public routes (e.g. /public/roles) skip this unchanged.
+router.use(authenticatedTenantContext);
 
 // Canonical role policy graph for authenticated Staff/Admin consumers.
 // Infrastructure routes are mounted before the app-level jwtAuth middleware,

@@ -940,6 +940,23 @@ export async function logTenantRlsRolePosture() {
 }
 
 /**
+ * CAN-040: decide whether an unsafe tenant-RLS posture must FAIL CLOSED at boot.
+ * Production refuses to start when RLS is disabled (`!enforced`) or inert
+ * (`!ok` — effective role bypasses RLS / owns unforced policy tables) so a
+ * misconfigured deployment can't silently serve PHI with isolation off. A
+ * probe error is not treated as fatal (it is logged as a warning). An explicit,
+ * audited override (`AUTH_TENANT_RLS_FAIL_OPEN=true`) is honoured for a
+ * confirmed single-tenant maintenance window. Non-production never fails closed.
+ * Pure + env-injectable so the boot guard is unit-testable.
+ */
+export function tenantRlsPostureMustFailClosed(posture, env = process.env) {
+  if (String(env.NODE_ENV || '').toLowerCase() !== 'production') return false;
+  if (String(env.AUTH_TENANT_RLS_FAIL_OPEN || '').toLowerCase() === 'true') return false;
+  if (!posture || posture.error) return false;
+  return !posture.enforced || !posture.ok;
+}
+
+/**
  * Idempotent boot-time provisioning of the tenant-RLS runtime role's
  * privileges (roadmap A2). Why boot-time and not only a migration:
  *
