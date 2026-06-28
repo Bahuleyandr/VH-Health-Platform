@@ -192,3 +192,12 @@ export function emitAdminKpi(tile, value) {
     logger.warn('emitAdminKpi failed:', err.message);
   }
 }
+
+/** Daily operations snapshot push (per-tenant cron). Payload is the getDailyOpsSnapshot row. */
+export function emitDailyOps(snapshot, { tenantId } = {}) {
+  try {
+    broadcast('admin:daily-ops', snapshot, { tenantId });
+  } catch (err) {
+    logger.warn('emitDailyOps failed:', err.message);
+  }
+}
