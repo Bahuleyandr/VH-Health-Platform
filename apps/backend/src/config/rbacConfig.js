@@ -73,7 +73,11 @@ export default {
   appointmentRoutes: [PATIENT, NURSING_STAFF, OP_STAFF_NURSE, OP_INCHARGE, DOCTOR, RECEPTIONIST, RECEPTION_INCHARGE, ADMIN],
   doctorRoutes: [DOCTOR, ADMIN],
   departmentRoutes: [GENERAL_STAFF, ADMIN],
-  userRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
+  // CAN-055: the user DIRECTORY (list/get/search/role/department) is staff/admin
+  // only — PATIENT is removed so patients cannot enumerate the tenant roster.
+  // Self-service (POST /profile, GET /me) lives under `userSelfRoutes`.
+  userRoutes: [GENERAL_STAFF, ADMIN],
+  userSelfRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
   authenticationModule: [ADMIN],
   firebaseAdminRoutes: [ADMIN],
   // Bell-icon endpoints — every authenticated user (patient + every staff

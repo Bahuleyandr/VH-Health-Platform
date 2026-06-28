@@ -147,7 +147,7 @@ export class UserController {
         });
       }
       
-      const result = await UserService.getUsersByRole(req.params.role, req.query);
+      const result = await UserService.getUsersByRole(req.params.role, req.query, req.user?.role);
       
       success(res, result, 'Users retrieved successfully');
       
@@ -169,7 +169,7 @@ export class UserController {
         });
       }
       
-      const result = await UserService.getUsersByDepartment(req.params.department, req.query);
+      const result = await UserService.getUsersByDepartment(req.params.department, req.query, req.user?.role);
       
       success(res, result, 'Users retrieved successfully');
       

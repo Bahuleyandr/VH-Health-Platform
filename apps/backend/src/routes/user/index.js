@@ -7,6 +7,7 @@ import familyRoutes from './familyRoutes.js';
 import lookupRoutes from './lookupRoutes.js';
 import publicKeyRoutes from './publicKeyRoutes.js';
 import userRoutes from './userRoutes.js';
+import userSelfRoutes from './userSelfRoutes.js';
 
 const router = express.Router();
 
@@ -20,7 +21,15 @@ router.use('/dependents', dependentsRoutes);
 // /me/public-key and /:id/public-key don't get swallowed by /:identifier.
 router.use('/', publicKeyRoutes);
 
-// Regular user routes - accessible based on RBAC
+// Self-service routes (POST /profile, GET /me) — PATIENT-allowed. Mounted
+// BEFORE the directory router so /me resolves here, not as /:identifier.
+wrapAutoRBAC(router, 'userSelfRoutes', {
+  use: [
+    ['/', userSelfRoutes]
+  ]
+});
+
+// User directory routes (list/get/search/role/department) — staff/admin only.
 wrapAutoRBAC(router, 'userRoutes', {
   use: [
     ['/', userRoutes]

@@ -370,7 +370,11 @@ export class UserService {
     const totalCount = countRows[0]?.count || 0;
 
     return {
-      users,
+      // CAN-055: mask PII for non-admin callers (phone for non-DOCTOR/NURSING,
+      // address/emergency_contact for everyone non-admin) — same policy the
+      // single-user reads use, applied here so the directory list cannot leak
+      // unmasked PII to broad staff roles.
+      users: users.map((u) => applyPrivacyFilters(u, userRole)),
       pagination: buildPagination(totalCount, page, limit),
       filters: {
         ...filters,
@@ -564,19 +568,21 @@ export class UserService {
   }
 
   // Get users by role
-  static async getUsersByRole(role, filters = {}) {
+  static async getUsersByRole(role, filters = {}, callerRole = USER_CONFIG.ROLES.ADMIN) {
     const normalizedRole = role.toUpperCase();
 
     if (!Object.values(USER_CONFIG.ROLES).includes(normalizedRole)) {
       throw new Error('Invalid role specified');
     }
 
-    return this.listUsers({ ...filters, role: normalizedRole }, USER_CONFIG.ROLES.ADMIN);
+    // CAN-055: pass the caller's REAL role so listUsers' privacy masking applies
+    // (previously hardcoded ADMIN, which bypassed masking for non-admin callers).
+    return this.listUsers({ ...filters, role: normalizedRole }, callerRole);
   }
 
   // Get users by department
-  static async getUsersByDepartment(department, filters = {}) {
-    return this.listUsers({ ...filters, department }, USER_CONFIG.ROLES.ADMIN);
+  static async getUsersByDepartment(department, filters = {}, callerRole = USER_CONFIG.ROLES.ADMIN) {
+    return this.listUsers({ ...filters, department }, callerRole);
   }
 
   // Search users with advanced filters
