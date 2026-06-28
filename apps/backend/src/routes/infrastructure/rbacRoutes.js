@@ -18,20 +18,8 @@ import {
 
 const router = express.Router();
 
-// CAN-004: infrastructure routes mount before the app-level tenant middleware,
-// so the RBAC user/analytics/audit/export reads below otherwise ran with no
-// tenant context and could span tenants. Once a request is authenticated (the
-// production infra-admin gate at the mount, or a route's own jwtAuth, populates
-// req.user), resolve the tenant and seed RLS so those queries are tenant-scoped.
-// Unauthenticated public routes (e.g. /public/roles) skip this unchanged.
-router.use(authenticatedTenantContext);
-
-// Canonical role policy graph for authenticated Staff/Admin consumers.
-// Infrastructure routes are mounted before the app-level jwtAuth middleware,
-// so this route must authenticate itself while staying outside HR/Admin RBAC.
-router.get('/policy', jwtAuth, wrapAsync(rbacController.getPolicy));
-
-// PUBLIC INFO ROUTES (No authentication required)
+// PUBLIC INFO ROUTES (No authentication required) — registered FIRST so the
+// auth + tenant-context middleware below never applies to them.
 wrapRoutes(
   router,
   [], // No roles = public access
@@ -46,6 +34,22 @@ wrapRoutes(
     skipRBAC: true
   }
 );
+
+// HEAD-004 / CAN-004: infrastructure routes mount before the app-level jwtAuth +
+// tenant middleware, and the production infra-admin mount gate only enforces when
+// NODE_ENV==='production'. So authenticate HERE — idempotently (skip if the mount
+// gate already populated req.user) — and THEN seed the tenant/RLS context, for
+// EVERY authenticated RBAC route below, regardless of environment. This makes the
+// user/analytics/audit/export reads deterministically tenant-scoped rather than
+// depending on the prod-only mount gate having run first.
+router.use(
+  (req, res, next) => (req.user ? next() : jwtAuth(req, res, next)),
+  authenticatedTenantContext,
+);
+
+// Canonical role policy graph for authenticated Staff/Admin consumers
+// (authenticated + tenant-scoped by the middleware above).
+router.get('/policy', wrapAsync(rbacController.getPolicy));
 
 // BASIC RBAC ROUTES (HR_STAFF, ADMIN)
 wrapAutoRBAC(
