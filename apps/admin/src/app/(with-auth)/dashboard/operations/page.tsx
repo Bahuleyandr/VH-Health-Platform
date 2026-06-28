@@ -1,7 +1,7 @@
 // src/app/(with-auth)/dashboard/operations/page.tsx
 //
 // Daily Operations Snapshot — Sprint 9. Hits bi_daily_ops_snapshot via
-// GET /api/v1/dashboards/snapshot/daily-ops. Auto-refreshes every 60s.
+// GET /api/v1/dashboards/snapshot/daily-ops; live via the admin:daily-ops WS push, 60s polling fallback.
 
 "use client";
 
