@@ -62,11 +62,28 @@ describe('validateEnv signed integration secrets', () => {
     expect(`${result.stdout}${result.stderr}`).toContain('ABDM_CALLBACK_SECRET');
   });
 
-  it('allows ABDM-enabled boot when callback HIP id and signing secret are provisioned', () => {
+  // CAN-026: an ABDM-enabled deployment must run with Consent-Manager artefact
+  // signature verification ON and a CM public key present, so it can't silently
+  // accept unsigned/forged consent artefacts.
+  it('requires CM artefact verification + public key when ABDM is enabled', () => {
     const result = runValidateEnv({
       ABDM_ENABLED: 'true',
       ABDM_HIP_ID: 'VH-HIP',
       ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      // ABDM_VERIFY_CONSENT_ARTEFACT + ABDM_CM_PUBLIC_KEY intentionally omitted.
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toMatch(/ABDM_VERIFY_CONSENT_ARTEFACT|ABDM_CM_PUBLIC_KEY/);
+  });
+
+  it('allows ABDM-enabled boot when callback secret + CM artefact verification are provisioned', () => {
+    const result = runValidateEnv({
+      ABDM_ENABLED: 'true',
+      ABDM_HIP_ID: 'VH-HIP',
+      ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
+      ABDM_VERIFY_CONSENT_ARTEFACT: 'true',
+      ABDM_CM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIIBdummytestkey\n-----END PUBLIC KEY-----',
     });
 
     expect(result.status).toBe(0);
