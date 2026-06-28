@@ -7,6 +7,7 @@ import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import * as analyticsController from '../controllers/analyticsController.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
@@ -43,14 +44,19 @@ wrapAutoRBAC(
               default: interval = '30 days';
             }
 
+            // CAN-015: scope every analytics aggregate to the caller's tenant so
+            // the admin dashboard reports only this tenant's totals (defense-in-depth
+            // alongside RLS). Each single-table count ANDs tenant_id = $1.
+            const tenantId = resolveTenantOrThrow(req);
+
             // Parallel queries for comprehensive analytics
             const [
-              userStats, appointmentStats, healthRecordStats, 
+              userStats, appointmentStats, healthRecordStats,
               investigationStats, pharmacyStats, feedbackStats, sosStats
             ] = await Promise.all([
               // User analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_users,
                   COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '${interval}') as new_users,
                   COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days') as active_users_7d,
@@ -59,11 +65,12 @@ wrapAutoRBAC(
                   COUNT(*) FILTER (WHERE role IN ('NURSE', 'ADMIN', 'PHARMACIST')) as staff,
                   COUNT(DISTINCT CASE WHEN last_sign_in_at > NOW() - INTERVAL '24 hours' THEN id END) as daily_active_users
                 FROM users
-              `),
-              
+                WHERE tenant_id = $1::uuid
+              `, tenantId),
+
               // Appointment analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_appointments,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_appointments,
                   COUNT(*) FILTER (WHERE appointment_date >= CURRENT_DATE) as upcoming_appointments,
@@ -72,11 +79,12 @@ wrapAutoRBAC(
                   COUNT(DISTINCT patient_id) as unique_patients,
                   AVG(CASE WHEN status = 'COMPLETED' THEN 1.0 ELSE 0.0 END) * 100 as completion_rate
                 FROM appointments
-              `),
-              
+                WHERE tenant_id = $1::uuid
+              `, tenantId),
+
               // Health records analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_records,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_records,
                   COUNT(DISTINCT COALESCE(uid::text, phone)) as patients_with_records,
@@ -84,25 +92,27 @@ wrapAutoRBAC(
                   SUM(CASE WHEN file_type = 'application/pdf' THEN 1 ELSE 0 END) as pdf_records,
                   AVG(file_size) as avg_file_size
                 FROM health_records
-              `),
-              
+                WHERE tenant_id = $1::uuid
+              `, tenantId),
+
               // Investigation analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_investigations,
                   COUNT(*) FILTER (WHERE requested_at > NOW() - INTERVAL '${interval}') as recent_investigations,
                   COUNT(*) FILTER (WHERE status = 'PENDING') as pending_investigations,
                   COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed_investigations,
                   COUNT(*) FILTER (WHERE status = 'CANCELLED') as cancelled_investigations,
                   COUNT(DISTINCT patient_id) as patients_with_investigations,
-                  AVG(CASE WHEN completed_at IS NOT NULL AND requested_at IS NOT NULL 
+                  AVG(CASE WHEN completed_at IS NOT NULL AND requested_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (completed_at - requested_at))/3600 END) as avg_completion_hours
                 FROM investigations
-              `),
-              
+                WHERE tenant_id = $1::uuid
+              `, tenantId),
+
               // Pharmacy analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_orders,
                   COUNT(*) FILTER (WHERE ordered_at > NOW() - INTERVAL '${interval}') as recent_orders,
                   COUNT(*) FILTER (WHERE status = 'PENDING') as pending_orders,
@@ -113,11 +123,12 @@ wrapAutoRBAC(
                   COALESCE(AVG(total_amount), 0) as avg_order_value
                 FROM pharmacy_orders
                 WHERE ordered_at > NOW() - INTERVAL '${interval}'
-              `),
-              
+                  AND tenant_id = $1::uuid
+              `, tenantId),
+
               // Feedback analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_feedback,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_feedback,
                   ROUND(AVG(rating), 2) as average_rating,
@@ -126,11 +137,12 @@ wrapAutoRBAC(
                   COUNT(*) FILTER (WHERE rating = 3) as neutral_feedback,
                   COUNT(DISTINCT COALESCE(uid::text, phone)) as unique_reviewers
                 FROM feedback
-              `),
-              
+                WHERE tenant_id = $1::uuid
+              `, tenantId),
+
               // SOS analytics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_alerts,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_alerts,
                   COUNT(*) FILTER (WHERE status = 'ACTIVE') as active_alerts,
@@ -142,7 +154,8 @@ wrapAutoRBAC(
                     THEN EXTRACT(EPOCH FROM (COALESCE(responded_at, resolved_at) - raised_at)) / 60
                   END) as avg_response_time
                 FROM sos_alerts
-              `)
+                WHERE tenant_id = $1::uuid
+              `, tenantId)
             ]);
 
             const analytics = {
@@ -240,6 +253,9 @@ wrapAutoRBAC(
             // (line ~175), but per backend CLAUDE.md "never use template
             // literals in SQL", bind it as a parameter via make_interval()
             // instead of into the INTERVAL string.
+            // CAN-015: scope the trend series to the caller's tenant. Every
+            // allowlisted metric table carries tenant_id.
+            const tenantId = resolveTenantOrThrow(req);
             const trends = await prisma.$queryRawUnsafe(`
               SELECT
                 TO_CHAR(${dateField}, '${dateFormat}') as period,
@@ -248,10 +264,11 @@ wrapAutoRBAC(
                 ${additionalFields}
               FROM ${tableName}
               WHERE ${dateField} > NOW() - make_interval(days => $1::int)
+                AND tenant_id = $2::uuid
               GROUP BY TO_CHAR(${dateField}, '${dateFormat}')
               ORDER BY period DESC
               LIMIT 100
-            `, days);
+            `, days, tenantId);
 
             success(res, {
               metric,
@@ -285,6 +302,10 @@ wrapAutoRBAC(
               default: interval = '30 days';
             }
 
+            // CAN-015: scope to the caller's tenant — filter the departments
+            // FROM, and keep the appointment fact tenant-correct by ANDing
+            // a.tenant_id inside the LEFT JOIN ON (so LEFT-join semantics hold).
+            const tenantId = resolveTenantOrThrow(req);
             const departmentStats = await prisma.$queryRawUnsafe(`
               SELECT
                 d.name AS department,
@@ -296,12 +317,13 @@ wrapAutoRBAC(
                 AVG(doc.consultation_fee) as avg_consultation_fee,
                 SUM(CASE WHEN a.status = 'COMPLETED' THEN doc.consultation_fee ELSE 0 END) as total_revenue
               FROM departments d
-              LEFT JOIN doctors doc ON d.name = doc.department
+              LEFT JOIN doctors doc ON d.name = doc.department AND doc.tenant_id = $1::uuid
               LEFT JOIN users u ON doc.user_id = u.id
-              LEFT JOIN appointments a ON u.id = a.doctor_id
+              LEFT JOIN appointments a ON u.id = a.doctor_id AND a.tenant_id = $1::uuid
+              WHERE d.tenant_id = $1::uuid
               GROUP BY d.name
               ORDER BY total_appointments DESC
-            `);
+            `, tenantId);
 
             success(res, {
               timeframe,
@@ -333,10 +355,12 @@ wrapAutoRBAC(
               default: interval = '30 days';
             }
 
+            // CAN-015: scope pharmacy analytics to the caller's tenant.
+            const tenantId = resolveTenantOrThrow(req);
             const [orderStats, topMedicines, revenueByDay] = await Promise.all([
               // Order statistics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_orders,
                   COUNT(*) FILTER (WHERE ordered_at > NOW() - INTERVAL '${interval}') as recent_orders,
                   COUNT(*) FILTER (WHERE status = 'PENDING') as pending_orders,
@@ -348,34 +372,37 @@ wrapAutoRBAC(
                   COALESCE(MAX(total_amount), 0) as highest_order_value
                 FROM pharmacy_orders
                 WHERE ordered_at > NOW() - INTERVAL '${interval}'
-              `),
-              
+                  AND tenant_id = $1::uuid
+              `, tenantId),
+
               // Top medicines
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COALESCE(medication, order_note, 'Unspecified') as medicine_name,
                   COUNT(*) as total_quantity_sold,
                   COUNT(*) as order_frequency,
                   SUM(total_amount) as medicine_revenue
                 FROM pharmacy_orders
                 WHERE ordered_at > NOW() - INTERVAL '${interval}' AND status = 'FULFILLED'
+                  AND tenant_id = $1::uuid
                 GROUP BY COALESCE(medication, order_note, 'Unspecified')
                 ORDER BY total_quantity_sold DESC
                 LIMIT 10
-              `),
-              
+              `, tenantId),
+
               // Daily revenue trend
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   DATE(ordered_at) as order_date,
                   COUNT(*) as daily_orders,
                   SUM(total_amount) as daily_revenue,
                   COUNT(DISTINCT patient_id) as unique_customers
                 FROM pharmacy_orders
                 WHERE ordered_at > NOW() - INTERVAL '${interval}'
+                  AND tenant_id = $1::uuid
                 GROUP BY DATE(ordered_at)
                 ORDER BY order_date DESC
-              `)
+              `, tenantId)
             ]);
 
             success(res, {
@@ -409,10 +436,13 @@ wrapAutoRBAC(
               default: interval = '30 days';
             }
 
+            // CAN-015: scope satisfaction analytics to the caller's tenant
+            // (the feedback fact table carries tenant_id).
+            const tenantId = resolveTenantOrThrow(req);
             const [ratingStats, departmentRatings, timelyRatings] = await Promise.all([
               // Overall satisfaction statistics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   COUNT(*) as total_feedback,
                   ROUND(AVG(rating), 2) as average_rating,
                   COUNT(*) FILTER (WHERE rating = 5) as five_star,
@@ -425,8 +455,9 @@ wrapAutoRBAC(
                   COUNT(DISTINCT COALESCE(uid::text, phone)) as unique_reviewers
                 FROM feedback
                 WHERE created_at > NOW() - INTERVAL '${interval}'
-              `),
-              
+                  AND tenant_id = $1::uuid
+              `, tenantId),
+
               // Department-wise ratings
               prisma.$queryRawUnsafe(`
                 SELECT
@@ -440,22 +471,24 @@ wrapAutoRBAC(
                 JOIN doctors doc ON u.id = doc.user_id
                 JOIN departments d ON doc.department = d.name
                 WHERE f.created_at > NOW() - INTERVAL '${interval}'
+                  AND f.tenant_id = $1::uuid
                 GROUP BY d.name
                 ORDER BY avg_rating DESC
-              `),
-              
+              `, tenantId),
+
               // Rating trends over time
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   DATE(created_at) as feedback_date,
                   COUNT(*) as daily_feedback,
                   ROUND(AVG(rating), 2) as daily_avg_rating,
                   COUNT(*) FILTER (WHERE rating >= 4) as daily_positive
                 FROM feedback
                 WHERE created_at > NOW() - INTERVAL '${interval}'
+                  AND tenant_id = $1::uuid
                 GROUP BY DATE(created_at)
                 ORDER BY feedback_date DESC
-              `)
+              `, tenantId)
             ]);
 
             success(res, {
@@ -488,63 +521,66 @@ wrapAutoRBAC(
               default: interval = '30 days';
             }
 
+            // CAN-015: scope every usage aggregate (incl. each UNION subquery)
+            // to the caller's tenant.
+            const tenantId = resolveTenantOrThrow(req);
             const [featureUsage, deviceStats, peakHours] = await Promise.all([
               // Feature usage statistics
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   'Appointments' as feature,
                   COUNT(*) as usage_count
                 FROM appointments
-                WHERE created_at > NOW() - INTERVAL '${interval}'
+                WHERE created_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                 UNION ALL
-                SELECT 
+                SELECT
                   'Health Records' as feature,
                   COUNT(*) as usage_count
                 FROM health_records
-                WHERE created_at > NOW() - INTERVAL '${interval}'
+                WHERE created_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                 UNION ALL
-                SELECT 
+                SELECT
                   'Investigations' as feature,
                   COUNT(*) as usage_count
                 FROM investigations
-                WHERE requested_at > NOW() - INTERVAL '${interval}'
+                WHERE requested_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                 UNION ALL
-                SELECT 
+                SELECT
                   'Pharmacy Orders' as feature,
                   COUNT(*) as usage_count
                 FROM pharmacy_orders
-                WHERE ordered_at > NOW() - INTERVAL '${interval}'
+                WHERE ordered_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                 ORDER BY usage_count DESC
-              `),
-              
+              `, tenantId),
+
               // Device/platform statistics (if available)
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   device_type,
                   platform,
                   COUNT(*) as session_count,
                   COUNT(DISTINCT user_id) as unique_users
                 FROM user_sessions
-                WHERE created_at > NOW() - INTERVAL '${interval}'
+                WHERE created_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                 GROUP BY device_type, platform
                 ORDER BY session_count DESC
-              `),
-              
+              `, tenantId),
+
               // Peak usage hours
               prisma.$queryRawUnsafe(`
-                SELECT 
+                SELECT
                   EXTRACT(HOUR FROM created_at) as hour_of_day,
                   COUNT(*) as activity_count
                 FROM (
-                  SELECT created_at FROM appointments WHERE created_at > NOW() - INTERVAL '${interval}'
+                  SELECT created_at FROM appointments WHERE created_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                   UNION ALL
-                  SELECT created_at FROM health_records WHERE created_at > NOW() - INTERVAL '${interval}'
+                  SELECT created_at FROM health_records WHERE created_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                   UNION ALL
-                  SELECT requested_at as created_at FROM investigations WHERE requested_at > NOW() - INTERVAL '${interval}'
+                  SELECT requested_at as created_at FROM investigations WHERE requested_at > NOW() - INTERVAL '${interval}' AND tenant_id = $1::uuid
                 ) all_activities
                 GROUP BY EXTRACT(HOUR FROM created_at)
                 ORDER BY hour_of_day
-              `)
+              `, tenantId)
             ]);
 
             success(res, {

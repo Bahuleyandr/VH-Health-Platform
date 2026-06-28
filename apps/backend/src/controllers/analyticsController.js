@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { success, error } from '../utils/responseHelper.js';
 
 /**
@@ -6,13 +7,15 @@ import { success, error } from '../utils/responseHelper.js';
  */
 export async function getUserRegistrations(req, res) {
   try {
+    // CAN-015: scope to the caller's tenant (defense-in-depth alongside RLS).
     const result = await prisma.$queryRawUnsafe(`
       SELECT DATE(registered_at) as date, COUNT(*) as count
       FROM users
       WHERE registered_at >= NOW() - INTERVAL '30 days'
+        AND tenant_id = $1::uuid
       GROUP BY DATE(registered_at)
       ORDER BY DATE(registered_at) ASC
-    `);
+    `, resolveTenantOrThrow(req));
     success(res, result, 'User registrations by day');
   } catch (_err) {
     error(res, 'Failed to fetch registration stats');
@@ -24,10 +27,11 @@ export async function getUserRegistrations(req, res) {
  */
 export async function getEntityCounts(req, res) {
   try {
+    const tenantId = resolveTenantOrThrow(req); // CAN-015: tenant-scope the counts
     const queries = await Promise.all([
-      prisma.$queryRawUnsafe('SELECT COUNT(*) FROM appointments'),
-      prisma.$queryRawUnsafe('SELECT COUNT(*) FROM health_records'),
-      prisma.$queryRawUnsafe('SELECT COUNT(*) FROM investigations')
+      prisma.$queryRawUnsafe('SELECT COUNT(*) FROM appointments WHERE tenant_id = $1::uuid', tenantId),
+      prisma.$queryRawUnsafe('SELECT COUNT(*) FROM health_records WHERE tenant_id = $1::uuid', tenantId),
+      prisma.$queryRawUnsafe('SELECT COUNT(*) FROM investigations WHERE tenant_id = $1::uuid', tenantId)
     ]);
     const [appointments, records, investigations] = queries.map(r => parseInt(r[0].count, 10));
 
@@ -42,13 +46,15 @@ export async function getEntityCounts(req, res) {
  */
 export async function getActiveUsers(req, res) {
   try {
+    // CAN-015: scope to the caller's tenant.
     const result = await prisma.$queryRawUnsafe(`
       SELECT phone, COUNT(*) as appointment_count
       FROM appointments
+      WHERE tenant_id = $1::uuid
       GROUP BY phone
       ORDER BY appointment_count DESC
       LIMIT 10
-    `);
+    `, resolveTenantOrThrow(req));
     success(res, result, 'Most active users');
   } catch (_err) {
     error(res, 'Failed to fetch active user stats');
@@ -60,15 +66,17 @@ export async function getActiveUsers(req, res) {
  */
 export async function getActiveDepartments(req, res) {
   try {
+    // CAN-015: scope to the caller's tenant via the appointment fact table.
     const result = await prisma.$queryRawUnsafe(`
       SELECT d.name AS department, COUNT(a.id) AS appointment_count
       FROM appointments a
       JOIN doctors doc ON a.doctor_id = doc.id
       JOIN departments d ON doc.department_id = d.id
+      WHERE a.tenant_id = $1::uuid
       GROUP BY d.name
       ORDER BY appointment_count DESC
       LIMIT 10
-    `);
+    `, resolveTenantOrThrow(req));
     success(res, result, 'Most active departments');
   } catch (_err) {
     error(res, 'Failed to fetch department stats');
