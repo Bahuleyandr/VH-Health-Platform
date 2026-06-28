@@ -135,6 +135,7 @@ router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
       tenantId: tenantOf(req),
       completedBy: req.user?.uid || null,
     });
+    emitOrBoardEvent('checklist', { scheduleId: Number(id), status: result?.status, tenantId: tenantOf(req) });
     return success(res, result, 'Pre-op checklist updated successfully');
   } catch (err) {
     if (err.isOperational) {
