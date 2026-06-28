@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -52,7 +53,8 @@ export const listAppointments = async (req, res) => {
       filters,
       pagination,
       req.user?.role,
-      req.user?.id
+      req.user?.id,
+      resolveTenantOrThrow(req) // CAN-018: explicit tenant scope on the list
     );
 
     success(res, {
@@ -96,6 +98,7 @@ export const getAppointmentById = async (req, res) => {
 export const getRecentCompletedAppointments = async (req, res) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    // CAN-018: scope the completed-appointment picker to the caller's tenant.
     const rows = await prisma.$queryRawUnsafe(`
       SELECT
         a.id,
@@ -105,9 +108,10 @@ export const getRecentCompletedAppointments = async (req, res) => {
       FROM appointments a
       LEFT JOIN users u ON u.id = a.patient_id
       WHERE LOWER(a.status) IN ('completed', 'done')
+        AND a.tenant_id = $2::uuid
       ORDER BY a.appointment_date DESC, a.appointment_time DESC
       LIMIT $1::int
-    `, limit);
+    `, limit, resolveTenantOrThrow(req));
 
     success(res, rows.map((row) => ({
       id: Number(row.id),
