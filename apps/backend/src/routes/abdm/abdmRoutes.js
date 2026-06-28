@@ -61,9 +61,14 @@ async function validateABDMRequest(req, res, next) {
   // unchanged). An unrecognized HIP id is rejected — no blanket global fallback.
   let tenantId = await resolveTenantBySender('abdm_callback', hipId);
   let callbackSecret = tenantId ? await getInteropSecret(tenantId, 'abdm_callback') : null;
+  // CAN-007: a per-tenant callback secret authenticates a SPECIFIC tenant's HIP,
+  // so a consent it later names must belong to that tenant (strict). The
+  // shared-secret/default fallback is the legacy single-tenant path (not strict).
+  let strictTenant = !!(tenantId && callbackSecret);
   if (!callbackSecret && ABDM_CONFIG.hipId && hipId === ABDM_CONFIG.hipId) {
     tenantId = DEFAULT_TENANT_ID;
     callbackSecret = ABDM_CONFIG.callbackSecret;
+    strictTenant = false;
   }
   if (!tenantId || !callbackSecret) {
     logger.warn('ABDM callback rejected: unrecognized HIP ID', { received: hipId });
@@ -111,6 +116,7 @@ async function validateABDMRequest(req, res, next) {
   // tenant from the matched patient/consent for the write, but this records the
   // callback's authenticated tenant).
   req.tenantId = tenantId;
+  req.abdmStrictTenant = strictTenant; // CAN-007: enforce consent-tenant match on the per-tenant-secret path
   next();
 }
 
@@ -184,7 +190,10 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
       dataPushUrl: req.body?.hiRequest?.dataPushUrl || req.body?.dataPushUrl || null,
     };
 
-    const result = await abdmService.handleDataRequest(dataRequest);
+    const result = await abdmService.handleDataRequest(dataRequest, {
+      callbackTenantId: req.tenantId,
+      strict: req.abdmStrictTenant,
+    });
 
     return success(res, { transactionId: result.transaction_id }, 'Data request accepted', 202);
   } catch (err) {

@@ -613,7 +613,7 @@ class ABDMService {
    * @param {Object} dataRequest - Data request payload from ABDM
    * @returns {Object} Created data request record
    */
-  async handleDataRequest(dataRequest) {
+  async handleDataRequest(dataRequest, opts = {}) {
     const {
       transactionId,
       consentId,
@@ -658,6 +658,17 @@ class ABDMService {
       // A consent with no tenant cannot be safely scoped — refuse rather than
       // export under the default tenant.
       throw AppError.forbidden('Consent has no tenant binding', 'ABDM_CONSENT_NO_TENANT');
+    }
+    // CAN-007: when the callback was authenticated by a PER-TENANT secret
+    // (resolved from x-hip-id), the consent it names MUST belong to that same
+    // tenant — otherwise a tenant-A HIP callback could pull tenant-B PHI to its
+    // own dataPushUrl. The shared-secret/default path (opts.strict false) keeps
+    // the legacy single-tenant behavior.
+    if (opts.strict && opts.callbackTenantId && String(tenantId) !== String(opts.callbackTenantId)) {
+      throw AppError.forbidden(
+        'Consent tenant does not match the authenticated callback tenant',
+        'ABDM_CONSENT_TENANT_MISMATCH',
+      );
     }
 
     if (consent.status !== 'GRANTED') {
