@@ -6,6 +6,7 @@
 import express from 'express';
 
 import { success } from '../../utils/responseHelper.js';
+import { emitEdBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 import {
   certifyMlcRecord,
   createAmbulanceRequest,
@@ -38,6 +39,7 @@ router.post('/visits', async (req, res, next) => {
       isMlc: b.is_mlc, metadata: b.metadata,
       createdBy: req.user?.uid || null,
     });
+    emitEdBoardEvent('arrival', row, { tenantId: req.tenantId });
     return success(res, row, 'Emergency visit created', 201);
   } catch (err) { return next(err); }
 });
@@ -63,6 +65,7 @@ router.patch('/visits/:id/transition', async (req, res, next) => {
       nextStatus: req.body?.next_status,
       disposition: req.body?.disposition,
     });
+    emitEdBoardEvent('transition', row, { tenantId: req.tenantId });
     return success(res, row, 'Emergency visit transitioned');
   } catch (err) { return next(err); }
 });
@@ -73,6 +76,7 @@ router.patch('/visits/:id/triage-priority', async (req, res, next) => {
       tenantId: req.tenantId, id: req.params.id,
       triagePriority: req.body?.triage_priority,
     });
+    emitEdBoardEvent('priority', row, { tenantId: req.tenantId });
     return success(res, row, 'Triage priority set');
   } catch (err) { return next(err); }
 });
