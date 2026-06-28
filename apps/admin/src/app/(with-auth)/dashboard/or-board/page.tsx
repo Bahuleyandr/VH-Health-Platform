@@ -12,6 +12,8 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { orRefetchMs, OR_FALLBACK_POLL_MS } from "./realtime";
 
 interface OrBoardCase {
   id: number;
@@ -95,6 +97,8 @@ export default function OrBoardPage() {
   const [date, setDate] = useState<string>(todayIso());
   const [room, setRoom] = useState<string>("");
 
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation("staff:or-board", [["theatre", "board"]]);
+
   const { data: rooms = [] } = useQuery<OrRoom[]>({
     queryKey: ["theatre", "rooms"],
     queryFn: async () => {
@@ -121,7 +125,7 @@ export default function OrBoardPage() {
       );
       return unwrap<OrBoardResponse>(r);
     },
-    refetchInterval: 60_000,
+    refetchInterval: orRefetchMs(subscribed),
   });
 
   // Group cases by room.
@@ -168,14 +172,38 @@ export default function OrBoardPage() {
     };
   }, [board]);
 
+  const liveLabel = subscribed ? "● Live" : "○ Polling";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:or-board — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:or-board"
+    : connected
+      ? "Connecting…"
+      : `Polling every ${OR_FALLBACK_POLL_MS / 1000}s (real-time unavailable)`;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">OR Board</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-foreground">OR Board</h1>
+            <span
+              data-testid="or-realtime-indicator"
+              role="status"
+              aria-label={
+                subscribed
+                  ? "Live — real-time OR board updates active"
+                  : "Polling — real-time updates unavailable"
+              }
+              title={liveTitle}
+              className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+            >
+              {liveLabel}
+            </span>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Today&apos;s surgical cases with checklist + WHO safety phase
-            status. Auto-refreshes every 60s.
+            Today&apos;s surgical cases with checklist + WHO safety phase status. Live via WebSocket; falls
+            back to polling if unavailable.
           </p>
         </div>
         <div className="text-xs text-muted-foreground">
