@@ -6,6 +6,7 @@ import * as icu from '../../services/clinical/icuService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { emitIcuBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const router = Router();
 
@@ -40,8 +41,12 @@ function requireStaffOrAdmin(req, res, next) {
 }
 
 // Admissions
-router.post('/admissions', requireStaffOrAdmin, wrap(async (req) =>
-  icu.createAdmission({ tenantId: tenantOf(req), ...req.body })));
+router.post('/admissions', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.createAdmission({ tenantId, ...req.body });
+  emitIcuBoardEvent('admitted', { admissionId: row?.id, status: row?.status, tenantId });
+  return row;
+}));
 
 // Admit a patient to ICU directly from an emergency visit — the new
 // admission inherits the ER patient context, links back via er_visit_id,
@@ -49,12 +54,16 @@ router.post('/admissions', requireStaffOrAdmin, wrap(async (req) =>
 // Findings:
 //   2026-05-08-emergency-walk-in-doctor-er-to-icu-no-continuation
 //   2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff
-router.post('/admissions/from-er/:emergencyVisitId', requireStaffOrAdmin, wrap(async (req) =>
-  icu.createAdmissionFromEr({
+router.post('/admissions/from-er/:emergencyVisitId', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.createAdmissionFromEr({
     ...req.body,
-    tenantId: tenantOf(req),
+    tenantId,
     emergencyVisitId: req.params.emergencyVisitId,
-  })));
+  });
+  emitIcuBoardEvent('admitted', { admissionId: row?.id, status: row?.status, tenantId });
+  return row;
+}));
 
 router.get('/admissions', requireStaffOrAdmin, wrap(async (req) =>
   icu.listAdmissions({
@@ -67,11 +76,15 @@ router.get('/admissions', requireStaffOrAdmin, wrap(async (req) =>
 router.get('/admissions/:id', requireStaffOrAdmin, wrap(async (req) =>
   icu.getAdmission({ tenantId: tenantOf(req), id: req.params.id })));
 
-router.patch('/admissions/:id/code-status', requireStaffOrAdmin, wrap(async (req) =>
-  icu.updateAdmissionCodeStatus({
-    tenantId: tenantOf(req), id: req.params.id,
+router.patch('/admissions/:id/code-status', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.updateAdmissionCodeStatus({
+    tenantId, id: req.params.id,
     code_status: req.body.code_status, set_by: req.user?.uid,
-  })));
+  });
+  emitIcuBoardEvent('code-status', { admissionId: Number(req.params.id), status: req.body.code_status, tenantId });
+  return row;
+}));
 
 router.patch('/admissions/:id/monitoring-interval', requireStaffOrAdmin, wrap(async (req) =>
   icu.updateMonitoringInterval({
@@ -93,20 +106,28 @@ router.patch('/admissions/:id', requireStaffOrAdmin, wrap(async (req) =>
     pre_op_status: req.body.pre_op_status,
   })));
 
-router.post('/admissions/:id/discharge', requireStaffOrAdmin, wrap(async (req) =>
-  icu.dischargeAdmission({
-    tenantId: tenantOf(req), id: req.params.id,
+router.post('/admissions/:id/discharge', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.dischargeAdmission({
+    tenantId, id: req.params.id,
     disposition: req.body.disposition, outcome_notes: req.body.outcome_notes,
-  })));
+  });
+  emitIcuBoardEvent('discharged', { admissionId: Number(req.params.id), status: row?.status, tenantId });
+  return row;
+}));
 
 // Flowsheet
-router.post('/admissions/:id/flowsheet', requireStaffOrAdmin, wrap(async (req) =>
-  icu.logFlowsheet({
-    tenantId: tenantOf(req),
+router.post('/admissions/:id/flowsheet', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.logFlowsheet({
+    tenantId,
     icu_admission_id: req.params.id,
     recorded_by: req.user?.uid,
     ...req.body,
-  })));
+  });
+  emitIcuBoardEvent('flowsheet', { admissionId: Number(req.params.id), tenantId });
+  return row;
+}));
 
 router.get('/admissions/:id/flowsheet', requireStaffOrAdmin, wrap(async (req) =>
   icu.listFlowsheet({
@@ -118,13 +139,17 @@ router.get('/admissions/:id/io-summary', requireStaffOrAdmin, wrap(async (req) =
   icu.ioSummary({ tenantId: tenantOf(req), icu_admission_id: req.params.id })));
 
 // Assessments
-router.post('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req) =>
-  icu.recordAssessment({
-    tenantId: tenantOf(req),
+router.post('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.recordAssessment({
+    tenantId,
     icu_admission_id: req.params.id,
     recorded_by: req.user?.uid,
     ...req.body,
-  })));
+  });
+  emitIcuBoardEvent('assessment', { admissionId: Number(req.params.id), tenantId });
+  return row;
+}));
 
 router.get('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req) =>
   icu.listAssessments({
@@ -134,13 +159,17 @@ router.get('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req) 
   })));
 
 // ABCDEF Bundle
-router.post('/admissions/:id/bundle', requireStaffOrAdmin, wrap(async (req) =>
-  icu.upsertBundle({
-    tenantId: tenantOf(req),
+router.post('/admissions/:id/bundle', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await icu.upsertBundle({
+    tenantId,
     icu_admission_id: req.params.id,
     recorded_by: req.user?.uid,
     ...req.body,
-  })));
+  });
+  emitIcuBoardEvent('bundle', { admissionId: Number(req.params.id), tenantId });
+  return row;
+}));
 
 router.get('/admissions/:id/bundle', requireStaffOrAdmin, wrap(async (req) =>
   icu.getBundle({

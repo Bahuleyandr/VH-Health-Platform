@@ -215,3 +215,17 @@ export function emitOrBoardEvent(kind, { scheduleId, status, tenantId } = {}) {
     logger.warn('emitOrBoardEvent failed:', err.message);
   }
 }
+
+/** ICU command-centre change (admission / code-status / discharge / flowsheet / assessment / bundle). */
+export function emitIcuBoardEvent(kind, { admissionId, status, tenantId } = {}) {
+  try {
+    broadcast('staff:icu-board', {
+      kind,
+      admissionId: admissionId ?? null,
+      status: status ?? null,
+      at: new Date().toISOString(),
+    }, { tenantId });
+  } catch (err) {
+    logger.warn('emitIcuBoardEvent failed:', err.message);
+  }
+}

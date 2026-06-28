@@ -12,11 +12,13 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { IcuAdmission, fmtDateTime, unwrap, unwrapList } from "./types";
+import { icuRefetchMs } from "../realtime";
 
 type Props = {
   activeAdmissionId: number | null;
   onSelect: (id: number) => void;
   onJumpToFlowsheet: (id: number) => void;
+  subscribed: boolean;
 };
 
 const CODE_STATUS_LABEL: Record<string, string> = {
@@ -39,6 +41,7 @@ export default function AdmissionsTab({
   activeAdmissionId,
   onSelect,
   onJumpToFlowsheet,
+  subscribed,
 }: Props) {
   const qc = useQueryClient();
   const [showAdmit, setShowAdmit] = useState(false);
@@ -52,7 +55,7 @@ export default function AdmissionsTab({
       );
       return unwrapList<IcuAdmission>(r);
     },
-    refetchInterval: 30_000,
+    refetchInterval: icuRefetchMs(subscribed, 30_000),
   });
 
   const activeCount = list.filter((a) => a.status === "active").length;

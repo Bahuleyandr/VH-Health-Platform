@@ -14,8 +14,9 @@ import { EmptyState } from "@/components/EmptyState";
 import {
   FlowsheetEntry, IoSummaryRow, fmtDateTime, unwrap, unwrapList,
 } from "./types";
+import { icuRefetchMs } from "../realtime";
 
-export default function FlowsheetTab({ admissionId }: { admissionId: number }) {
+export default function FlowsheetTab({ admissionId, subscribed }: { admissionId: number; subscribed: boolean }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [hours, setHours] = useState<number>(24);
@@ -28,7 +29,7 @@ export default function FlowsheetTab({ admissionId }: { admissionId: number }) {
       );
       return unwrapList<FlowsheetEntry>(r);
     },
-    refetchInterval: 30_000,
+    refetchInterval: icuRefetchMs(subscribed, 30_000),
   });
 
   const { data: io = [] } = useQuery<IoSummaryRow[]>({

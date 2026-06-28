@@ -12,6 +12,8 @@ import AdmissionsTab from "./components/AdmissionsTab";
 import FlowsheetTab from "./components/FlowsheetTab";
 import AssessmentsTab from "./components/AssessmentsTab";
 import BundleTab from "./components/BundleTab";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { ICU_BOARD_CHANNEL } from "./realtime";
 
 type TabKey = "admissions" | "flowsheet" | "assessments" | "bundle";
 
@@ -19,10 +21,36 @@ export default function ICUPage() {
   const [tab, setTab] = useState<TabKey>("admissions");
   const [activeAdmissionId, setActiveAdmissionId] = useState<number | null>(null);
 
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(ICU_BOARD_CHANNEL, [["icu"]]);
+
+  const liveLabel = subscribed ? "● Live" : "○ Polling";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:icu-board — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:icu-board"
+    : connected
+      ? "Connecting…"
+      : "Polling (real-time unavailable)";
+
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">ICU Command Centre</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-3xl font-bold text-foreground">ICU Command Centre</h1>
+          <span
+            data-testid="icu-realtime-indicator"
+            role="status"
+            aria-label={
+              subscribed
+                ? "Live — real-time ICU board updates active"
+                : "Polling — real-time updates unavailable"
+            }
+            title={liveTitle}
+            className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+          >
+            {liveLabel}
+          </span>
+        </div>
         <p className="text-sm text-muted-foreground mt-1">
           Hourly flowsheet, RASS / CAM-ICU / SOFA / CPOT, and the SCCM ABCDEF
           daily bundle. Active patient context flows across tabs.
@@ -65,13 +93,14 @@ export default function ICUPage() {
             setActiveAdmissionId(id);
             setTab("flowsheet");
           }}
+          subscribed={subscribed}
         />
       )}
       {tab === "flowsheet" && activeAdmissionId && (
-        <FlowsheetTab admissionId={activeAdmissionId} />
+        <FlowsheetTab admissionId={activeAdmissionId} subscribed={subscribed} />
       )}
       {tab === "assessments" && activeAdmissionId && (
-        <AssessmentsTab admissionId={activeAdmissionId} />
+        <AssessmentsTab admissionId={activeAdmissionId} subscribed={subscribed} />
       )}
       {tab === "bundle" && activeAdmissionId && (
         <BundleTab admissionId={activeAdmissionId} />
