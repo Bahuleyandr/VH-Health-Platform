@@ -6,6 +6,7 @@ import * as exportService from '../../services/record/exportService.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import prisma from '../../lib/prisma.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { formatDateForDisplay } from '../../utils/record/recordHelpers.js';
 import { error } from '../../utils/responseHelper.js';
 import { 
@@ -15,11 +16,20 @@ import {
 
 const router = express.Router();
 
+// HEAD-006: this subrouter is mounted via an inert wrapAutoRBAC(adminRoutes,
+// 'adminRecordRoutes') no-op (subrouter passed as 1st arg, empty routeMap → no
+// role middleware) under the broad RECORD_ROUTE_ROLES parent mount. These admin-
+// only routes (analytics / HIPAA audit / delete) — adminRecordRoutes:[ADMIN] —
+// must therefore gate themselves; otherwise any record-capable role could read
+// the audit/analytics or soft-delete a record. The /export/* routes below keep
+// their own patientAccessGuard and are intentionally usable by broader roles.
+const requireRecordAdmin = requireRole('ADMIN', 'SUPER_ADMIN');
+
 // Get analytics
-router.get('/admin/analytics', adminController.getRecordAnalytics);
+router.get('/admin/analytics', requireRecordAdmin, adminController.getRecordAnalytics);
 
 // Get HIPAA audit
-router.get('/admin/hipaa-audit', adminController.getHipaaAudit);
+router.get('/admin/hipaa-audit', requireRecordAdmin, adminController.getHipaaAudit);
 
 // Export records to PDF
 router.get('/export/pdf', patientAccessGuard('MEDICAL_RECORD', { requirePatientContext: true }), async (req, res) => {
@@ -71,9 +81,10 @@ router.get('/export/excel', patientAccessGuard('MEDICAL_RECORD', { requirePatien
   }
 });
 
-// Delete record
-router.delete('/:id', 
-  [...recordIdValidator, ...deleteReasonValidator], 
+// Delete record (HEAD-006: destructive — admin-only)
+router.delete('/:id',
+  requireRecordAdmin,
+  [...recordIdValidator, ...deleteReasonValidator],
   adminController.deleteMedicalRecord
 );
 
