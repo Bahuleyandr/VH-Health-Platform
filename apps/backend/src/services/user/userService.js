@@ -175,14 +175,19 @@ export class UserService {
       // the caller's uid when a self-service token is uid-only; never resolve a
       // body phone we were not handed.
       let existingUser = null;
-      if (phone) {
-        existingUser = await prisma.users.findFirst({
-          where: { phone },
-          select: { uid: true, role: true }
-        });
-      } else if (!isPrivilegedActor && opts.callerUid) {
+      if (!isPrivilegedActor && opts.callerUid) {
+        // HEAD-002 / CAN-001/CAN-002: a self-service write is bound to the verified
+        // token uid and NEVER resolves a caller-supplied body phone — a uid-only
+        // token (e.g. staff password login, no phone claim) could otherwise submit
+        // another user's phone and overwrite that user's row.
         existingUser = await prisma.users.findFirst({
           where: { uid: opts.callerUid },
+          select: { uid: true, role: true }
+        });
+      } else if (phone) {
+        // Privileged actor (admin / registration) may target a user by phone.
+        existingUser = await prisma.users.findFirst({
+          where: { phone },
           select: { uid: true, role: true }
         });
       }

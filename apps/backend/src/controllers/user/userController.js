@@ -44,6 +44,13 @@ export class UserController {
         if (tokenPhone) {
           body.phone = tokenPhone;
           delete body.phoneNumber;
+        } else {
+          // HEAD-002: a uid-only token (e.g. staff password login carries no phone
+          // claim) gives us nothing to verify a caller-supplied phone against — so
+          // drop it. The service binds the write to the token uid; a body phone must
+          // never be allowed to select (and overwrite) another user's row.
+          delete body.phone;
+          delete body.phoneNumber;
         }
         delete body.role;
       }
