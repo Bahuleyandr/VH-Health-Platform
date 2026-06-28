@@ -12,6 +12,7 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { IcuAssessment, fmtDateTime, unwrapList } from "./types";
+import { icuRefetchMs } from "../realtime";
 
 const RASS_LABELS: Record<number, string> = {
   4: "+4 Combative",
@@ -26,7 +27,7 @@ const RASS_LABELS: Record<number, string> = {
   [-5]: "-5 Unarousable",
 };
 
-export default function AssessmentsTab({ admissionId }: { admissionId: number }) {
+export default function AssessmentsTab({ admissionId, subscribed }: { admissionId: number; subscribed: boolean }) {
   const qc = useQueryClient();
   const [showRass, setShowRass] = useState(false);
   const [showCam, setShowCam] = useState(false);
@@ -43,7 +44,7 @@ export default function AssessmentsTab({ admissionId }: { admissionId: number })
       );
       return unwrapList<IcuAssessment>(r);
     },
-    refetchInterval: 60_000,
+    refetchInterval: icuRefetchMs(subscribed, 60_000),
   });
 
   return (
