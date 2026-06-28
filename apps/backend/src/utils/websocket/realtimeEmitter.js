@@ -166,7 +166,7 @@ export function emitQueuePosition({ patientId, appointmentId, position, etaMinut
  */
 export function emitEdBoardEvent(kind, visit, { tenantId } = {}) {
   try {
-    broadcast('admin:ed-board', {
+    broadcast('staff:ed-board', {
       kind,
       id: visit?.id ?? null,
       visitNumber: visit?.visit_number ?? null,

@@ -50,11 +50,11 @@ describe("<EdTrackerPage />", () => {
     });
   });
 
-  it("subscribes to admin:ed-board and shows ○ Polling when not live", async () => {
+  it("subscribes to staff:ed-board and shows ○ Polling when not live", async () => {
     renderWithQuery(<EdTrackerPage />);
     const ind = await screen.findByTestId("ed-realtime-indicator");
     expect(ind).toHaveTextContent("Polling");
-    expect(mockRealtime).toHaveBeenCalledWith("admin:ed-board", [["ed"]]);
+    expect(mockRealtime).toHaveBeenCalledWith("staff:ed-board", [["ed"]]);
   });
 
   it("shows ● Live when subscribed", async () => {

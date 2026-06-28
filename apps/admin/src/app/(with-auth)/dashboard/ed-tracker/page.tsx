@@ -109,7 +109,7 @@ export default function EdTrackerPage() {
   const [editVisit, setEditVisit] = useState<EdVisit | null>(null);
   const [showRegister, setShowRegister] = useState(false);
 
-  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation("admin:ed-board", [["ed"]]);
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation("staff:ed-board", [["ed"]]);
 
   const {
     data: visits = [],
@@ -209,8 +209,8 @@ export default function EdTrackerPage() {
   const liveLabel = subscribed ? "● Live" : "○ Polling";
   const liveTitle = subscribed
     ? lastEventAt
-      ? `Real-time via admin:ed-board — last update ${new Date(lastEventAt).toLocaleTimeString()}`
-      : "Real-time via admin:ed-board"
+      ? `Real-time via staff:ed-board — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:ed-board"
     : connected
       ? "Connecting…"
       : `Polling every ${ED_FALLBACK_POLL_MS / 1000}s (real-time unavailable)`;
