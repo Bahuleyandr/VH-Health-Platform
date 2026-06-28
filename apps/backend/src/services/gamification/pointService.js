@@ -46,11 +46,18 @@ export async function awardAppointmentPoints(appointment) {
     const phone = appointment.phone;
     if (!phone) return null;
 
-    // Look up user_uid from users table by phone
-    const users = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-      phone
-    );
+    // CAN-019: resolve the user within the appointment's tenant. These award
+    // hooks run from event/background contexts where the RLS AsyncLocalStorage
+    // is not seeded, so the explicit tenant predicate is the only scoping — a
+    // phone is unique only per tenant (mig 333).
+    const apptTenantId = appointment.tenant_id || appointment.tenantId || null;
+    const users = apptTenantId
+      ? await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 AND tenant_id = $2::uuid LIMIT 1`,
+          phone, apptTenantId)
+      : await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
+          phone);
     if (users.length === 0) return null;
     const userUid = users[0].uid;
 
@@ -81,10 +88,15 @@ export async function awardOnTimeBonus(appointment) {
     const phone = appointment.phone;
     if (!phone) return null;
 
-    const users = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-      phone
-    );
+    // CAN-019: resolve within the appointment's tenant (see awardAppointmentPoints).
+    const apptTenantId = appointment.tenant_id || appointment.tenantId || null;
+    const users = apptTenantId
+      ? await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 AND tenant_id = $2::uuid LIMIT 1`,
+          phone, apptTenantId)
+      : await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
+          phone);
     if (users.length === 0) return null;
     const userUid = users[0].uid;
 
