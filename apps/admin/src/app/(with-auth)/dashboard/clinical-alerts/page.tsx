@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { useRealtimeChannel } from "@/hooks/useRealtimeChannel";
 import {
   mergeAlerts,
+  alertKey,
   codeBlueKey,
   CLINICAL_ALERTS_CHANNEL,
   CODE_BLUE_CHANNEL,
@@ -150,7 +151,7 @@ export default function ClinicalAlertsPage() {
             <tbody>
               {feed.map((a) => (
                 <tr
-                  key={a.id != null ? `id:${a.id}` : `${a.patientId}|${a.vitalName}|${a.at}`}
+                  key={alertKey(a)}
                   className={`border-t border-border ${a.acknowledged ? "opacity-50" : ""} ${
                     ROW_TONE[a.severity ?? ""] ?? ""
                   }`}

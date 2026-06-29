@@ -167,6 +167,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "nursing-assessments": { minRank: STAFF },
   beds: { minRank: STAFF },
   icu: { minRank: STAFF },
+  "clinical-alerts": { minRank: STAFF },
   dialysis: { minRank: STAFF },
   immunisations: { minRank: STAFF },
   consent: { minRank: STAFF },
