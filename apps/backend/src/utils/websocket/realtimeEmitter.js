@@ -238,3 +238,12 @@ export function emitLabEvent(kind, { tenantId } = {}) {
     logger.warn('emitLabEvent failed:', err.message);
   }
 }
+
+/** Microbiology board change (order created/transitioned, isolate/sensitivity added). */
+export function emitMicroEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:micro', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitMicroEvent failed:', err.message);
+  }
+}
