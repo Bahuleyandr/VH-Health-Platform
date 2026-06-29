@@ -1,8 +1,12 @@
 # Codex Handoff — VH Health Platform remaining work
 
-Transient working doc (2026-06-22). Delete after cross-check. The durable list of
-remaining work is [`ROADMAP.md`](ROADMAP.md); this file is the agent-executable
-slice of it.
+> ▶ **ARCHIVED 2026-06-29 (cross-check complete).** This was a transient working
+> doc; its Part-A code tasks are remediated and its durable operator/governance
+> items are tracked in [`../../ROADMAP.md`](../../ROADMAP.md) §0. Retained here as
+> a point-in-time record only — not an open-work list.
+
+Transient working doc (2026-06-22). The durable list of remaining work is
+[`../../ROADMAP.md`](../../ROADMAP.md); this file is the agent-executable slice of it.
 
 ---
 
