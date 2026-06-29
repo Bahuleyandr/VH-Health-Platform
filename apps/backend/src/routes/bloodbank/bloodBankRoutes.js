@@ -17,6 +17,7 @@ import {
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { requiredUUID, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+import { emitBloodBankEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 // Shared failure mapper for the B5 closed-loop endpoints.
 function handleLoopFailure(res, next, err, context) {
@@ -61,6 +62,7 @@ router.post('/request', requiredUUID('patient_uid'), requiredEnum('blood_group',
     };
 
     const result = await bloodBankService.createRequest(requestData, bloodBankContext(req));
+    emitBloodBankEvent('request-created', { tenantId: req.tenantId });
     return success(res, result, 'Blood request created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
@@ -84,6 +86,7 @@ router.put('/:id/cross-match', paramId(), validate, async (req, res, next) => {
     };
 
     const result = await bloodBankService.crossMatch(parseInt(id, 10), matchData, bloodBankContext(req));
+    emitBloodBankEvent('request-cross-matched', { tenantId: req.tenantId });
     return success(res, result, 'Cross-match result recorded successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -106,6 +109,7 @@ router.put('/:id/issue', paramId(), validate, async (req, res, next) => {
     };
 
     const result = await bloodBankService.issueBlood(parseInt(id, 10), issueData, bloodBankContext(req));
+    emitBloodBankEvent('request-issued', { tenantId: req.tenantId });
     return success(res, result, 'Blood issued successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -129,6 +133,7 @@ router.put('/:id/transfused', paramId(), validate, async (req, res, next) => {
     };
 
     const result = await bloodBankService.recordTransfusion(parseInt(id, 10), transfusionData, bloodBankContext(req));
+    emitBloodBankEvent('request-transfused', { tenantId: req.tenantId });
     return success(res, result, 'Transfusion recorded successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -154,6 +159,7 @@ router.post('/units', requiredEnum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+'
       donorRef: req.body.donor_ref || null,
       sourceBloodBank: req.body.source_blood_bank || null,
     }, bloodBankContext(req));
+    emitBloodBankEvent('unit-registered', { tenantId: req.tenantId });
     return success(res, unit, 'Blood unit registered', 201);
   } catch (err) {
     return handleLoopFailure(res, next, err, 'register unit');
@@ -182,6 +188,7 @@ router.post('/:id/crossmatch-unit', paramId(), requiredNumber('unit_id'), valida
       result: req.body.result,
       overrideReason: req.body.override_reason || null,
     }, bloodBankContext(req));
+    emitBloodBankEvent('unit-cross-matched', { tenantId: req.tenantId });
     return success(res, result, 'Unit crossmatch recorded');
   } catch (err) {
     return handleLoopFailure(res, next, err, 'crossmatch unit');
@@ -197,6 +204,7 @@ router.post('/:id/verify-bedside', paramId(), validate, async (req, res, next) =
       scannedPatientUid: req.body.scanned_patient_uid,
       overrideReason: req.body.override_reason || null,
     }, bloodBankContext(req));
+    emitBloodBankEvent('verification-recorded', { tenantId: req.tenantId });
     return success(res, verification, 'Bedside verification recorded');
   } catch (err) {
     return handleLoopFailure(res, next, err, 'verify bedside');
@@ -207,6 +215,7 @@ router.post('/:id/verify-bedside', paramId(), validate, async (req, res, next) =
 router.post('/:id/start-transfusion', paramId(), validate, async (req, res, next) => {
   try {
     const result = await startTransfusion(parseInt(req.params.id, 10), bloodBankContext(req));
+    emitBloodBankEvent('transfusion-started', { tenantId: req.tenantId });
     return success(res, result, 'Transfusion started');
   } catch (err) {
     return handleLoopFailure(res, next, err, 'start transfusion');
@@ -219,6 +228,7 @@ router.post('/:id/complete-transfusion', paramId(), validate, async (req, res, n
     const result = await completeTransfusion(parseInt(req.params.id, 10), {
       notes: req.body.notes || null,
     }, bloodBankContext(req));
+    emitBloodBankEvent('transfusion-completed', { tenantId: req.tenantId });
     return success(res, result, 'Transfusion completed');
   } catch (err) {
     return handleLoopFailure(res, next, err, 'complete transfusion');
@@ -238,6 +248,7 @@ router.post('/:id/reaction', paramId(), validate, async (req, res, next) => {
       transfusionStopped: req.body.transfusion_stopped !== false,
       outcome: req.body.outcome || null,
     }, bloodBankContext(req));
+    emitBloodBankEvent('reaction-recorded', { tenantId: req.tenantId });
     return success(res, reaction, 'Transfusion reaction recorded', 201);
   } catch (err) {
     return handleLoopFailure(res, next, err, 'record reaction');
