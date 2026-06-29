@@ -24,6 +24,8 @@ export const ROLES = {
   PHARMACY_INCHARGE: 'PHARMACY_INCHARGE',
   STORES_PURCHASE_INCHARGE: 'STORES_PURCHASE_INCHARGE',
   LAB_STAFF: 'LAB_STAFF',
+  LAB_INCHARGE: 'LAB_INCHARGE',
+  PATHOLOGIST: 'PATHOLOGIST',
   HR_STAFF: 'HR_STAFF',
   GENERAL_STAFF: 'GENERAL_STAFF',
   HOUSEKEEPING_STAFF: 'HOUSEKEEPING_STAFF',
@@ -151,6 +153,8 @@ export const ALL_STAFF_ROLES = [
   ROLES.PHARMACY_INCHARGE,
   ROLES.STORES_PURCHASE_INCHARGE,
   ROLES.LAB_STAFF,
+  ROLES.LAB_INCHARGE,
+  ROLES.PATHOLOGIST,
   ROLES.HR_STAFF,
   ROLES.GENERAL_STAFF,
   ROLES.DELIVERY_STAFF,
@@ -226,10 +230,10 @@ export const isDataProtectionOfficer = role => role === ROLES.DATA_PROTECTION_OF
 // signoff but not finalise — that's the audit boundary the regulator
 // expects. ADMIN/SUPER_ADMIN keep an override path for late
 // corrections, with the existing audit trail capturing it.
-// Uses string literals because PATHOLOGIST / LAB_INCHARGE /
-// SUPER_ADMIN aren't on the ROLES enum yet (declared in userConfig.js;
-// adding them to ROLES is a separate cleanup PR).
-export const PATHOLOGIST_SIGN_ROLES = ['PATHOLOGIST', 'LAB_INCHARGE', ROLES.ADMIN, 'SUPER_ADMIN'];
+// PATHOLOGIST + LAB_INCHARGE are now first-class ROLES (+ ALL_STAFF_ROLES, so
+// isStaff() recognises them). SUPER_ADMIN stays a string literal — it is a
+// platform role declared in userConfig.js, not on the clinical ROLES enum.
+export const PATHOLOGIST_SIGN_ROLES = [ROLES.PATHOLOGIST, ROLES.LAB_INCHARGE, ROLES.ADMIN, 'SUPER_ADMIN'];
 export const canSignOffLabResults = role => PATHOLOGIST_SIGN_ROLES.includes(role);
 
 export const canViewMedicalData = role =>
