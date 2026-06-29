@@ -274,3 +274,12 @@ export function emitBloodBankEvent(kind, { tenantId } = {}) {
     logger.warn('emitBloodBankEvent failed:', err.message);
   }
 }
+
+/** Radiology-board change (order lifecycle, acquisition, report submission, sign-off, addendum). */
+export function emitRadiologyEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:radiology', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitRadiologyEvent failed:', err.message);
+  }
+}

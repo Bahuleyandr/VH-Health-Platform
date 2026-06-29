@@ -7,6 +7,7 @@ import logger from '../../logging/logger.js';
 import radiologyService from '../../services/radiology/radiologyService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import { emitRadiologyEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -34,6 +35,7 @@ router.post('/orders', requiredUUID('patient_uid'), requiredString('modality', 5
     };
 
     const order = await radiologyService.createOrder(orderData);
+    emitRadiologyEvent('order-created', { tenantId: req.tenantId });
     return success(res, order, 'Radiology order created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
@@ -87,6 +89,7 @@ router.put('/:id/report', paramId(), validate, async (req, res, next) => {
     };
 
     const result = await radiologyService.submitReport(parseInt(id, 10), reportData);
+    emitRadiologyEvent('report-submitted', { tenantId: req.tenantId });
     return success(res, result, 'Radiology report submitted successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -147,6 +150,7 @@ router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
         metadata: req.body.metadata,
       },
     });
+    emitRadiologyEvent('order-acquired', { tenantId: req.tenantId });
     return success(res, result, 'Radiology order acquired');
   } catch (err) {
     if (err.isOperational) return error(res, err.message, err.statusCode);
@@ -164,6 +168,7 @@ router.post('/:id/sign-off', paramId(), validate, async (req, res, next) => {
     const result = await radiologyService.signOffReport(parseInt(req.params.id, 10), {
       signed_off_by: req.user?.uid,
     });
+    emitRadiologyEvent('report-signed-off', { tenantId: req.tenantId });
     return success(res, result, 'Radiology report signed off');
   } catch (err) {
     if (err.isOperational) return error(res, err.message, err.statusCode);
@@ -188,6 +193,7 @@ router.post('/:id/addendum', paramId(), validate, async (req, res, next) => {
         addendum_by: req.user?.uid,
       },
     );
+    emitRadiologyEvent('report-addendum', { tenantId: req.tenantId });
     return success(res, result, 'Radiology report addendum appended');
   } catch (err) {
     if (err.isOperational) return error(res, err.message, err.statusCode);
@@ -247,6 +253,7 @@ router.put('/:id/cancel', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const result = await radiologyService.cancelOrder(parseInt(id, 10), req.user?.uid);
+    emitRadiologyEvent('order-cancelled', { tenantId: req.tenantId });
     return success(res, result, 'Radiology order cancelled successfully');
   } catch (err) {
     if (err.isOperational) {
