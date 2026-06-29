@@ -4,6 +4,7 @@
 // See docs/ROADMAP.md Phase 3A — all subscribers are authorized here.
 
 import { isAdmin, isClinical, isStaff } from '../roleHelpers.js';
+import { SUPER_ADMIN, normalizeRole } from '../roles.js';
 
 /**
  * Channel naming convention:
@@ -29,6 +30,14 @@ const LEGACY_CHANNELS = new Set([
 export function authorizeChannel(channel, user) {
   if (typeof channel !== 'string' || channel.length === 0 || channel.length > 200) {
     return { allowed: false, reason: 'Invalid channel name' };
+  }
+
+  // SUPER_ADMIN is the platform master role. The REST RBAC (rbacMiddleware) grants it an un-scoped
+  // bypass of every requireRole gate; WS channel auth must match so a super-admin can subscribe to any
+  // board they can already read. Without this, isStaff('SUPER_ADMIN') is false → super-admin is denied
+  // every staff:* channel.
+  if (normalizeRole(user?.role) === SUPER_ADMIN) {
+    return { allowed: true };
   }
 
   if (LEGACY_CHANNELS.has(channel)) {
@@ -82,6 +91,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:icu-board':          { description: 'ICU command centre — admissions, code status, flowsheet, assessments, ABCDEF bundle', roles: 'staff' },
   'staff:lab': { description: 'Lab — critical-value alerts + pathologist sign-off worklist', roles: 'staff' },
   'staff:micro': { description: 'Microbiology — culture orders, isolates, sensitivities, MDR resistance', roles: 'staff' },
+  'staff:incidents': { description: 'Incident reports — sentinel/severe safety events + status changes', roles: 'staff' },
   'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },
   'admin:kpi':                { description: 'Live KPI tile updates for admin dashboard', roles: 'admin' },
   'admin:daily-ops':          { description: 'Daily operations snapshot — OPD/IP/OR/collections/claims headline numbers', roles: 'admin' },
