@@ -283,3 +283,12 @@ export function emitRadiologyEvent(kind, { tenantId } = {}) {
     logger.warn('emitRadiologyEvent failed:', err.message);
   }
 }
+
+/** Appointment/queue board change (book / confirm / no-show / complete / cancel / reschedule / walk-in / status). */
+export function emitAppointmentEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:appointments', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitAppointmentEvent failed:', err.message);
+  }
+}

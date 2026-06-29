@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import { fetchAdminAPI } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +13,7 @@ import {
   markNoShowAdmin,
   type AppointmentWorkflow,
 } from "@/lib/api/appointments";
+import { useState } from "react";
 import { PaginationControls } from "../../users/components/PaginationControls";
 import { AppointmentFilters } from "./AppointmentFilters";
 import {
@@ -25,14 +27,12 @@ import {
   normalizeAppointmentsResponse,
   StatusBadge,
   type AppointmentRow,
-  type AppointmentsAPIResponse,
 } from "./helpers";
 
 export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [data, setData] = useState<AppointmentsAPIResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
   const [acting, setActing] = useState<{ id: number; action: string } | null>(
     null,
   );
@@ -42,38 +42,22 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
     searchParams.get("sortOrder") === "DESC" ? "desc" : "asc"
   ) as SortDirection;
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const page = parseInt(searchParams.get("page") || "1");
-        const limit = parseInt(searchParams.get("limit") || "10");
-        const status = searchParams.get("status");
-        const search = searchParams.get("search");
-        const params = new URLSearchParams();
-        params.set("page", String(page));
-        params.set("limit", String(limit));
-        params.set("sortBy", sortBy);
-        params.set("sortOrder", sortOrder.toUpperCase());
-        if (status) params.set("status", status);
-        if (search) params.set("search", search);
-        const res = await fetchAdminAPI<unknown>(
-          `/appointments/list?${params}`,
-        );
-        if (!cancelled)
-          setData(normalizeAppointmentsResponse(res, page, limit));
-      } catch {
-        if (!cancelled) setData(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchData();
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey, searchParams, sortBy, sortOrder]);
+  const page = parseInt(searchParams.get("page") || "1");
+  const limit = parseInt(searchParams.get("limit") || "10");
+  const status = searchParams.get("status");
+  const search = searchParams.get("search");
+  const { data = null, isLoading: loading } = useQuery({
+    queryKey: ["appointments", refreshKey, page, limit, status, search, sortBy, sortOrder],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("page", String(page)); params.set("limit", String(limit));
+      params.set("sortBy", sortBy); params.set("sortOrder", sortOrder.toUpperCase());
+      if (status) params.set("status", status);
+      if (search) params.set("search", search);
+      const res = await fetchAdminAPI<unknown>(`/appointments/list?${params}`);
+      return normalizeAppointmentsResponse(res, page, limit);
+    },
+  });
 
   const doAction = async (
     id: number,
@@ -90,8 +74,8 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
           cancellation_reason: extra?.reason,
         });
       toast.success(`Done: ${action}`);
-      // Refresh
-      router.refresh();
+      // Invalidate react-query cache
+      qc.invalidateQueries({ queryKey: ["appointments"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
