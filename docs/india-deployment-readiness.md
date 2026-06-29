@@ -207,9 +207,11 @@ timestamp, and request/correlation ID.
 
 CERT-In Directions require six-hour reporting for qualifying cyber incidents
 and secure ICT log retention for a rolling 180 days in Indian jurisdiction.
-The existing stack currently documents 30-day Loki retention in some places, so
-production requires either increasing primary retention or adding an Indian
-archive/SIEM layer before go-live.
+The Loki 180-day retention config change is **DONE** (`infra/kubernetes/base/monitoring/loki-values.yaml`,
+`retention_period: 4320h  # 180d`, audit comment 2026-06-22); it is **awaiting operator deploy /
+ArgoCD sync** and is no longer a code blocker. Until the overlay is synced the
+Loki instance holds less than 180 days of data, so this item remains an
+operator-activation pre-condition before accepting real patient data.
 
 - [ ] Named CERT-In POC and alternate are registered in the hospital incident
       plan.

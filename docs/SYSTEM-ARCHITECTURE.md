@@ -174,6 +174,17 @@ The `/` and `/health` endpoints on the backend are public (genericly
 rate-limited); everything else requires API key + JWT unless noted in
 the middleware chain below.
 
+### Real-time WebSocket fabric
+
+Alongside the request/response path, the backend runs a WebSocket fan-out
+fabric for live dashboards and clinical boards. The pieces:
+
+- **Server** (`apps/backend/src/utils/websocket/`): `broadcast(channel, data, {tenantId})` and `sendToUser(uid, event, data)` publish over a **Redis pub/sub fan-out** (`wsRedisAdapter.js`, **at-most-once** — ephemeral, not the durable `event_outbox` path). Subscribe authorization is prefix-based in `channelAuth.js` (`authorizeChannel`): `admin:*`→isAdmin, `staff:clinical:*`→isClinical, `staff:*`→isStaff, `patient:<uid>:*`→owner|clinical|admin, with a SUPER_ADMIN bypass; `CHANNEL_CATALOG` is the discovery registry. Every broadcast is tenant-filtered (`tenantMatches`) so a socket only receives its own tenant's events. Emit helpers live in `realtimeEmitter.js`. Reliability is instrumented (`ws_broadcast_dropped_total`, `ws_fanout_subscriber_errors_total` — see §8 Observability).
+- **Admin (Next.js)**: `apps/admin/src/hooks/useRealtimeChannel.ts` is the ticket-authed hook (`POST /api/realtime-ticket` → `/ws`, auth as the first WS frame, ping/pong keepalive, reconnect+backoff). Three consumer patterns built on it: `useRealtimeInvalidation` (event → invalidate react-query keys), `useRealtimeData` (snapshot → `setQueryData`), and the raw `useRealtimeChannel` (live append-only feed).
+- **Flutter**: `packages/vhhealth_core/lib/services/realtime_client.dart` `RealtimeClient` (the staff app's appointments + bed boards already subscribe).
+
+The **real-time-first dashboards epic** (ROADMAP §0 #4) used this fabric to convert 13 admin boards from polling to live: beds, ED, operations, OR-board, ICU, clinical-alerts/code-blue, lab, microbiology, incidents, dialysis, blood-bank, radiology, doctor-queue. Producers emit at the relevant write sites (route / service-chokepoint / controller layer); channels are `staff:*`-scoped and carry **PHI-free `{kind, at}` nudges** — clients refetch through the RBAC-gated REST endpoints, so the channel never transmits PHI.
+
 ---
 
 ## 4. Request lifecycle — backend
@@ -323,15 +334,22 @@ Anomaly detection lives in [`src/utils/loginAnomalyDetector.js`](../apps/backend
 
 ## 6. Multi-tenancy
 
-VH Health was built single-tenant and is mid-rollout to multi-tenant.
+VH Health was built single-tenant; the full multi-tenancy program
+(W1–W7, migrations 328–338) is now **code-complete and merged to main**.
 The current state is: **tenant_id columns + per-request tenant context
-+ Postgres RLS at the policy layer, permissive when unset**. Full
-migration of existing query sites to `queryAsTenant()` is deferred.
++ Postgres RLS at the policy layer (permissive when the GUC is unset)**,
+with pooled per-request RLS scoping via `setTenant()` (the old
+`queryAsTenant()` / `DatabaseManager` shim was deleted in batch 31).
+**Deploy posture:** the platform runs **SINGLE-tenant today**
+(`ALLOW_DEFAULT_TENANT=true`); flipping to enforced multi-tenant
+isolation (wildcard DNS/TLS + `onboard-tenant.mjs` + flipping the flag
+to `false`) is an **operator** step — see
+[`TENANT_ONBOARDING_RUNBOOK.md`](TENANT_ONBOARDING_RUNBOOK.md).
 
 ### Scope of RLS-enabled tables
 
 Migration [`075_tenant_rls_policies.sql`](../apps/backend/src/migrations/075_tenant_rls_policies.sql)
-enables row-level security on 11 tables:
+first enabled row-level security on these 11 tables (RLS was later extended to the PHI tables in migrations 236/238/239/304 and across the W1–W7 multi-tenancy program in migs 328–338):
 
 ```
 users
@@ -837,7 +855,7 @@ Cheatsheet for common changes. All paths relative to repo root.
 | Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). If the table isn't one of the 11 in migration 075, add it there AND add a `tenant_id uuid NOT NULL DEFAULT DEFAULT_TENANT_ID` column in a new migration. |
 | Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.example`](../apps/admin/.env.example). |
 | Add a k8s workload | New Kustomize base under [`infra/kubernetes/apps/<name>/`](../infra/kubernetes/apps/) with `deployment.yaml` + `service.yaml` + `kustomization.yaml`. Reference it from [`infra/kubernetes/apps/kustomization.yaml`](../infra/kubernetes/apps/kustomization.yaml). Image tag pinned in the overlay at [`overlays/prod/kustomization.yaml`](../infra/kubernetes/overlays/prod/kustomization.yaml). ArgoCD's `vhhealth-apps` Application will pick it up. |
-| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `304` is the last; `305_` next). Raw SQL, no `prisma db push`. Write the `.sql`, run `node scripts/qa-reset.mjs` (or equivalent fresh DB), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
+| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `348` is the last; `349_` next). Raw SQL, no `prisma db push`. Write the `.sql`, run `node scripts/qa-reset.mjs` (or equivalent fresh DB), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
 | Debug test-DB schema-sync failure | [`apps/backend/scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs), especially the "drop RLS policies" block starting around line 548. Prisma's `db push --accept-data-loss` conflicts with the live `tenant_isolation` policies; the script drops them, runs push, lets migration 075 recreate them. |
 | Rotate a JWT / API key / encryption key | [`apps/backend/docs/RUNBOOKS/cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md) + [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md). The flow is: update the plain Secret → `kubeseal` → commit → ArgoCD reconciles → `rollout restart deployment/vhhealth-backend`. |
 | Add a clinical-AI module | Service in [`apps/backend/src/services/ai/`](../apps/backend/src/services/ai/) + raw-SQL migration for the tables + admin route in [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin/clinicalAi/) + tracker update at [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md) + admin UI at [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/). |

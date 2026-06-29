@@ -1,5 +1,7 @@
 # Tenant Onboarding Runbook (multi-tenancy W7)
 
+> **PREREQUISITE — currently SINGLE-TENANT.** The backend runs with ALLOW_DEFAULT_TENANT=true today; multi-tenant isolation is NOT active. This runbook is the OPERATOR procedure to enable it. Until platform-ops completes Part A (wildcard DNS/TLS/ingress) AND flips ALLOW_DEFAULT_TENANT=false, Part B onboardings are not isolated.
+
 Repeatable steps to stand up a new tenant (hospital/clinic) on the shared VH Health
 cluster. Design + rationale: [`docs/superpowers/specs/2026-06-21-w7-infra-onboarding-design.md`](superpowers/specs/2026-06-21-w7-infra-onboarding-design.md).
 

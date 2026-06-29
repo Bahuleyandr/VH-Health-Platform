@@ -1,6 +1,6 @@
 # Clinical AI Module Inventory — VH Health Platform
 
-> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `5659a93b`
+> **Generated:** 2026-06-29 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `bf9d225a`
 > Machine-generated (registry metadata + a `git grep` wiring scan). Refresh with `node apps/backend/scripts/gen-ai-module-inventory.mjs`. Do not hand-edit the tables.
 
 ## Summary
@@ -15,7 +15,7 @@
 | Declare curated-KB grounding | 5 |
 | **Key-referenced by a service** | 99 |
 | **Key-referenced by a route** | 14 |
-| **Key-referenced by a test** | 81 |
+| **Key-referenced by a test** | 85 |
 | **Flagged — no service/route ref by key (verify)** | 0 |
 | **Reaches the CDS dashboard (cds_alerts)** | 11 |
 | **CDS-surfacing gaps (serious bedside, not on dashboard)** | 31 |
@@ -180,13 +180,13 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 44 | OP Referral / Second Opinion Draft | `op_referral_draft` | opd | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 45 | OP Visit Prep | `op_visit_prep` | opd | — | high | ✅ | — | ✅ | — | — | — | — |
 | 46 | Acuity-Based Staffing Forecast | `acuity_staffing_forecast` | operations | — | medium | ✅ | — | ✅ | ✅ | — | — | — |
-| 47 | Appointment No-Show Predictor | `appointment_no_show_predictor` | operations | — | low | ✅ | — | — | — | — | — | — |
+| 47 | Appointment No-Show Predictor | `appointment_no_show_predictor` | operations | — | low | ✅ | — | ✅ | — | — | — | — |
 | 48 | Bed Discharge Forecast | `bed_discharge_forecast` | operations | — | medium | ✅ | ✅ | ✅ | — | — | — | — |
 | 49 | Hospital Command Center AI | `hospital_command_center` | operations | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 50 | Housekeeping and Bed Turnover Optimizer | `housekeeping_bed_turnover` | operations | — | low | ✅ | — | ✅ | — | — | — | — |
 | 51 | Inventory Intelligence (Non-Pharmacy) | `inventory_intelligence` | operations | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 52 | OT Block Scheduling Optimizer | `ot_block_scheduling` | operations | — | medium | ✅ | — | ✅ | — | — | — | — |
-| 53 | OT Case-Time Predictor | `ot_case_time_predictor` | operations | — | low | ✅ | — | — | — | — | — | — |
+| 53 | OT Case-Time Predictor | `ot_case_time_predictor` | operations | — | low | ✅ | — | ✅ | — | — | — | — |
 | 54 | Procurement Negotiation Assistant | `procurement_negotiation_assistant` | operations | — | low | ✅ | — | ✅ | — | — | — | — |
 | 55 | Self-Healing Bug Hunt Agent | `self_healing_bug_hunt` | operations | — | medium | ✅ | — | — | — | — | — | — |
 | 56 | Staff Burnout / Workload Risk Predictor | `staff_burnout_workload_risk` | operations | — | medium | ✅ | — | ✅ | — | — | — | — |
@@ -197,7 +197,7 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 61 | Lab Result Patient Explanation | `lab_patient_explanation` | patient | — | medium | ✅ | — | ✅ | — | — | ✅ | — |
 | 62 | Patient Aftercare Instructions | `patient_aftercare_instructions` | patient | — | high | ✅ | ✅ | ✅ | — | — | ✅ | — |
 | 63 | Patient Communication Translation | `patient_communication_translation` | patient | — | high | ✅ | — | ✅ | — | — | ✅ | — |
-| 64 | Patient Record Chatbot | `patient_record_chatbot` | patient | — | high | ✅ | — | — | — | — | ✅ | — |
+| 64 | Patient Record Chatbot | `patient_record_chatbot` | patient | — | high | ✅ | — | ✅ | — | — | ✅ | — |
 | 65 | Patient Teach-Back / Comprehension AI | `patient_teach_back_comprehension` | patient | — | high | ✅ | — | ✅ | — | — | ✅ | — |
 | 66 | Post-Op Instruction Draft | `post_op_instruction_draft` | patient | — | high | ✅ | — | ✅ | — | — | ✅ | — |
 | 67 | Prescription Patient Explainer | `prescription_patient_explainer` | patient | — | high | ✅ | — | ✅ | — | — | ✅ | — |
@@ -209,7 +209,7 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 73 | Pharmacogenomics / PGx Support | `pharmacogenomics_support` | pharmacy | — | high | ✅ | — | ✅ | — | — | — | — |
 | 74 | Pharmacy Stockout Predictor | `pharmacy_stockout_predictor` | pharmacy | — | medium | ✅ | ✅ | ✅ | — | — | — | — |
 | 75 | Polypharmacy AI Review | `polypharmacy_ai_review` | pharmacy | — | critical | ✅ | — | ✅ | ✅ | — | — | — |
-| 76 | Mortality / RCA Draft Generator | `rca_draft_generator` | quality | — | medium | ✅ | — | — | — | — | — | — |
+| 76 | Mortality / RCA Draft Generator | `rca_draft_generator` | quality | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 77 | Quality Case Review | `quality_case_review` | quality | — | high | ✅ | ✅ | ✅ | — | — | — | — |
 | 78 | Radiology AI Interpretation | `radiology_ai_interpretation` | radiology | — | critical | ✅ | — | — | — | — | — | — |
 | 79 | Radiology Report QA / Discrepancy Assistant | `radiology_report_qa` | radiology | — | high | ✅ | — | ✅ | — | — | — | — |
