@@ -11,6 +11,9 @@ import { PrescriptionsTab } from "./components/PrescriptionsTab";
 import { SlaOverviewTab } from "./components/SlaOverviewTab";
 import { BookAppointmentDialog } from "./components/BookAppointmentDialog";
 import { WalkInDialog } from "./components/WalkInDialog";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+
+const APPOINTMENTS_CHANNEL = "staff:appointments";
 
 const TABS = [
   { id: "overview", label: "Overview & SLA" },
@@ -29,10 +32,26 @@ function AppointmentsPageContent() {
   const [showBookAppointment, setShowBookAppointment] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(APPOINTMENTS_CHANNEL, [["appointments"], ["queue"]]);
+  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:appointments — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:appointments"
+    : connected ? "Connecting…" : "Offline — refresh manually (real-time unavailable)";
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Appointment Management</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold">Appointment Management</h2>
+          <span data-testid="appointments-realtime-indicator" role="status"
+            aria-label={subscribed ? "Live — real-time appointment updates active" : "Offline — real-time updates unavailable"}
+            title={liveTitle}
+            className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}>
+            {liveLabel}
+          </span>
+        </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowBookAppointment(true)}
