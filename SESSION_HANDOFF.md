@@ -1,5 +1,7 @@
 # VH Health Platform - Session Handoff
 
+> ⚠️ Snapshot dated 2026-06-13. Current main is well beyond this (HEAD bf9d225a, 2026-06-29). Live status: docs/ROADMAP.md §0. Treat as historical.
+
 Last updated: 2026-06-13.
 
 This file is the durable bootstrap note for continuing the current VH Health
@@ -10,9 +12,9 @@ and Forgejo state as authoritative; this note is only a map.
 
 **S-Tier Roadmap (WS0–WS8, in-our-control) — complete (2026-06-14, merged `25ec5b87`).**
 
-See `docs/S_TIER_ROADMAP.md` for the full plan, batch sequencing, and per-batch
+See `docs/archive/S_TIER_ROADMAP.md` for the full plan, batch sequencing, and per-batch
 status. The platform scored B− in the 2026-06-13 full-stack audit
-(`docs/PLATFORM_AUDIT_2026-06-13.md`); the S-tier roadmap drove the
+(`docs/archive/audits/PLATFORM_AUDIT_2026-06-13.md`); the S-tier roadmap drove the
 in-our-control workstreams (WS0–WS8) to done. WS3 stood up the deterministic
 in-CI journey tests that replaced the agent swarm.
 

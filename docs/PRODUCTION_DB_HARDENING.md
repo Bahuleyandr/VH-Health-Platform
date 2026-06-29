@@ -1,5 +1,7 @@
 # Production Database Hardening
 
+> **STATUS.** Baseline (3-replica CNPG, WAL archiving, daily backups, RLS, read-only role) is code-complete. The DR-restore-drill automation has shipped (infra/kubernetes/base/cnpg/dr-restore-drill.sh); the pre-prod gate is execution-evidence + operator sign-off (commit drill output to docs/qa-findings/). Not production-certified until that evidence exists for the target environment.
+
 This is the operational gate before the VH Health database is trusted outside a
 test or pilot environment. The Kubernetes manifests already contain a strong
 baseline: CloudNativePG Postgres 17, 3 instances, synchronous replication, WAL

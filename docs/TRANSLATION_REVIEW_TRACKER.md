@@ -1,5 +1,7 @@
 # Translation Human Review Tracker
 
+> **Last reviewed: 2026-06-29.** Structural i18n coverage is 100%; human clinical review of translated strings remains PENDING (deprioritized until the pilot). This is a tracking artifact, not a blocker.
+
 The Flutter apps now have structural i18n coverage, but AI first-pass
 translations are not clinical sign-off. This tracker is the human validation
 queue before production rollout in Tamil, Telugu, Malayalam, or Hindi.

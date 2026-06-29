@@ -224,9 +224,9 @@ configured in the SealedSecret.
 
 ### Embedding OHIF in the staff app
 
-The backend exposes OHIF deep links via the clinical timeline API. Once the
-backend `link-study` endpoint is wired (see Section 5 — flagged follow-up),
-the staff Flutter app can open a study via:
+The backend exposes OHIF deep links via the clinical timeline API. The
+backend `link-study` endpoint is implemented (see Section 6.1); the
+staff Flutter app can open a study via:
 
 ```
 https://imaging.vhhealth.hospital.local/viewer?StudyInstanceUIDs=<uid>
@@ -357,18 +357,18 @@ Configure Longhorn's `defaultReplicaCount: 3` and confirm off-site backup target
 
 ---
 
-## 6. Flagged follow-ups (not implemented here)
+## 6. Follow-ups
 
 ### 6.1 Backend: link radiology images to the clinical timeline
 
-**Status: FLAGGED — separate backend batch (do NOT implement in this infra PR)**
-
-The endpoint `POST /api/v1/pacs/orders/:orderId/link-study` and the Orthanc
-OnStableStudy Lua hook that calls it are a backend task. Once implemented:
+**Status: IMPLEMENTED** — `apps/backend/src/routes/radiology/pacsRoutes.js`
+`POST /orders/:orderId/link-study` (via the `linkStudy` service) now exists.
+This flag is resolved. The endpoint is what the Orthanc OnStableStudy Lua hook
+calls after a study arrives. With it in place:
 
 1. Linked studies appear on the patient clinical timeline with OHIF deep links.
 2. The staff app can open the viewer from the timeline card.
-3. The backend must emit a `clinical_timeline_events` row for each linked study
+3. The backend emits a `clinical_timeline_events` row for each linked study
    (per `docs/CANONICAL_CLINICAL_TIMELINE.md`).
 
 ### 6.2 Worklist sidecar

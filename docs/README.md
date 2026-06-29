@@ -9,6 +9,7 @@ operations.
 
 | Topic | Document |
 | --- | --- |
+| **Go-live critical path (operator sequence)** | [`GO_LIVE_CRITICAL_PATH.md`](GO_LIVE_CRITICAL_PATH.md) |
 | Release gate | [`RELEASE_READINESS.md`](RELEASE_READINESS.md) |
 | Deployment runbook | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) |
 | India go-live readiness | [`india-deployment-readiness.md`](india-deployment-readiness.md) |
@@ -60,6 +61,7 @@ were consolidated into it on 2026-06-22 and moved to [`archive/`](archive/).
 | Operator-only remediation steps | [`PHASE0_OPERATOR_ACTIONS_2026-06-10.md`](PHASE0_OPERATOR_ACTIONS_2026-06-10.md) | Infrastructure-side actions |
 | ABDM readiness | [`ABDM_READINESS.md`](ABDM_READINESS.md) | ABDM / NDHM compliance |
 | Pentest readiness | [`PENTEST_READINESS.md`](PENTEST_READINESS.md) | RoE pack for the external engagement |
+| Code security sweep (dated snapshot) | [`../SECURITY_SWEEP_2026-06-13.md`](../SECURITY_SWEEP_2026-06-13.md) | Root-level point-in-time sweep (2026-06-13) |
 | Audit & evidence (archived) | [`archive/audits/`](archive/audits/) | Platform & security audits, sweeps, self-assessment, investigations — point-in-time, do not edit |
 
 ## Clinical AI And Product

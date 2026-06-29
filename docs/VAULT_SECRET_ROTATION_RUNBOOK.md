@@ -1,5 +1,7 @@
 # Vault Secret Rotation Runbook (INF-6 / B2.7)
 
+> **STATUS — NOT YET LIVE.** Vault is code-complete but its prod overlay patch is OPERATOR-GATED (commented out in infra/kubernetes/overlays/prod/kustomization.yaml). These steps apply only AFTER the vault-bootstrap init sequence is run. Until then, secrets use Sealed Secrets.
+
 > Applies to: production 3-replica Vault (vhhealth-security namespace) with
 > Transit auto-unseal via vault-bootstrap.
 

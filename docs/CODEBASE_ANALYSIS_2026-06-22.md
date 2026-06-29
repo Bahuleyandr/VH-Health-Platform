@@ -1,5 +1,7 @@
 # VH Health Platform — Full Codebase Analysis (2026-06-22)
 
+> ▶ **All findings in this dated snapshot have been REMEDIATED** (see docs/ROADMAP.md §0 for the live tracker). This document is the point-in-time evidence record, not an open-issues list.
+
 **Status:** Wave 1 (backend) complete. Wave 2 (frontend) + Wave 3 (infra + strategic synthesis) in progress.
 **Method:** multi-agent deep read, partitioned by domain×lens; every Critical/High finding independently **adversarially refuted** before inclusion (the refutation pass downgraded 2 over-called findings and refuted 0 of the 7 Highs — it confirmed all 7). Findings carry `file:line` evidence; medium/low are reported as-found (single-pass).
 **Baseline:** `main` @ `502fc033`, CI green. Prior audits (2026-06-13, 2026-06-18) were treated as priors — only *new* gaps or *incomplete* remediations are reported here.
