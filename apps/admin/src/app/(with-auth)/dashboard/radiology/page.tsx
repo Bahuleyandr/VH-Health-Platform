@@ -4,6 +4,9 @@
 import { useState, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+
+const RADIOLOGY_CHANNEL = "staff:radiology";
 
 type RadiologyOrder = {
   id: number;
@@ -278,9 +281,24 @@ function NewOrderTab() {
 
 function RadiologyContent() {
   const [tab, setTab] = useState<"worklist" | "new">("worklist");
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(RADIOLOGY_CHANNEL, [["radiology"]]);
+  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:radiology — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:radiology"
+    : connected ? "Connecting…" : "Offline — refresh manually (real-time unavailable)";
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Radiology</h1>
+      <div className="flex items-center gap-2 mb-6">
+        <h1 className="text-3xl font-bold">Radiology</h1>
+        <span data-testid="radiology-realtime-indicator" role="status"
+          aria-label={subscribed ? "Live — real-time radiology updates active" : "Offline — real-time updates unavailable"}
+          title={liveTitle}
+          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}>
+          {liveLabel}
+        </span>
+      </div>
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6">
         {[
           { key: "worklist" as const, label: "🔬 Worklist" },
