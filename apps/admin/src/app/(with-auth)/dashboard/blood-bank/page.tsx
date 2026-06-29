@@ -1,8 +1,10 @@
 // src/app/(with-auth)/dashboard/blood-bank/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useState, Suspense } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 
 type BloodRequest = {
   id: number;
@@ -33,6 +35,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
+const BLOOD_BANK_CHANNEL = "staff:blood-bank";
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <span
@@ -57,35 +61,27 @@ function fmtDate(d?: string | null) {
 }
 
 function InventoryTab() {
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const {
+    data: inventory = [],
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["blood-bank", "inventory"],
+    queryFn: async () => {
       const r = await fetchAdminAPI<{ data: InventoryItem[] }>(
         "/blood-bank/inventory",
       );
       const data = (r as Record<string, unknown>).data ?? r;
-      setInventory(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load inventory");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+      return Array.isArray(data) ? (data as InventoryItem[]) : [];
+    },
+  });
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Blood Inventory</h2>
-        <button onClick={load} className="text-sm text-primary hover:underline">
+        <button onClick={() => refetch()} className="text-sm text-primary hover:underline">
           ↻ Refresh
         </button>
       </div>
@@ -94,7 +90,7 @@ function InventoryTab() {
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load inventory"}
         </div>
       )}
       {!loading && inventory.length === 0 && !error && (
@@ -134,48 +130,35 @@ function InventoryTab() {
 }
 
 function PendingRequestsTab() {
-  const [requests, setRequests] = useState<BloodRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [acting, setActing] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const qc = useQueryClient();
+  const {
+    data: requests = [],
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["blood-bank", "pending"],
+    queryFn: async () => {
       const r = await fetchAdminAPI<{ data: BloodRequest[] }>(
         "/blood-bank/pending",
       );
       const data = (r as Record<string, unknown>).data ?? r;
-      setRequests(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load requests");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return Array.isArray(data) ? (data as BloodRequest[]) : [];
+    },
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const action = async (id: number, endpoint: string) => {
-    setActing(id);
-    try {
-      await putJSON(`/api/v1/blood-bank/${id}/${endpoint}`, {});
-      load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Action failed");
-    } finally {
-      setActing(null);
-    }
-  };
+  const action = useMutation({
+    mutationFn: ({ id, endpoint }: { id: number; endpoint: string }) =>
+      putJSON(`/api/v1/blood-bank/${id}/${endpoint}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["blood-bank"] }),
+    onError: (e) => alert(e instanceof Error ? e.message : "Action failed"),
+  });
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Pending Requests</h2>
-        <button onClick={load} className="text-sm text-primary hover:underline">
+        <button onClick={() => refetch()} className="text-sm text-primary hover:underline">
           ↻ Refresh
         </button>
       </div>
@@ -184,7 +167,7 @@ function PendingRequestsTab() {
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load requests"}
         </div>
       )}
       {!loading && requests.length === 0 && !error && (
@@ -223,8 +206,8 @@ function PendingRequestsTab() {
                   <td className="py-2 px-3 flex gap-1 flex-wrap">
                     {!r.cross_match_done && (
                       <button
-                        onClick={() => action(r.id, "cross-match")}
-                        disabled={acting === r.id}
+                        onClick={() => action.mutate({ id: r.id, endpoint: "cross-match" })}
+                        disabled={action.isPending && action.variables?.id === r.id}
                         className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100 disabled:opacity-50"
                       >
                         Cross-match
@@ -234,8 +217,8 @@ function PendingRequestsTab() {
                       r.status !== "ISSUED" &&
                       r.status !== "TRANSFUSED" && (
                         <button
-                          onClick={() => action(r.id, "issue")}
-                          disabled={acting === r.id}
+                          onClick={() => action.mutate({ id: r.id, endpoint: "issue" })}
+                          disabled={action.isPending && action.variables?.id === r.id}
                           className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded hover:bg-orange-100 disabled:opacity-50"
                         >
                           Issue
@@ -243,8 +226,8 @@ function PendingRequestsTab() {
                       )}
                     {r.status === "ISSUED" && (
                       <button
-                        onClick={() => action(r.id, "transfused")}
-                        disabled={acting === r.id}
+                        onClick={() => action.mutate({ id: r.id, endpoint: "transfused" })}
+                        disabled={action.isPending && action.variables?.id === r.id}
                         className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100 disabled:opacity-50"
                       >
                         Transfused
@@ -262,31 +245,33 @@ function PendingRequestsTab() {
 }
 
 function NewRequestTab() {
+  const qc = useQueryClient();
   const [form, setForm] = useState({
     patient_uid: "",
     blood_group: "O+",
     units: 1,
     notes: "",
   });
-  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const submit = async () => {
+  const create = useMutation({
+    mutationFn: () => postJSON("/api/v1/blood-bank/request", form),
+    onSuccess: () => {
+      setSuccess(true);
+      setForm({ patient_uid: "", blood_group: "O+", units: 1, notes: "" });
+      qc.invalidateQueries({ queryKey: ["blood-bank"] });
+    },
+    onError: (e) =>
+      alert(e instanceof Error ? e.message : "Failed to create request"),
+  });
+
+  const submit = () => {
     if (!form.patient_uid) {
       alert("Patient UID is required");
       return;
     }
-    setSaving(true);
     setSuccess(false);
-    try {
-      await postJSON("/api/v1/blood-bank/request", form);
-      setSuccess(true);
-      setForm({ patient_uid: "", blood_group: "O+", units: 1, notes: "" });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to create request");
-    } finally {
-      setSaving(false);
-    }
+    create.mutate();
   };
 
   return (
@@ -333,10 +318,10 @@ function NewRequestTab() {
       />
       <button
         onClick={submit}
-        disabled={saving}
+        disabled={create.isPending}
         className="w-full py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50"
       >
-        {saving ? "Creating..." : "Create Request"}
+        {create.isPending ? "Creating..." : "Create Request"}
       </button>
     </div>
   );
@@ -344,9 +329,34 @@ function NewRequestTab() {
 
 function BloodBankContent() {
   const [tab, setTab] = useState<"inventory" | "pending" | "new">("inventory");
+
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(BLOOD_BANK_CHANNEL, [
+    ["blood-bank"],
+  ]);
+
+  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:blood-bank — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:blood-bank"
+    : connected
+      ? "Connecting…"
+      : "Offline — refresh manually (real-time unavailable)";
+
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Blood Bank</h1>
+      <div className="flex items-center gap-2 mb-6">
+        <h1 className="text-3xl font-bold">Blood Bank</h1>
+        <span
+          data-testid="blood-bank-realtime-indicator"
+          role="status"
+          aria-label={subscribed ? "Live — real-time blood-bank updates active" : "Offline — real-time updates unavailable"}
+          title={liveTitle}
+          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+        >
+          {liveLabel}
+        </span>
+      </div>
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6">
         {[
           { key: "inventory" as const, label: "🩸 Inventory" },

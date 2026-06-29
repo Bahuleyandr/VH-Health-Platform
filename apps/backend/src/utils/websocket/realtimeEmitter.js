@@ -265,3 +265,12 @@ export function emitDialysisEvent(kind, { tenantId } = {}) {
     logger.warn('emitDialysisEvent failed:', err.message);
   }
 }
+
+/** Blood-bank board change (request lifecycle, unit stock, crossmatch, transfusion closed-loop, reactions). */
+export function emitBloodBankEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:blood-bank', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitBloodBankEvent failed:', err.message);
+  }
+}
