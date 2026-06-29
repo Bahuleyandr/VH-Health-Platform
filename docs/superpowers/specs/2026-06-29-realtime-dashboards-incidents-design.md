@@ -3,7 +3,7 @@
 - **Date:** 2026-06-29
 - **Epic:** #4 Real-time-first dashboards
 - **Status:** Design approved → spec
-- **Builds on:** the event-driven `useRealtimeInvalidation` recipe. **Most divergent slice so far** — controller-layer emits, a global (non-tenant-scoped) table, no existing poll, and a cross-cutting WS-auth consistency fix (SUPER_ADMIN bypass).
+- **Builds on:** the event-driven `useRealtimeInvalidation` recipe. **Most divergent slice so far** — controller-layer emits, no existing poll, and a cross-cutting WS-auth consistency fix (SUPER_ADMIN bypass).
 
 ## 1. Context & goal
 
@@ -23,7 +23,7 @@ The admin **Incident Reports** page (`apps/admin/src/app/(with-auth)/dashboard/i
 
 **Out of scope (YAGNI)**
 - No `routePolicy` change — `dashboard/incidents` exists with `incidents: { minRank: HR_PLUS }`.
-- No tenant scoping of incidents — `incident_reports` is a **global table** (no `tenant_id` column); the emit carries no tenantId (broadcast falls back to the request's ALS tenant; correct for single-tenant). Making the global incidents board multi-tenant-aware is a pre-existing, separate question.
+- No explicit tenant on the emit — `incident_reports` **is** tenant-scoped (`tenant_id uuid NOT NULL`, `(tenant_id, created_at)` index), but the emit deliberately omits an explicit `tenantId` and relies on `broadcast()`'s request-scoped AsyncLocalStorage fallback (`getCurrentTenantId()`). This is correct because both producers run inside request handlers (ALS is always seeded by `tenantRlsMiddleware`), so the nudge reaches only same-tenant subscribers — identical to the micro/lab emit pattern. (Caveat: a future caller of `emitIncidentEvent` from *outside* a request context would have no ALS tenant and should pass `tenantId` explicitly.)
 - No new persisted rows / migration / channel beyond `staff:incidents`.
 - No change to the incident workflow, the controller's queries, or the side panel.
 - No cadence helper / poll relaxation (there is no poll).
@@ -79,7 +79,7 @@ export function emitIncidentEvent(kind, { tenantId } = {}) {
   }
 }
 ```
-Mirrors the other emitters' shape; called WITHOUT `tenantId` from the controller (incidents are global — `broadcast` falls back to `getCurrentTenantId()` ALS; single-tenant-correct). Internal try/catch → never throws into the incident write.
+Mirrors the other emitters' shape; called WITHOUT `tenantId` from the controller — `broadcast` falls back to the request-scoped `getCurrentTenantId()` ALS tenant, so the nudge is correctly tenant-filtered (both producers run inside request handlers where ALS is seeded, same as micro/lab). Internal try/catch → never throws into the incident write.
 
 ### 4.3 Producers — `apps/backend/src/controllers/staff/incidentController.js` (import + 2 sites)
 The producers are **controller functions** (not route arrows). Emit best-effort just before the terminal `success(res, …)` call, inside the existing `try`.
@@ -103,7 +103,7 @@ Import: `import { emitIncidentEvent } from '../../utils/websocket/realtimeEmitte
 - No `refetchInterval` change — both queries keep their `staleTime` (15s/30s); the slice is purely additive (push on top of the existing manual/refocus refetch).
 
 ## 6. Tenant scoping & PHI
-`incident_reports` has **no `tenant_id`** — it is a single global table, and the controller does no tenant resolution. The emit therefore carries no `tenantId`; `broadcast` falls back to the request's ALS tenant (single-tenant-correct — all staff in the one tenant get the signal). The WS payload is `{kind, at}` only — **no PHI** (no reporter, no patient, no detail); the board's data (incl. anonymous-reporter masking) stays behind the HR_PLUS-gated REST refetch. Making the global incidents board correct under future multi-tenancy is pre-existing and out of scope.
+`incident_reports` **is** tenant-scoped — `tenant_id uuid NOT NULL` (default `…001`) with a `(tenant_id, created_at)` index and RLS coverage. The emit deliberately carries no explicit `tenantId`; `broadcast` falls back to the request-scoped ALS tenant (`getCurrentTenantId()`, seeded by `tenantRlsMiddleware`), so the nudge is filtered to the submitter's tenant — correct because both producers (`submitIncident`/`updateIncident`) run inside request handlers, the same pattern micro/lab use. The WS payload is `{kind, at}` only — **no PHI** (no reporter, no patient, no detail); the board's data (incl. anonymous-reporter masking) stays behind the HR_PLUS-gated REST refetch. (Only a future caller of `emitIncidentEvent` from *outside* a request context would lack the ALS tenant and must pass `tenantId` explicitly.)
 
 ## 7. Testing
 - **Backend** `incidentsRealtimeChannel.test.js` — `CHANNEL_CATALOG['staff:incidents']` present with `roles:'staff'`; `authorizeChannel('staff:incidents', …)` allowed for `HR_STAFF`/`ADMIN`/`NURSING_STAFF`, denied for `PATIENT`; **★ `SUPER_ADMIN` allowed (the new bypass)** on `staff:incidents` AND on an unrelated channel (e.g. `admin:foo`, `patient:x:y`) to prove the bypass is general.
@@ -137,6 +137,6 @@ Import: `import { emitIncidentEvent } from '../../utils/websocket/realtimeEmitte
 | SUPER_ADMIN bypass over-grants channel access | Strict consistency with the REST `rbacMiddleware` super-admin bypass; super-admin already has un-scoped REST access; no test asserted super-admin denial (verified). Channel test pins the new behaviour. |
 | Channel denies a real incidents user | `staff:incidents` (isStaff) admits HR_STAFF + ADMIN; the bypass admits SUPER_ADMIN — the full `HR_PLUS` audience. Asserted in the channel test. |
 | Emit blocks an incident write | Emitter try/catches; post-write, non-blocking. |
-| Global-table emit + multi-tenant | Single-tenant today; emit relies on ALS tenant fallback. Documented as a pre-existing question (incident_reports has no tenant_id). |
+| Emit + multi-tenant | `incident_reports` is tenant-scoped (`tenant_id NOT NULL`); the emit omits an explicit tenantId and relies on `broadcast()`'s request-scoped ALS tenant — correct because both producers run inside request handlers (same pattern as micro/lab). A non-request caller would need to pass `tenantId` explicitly. |
 | `["incidents"]` filtered key not invalidated | `useRealtimeInvalidation` invalidates by prefix — `["incidents"]` matches `["incidents",status,severity,type]`. Stats are a separate root, also invalidated. |
 | Adding the hook breaks the page test | New `incidents/page.test.tsx` mocks the hook + `@/lib/api/reports` from the start. |

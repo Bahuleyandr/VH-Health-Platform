@@ -4,7 +4,7 @@
 
 **Goal:** Push the admin Incidents board live via a new `staff:incidents` channel with controller-layer producers; the page subscribes and invalidates `["incidents"]` + `["incident-stats"]`. Also add a `SUPER_ADMIN` bypass to `authorizeChannel` (consistency with the REST `rbacMiddleware`) so super-admin can subscribe to incidents + all prior boards.
 
-**Architecture:** Event-driven recipe (like ICU/lab/micro), but: **controller-layer emits** (`incidentController.js`), **no `tenantId`** (incident_reports is a global table → ALS fallback), **no cadence helper** (the page has no `refetchInterval`), and a **cross-cutting `authorizeChannel` SUPER_ADMIN bypass**.
+**Architecture:** Event-driven recipe (like ICU/lab/micro), but: **controller-layer emits** (`incidentController.js`), **no explicit `tenantId`** on the emit (request-scoped ALS fallback — `incident_reports` is tenant-scoped, both producers run in request handlers), **no cadence helper** (the page has no `refetchInterval`), and a **cross-cutting `authorizeChannel` SUPER_ADMIN bypass**.
 
 **Tech Stack:** Node/Express 5 + WS fabric, Next.js 16 + TanStack Query v5, Jest.
 
@@ -157,7 +157,7 @@ export function emitIncidentEvent(kind, { tenantId } = {}) {
 }
 ```
 
-(`broadcast` + `logger` are already imported. `tenantId` is undefined when called from the controller — incidents are a global table; `broadcast` falls back to the ALS tenant.)
+(`broadcast` + `logger` are already imported. `tenantId` is undefined when called from the controller — `broadcast` falls back to the request-scoped ALS tenant (`getCurrentTenantId()`), which is the correct tenant scoping for the tenant-scoped `incident_reports` table because both producers run inside request handlers.)
 
 - [ ] **Step 9: Run both, confirm PASS**
 
