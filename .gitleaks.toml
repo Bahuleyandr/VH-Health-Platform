@@ -94,4 +94,7 @@ regexes = [
   # HL7 inbound HMAC test secret — a fixture in
   # hl7-receive-tenant-binding.deep.test.js (W3 WS6), not a real credential.
   '''hl7-tenant-binding-test-secret''',
+  # HL7 per-tenant HMAC test secret — a fixture in
+  # hl7-receive-tenant-equality.deep.test.js, not a real credential.
+  '''hl7-can021-per-tenant-secret''',
 ]
