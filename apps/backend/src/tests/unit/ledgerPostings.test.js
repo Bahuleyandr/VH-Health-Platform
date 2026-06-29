@@ -6,10 +6,11 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerService.js', () =>
   getAccountBalancePaise: jest.fn(),
   default: { postLedgerEntry },
 }));
-// setTenantTx just runs the callback with a fake tx
+// setTenantTx spy — records calls and runs the callback with an "own" fake tx.
+const setTenantTx = jest.fn(async (_t, fn) => fn({ __fakeTx: 'own' }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {},
-  setTenantTx: async (_t, fn) => fn({}),
+  setTenantTx,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -20,7 +21,7 @@ const { postInvoiceIssueEntry, postPaymentEntry, paymentDebitAccount } = await i
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
 
-beforeEach(() => { postLedgerEntry.mockClear(); });
+beforeEach(() => { postLedgerEntry.mockClear(); setTenantTx.mockClear(); });
 
 describe('paymentDebitAccount — mode → ledger account', () => {
   it('maps CASH to CASH, electronic modes to BANK, and returns null for INSURANCE', () => {
@@ -221,5 +222,40 @@ describe('postInsuranceShiftEntry', () => {
     await postInsuranceShiftEntry({ claim: { id: 5, invoice_id: 42, patient_uid: PATIENT, approved_amount: '0.00' }, tenantId: TENANT });
     await postInsuranceShiftEntry({ claim: { id: 6, invoice_id: null, patient_uid: PATIENT, approved_amount: '800.00' }, tenantId: TENANT });
     expect(postLedgerEntry.mock.calls.length).toBe(before);
+  });
+});
+
+describe('tx-threading (Phase 4-1) — posting wrappers honor a caller-supplied tx', () => {
+  it('uses the passed-in tx and does NOT open its own setTenantTx', async () => {
+    const callerTx = { __fakeTx: 'caller' };
+    await postPaymentEntry({
+      payment: { id: 9, patient_uid: PATIENT, invoice_id: 42, amount: '400.00', mode: 'CASH' },
+      tenantId: TENANT,
+      tx: callerTx,
+    });
+    expect(setTenantTx).not.toHaveBeenCalled();
+    expect(postLedgerEntry).toHaveBeenCalledTimes(1);
+    expect(postLedgerEntry.mock.calls[0][0]).toBe(callerTx);
+  });
+
+  it('opens its own setTenantTx when no tx is passed (today’s post-commit path)', async () => {
+    await postPaymentEntry({
+      payment: { id: 9, patient_uid: PATIENT, invoice_id: 42, amount: '400.00', mode: 'CASH' },
+      tenantId: TENANT,
+    });
+    expect(setTenantTx).toHaveBeenCalledTimes(1);
+    expect(postLedgerEntry).toHaveBeenCalledTimes(1);
+    expect(postLedgerEntry.mock.calls[0][0]).toEqual({ __fakeTx: 'own' });
+  });
+
+  it('threads tx through the invoice-issue wrapper too', async () => {
+    const callerTx = { __fakeTx: 'caller' };
+    await postInvoiceIssueEntry({
+      invoice: { id: 42, patient_uid: PATIENT, total_amount: '1000.00', tax_amount: '0.00' },
+      tenantId: TENANT,
+      tx: callerTx,
+    });
+    expect(setTenantTx).not.toHaveBeenCalled();
+    expect(postLedgerEntry.mock.calls.at(-1)[0]).toBe(callerTx);
   });
 });
