@@ -80,6 +80,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:appointments':       { description: 'Appointment + queue status changes (staff view)', roles: 'staff' },
   'staff:or-board':           { description: 'OR board — surgical case schedule/status/cancellation changes', roles: 'staff' },
   'staff:icu-board':          { description: 'ICU command centre — admissions, code status, flowsheet, assessments, ABCDEF bundle', roles: 'staff' },
+  'staff:lab': { description: 'Lab — critical-value alerts + pathologist sign-off worklist', roles: 'staff' },
   'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },
   'admin:kpi':                { description: 'Live KPI tile updates for admin dashboard', roles: 'admin' },
   'admin:daily-ops':          { description: 'Daily operations snapshot — OPD/IP/OR/collections/claims headline numbers', roles: 'admin' },
