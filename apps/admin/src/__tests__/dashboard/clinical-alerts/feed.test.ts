@@ -6,7 +6,7 @@ import {
 function alert(p: Partial<AlertItem> & { at: string }): AlertItem {
   return {
     kind: "vital-anomaly", patientId: "1", vitalName: "HR", value: 190,
-    unit: null, severity: "CRITICAL", message: "m", at: p.at, ...p,
+    unit: null, severity: "CRITICAL", message: "m", ...p,
   };
 }
 
