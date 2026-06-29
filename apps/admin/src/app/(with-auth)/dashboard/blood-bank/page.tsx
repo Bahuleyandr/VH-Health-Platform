@@ -4,6 +4,7 @@
 import { useState, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 
 type BloodRequest = {
   id: number;
@@ -33,6 +34,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
+
+const BLOOD_BANK_CHANNEL = "staff:blood-bank";
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -326,9 +329,34 @@ function NewRequestTab() {
 
 function BloodBankContent() {
   const [tab, setTab] = useState<"inventory" | "pending" | "new">("inventory");
+
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(BLOOD_BANK_CHANNEL, [
+    ["blood-bank"],
+  ]);
+
+  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:blood-bank — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:blood-bank"
+    : connected
+      ? "Connecting…"
+      : "Offline — refresh manually (real-time unavailable)";
+
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Blood Bank</h1>
+      <div className="flex items-center gap-2 mb-6">
+        <h1 className="text-3xl font-bold">Blood Bank</h1>
+        <span
+          data-testid="blood-bank-realtime-indicator"
+          role="status"
+          aria-label={subscribed ? "Live — real-time blood-bank updates active" : "Offline — real-time updates unavailable"}
+          title={liveTitle}
+          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+        >
+          {liveLabel}
+        </span>
+      </div>
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6">
         {[
           { key: "inventory" as const, label: "🩸 Inventory" },
