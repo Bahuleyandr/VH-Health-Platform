@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -65,27 +66,18 @@ function SlotAvailabilityPanel({ doctorId, date }: { doctorId: string; date: str
 export function DoctorQueueTab() {
   const [doctorId, setDoctorId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [queue, setQueue] = useState<AppointmentWorkflow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const load = async () => {
-    if (!doctorId) { toast.error("Enter a doctor ID"); return; }
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { doctor_id: doctorId };
-      if (date) params.date = date;
-      const res = await getTodayQueueAdmin<unknown>(params);
-      const rows = Array.isArray(res)
-        ? res
-        : Array.isArray((res as Record<string, unknown>)?.data)
-          ? (res as Record<string, unknown>).data
-          : [];
-      setQueue(rows as AppointmentWorkflow[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load queue");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [submittedDoctorId, setSubmittedDoctorId] = useState("");
+
+  const { data: queue = [], isFetching: loading } = useQuery({
+    queryKey: ["queue", submittedDoctorId, date],
+    queryFn: async () => {
+      const res = await getTodayQueueAdmin<unknown>({ doctor_id: submittedDoctorId, ...(date ? { date } : {}) });
+      const rows = Array.isArray(res) ? res
+        : Array.isArray((res as Record<string, unknown>)?.data) ? (res as Record<string, unknown>).data : [];
+      return rows as AppointmentWorkflow[];
+    },
+    enabled: !!submittedDoctorId,
+  });
 
   return (
     <div className="space-y-4">
@@ -100,7 +92,12 @@ export function DoctorQueueTab() {
           <input type="date" value={date} onChange={e => setDate(e.target.value)}
             className="border rounded px-3 py-2 text-sm" />
         </div>
-        <button onClick={load} className="bg-teal-600 text-white px-4 py-2 text-sm rounded hover:bg-teal-700">
+        <button
+          onClick={() => {
+            if (!doctorId) { toast.error("Enter a doctor ID"); return; }
+            setSubmittedDoctorId(doctorId);
+          }}
+          className="bg-teal-600 text-white px-4 py-2 text-sm rounded hover:bg-teal-700">
           Load Queue
         </button>
       </div>
@@ -112,7 +109,7 @@ export function DoctorQueueTab() {
         <Skeleton className="h-48 w-full" />
       ) : queue.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
-          {doctorId ? "No appointments found for this doctor/date" : "Enter a doctor ID to load their queue"}
+          {submittedDoctorId ? "No appointments found for this doctor/date" : "Enter a doctor ID to load their queue"}
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
