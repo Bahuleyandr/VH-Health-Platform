@@ -8,10 +8,13 @@ import {
   getIncidentStats,
   updateIncident,
 } from "@/lib/api/reports";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "react-hot-toast";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+const INCIDENTS_CHANNEL = "staff:incidents";
 
 interface Incident {
   id: number;
@@ -413,6 +416,20 @@ export default function IncidentsPage() {
   const [filterType, setFilterType] = useState("");
   const [selected, setSelected] = useState<Incident | null>(null);
 
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(INCIDENTS_CHANNEL, [
+    ["incidents"],
+    ["incident-stats"],
+  ]);
+
+  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:incidents — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:incidents"
+    : connected
+      ? "Connecting…"
+      : "Offline — refresh manually (real-time unavailable)";
+
   const statsQ = useQuery({
     queryKey: ["incident-stats"],
     queryFn: () =>
@@ -474,7 +491,22 @@ export default function IncidentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Incident Reports</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">Incident Reports</h1>
+            <span
+              data-testid="incidents-realtime-indicator"
+              role="status"
+              aria-label={
+                subscribed
+                  ? "Live — real-time incident updates active"
+                  : "Offline — real-time updates unavailable"
+              }
+              title={liveTitle}
+              className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+            >
+              {liveLabel}
+            </span>
+          </div>
           <p className="text-sm text-gray-500">
             Patient safety & operational incident management
           </p>
