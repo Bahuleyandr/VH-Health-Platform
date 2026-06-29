@@ -92,6 +92,7 @@ export const CHANNEL_CATALOG = Object.freeze({
   'staff:lab': { description: 'Lab — critical-value alerts + pathologist sign-off worklist', roles: 'staff' },
   'staff:micro': { description: 'Microbiology — culture orders, isolates, sensitivities, MDR resistance', roles: 'staff' },
   'staff:incidents': { description: 'Incident reports — sentinel/severe safety events + status changes', roles: 'staff' },
+  'staff:dialysis-board': { description: 'Dialysis unit — session lifecycle, intra-dialysis observations, complications, vascular access, serology', roles: 'staff' },
   'admin:beds':               { description: 'Bed occupancy + admission/discharge events (admin view)', roles: 'admin' },
   'admin:kpi':                { description: 'Live KPI tile updates for admin dashboard', roles: 'admin' },
   'admin:daily-ops':          { description: 'Daily operations snapshot — OPD/IP/OR/collections/claims headline numbers', roles: 'admin' },

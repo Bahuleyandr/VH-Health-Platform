@@ -8,6 +8,7 @@ import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin, isStaff, isDoctor } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { emitDialysisEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const router = Router();
 
@@ -37,8 +38,12 @@ function requireStaffOrAdmin(req, res, next) {
 }
 
 // Patients
-router.post('/patients', requireStaffOrAdmin, wrap(async (req) =>
-  svc.enrolPatient({ tenantId: tenantOf(req), ...req.body })));
+router.post('/patients', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.enrolPatient({ tenantId, ...req.body });
+  emitDialysisEvent('patient-enrolled', { tenantId });
+  return row;
+}));
 
 router.get('/patients', requireStaffOrAdmin, wrap(async (req) =>
   svc.listPatients({
@@ -49,46 +54,65 @@ router.get('/patients', requireStaffOrAdmin, wrap(async (req) =>
 router.get('/patients/:id', requireStaffOrAdmin, wrap(async (req) =>
   svc.getPatient({ tenantId: tenantOf(req), id: req.params.id })));
 
-router.patch('/patients/:id/dry-weight', requireStaffOrAdmin, wrap(async (req) =>
-  svc.updateDryWeight({
-    tenantId: tenantOf(req), id: req.params.id,
+router.patch('/patients/:id/dry-weight', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.updateDryWeight({
+    tenantId, id: req.params.id,
     dry_weight_kg: req.body.dry_weight_kg,
-  })));
+  });
+  emitDialysisEvent('dry-weight-updated', { tenantId });
+  return row;
+}));
 
 // Prescriptions (roadmap D7) — the standing order sessions inherit from.
 router.post('/patients/:id/prescription', requireStaffOrAdmin, wrap(async (req) => {
   if (!isDoctor(req.user?.role) && !isAdmin(req.user?.role)) {
     throw AppError.forbidden('Only doctors/admin prescribe dialysis');
   }
-  return svc.prescribe({
-    tenantId: tenantOf(req), dialysis_patient_id: req.params.id,
+  const tenantId = tenantOf(req);
+  const row = await svc.prescribe({
+    tenantId, dialysis_patient_id: req.params.id,
     prescribed_by: req.user?.uid, ...req.body,
   });
+  emitDialysisEvent('prescription-created', { tenantId });
+  return row;
 }));
 
 router.get('/patients/:id/prescription', requireStaffOrAdmin, wrap(async (req) =>
   svc.getPrescriptions({ tenantId: tenantOf(req), dialysis_patient_id: req.params.id })));
 
 // Vascular access
-router.post('/patients/:id/access', requireStaffOrAdmin, wrap(async (req) =>
-  svc.addAccess({
-    tenantId: tenantOf(req),
+router.post('/patients/:id/access', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.addAccess({
+    tenantId,
     dialysis_patient_id: req.params.id,
     ...req.body,
-  })));
+  });
+  emitDialysisEvent('access-created', { tenantId });
+  return row;
+}));
 
-router.post('/access/:id/abandon', requireStaffOrAdmin, wrap(async (req) =>
-  svc.abandonAccess({
-    tenantId: tenantOf(req),
+router.post('/access/:id/abandon', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.abandonAccess({
+    tenantId,
     id: req.params.id,
     reason: req.body.reason,
-  })));
+  });
+  emitDialysisEvent('access-abandoned', { tenantId });
+  return row;
+}));
 
 // Sessions
-router.post('/sessions', requireStaffOrAdmin, wrap(async (req) =>
-  svc.scheduleSession({
-    tenantId: tenantOf(req), conducted_by: req.user?.uid, ...req.body,
-  })));
+router.post('/sessions', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.scheduleSession({
+    tenantId, conducted_by: req.user?.uid, ...req.body,
+  });
+  emitDialysisEvent('session-scheduled', { tenantId });
+  return row;
+}));
 
 router.get('/sessions', requireStaffOrAdmin, wrap(async (req) =>
   svc.listSessions({
@@ -101,37 +125,57 @@ router.get('/sessions', requireStaffOrAdmin, wrap(async (req) =>
 router.get('/today', requireStaffOrAdmin, wrap(async (req) =>
   svc.todayBoard({ tenantId: tenantOf(req) })));
 
-router.post('/sessions/:id/start', requireStaffOrAdmin, wrap(async (req) =>
-  svc.startSession({
-    tenantId: tenantOf(req), id: req.params.id, ...req.body,
-  })));
+router.post('/sessions/:id/start', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.startSession({
+    tenantId, id: req.params.id, ...req.body,
+  });
+  emitDialysisEvent('session-started', { tenantId });
+  return row;
+}));
 
-router.post('/sessions/:id/complete', requireStaffOrAdmin, wrap(async (req) =>
-  svc.completeSession({
-    tenantId: tenantOf(req), id: req.params.id, ...req.body,
-  })));
+router.post('/sessions/:id/complete', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.completeSession({
+    tenantId, id: req.params.id, ...req.body,
+  });
+  emitDialysisEvent('session-completed', { tenantId });
+  return row;
+}));
 
-router.post('/sessions/:id/cancel', requireStaffOrAdmin, wrap(async (req) =>
-  svc.cancelSession({
-    tenantId: tenantOf(req), id: req.params.id,
+router.post('/sessions/:id/cancel', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.cancelSession({
+    tenantId, id: req.params.id,
     reason: req.body.reason, mark_no_show: req.body.mark_no_show,
-  })));
+  });
+  emitDialysisEvent('session-cancelled', { tenantId });
+  return row;
+}));
 
 // Intra-dialysis observations
-router.post('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) =>
-  svc.logObservation({
-    tenantId: tenantOf(req), session_id: req.params.id, recorded_by: req.user?.uid, ...req.body,
-  })));
+router.post('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.logObservation({
+    tenantId, session_id: req.params.id, recorded_by: req.user?.uid, ...req.body,
+  });
+  emitDialysisEvent('observation-logged', { tenantId });
+  return row;
+}));
 
 router.get('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) =>
   svc.listObservations({ tenantId: tenantOf(req), session_id: req.params.id })));
 
 // Structured complications (roadmap D7)
-router.post('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
-  svc.recordSessionEvent({
-    tenantId: tenantOf(req), session_id: req.params.id,
+router.post('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.recordSessionEvent({
+    tenantId, session_id: req.params.id,
     recorded_by: req.user?.uid, actorRole: req.user?.role, ...req.body,
-  })));
+  });
+  emitDialysisEvent('session-event-recorded', { tenantId });
+  return row;
+}));
 
 router.get('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
   svc.listSessionEvents({ tenantId: tenantOf(req), session_id: req.params.id })));
@@ -149,9 +193,13 @@ router.post('/machines/ingest', requireStaffOrAdmin, wrap(async (req, res) => {
 }));
 
 // Serology
-router.post('/patients/:id/serology', requireStaffOrAdmin, wrap(async (req) =>
-  svc.recordSerology({
-    tenantId: tenantOf(req), dialysis_patient_id: req.params.id, reported_by: req.user?.uid, ...req.body,
-  })));
+router.post('/patients/:id/serology', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await svc.recordSerology({
+    tenantId, dialysis_patient_id: req.params.id, reported_by: req.user?.uid, ...req.body,
+  });
+  emitDialysisEvent('serology-recorded', { tenantId });
+  return row;
+}));
 
 export default router;

@@ -12,8 +12,9 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { DialysisPatient, PatientDetail, unwrap, unwrapList } from "./types";
+import { dialysisRefetchMs } from "../realtime";
 
-export default function RosterTab() {
+export default function RosterTab({ subscribed }: { subscribed: boolean }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const [showEnrol, setShowEnrol] = useState(false);
@@ -23,7 +24,7 @@ export default function RosterTab() {
     queryFn: async () => unwrapList<DialysisPatient>(
       await fetchAdminAPI<unknown>(`/dialysis/patients?status=active&limit=300`),
     ),
-    refetchInterval: 60_000,
+    refetchInterval: dialysisRefetchMs(subscribed, 60_000),
   });
 
   const { data: detail } = useQuery<PatientDetail>({

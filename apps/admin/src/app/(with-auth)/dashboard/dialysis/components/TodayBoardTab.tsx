@@ -12,6 +12,7 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { TodayRow, fmtTime, unwrapList } from "./types";
+import { dialysisRefetchMs } from "../realtime";
 
 const STATUS_TONE: Record<string, string> = {
   scheduled: "bg-muted text-muted-foreground",
@@ -23,8 +24,10 @@ const STATUS_TONE: Record<string, string> = {
 
 export default function TodayBoardTab({
   onOpenSession,
+  subscribed,
 }: {
   onOpenSession: (id: number) => void;
+  subscribed: boolean;
 }) {
   const qc = useQueryClient();
   const [showSchedule, setShowSchedule] = useState(false);
@@ -34,7 +37,7 @@ export default function TodayBoardTab({
     queryFn: async () => unwrapList<TodayRow>(
       await fetchAdminAPI<unknown>(`/dialysis/today`),
     ),
-    refetchInterval: 30_000,
+    refetchInterval: dialysisRefetchMs(subscribed, 30_000),
   });
 
   const start = useMutation({

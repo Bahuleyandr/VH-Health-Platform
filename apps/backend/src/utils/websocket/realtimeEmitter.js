@@ -256,3 +256,12 @@ export function emitIncidentEvent(kind, { tenantId } = {}) {
     logger.warn('emitIncidentEvent failed:', err.message);
   }
 }
+
+/** Dialysis-board change (session lifecycle, intra-dialysis obs, complications, vascular access, serology). */
+export function emitDialysisEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:dialysis-board', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitDialysisEvent failed:', err.message);
+  }
+}

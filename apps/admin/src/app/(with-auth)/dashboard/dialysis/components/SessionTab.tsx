@@ -12,8 +12,9 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { IntraObs, SessionRow, fmtTime, unwrapList } from "./types";
+import { dialysisRefetchMs } from "../realtime";
 
-export default function SessionTab({ sessionId }: { sessionId: number }) {
+export default function SessionTab({ sessionId, subscribed }: { sessionId: number; subscribed: boolean }) {
   const qc = useQueryClient();
   const [showObs, setShowObs] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
@@ -26,7 +27,7 @@ export default function SessionTab({ sessionId }: { sessionId: number }) {
     queryFn: async () => unwrapList<SessionRow>(
       await fetchAdminAPI<unknown>(`/dialysis/sessions?limit=200`),
     ),
-    refetchInterval: 30_000,
+    refetchInterval: dialysisRefetchMs(subscribed, 30_000),
   });
 
   const sess = list.find((s) => s.id === sessionId) ?? null;
@@ -36,7 +37,7 @@ export default function SessionTab({ sessionId }: { sessionId: number }) {
     queryFn: async () => unwrapList<IntraObs>(
       await fetchAdminAPI<unknown>(`/dialysis/sessions/${sessionId}/obs`),
     ),
-    refetchInterval: 30_000,
+    refetchInterval: dialysisRefetchMs(subscribed, 30_000),
   });
 
   if (!sess) {
