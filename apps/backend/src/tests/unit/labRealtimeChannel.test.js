@@ -8,7 +8,7 @@ describe('staff:lab channel', () => {
 
   test('is allowed for lab staff + admins and denied for patients', () => {
     expect(authorizeChannel('staff:lab', { role: 'NURSING_STAFF', userId: '1' }).allowed).toBe(true);
-    expect(authorizeChannel('staff:lab', { role: 'PATHOLOGIST', userId: '2' }).allowed).toBe(true);
+    expect(authorizeChannel('staff:lab', { role: 'LAB_STAFF', userId: '2' }).allowed).toBe(true);
     expect(authorizeChannel('staff:lab', { role: 'ADMIN', userId: '3' }).allowed).toBe(true);
     expect(authorizeChannel('staff:lab', { role: 'PATIENT', userId: '4' }).allowed).toBe(false);
   });
