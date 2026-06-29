@@ -247,3 +247,12 @@ export function emitMicroEvent(kind, { tenantId } = {}) {
     logger.warn('emitMicroEvent failed:', err.message);
   }
 }
+
+/** Incident-board change (new incident filed / status·notes updated). */
+export function emitIncidentEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:incidents', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitIncidentEvent failed:', err.message);
+  }
+}
