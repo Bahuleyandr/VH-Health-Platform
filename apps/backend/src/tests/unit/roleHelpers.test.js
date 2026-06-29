@@ -231,7 +231,8 @@ describe('isStaff / isClinical respect new specialty roles', () => {
       'INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER',
       'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'ADMISSION_OFFICER',
       'IPD_COUNSELLOR', 'INSURANCE_COORDINATOR', 'IP_STAFF_NURSE',
-      'IP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE']) {
+      'IP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE',
+      'PATHOLOGIST', 'LAB_INCHARGE']) {
       expect(isStaff(r)).toBe(true);
     }
   });
