@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { MICRO_CHANNEL, microRefetchMs } from "./realtime";
 
 type Tab = "orders" | "antibiogram" | "resistance";
 
@@ -74,9 +76,35 @@ function fmtTs(s: string | null): string {
 
 export default function MicrobiologyPage() {
   const [tab, setTab] = useState<Tab>("orders");
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(MICRO_CHANNEL, [["micro"]]);
+
+  const liveLabel = subscribed ? "● Live" : "○ Polling";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:micro — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:micro"
+    : connected
+      ? "Connecting…"
+      : "Polling (real-time unavailable)";
+
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-foreground mb-1">Microbiology</h1>
+      <div className="flex items-center gap-2 mb-1">
+        <h1 className="text-3xl font-bold text-foreground">Microbiology</h1>
+        <span
+          data-testid="micro-realtime-indicator"
+          role="status"
+          aria-label={
+            subscribed
+              ? "Live — real-time microbiology updates active"
+              : "Polling — real-time updates unavailable"
+          }
+          title={liveTitle}
+          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+        >
+          {liveLabel}
+        </span>
+      </div>
       <p className="text-sm text-muted-foreground mb-6">
         Cultures, antibiograms, and antimicrobial resistance dashboard.
       </p>
@@ -103,7 +131,7 @@ export default function MicrobiologyPage() {
       </div>
       {tab === "orders" && <OrdersTab />}
       {tab === "antibiogram" && <AntibiogramTab />}
-      {tab === "resistance" && <ResistanceTab />}
+      {tab === "resistance" && <ResistanceTab subscribed={subscribed} />}
     </div>
   );
 }
@@ -824,7 +852,7 @@ function AntibiogramTab() {
   );
 }
 
-function ResistanceTab() {
+function ResistanceTab({ subscribed }: { subscribed: boolean }) {
   const {
     data: rows = [],
     isLoading,
@@ -837,7 +865,7 @@ function ResistanceTab() {
       );
       return unwrapList<ResistantIsolateRow>(r);
     },
-    refetchInterval: 60_000,
+    refetchInterval: microRefetchMs(subscribed, 60_000),
   });
 
   return (
