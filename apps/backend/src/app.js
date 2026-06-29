@@ -229,6 +229,7 @@ import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisa
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
+import clinicalAlertsRoutes from './routes/clinical/clinicalAlertsRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
@@ -1148,6 +1149,7 @@ app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patien
 // care-team-governed patient guard (was role + PHI logger only).
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
 app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
