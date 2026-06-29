@@ -18,6 +18,7 @@ import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperation
 // task so it cannot fall through the cracks. The call is POST-COMMIT + best-effort
 // (Phase 1.5, apps/backend/CLAUDE.md) — it must NEVER block or fail the lab write.
 import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
+import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -403,6 +404,8 @@ export async function detectCriticalsForResults({ tenantId, results }) {
       logger.error(`[lab] results-inbox enqueue failed for critical result ${r.id}: ${e?.message}`);
     }
   }
+  if (results.length) emitLabEvent('result-pending', { tenantId });
+  if (alerts.length) emitLabEvent('alert-fired', { tenantId });
   return alerts;
 }
 
@@ -680,6 +683,7 @@ export async function signOffResults({
       WHERE id = ANY($3::int[]) AND tenant_id = $4::uuid`,
     String(signed_off_by), decision, ids, tenantId,
   );
+  emitLabEvent('result-signed', { tenantId });
 
   // Tell the patient (and the guardian, for a dependent minor) that their
   // verified results are ready to view. Until now nothing notified the
@@ -868,6 +872,7 @@ export async function acknowledgeAlert(alertId, {
       read_back_method: read_back_method || null,
     },
   });
+  emitLabEvent('alert-acked', { tenantId });
   return rows[0];
 }
 
