@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ADMIN, SUPER_ADMIN, normalizeRole } from '../../utils/roles.js';
+import { emitIncidentEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const VALID_INCIDENT_TYPES = [
   'patient_fall',
@@ -149,6 +150,7 @@ export const submitIncident = async (req, res) => {
       `Incident report ${reportNumber} submitted. Severity: ${severity.toUpperCase()}.`
     );
 
+    emitIncidentEvent('submitted');
     success(res, result[0], `Incident report ${reportNumber} submitted successfully`);
   } catch (err) {
     logger.error('Submit Incident Error:', err);
@@ -446,6 +448,7 @@ export const updateIncident = async (req, res) => {
     `,
       id
     );
+    emitIncidentEvent('updated');
     success(res, updated[0], 'Incident updated');
   } catch (err) {
     logger.error('Update Incident Error:', err);
