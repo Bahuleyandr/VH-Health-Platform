@@ -14,6 +14,7 @@ import { isDoctor } from '../../utils/roleHelpers.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
+import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
 // Aliased: this file has its own request-level requireTenantId(req); this is the
 // value-level fail-closed guard for the anti-spoof claim source below.
@@ -358,6 +359,7 @@ export const confirmAppointment = async (req, res) => {
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
 
+    emitAppointmentEvent('confirm', { tenantId });
     success(res, result[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
     if (err?.statusCode) return error(res, err.message, err.statusCode);
@@ -405,6 +407,7 @@ export const markNoShow = async (req, res) => {
       to_status: 'NO_SHOW',
     });
 
+    emitAppointmentEvent('no-show', { tenantId });
     success(res, result, 'Marked as no-show');
   } catch (err) {
     if (err?.statusCode) return error(res, err.message, err.statusCode);
@@ -600,6 +603,7 @@ export const rescheduleAppointment = async (req, res) => {
       reschedule_note: note || null,
     });
 
+    emitAppointmentEvent('reschedule', { tenantId });
     success(res, {
       original,
       appointment: replacement,
@@ -688,6 +692,7 @@ export const completeAppointment = async (req, res) => {
       }
     });
 
+    emitAppointmentEvent('complete', { tenantId });
     success(res, result, 'Appointment completed');
   } catch (err) {
     if (err?.statusCode) return error(res, err.message, err.statusCode);
@@ -753,6 +758,7 @@ export const cancelAppointment = async (req, res) => {
       });
     }
 
+    emitAppointmentEvent('cancel', { tenantId });
     success(res, result, 'Appointment cancelled');
   } catch (err) {
     if (err?.statusCode) return error(res, err.message, err.statusCode);
@@ -2288,6 +2294,7 @@ export const registerWalkIn = async (req, res) => {
       resourceId: result.id,
     });
 
+    emitAppointmentEvent('walk-in-created', { tenantId: actingTenantId });
     success(res, result, `Walk-in registered. Visit ${result.visit_no}`);
   } catch (err) {
     // Surface a stable error code so dashboards/alerts can group these and

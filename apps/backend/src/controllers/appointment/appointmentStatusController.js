@@ -8,7 +8,7 @@ import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeSer
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
-import { emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
+import { emitAppointmentEvent, emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
 import { logAudit } from '../../utils/logAudit.js';
 
 // Status transitions that shift every downstream patient's queue position
@@ -121,15 +121,9 @@ export const updateAppointmentStatus = async (req, res) => {
       });
     }
 
-    // Staff-wide appointment feed (gated to staff roles via channelAuth)
-    broadcast('staff:appointments', {
-      kind: 'status-changed',
-      appointmentId: id,
-      doctorId: updatedAppointment.doctor_id,
-      patientId: updatedAppointment.patient_id,
-      status: statusValidation.status,
-      at: new Date().toISOString(),
-    });
+    // Staff-wide appointment feed (gated to staff roles via channelAuth).
+    // PHI-free {kind, at} nudge — consumers (Flutter staff app + admin board) refetch.
+    emitAppointmentEvent('status-changed', { tenantId });
 
     // Queue-position fan-out to remaining waiting patients on status transitions that shift the queue
     if (QUEUE_SHIFTING_STATUSES.has(statusValidation.status)) {

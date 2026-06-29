@@ -43,6 +43,7 @@ jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
 
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitQueuePosition: jest.fn(),
+  emitAppointmentEvent: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
