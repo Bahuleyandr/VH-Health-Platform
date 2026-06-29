@@ -1,19 +1,20 @@
 // src/app/(with-auth)/dashboard/radiology/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useState, Suspense } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
 
 type RadiologyOrder = {
   id: number;
   patient_uid: string;
-  study_type: string;
+  modality: string;
+  body_part?: string;
+  clinical_indication?: string;
   status: string;
   priority?: string;
-  result_summary?: string;
-  report_url?: string;
   notes?: string;
-  ordered_at: string;
+  created_at: string;
   updated_at?: string;
 };
 
@@ -49,66 +50,37 @@ function fmtDate(d?: string | null) {
 }
 
 function WorklistTab() {
-  const [orders, setOrders] = useState<RadiologyOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<RadiologyOrder | null>(null);
-  const [reportForm, setReportForm] = useState({
-    result_summary: "",
-    report_url: "",
-  });
-  const [saving, setSaving] = useState(false);
+  const [report, setReport] = useState("");
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: RadiologyOrder[] }>(
-        "/radiology/worklist",
-      );
+  const { data: orders = [], isLoading: loading, error, refetch } = useQuery({
+    queryKey: ["radiology", "worklist"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<{ data: RadiologyOrder[] }>("/radiology/worklist");
       const data = (r as Record<string, unknown>).data ?? r;
-      setOrders(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load worklist");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return Array.isArray(data) ? (data as RadiologyOrder[]) : [];
+    },
+  });
 
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
+  const reportMut = useMutation({
+    mutationFn: (orderId: number) => putJSON(`/api/v1/radiology/${orderId}/report`, { report }),
+    onSuccess: () => { setSelected(null); setReport(""); qc.invalidateQueries({ queryKey: ["radiology"] }); },
+    onError: (e) => alert(e instanceof Error ? e.message : "Failed to submit report"),
+  });
 
-  const submitReport = async () => {
-    if (!selected) return;
-    setSaving(true);
-    try {
-      await putJSON(`/api/v1/radiology/${selected.id}/report`, reportForm);
-      setSelected(null);
-      fetch();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to submit report");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const cancelOrder = async (id: number) => {
-    if (!confirm("Cancel this order?")) return;
-    try {
-      await putJSON(`/api/v1/radiology/${id}/cancel`, {});
-      fetch();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to cancel");
-    }
-  };
+  const cancelMut = useMutation({
+    mutationFn: (orderId: number) => putJSON(`/api/v1/radiology/${orderId}/cancel`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["radiology"] }),
+    onError: (e) => alert(e instanceof Error ? e.message : "Failed to cancel"),
+  });
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Radiology Worklist</h2>
         <button
-          onClick={fetch}
+          onClick={() => refetch()}
           className="text-sm text-primary hover:underline"
         >
           ↻ Refresh
@@ -119,7 +91,7 @@ function WorklistTab() {
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load worklist"}
         </div>
       )}
       {!loading && orders.length === 0 && !error && (
@@ -133,7 +105,7 @@ function WorklistTab() {
             <thead>
               <tr className="border-b border-border text-left bg-muted/50">
                 <th className="py-2 px-3">ID</th>
-                <th className="py-2 px-3">Study Type</th>
+                <th className="py-2 px-3">Modality</th>
                 <th className="py-2 px-3">Status</th>
                 <th className="py-2 px-3">Ordered</th>
                 <th className="py-2 px-3">Actions</th>
@@ -146,26 +118,20 @@ function WorklistTab() {
                   className="border-b border-border hover:bg-muted/40"
                 >
                   <td className="py-2 px-3 font-mono text-xs">{o.id}</td>
-                  <td className="py-2 px-3 font-medium">{o.study_type}</td>
+                  <td className="py-2 px-3 font-medium">{o.modality}</td>
                   <td className="py-2 px-3">
                     <StatusBadge status={o.status} />
                   </td>
-                  <td className="py-2 px-3">{fmtDate(o.ordered_at)}</td>
+                  <td className="py-2 px-3">{fmtDate(o.created_at)}</td>
                   <td className="py-2 px-3 flex gap-2">
                     <button
-                      onClick={() => {
-                        setSelected(o);
-                        setReportForm({
-                          result_summary: o.result_summary ?? "",
-                          report_url: o.report_url ?? "",
-                        });
-                      }}
+                      onClick={() => { setSelected(o); setReport(""); }}
                       className="text-xs text-primary hover:underline"
                     >
                       Report
                     </button>
                     <button
-                      onClick={() => cancelOrder(o.id)}
+                      onClick={() => { if (confirm("Cancel this order?")) cancelMut.mutate(o.id); }}
                       className="text-xs text-red-500 hover:underline"
                     >
                       Cancel
@@ -190,21 +156,11 @@ function WorklistTab() {
               </button>
             </div>
             <textarea
-              rows={3}
-              placeholder="Result summary"
-              value={reportForm.result_summary}
-              onChange={(e) =>
-                setReportForm({ ...reportForm, result_summary: e.target.value })
-              }
+              rows={4}
+              placeholder="Report findings / impression"
+              value={report}
+              onChange={(e) => setReport(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
-            />
-            <input
-              placeholder="Report URL (optional)"
-              value={reportForm.report_url}
-              onChange={(e) =>
-                setReportForm({ ...reportForm, report_url: e.target.value })
-              }
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
             />
             <div className="flex gap-2">
               <button
@@ -214,11 +170,11 @@ function WorklistTab() {
                 Cancel
               </button>
               <button
-                onClick={submitReport}
-                disabled={saving}
+                onClick={() => selected && reportMut.mutate(selected.id)}
+                disabled={reportMut.isPending || !report.trim()}
                 className="flex-1 py-2 bg-primary text-white rounded-lg text-sm disabled:opacity-50"
               >
-                {saving ? "Saving..." : "Submit Report"}
+                {reportMut.isPending ? "Saving..." : "Submit Report"}
               </button>
             </div>
           </div>
@@ -229,36 +185,34 @@ function WorklistTab() {
 }
 
 function NewOrderTab() {
+  const qc = useQueryClient();
   const [form, setForm] = useState({
     patient_uid: "",
-    study_type: "",
+    modality: "",
+    body_part: "",
+    clinical_indication: "",
     priority: "NORMAL",
     notes: "",
   });
-  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const submit = async () => {
-    if (!form.patient_uid || !form.study_type) {
-      alert("Patient UID and study type are required");
+  const create = useMutation({
+    mutationFn: () => postJSON("/api/v1/radiology/orders", form),
+    onSuccess: () => {
+      setSuccess(true);
+      setForm({ patient_uid: "", modality: "", body_part: "", clinical_indication: "", priority: "NORMAL", notes: "" });
+      qc.invalidateQueries({ queryKey: ["radiology"] });
+    },
+    onError: (e) => alert(e instanceof Error ? e.message : "Failed to create order"),
+  });
+
+  const submit = () => {
+    if (!form.patient_uid || !form.modality || !form.body_part || !form.clinical_indication) {
+      alert("Patient UID, modality, body part, and clinical indication are required");
       return;
     }
-    setSaving(true);
     setSuccess(false);
-    try {
-      await postJSON("/api/v1/radiology/orders", form);
-      setSuccess(true);
-      setForm({
-        patient_uid: "",
-        study_type: "",
-        priority: "NORMAL",
-        notes: "",
-      });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to create order");
-    } finally {
-      setSaving(false);
-    }
+    create.mutate();
   };
 
   return (
@@ -276,9 +230,21 @@ function NewOrderTab() {
         className="w-full border border-border rounded-lg px-3 py-2 text-sm"
       />
       <input
-        placeholder="Study type (e.g. X-RAY, CT, MRI) *"
-        value={form.study_type}
-        onChange={(e) => setForm({ ...form, study_type: e.target.value })}
+        placeholder="Modality (e.g. X-RAY, CT, MRI) *"
+        value={form.modality}
+        onChange={(e) => setForm({ ...form, modality: e.target.value })}
+        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+      />
+      <input
+        placeholder="Body part (e.g. Chest, Abdomen) *"
+        value={form.body_part}
+        onChange={(e) => setForm({ ...form, body_part: e.target.value })}
+        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+      />
+      <input
+        placeholder="Clinical indication *"
+        value={form.clinical_indication}
+        onChange={(e) => setForm({ ...form, clinical_indication: e.target.value })}
         className="w-full border border-border rounded-lg px-3 py-2 text-sm"
       />
       <select
@@ -301,10 +267,10 @@ function NewOrderTab() {
       />
       <button
         onClick={submit}
-        disabled={saving}
+        disabled={create.isPending}
         className="w-full py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50"
       >
-        {saving ? "Creating..." : "Create Order"}
+        {create.isPending ? "Creating..." : "Create Order"}
       </button>
     </div>
   );
