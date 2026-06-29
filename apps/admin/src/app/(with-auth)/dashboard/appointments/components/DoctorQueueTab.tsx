@@ -68,7 +68,9 @@ export function DoctorQueueTab() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [submittedDoctorId, setSubmittedDoctorId] = useState("");
 
-  const { data: queue = [], isFetching: loading } = useQuery({
+  // isLoading (not isFetching) so a realtime ["queue"] invalidation refetches in
+  // the background without blanking the loaded table to a skeleton — matches AllAppointmentsTab.
+  const { data: queue = [], isLoading: loading } = useQuery({
     queryKey: ["queue", submittedDoctorId, date],
     queryFn: async () => {
       const res = await getTodayQueueAdmin<unknown>({ doctor_id: submittedDoctorId, ...(date ? { date } : {}) });
@@ -129,7 +131,7 @@ export function DoctorQueueTab() {
               </tr>
             </thead>
             <tbody>
-              {queue
+              {[...queue]
                 .sort(
                   (a, b) =>
                     (Number(a.token_number) || 999) -
