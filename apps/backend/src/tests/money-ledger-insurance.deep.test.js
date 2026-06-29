@@ -54,8 +54,42 @@ async function makeSubmittedClaim(patientUid, policyId, preauthId, invoiceId, cl
 }
 const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, code, dims));
 
+// ledger_entries / ledger_postings are append-only (mig-343 ledger_block_mutation
+// guard); a plain DELETE aborts. Remove the ENTRIES (and their postings) THIS test
+// posted — issue-inv / claim-shift / payment for its invoices+patients — via the
+// same transaction-local app.audit_bypass='on' teardown hatch the audit tables use.
+// Deleting the entries clears the deterministic idempotency keys (e.g.
+// claim-shift-<claimId>) so a re-run can't no-op on LEDGER_DUPLICATE and read a
+// stale 0.
+//
+// We intentionally do NOT delete ledger_balances rows. A balance's double-entry
+// counterpart frequently lives in a DIMENSIONLESS account (REVENUE / BANK /
+// TAX_PAYABLE — all dimension columns NULL, one shared row across invoices), which
+// a by-dimension delete cannot reach; deleting only the dimensioned side would
+// unbalance the GLOBAL trial balance that the reports / reconciliation deep tests
+// assert. Leaving the balances untouched keeps the trial balance at zero, and the
+// leftover per-invoice rows are harmless balanced aggregates (the other
+// money-ledger deep tests likewise leave their balances behind).
+async function purgeLedgerForTest() {
+  if (!cleanup.invoiceIds.length && !cleanup.patientUids.length) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    const entryRows = await tx.$queryRawUnsafe(
+      `SELECT DISTINCT entry_id AS id FROM ledger_postings
+        WHERE invoice_id = ANY($1::int[]) OR patient_uid = ANY($2::uuid[])`,
+      cleanup.invoiceIds, cleanup.patientUids,
+    );
+    const entryIds = entryRows.map((r) => Number(r.id));
+    if (entryIds.length) {
+      await tx.$executeRawUnsafe(`DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds);
+      await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
+    }
+  });
+}
+
 afterAll(async () => {
   try {
+    await purgeLedgerForTest();
     if (cleanup.claimIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM tpa_claim_correspondence WHERE claim_id = ANY($1::int[])`, cleanup.claimIds).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM tpa_claims WHERE id = ANY($1::int[])`, cleanup.claimIds);
