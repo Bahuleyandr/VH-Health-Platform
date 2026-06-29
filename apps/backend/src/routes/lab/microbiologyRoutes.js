@@ -6,6 +6,7 @@ import * as micro from '../../services/lab/microbiologyService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { emitMicroEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 const router = Router();
 
@@ -35,11 +36,12 @@ function requireStaffOrAdmin(req, res, next) {
 }
 
 // Orders
-router.post('/orders', requireStaffOrAdmin, wrap(async (req) =>
-  micro.createOrder({
-    tenantId: tenantOf(req), ordered_by: req.user?.uid, ...req.body,
-  }),
-));
+router.post('/orders', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await micro.createOrder({ tenantId, ordered_by: req.user?.uid, ...req.body });
+  emitMicroEvent('order-created', { tenantId });
+  return row;
+}));
 
 router.get('/orders', requireStaffOrAdmin, wrap(async (req) =>
   micro.listOrders({
@@ -54,24 +56,30 @@ router.get('/orders/:id', requireStaffOrAdmin, wrap(async (req) =>
   micro.getOrder({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
-router.post('/orders/:id/transition', requireStaffOrAdmin, wrap(async (req) =>
-  micro.transitionOrder({
-    tenantId: tenantOf(req),
-    id: req.params.id,
-    finalised_by: req.user?.uid,
-    ...req.body,
-  }),
-));
+router.post('/orders/:id/transition', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await micro.transitionOrder({
+    tenantId, id: req.params.id, finalised_by: req.user?.uid, ...req.body,
+  });
+  emitMicroEvent('order-transition', { tenantId });
+  return row;
+}));
 
 // Isolates
-router.post('/orders/:id/isolates', requireStaffOrAdmin, wrap(async (req) =>
-  micro.addIsolate({ tenantId: tenantOf(req), order_id: req.params.id, ...req.body }),
-));
+router.post('/orders/:id/isolates', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await micro.addIsolate({ tenantId, order_id: req.params.id, ...req.body });
+  emitMicroEvent('isolate-added', { tenantId });
+  return row;
+}));
 
 // Sensitivities
-router.post('/isolates/:id/sensitivities', requireStaffOrAdmin, wrap(async (req) =>
-  micro.addSensitivity({ tenantId: tenantOf(req), isolate_id: req.params.id, ...req.body }),
-));
+router.post('/isolates/:id/sensitivities', requireStaffOrAdmin, wrap(async (req) => {
+  const tenantId = tenantOf(req);
+  const row = await micro.addSensitivity({ tenantId, isolate_id: req.params.id, ...req.body });
+  emitMicroEvent('sensitivity-added', { tenantId });
+  return row;
+}));
 
 // Antibiogram + resistance dashboard
 router.get('/antibiogram', requireStaffOrAdmin, wrap(async (req) =>
