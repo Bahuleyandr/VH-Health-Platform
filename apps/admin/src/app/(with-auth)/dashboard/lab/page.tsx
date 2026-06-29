@@ -11,6 +11,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { LAB_CHANNEL, labRefetchMs } from "./realtime";
 
 type Tab = "worklist" | "alerts";
 
@@ -260,7 +262,7 @@ function PathologistWorklist() {
   );
 }
 
-function CriticalAlerts() {
+function CriticalAlerts({ subscribed }: { subscribed: boolean }) {
   const qc = useQueryClient();
   const [readBack, setReadBack] = useState<{ name: string; method: string }>({
     name: "",
@@ -278,7 +280,7 @@ function CriticalAlerts() {
       const data = unwrap<CriticalAlert[]>(r);
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 60_000,
+    refetchInterval: labRefetchMs(subscribed, 60_000),
   });
 
   const ackMutation = useMutation({
@@ -502,9 +504,38 @@ function CriticalAlerts() {
 
 export default function LabPage() {
   const [tab, setTab] = useState<Tab>("worklist");
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(LAB_CHANNEL, [
+    ["lab", "pathologist"],
+    ["lab", "alerts"],
+  ]);
+
+  const liveLabel = subscribed ? "● Live" : "○ Polling";
+  const liveTitle = subscribed
+    ? lastEventAt
+      ? `Real-time via staff:lab — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      : "Real-time via staff:lab"
+    : connected
+      ? "Connecting…"
+      : "Polling (real-time unavailable)";
+
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-foreground mb-6">Laboratory</h1>
+      <div className="flex items-center gap-2 mb-6">
+        <h1 className="text-3xl font-bold text-foreground">Laboratory</h1>
+        <span
+          data-testid="lab-realtime-indicator"
+          role="status"
+          aria-label={
+            subscribed
+              ? "Live — real-time lab updates active"
+              : "Polling — real-time updates unavailable"
+          }
+          title={liveTitle}
+          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+        >
+          {liveLabel}
+        </span>
+      </div>
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 w-fit">
         {(
           [
@@ -526,7 +557,7 @@ export default function LabPage() {
         ))}
       </div>
       {tab === "worklist" && <PathologistWorklist />}
-      {tab === "alerts" && <CriticalAlerts />}
+      {tab === "alerts" && <CriticalAlerts subscribed={subscribed} />}
     </div>
   );
 }

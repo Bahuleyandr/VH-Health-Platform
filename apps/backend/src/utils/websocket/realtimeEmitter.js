@@ -229,3 +229,12 @@ export function emitIcuBoardEvent(kind, { admissionId, status, tenantId } = {}) 
     logger.warn('emitIcuBoardEvent failed:', err.message);
   }
 }
+
+/** Lab board change (critical-value alert fired/acked, result pending/signed). */
+export function emitLabEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:lab', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitLabEvent failed:', err.message);
+  }
+}
