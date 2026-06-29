@@ -20,6 +20,7 @@ import {
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
   postRefundApproveEntry, postRefundPaidEntry,
 } from './ledger/ledgerPostings.js';
+import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
@@ -1256,20 +1257,31 @@ export async function collectPayment({
   // never nest setTenantTx — Postgres cannot nest transactions. That caller is
   // responsible for its own ledger posting (wired in a later phase).
   if (tx) return collectPaymentTx(tx, args);
-  // Own the tx, then post the ledger entry AFTER it commits (post-commit
-  // best-effort, CLAUDE.md "Phase 1.5" pattern) so a ledger problem can never
-  // roll back the real payment. The ledger is not yet authoritative.
-  const payment = await setTenantTx(requireTenantId(tenantId), (innerTx) => collectPaymentTx(innerTx, args));
-  try {
-    await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger PAYMENT post failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+  // Phase 4: the per-tenant ledger mode decides HOW we post.
+  //  - enforce (sameTx):  post INSIDE the payment tx so a ledger failure rolls
+  //    back the payment (authoritative).
+  //  - shadow (postCommit): post AFTER commit, best-effort (CLAUDE.md "Phase 1.5")
+  //    so a ledger problem can never roll back the real payment (= today's default).
+  //  - off (skip): do not post.
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
+  const payment = await setTenantTx(requireTenantId(tenantId), async (innerTx) => {
+    const row = await collectPaymentTx(innerTx, args);
+    if (wiring.sameTx) await postPaymentEntry({ payment: row, tenantId: requireTenantId(tenantId), tx: innerTx });
+    return row;
+  });
+  if (wiring.postCommit) {
+    try {
+      await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger PAYMENT post failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+    }
   }
   return payment;
 }
 
 export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required');
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const reversed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Flip the reversal flag first (guarded by reversed = false so a double
     // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
@@ -1295,14 +1307,18 @@ export async function reversePayment(paymentId, { reversed_by, reason, tenantId 
       const paymentState = await recomputeInvoicePaymentStateTx(tx, rows[0].invoice_id);
       await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState, tx);
     }
+    // Phase 4 enforce: post the reversal INSIDE the tx so a ledger failure rolls back.
+    if (wiring.sameTx) await postPaymentReversalEntry({ payment: rows[0], tenantId: requireTenantId(tenantId), tx });
     return rows[0];
   });
-  // Ledger (Phase 3a): post-commit best-effort PAYMENT_REVERSAL (credit
-  // CASH|BANK / debit PATIENT_AR — the inverse of the original receipt).
-  try {
-    await postPaymentReversalEntry({ payment: reversed, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger PAYMENT_REVERSAL post failed (non-blocking)', { payment_id: reversed?.id, error: ledgerErr.message });
+  // Shadow: post-commit best-effort PAYMENT_REVERSAL (credit CASH|BANK / debit
+  // PATIENT_AR — the inverse of the original receipt). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postPaymentReversalEntry({ payment: reversed, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger PAYMENT_REVERSAL post failed (non-blocking)', { payment_id: reversed?.id, error: ledgerErr.message });
+    }
   }
   return reversed;
 }
@@ -1355,6 +1371,7 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   let settledPatientUid = null;
   const settlement = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Lock the advance row FOR UPDATE before reading its balance — without the
@@ -1431,14 +1448,18 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
         WHERE id = $2::int`,
       Number(amount), Number(invoice_id),
     );
+    // Phase 4 enforce: post ADVANCE_SETTLE INSIDE the tx so a ledger failure rolls back.
+    if (wiring.sameTx) await postAdvanceSettleEntry({ settlement: settlementRow[0], patientUid: settledPatientUid, tenantId: requireTenantId(tenantId), tx });
     return settlementRow[0];
   });
-  // Ledger (Phase 3a): post-commit best-effort ADVANCE_SETTLE (debit
-  // PATIENT_ADVANCE / credit PATIENT_AR). Non-blocking.
-  try {
-    await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger ADVANCE_SETTLE post failed (non-blocking)', { settlement_id: settlement?.id, error: ledgerErr.message });
+  // Shadow: post-commit best-effort ADVANCE_SETTLE (debit PATIENT_ADVANCE /
+  // credit PATIENT_AR). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger ADVANCE_SETTLE post failed (non-blocking)', { settlement_id: settlement?.id, error: ledgerErr.message });
+    }
   }
   return settlement;
 }

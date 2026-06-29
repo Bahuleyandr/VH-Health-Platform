@@ -70,6 +70,27 @@ export async function resolveLedgerModeForTenant(tenantId) {
   }
 }
 
+/**
+ * Resolve, for a tenant, HOW a money-write caller should post its ledger entry:
+ *   - sameTx     (enforce): post INSIDE the caller's setTenantTx — a ledger
+ *                 failure rolls back the money write (authoritative).
+ *   - postCommit (shadow):  post AFTER the tx commits, best-effort — a ledger
+ *                 failure is logged but never breaks the money path (= today).
+ *   - skip       (off):     do not post at all (emergency kill-switch).
+ * Exactly one of the three booleans is true. Fail-safe to shadow (postCommit).
+ * @param {string|null|undefined} tenantId
+ * @returns {Promise<{mode:'off'|'shadow'|'enforce', sameTx:boolean, postCommit:boolean, skip:boolean}>}
+ */
+export async function resolveLedgerWiring(tenantId) {
+  const mode = await resolveLedgerModeForTenant(tenantId);
+  return {
+    mode,
+    sameTx: mode === LEDGER_AUTHORITATIVE_MODES.ENFORCE,
+    postCommit: mode === LEDGER_AUTHORITATIVE_MODES.SHADOW,
+    skip: mode === LEDGER_AUTHORITATIVE_MODES.OFF,
+  };
+}
+
 export default {
   LEDGER_AUTHORITATIVE_MODES,
   DEFAULT_LEDGER_MODE,
@@ -77,4 +98,5 @@ export default {
   normalizeLedgerMode,
   envLedgerMode,
   resolveLedgerModeForTenant,
+  resolveLedgerWiring,
 };

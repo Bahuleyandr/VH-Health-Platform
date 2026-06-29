@@ -19,6 +19,7 @@ const {
   normalizeLedgerMode,
   envLedgerMode,
   resolveLedgerModeForTenant,
+  resolveLedgerWiring,
 } = await import('../../services/billing/ledger/ledgerAuthoritativeMode.js');
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -90,5 +91,35 @@ describe('ledgerAuthoritativeMode.resolveLedgerModeForTenant', () => {
   it('FAIL-SAFE: resolves to default when the tenant row is missing', async () => {
     getTenantByIdMock.mockResolvedValueOnce(null);
     await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('shadow');
+  });
+});
+
+describe('ledgerAuthoritativeMode.resolveLedgerWiring', () => {
+  it('enforce → post same-tx (authoritative)', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: { ledger_authoritative_mode: 'enforce' } });
+    await expect(resolveLedgerWiring(TENANT)).resolves.toEqual({
+      mode: 'enforce', sameTx: true, postCommit: false, skip: false,
+    });
+  });
+
+  it('shadow (default) → post-commit best-effort', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: {} });
+    await expect(resolveLedgerWiring(TENANT)).resolves.toEqual({
+      mode: 'shadow', sameTx: false, postCommit: true, skip: false,
+    });
+  });
+
+  it('off → skip posting entirely', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: { ledger_authoritative_mode: 'off' } });
+    await expect(resolveLedgerWiring(TENANT)).resolves.toEqual({
+      mode: 'off', sameTx: false, postCommit: false, skip: true,
+    });
+  });
+
+  it('FAIL-SAFE: lookup failure → shadow (post-commit), never sameTx', async () => {
+    getTenantByIdMock.mockRejectedValueOnce(new Error('db down'));
+    await expect(resolveLedgerWiring(TENANT)).resolves.toEqual({
+      mode: 'shadow', sameTx: false, postCommit: true, skip: false,
+    });
   });
 });
