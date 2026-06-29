@@ -109,6 +109,15 @@ describe('Phase F1 role registry', () => {
     expect(isClinical('STORES_PURCHASE_INCHARGE')).toBe(false);
     expect(isStaff('STORES_PURCHASE_INCHARGE')).toBe(true);
   });
+
+  it('treats RADIOLOGY_STAFF (radiographer) as staff but not clinical', () => {
+    // RADIOLOGY_STAFF is the imaging technician hard-gated for /radiology/:id/acquire.
+    // It is a real assignable role (roles.js) and is in RADIOLOGY_ROUTE_ROLES, but was
+    // missing from ALL_STAFF_ROLES — so isStaff() returned false and it was denied every
+    // staff:* channel + requireStaffOrAdmin gate. Mirrors the LAB_STAFF/PATHOLOGIST gap.
+    expect(isStaff('RADIOLOGY_STAFF')).toBe(true);
+    expect(isClinical('RADIOLOGY_STAFF')).toBe(false);
+  });
 });
 
 describe('isDoctor across seniority tiers', () => {
