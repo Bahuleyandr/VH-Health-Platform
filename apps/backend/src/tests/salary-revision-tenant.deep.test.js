@@ -40,6 +40,9 @@ async function seedRevision(staffUid, tenantId, num, phone) {
 d('Salary-revision list tenant scope (CAN-016)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can016-tenant-b', 'CAN-016 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     await seedRevision(STAFF_A, TENANT_A, 'REV-CAN016-A', '+919000016701');
     await seedRevision(STAFF_B, TENANT_B, 'REV-CAN016-B', '+919000016702');
   }, 30000);

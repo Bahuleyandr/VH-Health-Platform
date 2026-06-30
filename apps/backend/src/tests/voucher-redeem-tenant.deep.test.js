@@ -34,6 +34,9 @@ async function clean() {
 d('Admin voucher redeem tenant scope (CAN-012)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can012-tenant-b', 'CAN-012 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     const ms = await prisma.$queryRawUnsafe(
       `INSERT INTO health_milestones (name, points_required, reward_type, reward_value, reward_description)
        VALUES ($1, 100, 'voucher', 0, 'CAN-012 test reward') RETURNING id`, MILESTONE_NAME);

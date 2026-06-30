@@ -40,6 +40,9 @@ async function seedSession(userUid, steps, rewardEligible) {
 d('Step-reward attestation (CAN-012)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can012-tenant-b', 'CAN-012 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     await seedSession(DEVICE_USER, 12000, true);  // device-measured, over goal
     await seedSession(TYPED_USER, 12000, false);  // self-declared, over goal
     await seedSession(MIXED_USER, 5000, true);    // attested but under goal

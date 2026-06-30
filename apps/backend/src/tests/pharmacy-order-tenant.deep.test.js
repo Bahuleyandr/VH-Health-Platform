@@ -37,6 +37,11 @@ async function clean() {
 d('Pharmacy order phone-resolution tenant scope (CAN-033)', () => {
   beforeAll(async () => {
     await clean();
+    // The non-default tenant B exists on a data-rich dev DB but not on a fresh
+    // CI DB; create it idempotently so the users insert below FKs cleanly.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can033-tenant-b', 'CAN-033 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     // prescribed_by FKs to users(uid); seed the ordering clinician so the insert
     // is referentially valid.
     await prisma.$executeRawUnsafe(

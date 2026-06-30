@@ -51,6 +51,9 @@ async function clean() {
 d('Booking patient-resolution tenant scope (CAN-032)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can032-tenant-b', 'CAN-032 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     patientAId = await seedPatient(PATIENT_A, TENANT_A, '+919000032701');
     patientBId = await seedPatient(PATIENT_B, TENANT_B, '+919000032702');
   }, 30000);

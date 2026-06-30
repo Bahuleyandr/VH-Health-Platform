@@ -35,7 +35,12 @@ async function seedCriticalAlert(tenantId) {
 const criticalTotal = (body) => body.data?.unacknowledgedCriticalAlerts?.denominator ?? 0;
 
 d('Compliance indicators tenant scope (CAN-036)', () => {
-  beforeAll(async () => { await clean(); }, 30000);
+  beforeAll(async () => {
+    await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can036-tenant-b', 'CAN-036 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
+  }, 30000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 30000);
 
   it('alerts seeded in tenant B do not change a tenant-A admin report', async () => {

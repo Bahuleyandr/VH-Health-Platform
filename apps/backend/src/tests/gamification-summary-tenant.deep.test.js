@@ -25,6 +25,11 @@ async function clean() {
 d('Health-point summary tenant scope + step attestation (CAN-012)', () => {
   beforeAll(async () => {
     await clean();
+    // TENANT_B is a non-default tenant; ensure it exists so the FK-bearing
+    // ledger/step rows below can reference it on a fresh CI DB.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can012-tenant-b', 'CAN-012 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     // Ledger rows for LEDGER_USER all live in tenant B.
     await prisma.$executeRawUnsafe(
       `INSERT INTO health_point_ledger (user_uid, points, activity_type, activity_ref_id, description, tenant_id)

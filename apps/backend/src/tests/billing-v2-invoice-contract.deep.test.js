@@ -7,7 +7,11 @@ import { assertResponse } from './helpers/assertSchema.js';
 
 describe('V2 billing invoice contract', () => {
   const admin = authClient('ADMIN');
-  const patientUid = '33333333-3333-4333-8333-333333333333';
+  // Suite-owned patient. A billing-specific UID (not the shared 33333333, which
+  // doubles as a STAFF/ANESTHETIST uid in authorization.test + sprint fixtures)
+  // so this suite cannot collide with another suite's user row.
+  const patientUid = 'b1110000-0000-4000-8000-000000000001';
+  const TENANT = '00000000-0000-4000-8000-000000000001';
   const SVC_CODE = 'P5TEST-SVC';
 
   let invoiceId;
@@ -22,6 +26,14 @@ describe('V2 billing invoice contract', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM billing_payments WHERE patient_uid = $1::uuid`, patientUid).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE patient_uid = $1::uuid`, patientUid).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM billing_service_master WHERE code = $1`, SVC_CODE).catch(() => {});
+    // Create the patient this suite owns — billingV2Service.assertPatientInTenant
+    // 404s if the patient_uid is absent from the caller's tenant on a fresh DB.
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, patientUid).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, tenant_id, updated_at)
+       VALUES ($1::uuid, '9990001112', 'V2 Invoice Test', 'PATIENT', $2::uuid, NOW())`,
+      patientUid, TENANT,
+    );
   });
 
   afterAll(async () => {
