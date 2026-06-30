@@ -32,15 +32,23 @@ void main() {
     'created_at': DateTime(2026, 6, 27, 11, 0).millisecondsSinceEpoch,
   };
 
-  testWidgets('shows the not-placed clinical copy + the server reason', (tester) async {
+  testWidgets('shows the not-placed clinical copy + the server reason', (
+    tester,
+  ) async {
     await _pumpRow(tester, conflict: orderConflict);
     expect(find.textContaining('not placed on the server'), findsOneWidget);
     expect(find.textContaining('Allergy conflict: penicillin'), findsOneWidget);
   });
 
-  testWidgets('Discard opens a confirmation dialog; cancel does NOT discard', (tester) async {
+  testWidgets('Discard opens a confirmation dialog; cancel does NOT discard', (
+    tester,
+  ) async {
     var discarded = false;
-    await _pumpRow(tester, conflict: orderConflict, onDiscard: () => discarded = true);
+    await _pumpRow(
+      tester,
+      conflict: orderConflict,
+      onDiscard: () => discarded = true,
+    );
 
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
@@ -51,9 +59,15 @@ void main() {
     expect(discarded, isFalse);
   });
 
-  testWidgets('confirming the dialog fires onDiscard exactly once', (tester) async {
+  testWidgets('confirming the dialog fires onDiscard exactly once', (
+    tester,
+  ) async {
     var discardCount = 0;
-    await _pumpRow(tester, conflict: orderConflict, onDiscard: () => discardCount++);
+    await _pumpRow(
+      tester,
+      conflict: orderConflict,
+      onDiscard: () => discardCount++,
+    );
 
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
@@ -62,9 +76,15 @@ void main() {
     expect(discardCount, 1);
   });
 
-  testWidgets('Retry fires onRetry without a confirmation dialog', (tester) async {
+  testWidgets('Retry fires onRetry without a confirmation dialog', (
+    tester,
+  ) async {
     var retried = false;
-    await _pumpRow(tester, conflict: orderConflict, onRetry: () => retried = true);
+    await _pumpRow(
+      tester,
+      conflict: orderConflict,
+      onRetry: () => retried = true,
+    );
 
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();

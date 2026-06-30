@@ -534,20 +534,23 @@ class MedicalApiService {
     String priority = 'routine',
     DateTime? startDate,
   }) async {
-    return _post('/emr/orders', buildInpatientMedicationOrderBody(
-      patientUid: patientUid,
-      encounterId: encounterId,
-      medicationName: medicationName,
-      dose: dose,
-      route: route,
-      frequency: frequency,
-      durationDays: durationDays,
-      doseTimes: doseTimes,
-      foodTiming: foodTiming,
-      instructions: instructions,
-      priority: priority,
-      startDate: startDate ?? DateTime.now(),
-    ));
+    return _post(
+      '/emr/orders',
+      buildInpatientMedicationOrderBody(
+        patientUid: patientUid,
+        encounterId: encounterId,
+        medicationName: medicationName,
+        dose: dose,
+        route: route,
+        frequency: frequency,
+        durationDays: durationDays,
+        doseTimes: doseTimes,
+        foodTiming: foodTiming,
+        instructions: instructions,
+        priority: priority,
+        startDate: startDate ?? DateTime.now(),
+      ),
+    );
   }
 
   /// GET /pharmacy-orders/catalog — shared formulary suggestions for inpatient

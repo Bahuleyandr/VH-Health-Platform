@@ -50,7 +50,8 @@ class SecureBlobCodec {
   Future<String> open(String envelope) async {
     final key = await _key();
     final parts = envelope.split(':');
-    if (parts.length != 2) throw const FormatException('Invalid encrypted data');
+    if (parts.length != 2)
+      throw const FormatException('Invalid encrypted data');
     final iv = encrypt.IV.fromBase64(parts[0]);
     final enc = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.gcm));
     return enc.decrypt(encrypt.Encrypted.fromBase64(parts[1]), iv: iv);

@@ -31,8 +31,13 @@ void main() {
 
   test('omits encounter_id when null', () {
     final body = buildInpatientMedicationOrderBody(
-      patientUid: 'p', encounterId: null, medicationName: 'X',
-      dose: '1', route: 'oral', frequency: 'OD', startDate: DateTime.utc(2026),
+      patientUid: 'p',
+      encounterId: null,
+      medicationName: 'X',
+      dose: '1',
+      route: 'oral',
+      frequency: 'OD',
+      startDate: DateTime.utc(2026),
     );
     expect(body.containsKey('encounter_id'), isFalse);
   });

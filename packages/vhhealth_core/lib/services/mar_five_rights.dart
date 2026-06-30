@@ -9,10 +9,22 @@ const int kFiveRightsWindowMinutes = 60;
 String _norm(String? s) => (s ?? '').trim().toLowerCase();
 
 class FiveRights {
-  const FiveRights({required this.patient, required this.drug, required this.dose, required this.route, required this.time});
+  const FiveRights({
+    required this.patient,
+    required this.drug,
+    required this.dose,
+    required this.route,
+    required this.time,
+  });
   final bool patient, drug, dose, route, time;
   bool get allPassed => patient && drug && dose && route && time;
-  Map<String, bool> toMap() => {'patient': patient, 'drug': drug, 'dose': dose, 'route': route, 'time': time};
+  Map<String, bool> toMap() => {
+    'patient': patient,
+    'drug': drug,
+    'dose': dose,
+    'route': route,
+    'time': time,
+  };
 }
 
 /// [dose] is a cached MAR row (id, patient_uid, medication_name, dose|dosage,
@@ -25,11 +37,14 @@ FiveRights evaluateFiveRights({
   required DateTime at,
   int windowMinutes = kFiveRightsWindowMinutes,
 }) {
-  final rightPatient = _norm(dose['patient_uid'] as String?) == _norm(scannedPatientUid);
+  final rightPatient =
+      _norm(dose['patient_uid'] as String?) == _norm(scannedPatientUid);
 
   final medName = _norm(dose['medication_name'] as String?);
   final scanned = _norm(scannedBarcode);
-  final rightDrug = medName.isNotEmpty && (medName.contains(scanned) || scanned.contains(medName));
+  final rightDrug =
+      medName.isNotEmpty &&
+      (medName.contains(scanned) || scanned.contains(medName));
 
   final doseStr = dose['dose'] as String? ?? dose['dosage'] as String?;
   final rightDose = doseStr != null && doseStr.trim().isNotEmpty;
@@ -45,5 +60,11 @@ FiveRights evaluateFiveRights({
     rightTime = minutes.abs() <= windowMinutes;
   }
 
-  return FiveRights(patient: rightPatient, drug: rightDrug, dose: rightDose, route: rightRoute, time: rightTime);
+  return FiveRights(
+    patient: rightPatient,
+    drug: rightDrug,
+    dose: rightDose,
+    route: rightRoute,
+    time: rightTime,
+  );
 }
