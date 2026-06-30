@@ -16,6 +16,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# The build's `prebuild` hook runs `generate:types`, which reads the backend's
+# canonical OpenAPI spec at ../backend/src/docs/openapi.json (gitignored output
+# in apps/admin/src/lib). The Docker build context is ./apps/admin, so the
+# backend dir is provided as a named build context (`backend=./apps/backend` in
+# the workflow's docker/build-push-action `build-contexts`). Place the spec
+# where generate:types expects it (WORKDIR is /app → ../backend = /backend).
+COPY --from=backend src/docs/openapi.json /backend/src/docs/openapi.json
+
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build args for NEXT_PUBLIC env vars (needed at build time)

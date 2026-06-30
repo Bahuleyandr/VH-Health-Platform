@@ -123,6 +123,10 @@ jobs:
         with:
           context: ./apps/admin
           file: ./apps/admin/Dockerfile
+          # Expose the backend dir as a named context so the Dockerfile can pull
+          # the canonical OpenAPI spec for the admin build's generate:types step.
+          build-contexts: |
+            backend=./apps/backend
           push: true
           platforms: linux/amd64
           tags: ${{ steps.images.outputs.admin }}:dalek-${{ github.sha }}
