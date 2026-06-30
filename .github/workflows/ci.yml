@@ -32,20 +32,10 @@ jobs:
     name: Repo-owned CI runner (feature branches)
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # `npm run ci` runs `prisma generate` + boots the app (openapi:check) BEFORE
-    # its ci:backend:docker step provisions Postgres, so the early steps need
-    # DATABASE_URL + the validateEnv secrets set. These are CI-only dummies (the
-    # early steps don't connect; ci:backend:docker overrides DATABASE_URL with its
-    # disposable container). Same values as _reusable-backend-lint-test.yml.
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vhhealth
-      API_KEY: test-api-key
-      JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
-      NODE_ENV: test
-      VH_ALLOW_NON_TEST_DATA_SEED: 'true'
-      FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
-      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
-      BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
+    # NOTE: backend CI secrets (DATABASE_URL/JWT_SECRET/encryption keys) are NOT
+    # set job-wide on purpose — they must not leak into the admin stage, whose
+    # middleware.test.ts asserts the no-JWT_SECRET code path. They're scoped to
+    # the backend stage in scripts/ci/backend.mjs instead.
     steps:
       - uses: actions/checkout@v4
         with:
