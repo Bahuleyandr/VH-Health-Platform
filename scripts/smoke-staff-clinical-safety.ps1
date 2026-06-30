@@ -408,17 +408,22 @@ if ($paracetamolId) {
 }
 
 if ($cetirizineId) {
-  $override = Invoke-SmokeRequest $results "mar_administer_override" "POST" "/api/v1/clinical/mar/$cetirizineId/administer-with-scan" @{
+  # F-H1 hard-stop (audit 2026-06-22): a wrong-DRUG barcode scan is a BCMA
+  # never-event, so override_reason CANNOT authorize administering the wrong
+  # medication — only the soft rights (dose/route/time) stay overridable. Scanning
+  # "wrong-drug" with an override must therefore be REJECTED with 409, never
+  # administered. (The genuine "could not scan / equipment failure" break-glass is
+  # the separate non-scan POST /mar/:id/administer.) See
+  # services/clinical/marFiveRightsService.js#administerWithScan.
+  $override = Invoke-SmokeRequest $results "mar_administer_wrong_drug_override_rejected" "POST" "/api/v1/clinical/mar/$cetirizineId/administer-with-scan" @{
     scanned_patient_uid = $PatientUid
     scanned_barcode = "wrong-drug"
     override_reason = "Clinical safety smoke override"
-  }
+  } -ExpectedStatus 409
   $overrideJson = Get-JsonContent $override
-  $overrideData = Get-JsonProperty $overrideJson "data"
-  $overrideStatus = Get-JsonProperty $overrideData "status"
-  $overrideAllRights = Get-JsonProperty $overrideData "all_rights_passed"
-  $overrideReason = Get-JsonProperty $overrideData "override_reason"
-  Add-ContractResult $results "mar_administer_override_contract" ($overrideStatus -eq "administered" -and $overrideAllRights -eq $false -and $overrideReason) "allRights=$overrideAllRights"
+  $overrideCode = Get-JsonProperty $overrideJson "code"
+  $overrideMessage = Get-JsonProperty $overrideJson "message"
+  Add-ContractResult $results "mar_administer_override_contract" (($overrideCode -eq "MAR_DRUG_MISMATCH") -or ($overrideMessage -like "*mismatch*")) "code=$overrideCode"
 } else {
   Add-ContractResult $results "mar_administer_override_contract" $false "cetirizine id missing"
 }
