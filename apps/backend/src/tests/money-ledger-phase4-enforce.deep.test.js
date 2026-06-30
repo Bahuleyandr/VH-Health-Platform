@@ -11,7 +11,7 @@ import * as billing from '../services/billing/billingV2Service.js';
 import { getAccountBalancePaise } from '../services/billing/ledger/ledgerService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
-const cleanup = { invoiceIds: [], patientUids: [] };
+const cleanup = { invoiceIds: [], advanceIds: [], patientUids: [] };
 let prevMode;
 
 beforeAll(() => {
@@ -55,11 +55,15 @@ afterAll(async () => {
         await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
       }
     });
+    if (cleanup.advanceIds.length) {
+      await prisma.$executeRawUnsafe(`DELETE FROM billing_advance_settlements WHERE advance_id = ANY($1::int[])`, cleanup.advanceIds);
+    }
     if (cleanup.invoiceIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_payments WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoice_items WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = ANY($1::int[])`, cleanup.invoiceIds);
     }
+    if (cleanup.advanceIds.length) await prisma.$executeRawUnsafe(`DELETE FROM billing_advances WHERE id = ANY($1::int[])`, cleanup.advanceIds);
     if (cleanup.patientUids.length) await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, cleanup.patientUids);
   } catch { /* best-effort teardown */ }
   if (prevMode === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
@@ -95,5 +99,27 @@ describe('Phase 4 enforce — collectPayment posts the ledger in the same tx', (
     expect(Number(invRow[0].amount_due)).toBe(600);   // ledger PATIENT_AR 60000 paise / 100
     expect(Number(invRow[0].amount_paid)).toBe(400);  // total 1000 - due 600
     expect(invRow[0].status).toBe('PARTIAL');
+  });
+
+  it('advance collect + settle: advance balance and invoice due are derived from the ledger', async () => {
+    const patient = await makePatient();
+    const invoiceId = await makeIssuedInvoice(patient, 1000); // AR 100000
+
+    // collect a ₹500 advance — balance derived from PATIENT_ADVANCE
+    const advance = await billing.collectAdvance({ patient_uid: patient, amount: 500, mode: 'CASH', tenantId: TENANT });
+    cleanup.advanceIds.push(advance.id);
+    expect(await bal('PATIENT_ADVANCE', { advance_id: advance.id, patient_uid: patient })).toBe(50000);
+    const advRow1 = await prisma.$queryRawUnsafe(`SELECT balance, status FROM billing_advances WHERE id = $1::int`, Number(advance.id));
+    expect(Number(advRow1[0].balance)).toBe(500);
+
+    // settle ₹300 of it against the invoice — both columns derived from the ledger
+    await billing.settleAdvance({ tenantId: TENANT, advance_id: advance.id, invoice_id: invoiceId, amount: 300 });
+    expect(await bal('PATIENT_ADVANCE', { advance_id: advance.id, patient_uid: patient })).toBe(20000);
+    const advRow2 = await prisma.$queryRawUnsafe(`SELECT balance, status FROM billing_advances WHERE id = $1::int`, Number(advance.id));
+    expect(Number(advRow2[0].balance)).toBe(200);   // 500 - 300, derived from PATIENT_ADVANCE
+    expect(advRow2[0].status).toBe('ACTIVE');        // non-zero balance keeps the current status
+    const invRow = await prisma.$queryRawUnsafe(`SELECT amount_due, amount_paid FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
+    expect(Number(invRow[0].amount_due)).toBe(700);  // PATIENT_AR 100000 - 30000 = 70000 → ₹700
+    expect(Number(invRow[0].amount_paid)).toBe(300);
   });
 });

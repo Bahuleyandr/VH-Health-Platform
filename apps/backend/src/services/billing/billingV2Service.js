@@ -357,6 +357,35 @@ async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
   return { paid, due, status };
 }
 
+/**
+ * Phase 4-3 (enforce): derive an advance's cached balance FROM the ledger
+ * (PATIENT_ADVANCE balance for the advance_id), instead of the legacy in-place
+ * decrement. MUST run AFTER the movement's ledger post. Advance STATUS is
+ * operation-specific (EXHAUSTED on settle, REFUNDED on refund, ACTIVE on
+ * collect) and is NOT a pure function of the balance, so the caller passes the
+ * status to apply when the balance reaches zero; a non-zero balance keeps the
+ * current status.
+ */
+async function deriveAdvanceBalanceFromLedgerTx(tx, advanceId, { exhaustedStatus = 'EXHAUSTED' } = {}) {
+  const normalizedAdvanceId = Number(advanceId);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(b.balance_paise), 0)::bigint AS bal_paise
+       FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
+      WHERE a.code = 'PATIENT_ADVANCE' AND b.advance_id = $1::int`,
+    normalizedAdvanceId,
+  );
+  const balance = toFixed2(Number(rows[0].bal_paise) / 100);
+  await tx.$executeRawUnsafe(
+    `UPDATE billing_advances
+        SET balance = $1::numeric,
+            status = CASE WHEN $1::numeric <= 0.005 THEN $2 ELSE status END,
+            updated_at = NOW()
+      WHERE id = $3::int`,
+    balance, exhaustedStatus, normalizedAdvanceId,
+  );
+  return { balance };
+}
+
 async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState, db = prisma) {
   const rows = await db.$queryRawUnsafe(
     `SELECT id, admission_id
@@ -1424,6 +1453,8 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     advance = await setTenantTx(tenant, async (tx) => {
       const r = await insertAdvance(tx);
       await postAdvanceCollectEntry({ advance: r[0], tenantId: tenant, tx });
+      // Phase 4-3: derive the advance balance from the ledger (PATIENT_ADVANCE).
+      await deriveAdvanceBalanceFromLedgerTx(tx, Number(r[0].id));
       return r[0];
     });
   } else {
@@ -1535,7 +1566,13 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
       Number(amount), Number(invoice_id),
     );
     // Phase 4 enforce: post ADVANCE_SETTLE INSIDE the tx so a ledger failure rolls back.
-    if (wiring.sameTx) await postAdvanceSettleEntry({ settlement: settlementRow[0], patientUid: settledPatientUid, tenantId: requireTenantId(tenantId), tx });
+    if (wiring.sameTx) {
+      await postAdvanceSettleEntry({ settlement: settlementRow[0], patientUid: settledPatientUid, tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: the post moved PATIENT_ADVANCE and PATIENT_AR; derive both
+      // cache columns from the ledger.
+      await deriveAdvanceBalanceFromLedgerTx(tx, Number(advance_id));
+      await deriveInvoicePaymentStateFromLedgerTx(tx, Number(invoice_id));
+    }
     return settlementRow[0];
   });
   // Shadow: post-commit best-effort ADVANCE_SETTLE (debit PATIENT_ADVANCE /
