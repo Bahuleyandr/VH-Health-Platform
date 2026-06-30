@@ -329,7 +329,7 @@ async function recomputeInvoicePaymentStateTx(tx, invoiceId) {
  * sum preserves legacy semantics across the insurance two-step (approval shifts
  * AR -> INSURANCE_AR without changing the patient's due).
  */
-async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
+export async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
   const normalizedInvoiceId = Number(invoiceId);
   const arRows = await tx.$queryRawUnsafe(
     `SELECT COALESCE(SUM(b.balance_paise), 0)::bigint AS due_paise
@@ -1712,6 +1712,11 @@ export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
       const rows = await doApprove(tx);
       if (!rows.length) throw AppError.notFound('Refund not found or not pending');
       await postRefundApproveEntry({ refund: rows[0], tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: refund-approve restored PATIENT_AR (invoice) / reduced
+      // PATIENT_ADVANCE (advance) — ledger timing puts the refund's column effect
+      // HERE (at approve), not at payout. Derive the affected cache column.
+      if (rows[0].advance_id) await deriveAdvanceBalanceFromLedgerTx(tx, rows[0].advance_id, { exhaustedStatus: 'REFUNDED' });
+      else if (rows[0].invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, rows[0].invoice_id);
       return rows[0];
     });
   } else {
@@ -1774,10 +1779,11 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
     if (!rows.length) throw AppError.notFound('Refund not found or not approved');
     const refund = rows[0];
 
-    // If linked to an advance: atomically reduce the advance balance. The
-    // `balance >= amt` guard prevents the payout from driving the balance
-    // negative if the advance was concurrently consumed.
-    if (refund.advance_id) {
+    // If linked to an advance: atomically reduce the advance balance (SHADOW/OFF
+    // only). Under enforce the refund already reduced PATIENT_ADVANCE at approve
+    // (ledger timing); re-applying here would double-count, and the `balance >=
+    // amt` guard would spuriously fail against the already-reduced balance.
+    if (!wiring.sameTx && refund.advance_id) {
       const dec = await tx.$queryRawUnsafe(
         `UPDATE billing_advances
             SET balance = balance - $1::numeric,
@@ -1796,10 +1802,9 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
       }
     }
 
-    // If linked to an invoice: reduce the invoice's amount_paid (and bump
-    // amount_due / status) so paying out a refund doesn't leave the invoice
-    // showing money the patient no longer has. Lock the invoice first.
-    if (refund.invoice_id) {
+    // If linked to an invoice: reduce the invoice's amount_paid (SHADOW/OFF only;
+    // under enforce the refund already hit PATIENT_AR at approve). Lock first.
+    if (!wiring.sameTx && refund.invoice_id) {
       const inv = await lockBillingInvoice(tx, refund.invoice_id, tenantId, 'amount_paid, total_amount');
       if (inv) {
         await tx.$executeRawUnsafe(
@@ -1817,8 +1822,15 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
         );
       }
     }
-    // Phase 4 enforce: post REFUND_PAID INSIDE the tx so a ledger failure rolls back.
-    if (wiring.sameTx) await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId), tx });
+    // Phase 4 enforce: post REFUND_PAID INSIDE the tx so a ledger failure rolls
+    // back, then derive the cache columns from the ledger. REFUND_PAID only moves
+    // REFUNDS_PAYABLE->CASH, so the columns reflect the approve-time reduction and
+    // are unchanged by the payout (deriving is robust regardless of approve mode).
+    if (wiring.sameTx) {
+      await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId), tx });
+      if (refund.advance_id) await deriveAdvanceBalanceFromLedgerTx(tx, refund.advance_id, { exhaustedStatus: 'REFUNDED' });
+      if (refund.invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, refund.invoice_id);
+    }
     return refund;
   });
   // Shadow: post-commit best-effort REFUND_PAID (debit REFUNDS_PAYABLE /

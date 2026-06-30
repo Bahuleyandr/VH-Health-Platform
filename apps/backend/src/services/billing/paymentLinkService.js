@@ -11,7 +11,7 @@ import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { collectPayment } from './billingV2Service.js';
+import { collectPayment, deriveInvoicePaymentStateFromLedgerTx } from './billingV2Service.js';
 import { postPaymentEntry } from './ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 
@@ -277,7 +277,11 @@ export async function markPaymentLinkPaid({
     );
     // Phase 4 enforce: collectPayment(tx) skips its own post (caller-owned tx);
     // post the PAYMENT here INSIDE the link tx so a ledger failure rolls back.
-    if (wiring.sameTx) await postPaymentEntry({ payment: createdPayment, tenantId: requireTenantId(tenantId), tx });
+    if (wiring.sameTx) {
+      await postPaymentEntry({ payment: createdPayment, tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: derive the invoice cache columns from the ledger.
+      if (createdPayment.invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, createdPayment.invoice_id);
+    }
     return createdPayment;
   });
 

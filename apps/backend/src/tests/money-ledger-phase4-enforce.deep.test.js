@@ -11,7 +11,7 @@ import * as billing from '../services/billing/billingV2Service.js';
 import { getAccountBalancePaise } from '../services/billing/ledger/ledgerService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
-const cleanup = { invoiceIds: [], advanceIds: [], patientUids: [] };
+const cleanup = { invoiceIds: [], advanceIds: [], refundIds: [], patientUids: [] };
 let prevMode;
 
 beforeAll(() => {
@@ -57,6 +57,9 @@ afterAll(async () => {
     });
     if (cleanup.advanceIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_advance_settlements WHERE advance_id = ANY($1::int[])`, cleanup.advanceIds);
+    }
+    if (cleanup.refundIds.length) {
+      await prisma.$executeRawUnsafe(`DELETE FROM billing_refunds WHERE id = ANY($1::int[])`, cleanup.refundIds);
     }
     if (cleanup.invoiceIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_payments WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
@@ -121,5 +124,30 @@ describe('Phase 4 enforce — collectPayment posts the ledger in the same tx', (
     const invRow = await prisma.$queryRawUnsafe(`SELECT amount_due, amount_paid FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
     expect(Number(invRow[0].amount_due)).toBe(700);  // PATIENT_AR 100000 - 30000 = 70000 → ₹700
     expect(Number(invRow[0].amount_paid)).toBe(300);
+  });
+
+  it('refund (invoice): receivable restored at APPROVE (ledger timing), derived into amount_due; payout unchanged', async () => {
+    const patient = await makePatient();
+    const invoiceId = await makeIssuedInvoice(patient, 1000); // AR 100000
+    await billing.collectPayment({ invoice_id: invoiceId, amount: 500, mode: 'CASH', shift: 'MORNING', collected_by: patient, tenantId: TENANT });
+    let invRow = await prisma.$queryRawUnsafe(`SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
+    expect(Number(invRow[0].amount_due)).toBe(500); // PATIENT_AR 50000 → ₹500
+
+    const refund = await billing.raiseRefund({ patient_uid: patient, invoice_id: invoiceId, amount: 200, reason: 'overpay', mode: 'CASH', tenantId: TENANT });
+    cleanup.refundIds.push(refund.id);
+
+    // APPROVE: ledger restores PATIENT_AR (+200) → derived amount_due rises to 700 (ledger timing).
+    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    expect(await bal('PATIENT_AR', { patient_uid: patient, invoice_id: invoiceId })).toBe(70000);
+    invRow = await prisma.$queryRawUnsafe(`SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
+    expect(Number(invRow[0].amount_due)).toBe(700);
+
+    // PAYOUT: REFUND_PAID clears REFUNDS_PAYABLE to cash; amount_due unchanged (no double reduction).
+    await billing.markRefundPaid(refund.id, { tenantId: TENANT });
+    expect(await bal('REFUNDS_PAYABLE', { patient_uid: patient })).toBe(0);
+    invRow = await prisma.$queryRawUnsafe(`SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
+    expect(Number(invRow[0].amount_due)).toBe(700);
+    const refRow = await prisma.$queryRawUnsafe(`SELECT approval_status FROM billing_refunds WHERE id = $1::int`, Number(refund.id));
+    expect(refRow[0].approval_status).toBe('PAID');
   });
 });
