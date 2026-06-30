@@ -13,6 +13,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
+jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
+  resolveLedgerWiring: async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }),
+  resolveLedgerModeForTenant: async () => 'shadow',
+}));
+
 const { issueInvoice } = await import('../../services/billing/billingV2Service.js');
 
 // Finding: 2026-05-09-inpatient-admission-billing-invoice-missing-patient-fields

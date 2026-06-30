@@ -38,6 +38,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
+  resolveLedgerWiring: async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }),
+  resolveLedgerModeForTenant: async () => 'shadow',
+}));
+
 const svc = await import('../../services/billing/billingV2Service.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
