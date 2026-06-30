@@ -357,10 +357,12 @@ class ConflictRow extends StatelessWidget {
       message = 'Discard this prescription? It was NOT recorded on the server.';
     } else if (isOrder) {
       title = 'Discard medication order?';
-      message = 'Discard this medication order? It was NOT placed on the server.';
+      message =
+          'Discard this medication order? It was NOT placed on the server.';
     } else {
       title = 'Discard administration record?';
-      message = 'Discard this administration record? The medication was given but '
+      message =
+          'Discard this administration record? The medication was given but '
           'will NOT be recorded.';
     }
     final confirmed = await showDialog<bool>(
@@ -417,27 +419,27 @@ class ConflictRow extends StatelessWidget {
             ),
           )
         : isOrder
-            ? Text(
-                'Medication order not placed on the server — review needed. $reason.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.red.shade700,
-                  fontWeight: FontWeight.w600,
-                ),
-              )
-            : isRx
-                ? Text(
-                    'Prescription not recorded on the server — review needed. $reason.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.red.shade700,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  )
-                : Text(
-                    reason,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.red.shade700,
-                    ),
-                  );
+        ? Text(
+            'Medication order not placed on the server — review needed. $reason.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : isRx
+        ? Text(
+            'Prescription not recorded on the server — review needed. $reason.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : Text(
+            reason,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+            ),
+          );
 
     return Card(
       elevation: 0,

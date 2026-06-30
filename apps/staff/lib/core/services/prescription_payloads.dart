@@ -30,7 +30,8 @@ Map<String, dynamic> buildPrescriptionBody({
     'clinical_notes': clinicalNotes,
     'medications': medications,
     'follow_up_date': ?followUpDate,
-    if (followUpNotes != null && followUpNotes.isNotEmpty) 'follow_up_notes': followUpNotes,
+    if (followUpNotes != null && followUpNotes.isNotEmpty)
+      'follow_up_notes': followUpNotes,
     'override': ?override,
     'vitals': ?vitals,
   };

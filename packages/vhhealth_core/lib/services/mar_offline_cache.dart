@@ -9,7 +9,9 @@ import 'secure_storage.dart';
 /// another's cached snapshot. Read-only snapshot: the server stays authoritative;
 /// on drain the queued administer is re-verified server-side.
 class MarOfflineCache {
-  static final SecureBlobCodec _codec = SecureBlobCodec('mar_offline_cache_aes_key');
+  static final SecureBlobCodec _codec = SecureBlobCodec(
+    'mar_offline_cache_aes_key',
+  );
 
   static Future<String> _key(String patientUid) async {
     final staffId = await AuthService.getStaffId();
@@ -18,17 +20,25 @@ class MarOfflineCache {
 
   /// Persist the patient's due-dose rows (from GET /clinical/mar/due or
   /// /clinical/mar/patient/{uid}). Overwrites the prior snapshot.
-  static Future<void> cacheDueDoses(String patientUid, List<Map<String, dynamic>> doses) async {
+  static Future<void> cacheDueDoses(
+    String patientUid,
+    List<Map<String, dynamic>> doses,
+  ) async {
     final envelope = {
       'cached_at': DateTime.now().toUtc().toIso8601String(),
       'doses': doses,
     };
     final blob = await _codec.seal(jsonEncode(envelope));
-    await VHSecureStorage.instance.write(key: await _key(patientUid), value: blob);
+    await VHSecureStorage.instance.write(
+      key: await _key(patientUid),
+      value: blob,
+    );
   }
 
   static Future<Map<String, dynamic>?> _readEnvelope(String patientUid) async {
-    final blob = await VHSecureStorage.instance.read(key: await _key(patientUid));
+    final blob = await VHSecureStorage.instance.read(
+      key: await _key(patientUid),
+    );
     if (blob == null) return null;
     try {
       return jsonDecode(await _codec.open(blob)) as Map<String, dynamic>;
@@ -37,13 +47,18 @@ class MarOfflineCache {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> getCachedDoses(String patientUid) async {
+  static Future<List<Map<String, dynamic>>> getCachedDoses(
+    String patientUid,
+  ) async {
     final env = await _readEnvelope(patientUid);
     if (env == null) return const [];
     return (env['doses'] as List).cast<Map<String, dynamic>>();
   }
 
-  static Future<Map<String, dynamic>?> getCachedDose(String patientUid, int maId) async {
+  static Future<Map<String, dynamic>?> getCachedDose(
+    String patientUid,
+    int maId,
+  ) async {
     for (final d in await getCachedDoses(patientUid)) {
       if (d['id'] == maId) return d;
     }

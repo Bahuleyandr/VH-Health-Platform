@@ -7,20 +7,20 @@ void _installSecureStorageFake() {
   final Map<String, String> store = {};
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, (MethodCall call) async {
-    final args = Map<String, dynamic>.from(call.arguments as Map);
-    switch (call.method) {
-      case 'read':
-        return store[args['key']];
-      case 'write':
-        store[args['key']] = args['value'] as String;
-        return null;
-      case 'delete':
-        store.remove(args['key']);
-        return null;
-      default:
-        return null;
-    }
-  });
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        switch (call.method) {
+          case 'read':
+            return store[args['key']];
+          case 'write':
+            store[args['key']] = args['value'] as String;
+            return null;
+          case 'delete':
+            store.remove(args['key']);
+            return null;
+          default:
+            return null;
+        }
+      });
 }
 
 void main() {
@@ -39,7 +39,8 @@ void main() {
     final codec = SecureBlobCodec('mar_cache_aes_key_test');
     final enc = await codec.seal('secret');
     final parts = enc.split(':');
-    final tampered = '${parts[0]}:${parts[1].substring(0, parts[1].length - 2)}AA';
+    final tampered =
+        '${parts[0]}:${parts[1].substring(0, parts[1].length - 2)}AA';
     expect(() => codec.open(tampered), throwsA(anything));
   });
 }

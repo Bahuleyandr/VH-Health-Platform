@@ -32,15 +32,26 @@ void main() {
     'created_at': DateTime(2026, 6, 27, 12, 0).millisecondsSinceEpoch,
   };
 
-  testWidgets('shows the not-recorded clinical copy + the server reason', (tester) async {
+  testWidgets('shows the not-recorded clinical copy + the server reason', (
+    tester,
+  ) async {
     await _pumpRow(tester, conflict: rxConflict);
     expect(find.textContaining('not recorded on the server'), findsOneWidget);
-    expect(find.textContaining('Prescription blocked by clinical safety check'), findsOneWidget);
+    expect(
+      find.textContaining('Prescription blocked by clinical safety check'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('Discard opens a confirmation dialog; cancel does NOT discard', (tester) async {
+  testWidgets('Discard opens a confirmation dialog; cancel does NOT discard', (
+    tester,
+  ) async {
     var discarded = false;
-    await _pumpRow(tester, conflict: rxConflict, onDiscard: () => discarded = true);
+    await _pumpRow(
+      tester,
+      conflict: rxConflict,
+      onDiscard: () => discarded = true,
+    );
 
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
@@ -51,9 +62,15 @@ void main() {
     expect(discarded, isFalse);
   });
 
-  testWidgets('confirming the dialog fires onDiscard exactly once', (tester) async {
+  testWidgets('confirming the dialog fires onDiscard exactly once', (
+    tester,
+  ) async {
     var discardCount = 0;
-    await _pumpRow(tester, conflict: rxConflict, onDiscard: () => discardCount++);
+    await _pumpRow(
+      tester,
+      conflict: rxConflict,
+      onDiscard: () => discardCount++,
+    );
 
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
@@ -62,7 +79,9 @@ void main() {
     expect(discardCount, 1);
   });
 
-  testWidgets('Retry fires onRetry without a confirmation dialog', (tester) async {
+  testWidgets('Retry fires onRetry without a confirmation dialog', (
+    tester,
+  ) async {
     var retried = false;
     await _pumpRow(tester, conflict: rxConflict, onRetry: () => retried = true);
 

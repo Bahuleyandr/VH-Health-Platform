@@ -933,7 +933,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           return; // keep the form; NEVER enqueue on a blocked device
         }
         final firstName = meds.isNotEmpty
-            ? (meds.first['name'] ?? meds.first['medication_name'] ?? 'medication')
+            ? (meds.first['name'] ??
+                  meds.first['medication_name'] ??
+                  'medication')
             : 'medication';
         await ConnectivitySyncService.instance.enqueue(
           endpoint: intent.endpoint,
