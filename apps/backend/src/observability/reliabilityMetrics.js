@@ -26,6 +26,7 @@ const dbBreakerOpen = new Gauge('db_circuit_breaker_open', 'Whether any Prisma c
 const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable WS broadcast/sendToUser drops (per-socket backpressure or cross-process fan-out fallback). NOTE: the at-most-once Redis-failover drop is invisible to the app — see ws_fanout_subscriber_errors_total for the failover-window proxy.', ['reason']);
 const wsFanoutSubscriberErrors = new Counter('ws_fanout_subscriber_errors_total', 'WS Redis fan-out subscriber error/reconnect events — the window during which a published broadcast can be silently dropped (at-most-once)', []);
 const eventDeadLettered = new Counter('event_outbox_dead_lettered_total', 'event_outbox rows that crossed MAX_ATTEMPTS into the terminal failed (dead-letter) state', []);
+const ledgerReconciliationDrift = new Counter('ledger_reconciliation_drift_total', 'Money-ledger reconciliation drift signals from the periodic sweep (ledger vs legacy event tables / unwired invoice / unbalanced trial balance). Hard-alerted (Sentry fatal) at enforce mode.', ['kind']);
 
 // reason is a bounded, low-cardinality label. Anything unexpected collapses to 'other'.
 const WS_DROP_REASONS = new Set(['backpressure', 'fanout_local_fallback', 'publish_error']);
@@ -37,6 +38,10 @@ export function recordWsFanoutSubscriberError() {
 }
 export function recordEventDeadLettered() {
   eventDeadLettered.inc({});
+}
+const LEDGER_DRIFT_KINDS = new Set(['mismatch', 'unwired', 'events', 'trial_balance']);
+export function recordLedgerReconciliationDrift(kind) {
+  ledgerReconciliationDrift.inc({ kind: LEDGER_DRIFT_KINDS.has(kind) ? kind : 'other' });
 }
 
 /**
@@ -86,5 +91,6 @@ export function serializeReliabilityMetrics() {
     webhookPending, webhookFailed, webhookDead,
     dbBreakerOpen,
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
+    ledgerReconciliationDrift,
   ].map((m) => m.serialize()).filter(Boolean).join('\n\n') + '\n';
 }
