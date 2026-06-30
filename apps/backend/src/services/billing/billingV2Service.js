@@ -20,6 +20,7 @@ import {
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
   postRefundApproveEntry, postRefundPaidEntry,
 } from './ledger/ledgerPostings.js';
+import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
@@ -315,6 +316,74 @@ async function recomputeInvoicePaymentStateTx(tx, invoiceId) {
     paid, due, status, normalizedInvoiceId,
   );
   return { paid, due, status };
+}
+
+/**
+ * Phase 4-3 (enforce): derive the invoice's cached amount_paid / amount_due /
+ * status FROM the ledger — amount_due = (PATIENT_AR + INSURANCE_AR) balance for
+ * the invoice — instead of the legacy Σ(billing_payments)+Σ(settlements)
+ * recompute. MUST run AFTER the movement's ledger post so ledger_balances
+ * already reflects it. Uses the IDENTICAL status thresholds as
+ * recomputeInvoicePaymentStateTx, so enforce and shadow agree whenever the
+ * ledger and the event tables are consistent. The (PATIENT_AR + INSURANCE_AR)
+ * sum preserves legacy semantics across the insurance two-step (approval shifts
+ * AR -> INSURANCE_AR without changing the patient's due).
+ */
+export async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
+  const normalizedInvoiceId = Number(invoiceId);
+  const arRows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(b.balance_paise), 0)::bigint AS due_paise
+       FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
+      WHERE a.code IN ('PATIENT_AR', 'INSURANCE_AR') AND b.invoice_id = $1::int`,
+    normalizedInvoiceId,
+  );
+  const inv = await tx.$queryRawUnsafe(
+    `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
+    normalizedInvoiceId,
+  );
+  if (!inv.length) throw AppError.notFound('Invoice not found');
+  const total = Number(inv[0].total_amount);
+  const due = toFixed2(Number(arRows[0].due_paise) / 100);
+  const paid = toFixed2(total - due);
+  let status = 'PARTIAL';
+  if (due <= 0.005) status = 'PAID';
+  else if (paid <= 0.005) status = 'ISSUED';
+  await tx.$executeRawUnsafe(
+    `UPDATE billing_invoices
+        SET amount_paid = $1::numeric, amount_due = $2::numeric, status = $3, updated_at = NOW()
+      WHERE id = $4::int`,
+    paid, due, status, normalizedInvoiceId,
+  );
+  return { paid, due, status };
+}
+
+/**
+ * Phase 4-3 (enforce): derive an advance's cached balance FROM the ledger
+ * (PATIENT_ADVANCE balance for the advance_id), instead of the legacy in-place
+ * decrement. MUST run AFTER the movement's ledger post. Advance STATUS is
+ * operation-specific (EXHAUSTED on settle, REFUNDED on refund, ACTIVE on
+ * collect) and is NOT a pure function of the balance, so the caller passes the
+ * status to apply when the balance reaches zero; a non-zero balance keeps the
+ * current status.
+ */
+export async function deriveAdvanceBalanceFromLedgerTx(tx, advanceId, { exhaustedStatus = 'EXHAUSTED' } = {}) {
+  const normalizedAdvanceId = Number(advanceId);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(b.balance_paise), 0)::bigint AS bal_paise
+       FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
+      WHERE a.code = 'PATIENT_ADVANCE' AND b.advance_id = $1::int`,
+    normalizedAdvanceId,
+  );
+  const balance = toFixed2(Number(rows[0].bal_paise) / 100);
+  await tx.$executeRawUnsafe(
+    `UPDATE billing_advances
+        SET balance = $1::numeric,
+            status = CASE WHEN $1::numeric <= 0.005 THEN $2 ELSE status END,
+            updated_at = NOW()
+      WHERE id = $3::int`,
+    balance, exhaustedStatus, normalizedAdvanceId,
+  );
+  return { balance };
 }
 
 async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState, db = prisma) {
@@ -691,13 +760,15 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
   if (items[0].c === 0) throw AppError.badRequest('Cannot issue an invoice with no items');
 
   const number = await nextInvoiceNumber(inv.tenant_id);
+  const wiring = await resolveLedgerWiring(requireTenantId(inv.tenant_id));
   // GST compliance: backfill recipient name/phone and (for IP) issuing
   // doctor + department at issue time. These are statutory snapshot
   // fields — a B2C tax invoice with null recipient name is not a valid
   // tax document, and joining at read time loses the value if the
   // patient/admission row changes later. Finding:
   //   2026-05-09-inpatient-admission-billing-invoice-missing-patient-fields
-  await prisma.$executeRawUnsafe(
+  // The DRAFT→ISSUED UPDATE, runnable on a plain client (shadow) or a tx (enforce).
+  const doIssueUpdate = (db) => db.$executeRawUnsafe(
     `UPDATE billing_invoices
         SET invoice_number = $1,
             status = 'ISSUED',
@@ -723,17 +794,39 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
       WHERE id = $2::int`,
     number, Number(invoiceId),
   );
-
-  // Issuing transitions DRAFT → ISSUED without changing totals, but
-  // re-check the TPA cap anyway so a draft that's already over cap
-  // surfaces an alert at issuance. recomputeInvoiceTotals only fires
-  // on item / discount mutations.
-  const meta = await prisma.$queryRawUnsafe(
+  // Issuing transitions DRAFT → ISSUED without changing totals; read them back
+  // for the TPA cap re-check and the INVOICE_ISSUE ledger post.
+  const readIssueMeta = (db) => db.$queryRawUnsafe(
     `SELECT admission_id, patient_uid, tenant_id, total_amount,
             (COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(igst_amount,0)) AS tax_amount
        FROM billing_invoices WHERE id = $1::int`,
     Number(invoiceId),
   );
+
+  let meta;
+  if (wiring.sameTx) {
+    // Enforce: the ISSUED transition and the INVOICE_ISSUE ledger post (debit
+    // PATIENT_AR / credit REVENUE) commit together, so a ledger failure rolls
+    // back the issuance.
+    meta = await setTenantTx(requireTenantId(inv.tenant_id), async (tx) => {
+      await doIssueUpdate(tx);
+      const m = await readIssueMeta(tx);
+      if (m.length && m[0].patient_uid) {
+        await postInvoiceIssueEntry({
+          invoice: { id: invoiceId, patient_uid: m[0].patient_uid, total_amount: m[0].total_amount, tax_amount: m[0].tax_amount },
+          tenantId: m[0].tenant_id, tx,
+        });
+      }
+      return m;
+    });
+  } else {
+    await doIssueUpdate(prisma);
+    meta = await readIssueMeta(prisma);
+  }
+
+  // Re-check the TPA cap so a draft that's already over cap surfaces an alert at
+  // issuance (best-effort, both modes). recomputeInvoiceTotals only fires on
+  // item / discount mutations.
   if (meta.length && meta[0].admission_id && meta[0].patient_uid) {
     try {
       await maybeEmitTpaCapAlerts({
@@ -750,11 +843,10 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
     }
   }
 
-  // Ledger (Phase 2a): post-commit best-effort INVOICE_ISSUE entry (debit
-  // PATIENT_AR / credit REVENUE). The legacy invoice is already ISSUED — a
-  // ledger failure is logged and dropped, never blocking issuance. The ledger
-  // is not yet authoritative; reconciliation (Phase 2b) catches any drift.
-  if (meta.length && meta[0].patient_uid) {
+  // Shadow: post-commit best-effort INVOICE_ISSUE (debit PATIENT_AR / credit
+  // REVENUE) — the legacy invoice is already ISSUED, a ledger failure is logged
+  // and dropped, reconciliation (Phase 2b) catches drift. Off: skip.
+  if (wiring.postCommit && meta.length && meta[0].patient_uid) {
     try {
       await postInvoiceIssueEntry({
         invoice: { id: invoiceId, patient_uid: meta[0].patient_uid, total_amount: meta[0].total_amount, tax_amount: meta[0].tax_amount },
@@ -1256,20 +1348,36 @@ export async function collectPayment({
   // never nest setTenantTx — Postgres cannot nest transactions. That caller is
   // responsible for its own ledger posting (wired in a later phase).
   if (tx) return collectPaymentTx(tx, args);
-  // Own the tx, then post the ledger entry AFTER it commits (post-commit
-  // best-effort, CLAUDE.md "Phase 1.5" pattern) so a ledger problem can never
-  // roll back the real payment. The ledger is not yet authoritative.
-  const payment = await setTenantTx(requireTenantId(tenantId), (innerTx) => collectPaymentTx(innerTx, args));
-  try {
-    await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger PAYMENT post failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+  // Phase 4: the per-tenant ledger mode decides HOW we post.
+  //  - enforce (sameTx):  post INSIDE the payment tx so a ledger failure rolls
+  //    back the payment (authoritative).
+  //  - shadow (postCommit): post AFTER commit, best-effort (CLAUDE.md "Phase 1.5")
+  //    so a ledger problem can never roll back the real payment (= today's default).
+  //  - off (skip): do not post.
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
+  const payment = await setTenantTx(requireTenantId(tenantId), async (innerTx) => {
+    const row = await collectPaymentTx(innerTx, args);
+    if (wiring.sameTx) {
+      await postPaymentEntry({ payment: row, tenantId: requireTenantId(tenantId), tx: innerTx });
+      // Phase 4-3: the post above moved PATIENT_AR; derive the invoice cache
+      // columns from the ledger (overwrites the legacy recompute inside collectPaymentTx).
+      if (invoice_id) await deriveInvoicePaymentStateFromLedgerTx(innerTx, invoice_id);
+    }
+    return row;
+  });
+  if (wiring.postCommit) {
+    try {
+      await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger PAYMENT post failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+    }
   }
   return payment;
 }
 
 export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required');
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const reversed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Flip the reversal flag first (guarded by reversed = false so a double
     // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
@@ -1295,14 +1403,22 @@ export async function reversePayment(paymentId, { reversed_by, reason, tenantId 
       const paymentState = await recomputeInvoicePaymentStateTx(tx, rows[0].invoice_id);
       await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState, tx);
     }
+    // Phase 4 enforce: post the reversal INSIDE the tx so a ledger failure rolls back.
+    if (wiring.sameTx) {
+      await postPaymentReversalEntry({ payment: rows[0], tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: the reversal restored PATIENT_AR; derive the invoice cache columns.
+      if (rows[0].invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, rows[0].invoice_id);
+    }
     return rows[0];
   });
-  // Ledger (Phase 3a): post-commit best-effort PAYMENT_REVERSAL (credit
-  // CASH|BANK / debit PATIENT_AR — the inverse of the original receipt).
-  try {
-    await postPaymentReversalEntry({ payment: reversed, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger PAYMENT_REVERSAL post failed (non-blocking)', { payment_id: reversed?.id, error: ledgerErr.message });
+  // Shadow: post-commit best-effort PAYMENT_REVERSAL (credit CASH|BANK / debit
+  // PATIENT_AR — the inverse of the original receipt). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postPaymentReversalEntry({ payment: reversed, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger PAYMENT_REVERSAL post failed (non-blocking)', { payment_id: reversed?.id, error: ledgerErr.message });
+    }
   }
   return reversed;
 }
@@ -1319,7 +1435,9 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
   const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
-  const rows = await prisma.$queryRawUnsafe(
+  const wiring = await resolveLedgerWiring(tenant);
+  // The advance INSERT, runnable on a plain client (shadow) or a tx (enforce).
+  const insertAdvance = (db) => db.$queryRawUnsafe(
     `INSERT INTO billing_advances
       (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes, tenant_id)
      VALUES ($1::uuid, $2, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7, $8::uuid)
@@ -1329,13 +1447,28 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     Number(amount), mode, reference || null,
     collected_by ? String(collected_by) : null, notes || null, tenant,
   );
-  const advance = rows[0];
-  // Ledger (Phase 3a): post-commit best-effort ADVANCE_COLLECT (debit CASH|BANK
-  // / credit PATIENT_ADVANCE). Non-blocking — the advance is already recorded.
-  try {
-    await postAdvanceCollectEntry({ advance, tenantId: tenant });
-  } catch (ledgerErr) {
-    logger.error('Ledger ADVANCE_COLLECT post failed (non-blocking)', { advance_id: advance?.id, error: ledgerErr.message });
+  let advance;
+  if (wiring.sameTx) {
+    // Enforce: INSERT + ledger post in one tx so a ledger failure rolls back the advance.
+    advance = await setTenantTx(tenant, async (tx) => {
+      const r = await insertAdvance(tx);
+      await postAdvanceCollectEntry({ advance: r[0], tenantId: tenant, tx });
+      // Phase 4-3: derive the advance balance from the ledger (PATIENT_ADVANCE).
+      await deriveAdvanceBalanceFromLedgerTx(tx, Number(r[0].id));
+      return r[0];
+    });
+  } else {
+    const rows = await insertAdvance(prisma);
+    advance = rows[0];
+  }
+  // Shadow: post-commit best-effort ADVANCE_COLLECT (debit CASH|BANK / credit
+  // PATIENT_ADVANCE) — the advance is already recorded. Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postAdvanceCollectEntry({ advance, tenantId: tenant });
+    } catch (ledgerErr) {
+      logger.error('Ledger ADVANCE_COLLECT post failed (non-blocking)', { advance_id: advance?.id, error: ledgerErr.message });
+    }
   }
   return advance;
 }
@@ -1355,6 +1488,7 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   let settledPatientUid = null;
   const settlement = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // Lock the advance row FOR UPDATE before reading its balance — without the
@@ -1431,14 +1565,24 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
         WHERE id = $2::int`,
       Number(amount), Number(invoice_id),
     );
+    // Phase 4 enforce: post ADVANCE_SETTLE INSIDE the tx so a ledger failure rolls back.
+    if (wiring.sameTx) {
+      await postAdvanceSettleEntry({ settlement: settlementRow[0], patientUid: settledPatientUid, tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: the post moved PATIENT_ADVANCE and PATIENT_AR; derive both
+      // cache columns from the ledger.
+      await deriveAdvanceBalanceFromLedgerTx(tx, Number(advance_id));
+      await deriveInvoicePaymentStateFromLedgerTx(tx, Number(invoice_id));
+    }
     return settlementRow[0];
   });
-  // Ledger (Phase 3a): post-commit best-effort ADVANCE_SETTLE (debit
-  // PATIENT_ADVANCE / credit PATIENT_AR). Non-blocking.
-  try {
-    await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger ADVANCE_SETTLE post failed (non-blocking)', { settlement_id: settlement?.id, error: ledgerErr.message });
+  // Shadow: post-commit best-effort ADVANCE_SETTLE (debit PATIENT_ADVANCE /
+  // credit PATIENT_AR). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger ADVANCE_SETTLE post failed (non-blocking)', { settlement_id: settlement?.id, error: ledgerErr.message });
+    }
   }
   return settlement;
 }
@@ -1552,21 +1696,42 @@ export async function raiseRefund({
 export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
   const params = [approved_by ? String(approved_by) : null, Number(refundId)];
   const tenantSql = appendTenantPredicate(params, tenantId);
-  const rows = await prisma.$queryRawUnsafe(
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
+  // The PENDING→APPROVED UPDATE, runnable on a plain client (shadow) or a tx (enforce).
+  const doApprove = (db) => db.$queryRawUnsafe(
     `UPDATE billing_refunds
         SET approval_status = 'APPROVED', approved_by = $1::uuid, approved_at = NOW(), updated_at = NOW()
       WHERE id = $2::int AND approval_status = 'PENDING'${tenantSql}
       RETURNING *`,
     ...params,
   );
-  if (!rows.length) throw AppError.notFound('Refund not found or not pending');
-  const refund = rows[0];
-  // Ledger (Phase 3b): post-commit best-effort REFUND_APPROVE (credit
-  // REFUNDS_PAYABLE / debit PATIENT_AR|PATIENT_ADVANCE). Non-blocking.
-  try {
-    await postRefundApproveEntry({ refund, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger REFUND_APPROVE post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+  let refund;
+  if (wiring.sameTx) {
+    // Enforce: UPDATE + ledger post in one tx so a ledger failure rolls back the approval.
+    refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+      const rows = await doApprove(tx);
+      if (!rows.length) throw AppError.notFound('Refund not found or not pending');
+      await postRefundApproveEntry({ refund: rows[0], tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: refund-approve restored PATIENT_AR (invoice) / reduced
+      // PATIENT_ADVANCE (advance) — ledger timing puts the refund's column effect
+      // HERE (at approve), not at payout. Derive the affected cache column.
+      if (rows[0].advance_id) await deriveAdvanceBalanceFromLedgerTx(tx, rows[0].advance_id, { exhaustedStatus: 'REFUNDED' });
+      else if (rows[0].invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, rows[0].invoice_id);
+      return rows[0];
+    });
+  } else {
+    const rows = await doApprove(prisma);
+    if (!rows.length) throw AppError.notFound('Refund not found or not pending');
+    refund = rows[0];
+  }
+  // Shadow: post-commit best-effort REFUND_APPROVE (credit REFUNDS_PAYABLE /
+  // debit PATIENT_AR|PATIENT_ADVANCE). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postRefundApproveEntry({ refund, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger REFUND_APPROVE post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+    }
   }
   return refund;
 }
@@ -1592,6 +1757,7 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
 }
 
 export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
     // double "mark paid" affects zero rows on the second call (already PAID),
@@ -1613,10 +1779,11 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
     if (!rows.length) throw AppError.notFound('Refund not found or not approved');
     const refund = rows[0];
 
-    // If linked to an advance: atomically reduce the advance balance. The
-    // `balance >= amt` guard prevents the payout from driving the balance
-    // negative if the advance was concurrently consumed.
-    if (refund.advance_id) {
+    // If linked to an advance: atomically reduce the advance balance (SHADOW/OFF
+    // only). Under enforce the refund already reduced PATIENT_ADVANCE at approve
+    // (ledger timing); re-applying here would double-count, and the `balance >=
+    // amt` guard would spuriously fail against the already-reduced balance.
+    if (!wiring.sameTx && refund.advance_id) {
       const dec = await tx.$queryRawUnsafe(
         `UPDATE billing_advances
             SET balance = balance - $1::numeric,
@@ -1635,10 +1802,9 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
       }
     }
 
-    // If linked to an invoice: reduce the invoice's amount_paid (and bump
-    // amount_due / status) so paying out a refund doesn't leave the invoice
-    // showing money the patient no longer has. Lock the invoice first.
-    if (refund.invoice_id) {
+    // If linked to an invoice: reduce the invoice's amount_paid (SHADOW/OFF only;
+    // under enforce the refund already hit PATIENT_AR at approve). Lock first.
+    if (!wiring.sameTx && refund.invoice_id) {
       const inv = await lockBillingInvoice(tx, refund.invoice_id, tenantId, 'amount_paid, total_amount');
       if (inv) {
         await tx.$executeRawUnsafe(
@@ -1656,14 +1822,25 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
         );
       }
     }
+    // Phase 4 enforce: post REFUND_PAID INSIDE the tx so a ledger failure rolls
+    // back, then derive the cache columns from the ledger. REFUND_PAID only moves
+    // REFUNDS_PAYABLE->CASH, so the columns reflect the approve-time reduction and
+    // are unchanged by the payout (deriving is robust regardless of approve mode).
+    if (wiring.sameTx) {
+      await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId), tx });
+      if (refund.advance_id) await deriveAdvanceBalanceFromLedgerTx(tx, refund.advance_id, { exhaustedStatus: 'REFUNDED' });
+      if (refund.invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, refund.invoice_id);
+    }
     return refund;
   });
-  // Ledger (Phase 3b): post-commit best-effort REFUND_PAID (debit
-  // REFUNDS_PAYABLE / credit CASH|BANK). Non-blocking.
-  try {
-    await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger REFUND_PAID post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+  // Shadow: post-commit best-effort REFUND_PAID (debit REFUNDS_PAYABLE /
+  // credit CASH|BANK). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger REFUND_PAID post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+    }
   }
   return refund;
 }

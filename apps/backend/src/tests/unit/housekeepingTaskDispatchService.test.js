@@ -6,6 +6,7 @@ const prismaMock = {
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: prismaMock,
   setTenantTx: async (_tenantId, fn) => fn(prismaMock),
   setTenant: async (_tenantId, fn) => fn(prismaMock),

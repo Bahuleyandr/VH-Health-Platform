@@ -20,6 +20,7 @@ const prismaDefaultMock = {
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: prismaDefaultMock,
   // SEC-3: admissionService imports setTenantTx for its tenant-scoped discharge
   // transactions. This test only exercises markDischargeDrugsDispensed (not a

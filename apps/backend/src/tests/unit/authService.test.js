@@ -8,6 +8,7 @@ import { jest } from '@jest/globals';
 // Mock prisma
 import mockPrisma from '../__mocks__/prisma.js';
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: mockPrisma,
   setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
   setTenant: async (_tenantId, fn) => fn(mockPrisma),

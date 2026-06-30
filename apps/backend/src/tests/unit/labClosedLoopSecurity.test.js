@@ -16,6 +16,7 @@ const __prismaTxMock = {
   $executeRawUnsafe: txExecuteRawUnsafeMock,
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaTxMock),
   setTenant: async (_tenantId, fn) => fn(__prismaTxMock),

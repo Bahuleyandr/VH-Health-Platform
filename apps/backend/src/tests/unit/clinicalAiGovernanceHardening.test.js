@@ -5,6 +5,7 @@ const recordDecisionMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
   setTenant: (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock }),
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
