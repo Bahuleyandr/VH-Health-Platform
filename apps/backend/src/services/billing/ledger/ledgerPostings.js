@@ -106,6 +106,24 @@ export async function postAdvanceCollectEntry({ advance, tenantId, tx = null }) 
   });
 }
 
+/** Post ADVANCE_REFUND: debit PATIENT_ADVANCE / credit CASH|BANK — pay an advance
+ * deposit back (the inverse of ADVANCE_COLLECT). Used by the IPD deposit-refund
+ * path under enforce so the mirrored billing_advances balance stays ledger-backed. */
+export async function postAdvanceRefundEntry({ advance, amount, mode, idempotencyKey, tenantId, tx = null }) {
+  const credit = paymentDebitAccount(mode);
+  if (!credit) return null;
+  const paise = toPaise(amount);
+  if (paise <= 0) return null;
+  return runPosting(tx, tenantId, {
+    entryType: 'ADVANCE_REFUND',
+    idempotencyKey,
+    lines: [
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: paise, advance_id: Number(advance.id), patient_uid: advance.patient_uid },
+      { accountCode: credit, amountPaise: -paise },
+    ],
+  });
+}
+
 /** Post ADVANCE_SETTLE: debit PATIENT_ADVANCE / credit PATIENT_AR. */
 export async function postAdvanceSettleEntry({ settlement, patientUid, tenantId, tx = null }) {
   const paise = toPaise(settlement.amount);
@@ -204,6 +222,6 @@ export async function postInsuranceShiftEntry({ claim, tenantId, tx = null }) {
 
 export default {
   paymentDebitAccount, postInvoiceIssueEntry, postPaymentEntry,
-  postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
+  postAdvanceCollectEntry, postAdvanceRefundEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
   postRefundApproveEntry, postRefundPaidEntry, postInsuranceShiftEntry,
 };

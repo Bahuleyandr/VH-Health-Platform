@@ -366,7 +366,7 @@ export async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
  * status to apply when the balance reaches zero; a non-zero balance keeps the
  * current status.
  */
-async function deriveAdvanceBalanceFromLedgerTx(tx, advanceId, { exhaustedStatus = 'EXHAUSTED' } = {}) {
+export async function deriveAdvanceBalanceFromLedgerTx(tx, advanceId, { exhaustedStatus = 'EXHAUSTED' } = {}) {
   const normalizedAdvanceId = Number(advanceId);
   const rows = await tx.$queryRawUnsafe(
     `SELECT COALESCE(SUM(b.balance_paise), 0)::bigint AS bal_paise

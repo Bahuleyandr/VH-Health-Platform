@@ -120,6 +120,32 @@ describe('postAdvanceCollectEntry', () => {
   });
 });
 
+describe('postAdvanceRefundEntry', () => {
+  it('posts debit PATIENT_ADVANCE / credit CASH for a cash advance refund', async () => {
+    const { postAdvanceRefundEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    await postAdvanceRefundEntry({ advance: { id: 3, patient_uid: PATIENT }, amount: '250.00', mode: 'cash', idempotencyKey: 'ipd-advance-refund-9', tenantId: TENANT });
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.entryType).toBe('ADVANCE_REFUND');
+    expect(arg.idempotencyKey).toBe('ipd-advance-refund-9');
+    expect(arg.lines).toEqual(expect.arrayContaining([
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: 25000, advance_id: 3, patient_uid: PATIENT },
+      { accountCode: 'CASH', amountPaise: -25000 },
+    ]));
+  });
+  it('threads a caller tx (same-tx) and maps electronic modes to BANK', async () => {
+    const { postAdvanceRefundEntry } = await import('../../services/billing/ledger/ledgerPostings.js');
+    const callerTx = { __fakeTx: 'caller' };
+    await postAdvanceRefundEntry({ advance: { id: 4, patient_uid: PATIENT }, amount: '100.00', mode: 'upi', idempotencyKey: 'ipd-advance-refund-10', tenantId: TENANT, tx: callerTx });
+    expect(setTenantTx).not.toHaveBeenCalled();
+    expect(postLedgerEntry.mock.calls.at(-1)[0]).toBe(callerTx);
+    const arg = postLedgerEntry.mock.calls.at(-1)[1];
+    expect(arg.lines).toEqual(expect.arrayContaining([
+      { accountCode: 'PATIENT_ADVANCE', amountPaise: 10000, advance_id: 4, patient_uid: PATIENT },
+      { accountCode: 'BANK', amountPaise: -10000 },
+    ]));
+  });
+});
+
 describe('postAdvanceSettleEntry', () => {
   it('posts debit PATIENT_ADVANCE / credit PATIENT_AR', async () => {
     const { postAdvanceSettleEntry } = await import('../../services/billing/ledger/ledgerPostings.js');

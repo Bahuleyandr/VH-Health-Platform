@@ -12,6 +12,9 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
+import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
+import { postAdvanceRefundEntry } from '../billing/ledger/ledgerPostings.js';
+import { deriveAdvanceBalanceFromLedgerTx } from '../billing/billingV2Service.js';
 
 // Wave-4B-1 — 'deferred' is the IRDAI/MCI emergency-care payment mode for
 // unidentified patients and brought-in-dead RTA victims. The hospital must
@@ -384,7 +387,9 @@ export async function refundAdvanceDeposit({
   }
   if (!refundedBy) throw AppError.badRequest('refundedBy is required');
 
-  return setTenantTx(tid, async (tx) => {
+  const wiring = await resolveLedgerWiring(tid);
+  let shadowPostCtx = null; // captured for the shadow post-commit ledger entry
+  const refundRow = await setTenantTx(tid, async (tx) => {
     const parent = await tx.advance_deposits.findFirst({
       where: { id: parentDepositId, tenant_id: tid },
       select: {
@@ -438,19 +443,65 @@ export async function refundAdvanceDeposit({
     );
     const parentReceipt = parentRows[0]?.receipt_number;
     if (parentReceipt) {
-      await tx.$executeRawUnsafe(
-        `UPDATE billing_advances
-            SET balance = GREATEST(balance - $1::numeric, 0::numeric),
-                status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
-                              THEN 'EXHAUSTED' ELSE status END,
-                updated_at = NOW()
-          WHERE reference = $2 AND tenant_id = $3::uuid`,
-        num, `IPD/${parentReceipt}`, tid,
+      const ref = `IPD/${parentReceipt}`;
+      const advRows = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid, balance FROM billing_advances WHERE reference = $1 AND tenant_id = $2::uuid`,
+        ref, tid,
       );
+      const adv = advRows[0];
+      const refundable = adv ? Math.min(num, Number(adv.balance)) : 0;
+      if (wiring.sameTx) {
+        // Phase 4-6 (enforce): post the advance refund to the ledger and DERIVE the
+        // mirrored billing_advances balance from it — no rogue direct write. Capped
+        // at the (ledger-derived) balance, mirroring the legacy GREATEST(...,0), so
+        // the no-negative constraint can't reject a partial over-refund.
+        if (adv && refundable > 0) {
+          await postAdvanceRefundEntry({
+            advance: { id: adv.id, patient_uid: adv.patient_uid },
+            amount: refundable, mode: paymentMethod,
+            idempotencyKey: `ipd-advance-refund-${refund.id}`,
+            tenantId: tid, tx,
+          });
+          await deriveAdvanceBalanceFromLedgerTx(tx, adv.id, { exhaustedStatus: 'EXHAUSTED' });
+        }
+      } else {
+        // Shadow/off: legacy direct decrement of the mirrored row (capped at 0).
+        await tx.$executeRawUnsafe(
+          `UPDATE billing_advances
+              SET balance = GREATEST(balance - $1::numeric, 0::numeric),
+                  status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
+                                THEN 'EXHAUSTED' ELSE status END,
+                  updated_at = NOW()
+            WHERE reference = $2 AND tenant_id = $3::uuid`,
+          num, ref, tid,
+        );
+        // Shadow: post the ledger entry post-commit (best-effort) so the shadow
+        // ledger stays complete for a clean eventual flip. Off: skip.
+        if (wiring.postCommit && adv && refundable > 0) {
+          shadowPostCtx = { advanceId: adv.id, patientUid: adv.patient_uid, refundable };
+        }
+      }
     }
 
     return refund;
   });
+
+  // Shadow: post-commit best-effort ADVANCE_REFUND (debit PATIENT_ADVANCE / credit
+  // CASH|BANK) — never blocks the IPD refund. Enforce already posted in-tx; off skips.
+  if (shadowPostCtx) {
+    try {
+      await postAdvanceRefundEntry({
+        advance: { id: shadowPostCtx.advanceId, patient_uid: shadowPostCtx.patientUid },
+        amount: shadowPostCtx.refundable, mode: paymentMethod,
+        idempotencyKey: `ipd-advance-refund-${refundRow.id}`,
+        tenantId: tid,
+      });
+    } catch (ledgerErr) {
+      logger.error('Ledger ADVANCE_REFUND post failed (non-blocking)', { refund_id: refundRow?.id, error: ledgerErr.message });
+    }
+  }
+
+  return refundRow;
 }
 
 /**
