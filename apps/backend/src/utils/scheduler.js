@@ -198,7 +198,7 @@ import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChai
 // Fans out per-tenant (audit §3): the bare runRevenueCycleSweep({}) collapsed to
 // the default tenant only, so every other tenant's queue went untracked.
 import { runRevenueCycleSweepAllTenants } from '../services/billing/revenueCycleTrackerService.js';
-import { reconcileLedger } from '../services/billing/ledger/ledgerReconciliation.js';
+import { reconcileLedger, persistReconciliationCheck } from '../services/billing/ledger/ledgerReconciliation.js';
 import { resolveLedgerModeForTenant } from '../services/billing/ledger/ledgerAuthoritativeMode.js';
 
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
@@ -559,6 +559,7 @@ if (process.env.NODE_ENV !== 'test') {
       try {
         const tenantMode = await resolveLedgerModeForTenant(String(t.id));
         const r = await reconcileLedger(String(t.id), { mode: tenantMode });
+        await persistReconciliationCheck(String(t.id), r, tenantMode); // Phase 4-5 evidence row
         drift += r.mismatches.length + r.unwired.length + r.eventsDrift.length + (r.trialBalancePaise !== 0 ? 1 : 0);
       } catch (err) {
         logger.error('ledger-reconciliation tenant failed', { tenantId: String(t.id), error: err.message });

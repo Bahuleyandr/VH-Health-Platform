@@ -166,4 +166,31 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
   return result;
 }
 
-export default { applyArOpeningBalances, reconcileLedger };
+/**
+ * Phase 4-5: append a durable evidence row for one tenant's reconcile sweep.
+ * Best-effort — a persistence failure must never break the sweep. `passed` is
+ * true iff there was zero drift of any kind. The accumulation of clean rows over
+ * time is the operator's flip-readiness evidence (see
+ * scripts/ledger-reconciliation-evidence.mjs).
+ * @param {string} tenantId
+ * @param {{mismatches:Array, unwired:Array, eventsDrift:Array, trialBalancePaise:number}} result
+ * @param {'off'|'shadow'|'enforce'} [mode]
+ */
+export async function persistReconciliationCheck(tenantId, result, mode = 'shadow') {
+  const passed = !(result.mismatches.length || result.unwired.length
+    || result.eventsDrift.length || result.trialBalancePaise !== 0);
+  try {
+    await setTenantTx(tenantId, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO reconciliation_checks
+         (tenant_id, mode, mismatch_count, unwired_count, events_drift_count, trial_balance_paise, passed)
+       VALUES ($1::uuid, $2, $3::int, $4::int, $5::int, $6::bigint, $7::boolean)`,
+      tenantId, mode, result.mismatches.length, result.unwired.length,
+      result.eventsDrift.length, result.trialBalancePaise, passed,
+    ));
+  } catch (err) {
+    logger.warn('persistReconciliationCheck failed (non-blocking)', { tenantId, error: err?.message });
+  }
+  return { passed };
+}
+
+export default { applyArOpeningBalances, reconcileLedger, persistReconciliationCheck };

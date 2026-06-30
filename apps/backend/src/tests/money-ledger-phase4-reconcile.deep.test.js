@@ -15,7 +15,7 @@ jest.unstable_mockModule('../observability/reliabilityMetrics.js', () => ({ reco
 const { randomUUID } = await import('node:crypto');
 const prismaMod = await import('../lib/prisma.js');
 const prisma = prismaMod.default;
-const { reconcileLedger } = await import('../services/billing/ledger/ledgerReconciliation.js');
+const { reconcileLedger, persistReconciliationCheck } = await import('../services/billing/ledger/ledgerReconciliation.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const cleanup = { invoiceIds: [], patientUids: [] };
@@ -71,5 +71,18 @@ describe('Phase 4-4 — reconcile drift alerting is mode-scoped', () => {
     expect(recon.unwired.find((u) => u.invoiceId === invoiceId)).toBeTruthy();
     expect(captureException).not.toHaveBeenCalled();
     expect(recordLedgerReconciliationDrift).not.toHaveBeenCalled();
+  });
+
+  it('persistReconciliationCheck appends an evidence row; passed reflects drift', async () => {
+    await persistReconciliationCheck(TENANT, { mismatches: [], unwired: [], eventsDrift: [], trialBalancePaise: 0 }, 'enforce');
+    await persistReconciliationCheck(TENANT, { mismatches: [{ invoiceId: 1 }], unwired: [], eventsDrift: [], trialBalancePaise: 0 }, 'enforce');
+    const evRows = await prisma.$queryRawUnsafe(
+      `SELECT passed, mismatch_count, mode FROM reconciliation_checks WHERE tenant_id = $1::uuid ORDER BY id DESC LIMIT 2`, TENANT,
+    );
+    expect(evRows.length).toBe(2);
+    expect(evRows[0].passed).toBe(false);            // most recent = the drifted sweep
+    expect(Number(evRows[0].mismatch_count)).toBe(1);
+    expect(evRows[0].mode).toBe('enforce');
+    expect(evRows[1].passed).toBe(true);             // the clean sweep
   });
 });
