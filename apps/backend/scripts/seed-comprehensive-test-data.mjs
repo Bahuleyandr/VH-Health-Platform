@@ -16,6 +16,15 @@ const MANUAL_SEED_TABLES = new Set([
   'chemo_protocol_drugs',
   'chemo_cycles',
   'dental_tooth_findings',
+  // Double-entry ledger transactional tables — migration 344 added a
+  // constraint trigger (ledger_assert_entry_balanced, DEFERRABLE INITIALLY
+  // DEFERRED) requiring each entry's postings to sum to 0 at COMMIT. The
+  // naive auto-seeder inserts a single unbalanced posting, which aborts the
+  // whole seed transaction. They still need a row for the seeded-coverage
+  // contract, so seedLedgerEntries below inserts one balanced journal entry
+  // (two postings netting to zero) instead.
+  'ledger_entries',
+  'ledger_postings',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -965,6 +974,47 @@ async function seedInsuranceClaimCaps() {
   ]);
 }
 
+// Explicit seed for the double-entry ledger (migrations 343/344). The
+// auto-seeder is excluded from ledger_entries/ledger_postings (see
+// MANUAL_SEED_TABLES) because it would insert a single unbalanced posting,
+// and ledger_postings_balanced (DEFERRABLE INITIALLY DEFERRED) rejects any
+// entry whose postings don't sum to 0 at COMMIT. Insert one balanced journal
+// entry — two equal-and-opposite postings — so the seeded.table.coverage
+// contract sees a row in both tables. tenant_id defaults to the literal
+// default tenant on every ledger row (GUC unset during seeding).
+async function seedLedgerEntries() {
+  if (await tableCount('ledger_entries')) return;
+
+  // Any ledger account works — the balance invariant is about the entry's
+  // posting sum, not which accounts are touched. Reuse an auto-seeded
+  // ledger_accounts row, or create a minimal one if none exists yet.
+  let account = await first('ledger_accounts', 'id');
+  if (!account) {
+    const created = await client.query(
+      `INSERT INTO ledger_accounts (code, type, description)
+       VALUES ('SEED-COVERAGE', 'ASSET', 'Seed account for QA coverage')
+       RETURNING id`,
+    );
+    account = created.rows[0];
+  }
+
+  const entry = await client.query(
+    `INSERT INTO ledger_entries (entry_type, idempotency_key, metadata)
+     VALUES ('SEED_COVERAGE', 'seed-coverage-balanced-1', '{}'::jsonb)
+     RETURNING id`,
+  );
+  const entryId = entry.rows[0].id;
+
+  // Two postings netting to zero — satisfies ledger_assert_entry_balanced
+  // at COMMIT. Inserted in one statement; the deferred trigger checks the
+  // entry total once the transaction commits.
+  await client.query(
+    `INSERT INTO ledger_postings (entry_id, account_id, amount_paise)
+     VALUES ($1, $2, $3), ($1, $2, $4)`,
+    [entryId, account.id, 100000, -100000],
+  );
+}
+
 // Explicit seeds for the Pillar-D workflow tables (migrations 285/290/292).
 // The auto-seeder can't navigate their domain CHECK constraints — provider
 // availability and resource bookings require ordered time windows
@@ -1048,6 +1098,7 @@ try {
   await seedCoreData();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
+  await seedLedgerEntries();
   await seedPillarDWorkflowTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
