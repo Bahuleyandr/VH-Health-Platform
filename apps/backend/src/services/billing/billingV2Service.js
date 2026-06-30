@@ -318,6 +318,45 @@ async function recomputeInvoicePaymentStateTx(tx, invoiceId) {
   return { paid, due, status };
 }
 
+/**
+ * Phase 4-3 (enforce): derive the invoice's cached amount_paid / amount_due /
+ * status FROM the ledger — amount_due = (PATIENT_AR + INSURANCE_AR) balance for
+ * the invoice — instead of the legacy Σ(billing_payments)+Σ(settlements)
+ * recompute. MUST run AFTER the movement's ledger post so ledger_balances
+ * already reflects it. Uses the IDENTICAL status thresholds as
+ * recomputeInvoicePaymentStateTx, so enforce and shadow agree whenever the
+ * ledger and the event tables are consistent. The (PATIENT_AR + INSURANCE_AR)
+ * sum preserves legacy semantics across the insurance two-step (approval shifts
+ * AR -> INSURANCE_AR without changing the patient's due).
+ */
+async function deriveInvoicePaymentStateFromLedgerTx(tx, invoiceId) {
+  const normalizedInvoiceId = Number(invoiceId);
+  const arRows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(b.balance_paise), 0)::bigint AS due_paise
+       FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
+      WHERE a.code IN ('PATIENT_AR', 'INSURANCE_AR') AND b.invoice_id = $1::int`,
+    normalizedInvoiceId,
+  );
+  const inv = await tx.$queryRawUnsafe(
+    `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
+    normalizedInvoiceId,
+  );
+  if (!inv.length) throw AppError.notFound('Invoice not found');
+  const total = Number(inv[0].total_amount);
+  const due = toFixed2(Number(arRows[0].due_paise) / 100);
+  const paid = toFixed2(total - due);
+  let status = 'PARTIAL';
+  if (due <= 0.005) status = 'PAID';
+  else if (paid <= 0.005) status = 'ISSUED';
+  await tx.$executeRawUnsafe(
+    `UPDATE billing_invoices
+        SET amount_paid = $1::numeric, amount_due = $2::numeric, status = $3, updated_at = NOW()
+      WHERE id = $4::int`,
+    paid, due, status, normalizedInvoiceId,
+  );
+  return { paid, due, status };
+}
+
 async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState, db = prisma) {
   const rows = await db.$queryRawUnsafe(
     `SELECT id, admission_id
@@ -1289,7 +1328,12 @@ export async function collectPayment({
   const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const payment = await setTenantTx(requireTenantId(tenantId), async (innerTx) => {
     const row = await collectPaymentTx(innerTx, args);
-    if (wiring.sameTx) await postPaymentEntry({ payment: row, tenantId: requireTenantId(tenantId), tx: innerTx });
+    if (wiring.sameTx) {
+      await postPaymentEntry({ payment: row, tenantId: requireTenantId(tenantId), tx: innerTx });
+      // Phase 4-3: the post above moved PATIENT_AR; derive the invoice cache
+      // columns from the ledger (overwrites the legacy recompute inside collectPaymentTx).
+      if (invoice_id) await deriveInvoicePaymentStateFromLedgerTx(innerTx, invoice_id);
+    }
     return row;
   });
   if (wiring.postCommit) {
@@ -1331,7 +1375,11 @@ export async function reversePayment(paymentId, { reversed_by, reason, tenantId 
       await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState, tx);
     }
     // Phase 4 enforce: post the reversal INSIDE the tx so a ledger failure rolls back.
-    if (wiring.sameTx) await postPaymentReversalEntry({ payment: rows[0], tenantId: requireTenantId(tenantId), tx });
+    if (wiring.sameTx) {
+      await postPaymentReversalEntry({ payment: rows[0], tenantId: requireTenantId(tenantId), tx });
+      // Phase 4-3: the reversal restored PATIENT_AR; derive the invoice cache columns.
+      if (rows[0].invoice_id) await deriveInvoicePaymentStateFromLedgerTx(tx, rows[0].invoice_id);
+    }
     return rows[0];
   });
   // Shadow: post-commit best-effort PAYMENT_REVERSAL (credit CASH|BANK / debit

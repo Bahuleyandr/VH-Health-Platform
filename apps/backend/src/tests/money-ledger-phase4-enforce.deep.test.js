@@ -86,5 +86,14 @@ describe('Phase 4 enforce — collectPayment posts the ledger in the same tx', (
     // the PAYMENT entry exists under its idempotency key
     const entry = await prisma.$queryRawUnsafe(`SELECT id FROM ledger_entries WHERE idempotency_key = $1`, `payment-${payment.id}`);
     expect(entry.length).toBe(1);
+
+    // Phase 4-3: the legacy cache columns are now DERIVED from the ledger
+    // (amount_due = (PATIENT_AR + INSURANCE_AR)/100), not the Σ(payments) recompute.
+    const invRow = await prisma.$queryRawUnsafe(
+      `SELECT amount_due, amount_paid, status FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
+    );
+    expect(Number(invRow[0].amount_due)).toBe(600);   // ledger PATIENT_AR 60000 paise / 100
+    expect(Number(invRow[0].amount_paid)).toBe(400);  // total 1000 - due 600
+    expect(invRow[0].status).toBe('PARTIAL');
   });
 });
