@@ -55303,6 +55303,23 @@
         }
       }
     },
+    "/api/v1/clinical-alerts/recent": {
+      "get": {
+        "operationId": "get_api_v1_clinical_alerts_recent",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/clinical-inbox/tasks/inbox": {
       "get": {
         "operationId": "get_api_v1_clinical_inbox_tasks_inbox",

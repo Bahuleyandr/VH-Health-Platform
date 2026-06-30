@@ -50,6 +50,14 @@ jobs:
       JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
       NODE_ENV: test
       VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+      # Mandatory at-rest encryption keys (validateEnv requires them, min 32
+      # chars). The jest harness pins these in-process via jest.setup.cjs, but
+      # the OpenAPI drift step boots the app fresh through generate-openapi.mjs,
+      # so they must be present at the job env too or validateEnv aborts the
+      # spec regeneration. CI-only dummies — same values as smoke-e2e.yml.
+      FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
+      BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
 
     steps:
       - uses: actions/checkout@v6
