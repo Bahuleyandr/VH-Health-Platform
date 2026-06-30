@@ -12,6 +12,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { postInsuranceShiftEntry } from '../billing/ledger/ledgerPostings.js';
+import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import logger from '../../logging/logger.js';
 
@@ -1929,6 +1930,7 @@ export async function recordClaimDecision({
   // on a no-lock read; without this lock two concurrent decisions both read the
   // old status, both pass, and both write (distinct-ref last-writer-wins).
   const tid = requireTenantId(tenantId);
+  const wiring = await resolveLedgerWiring(tid);
   await setTenantTx(tid, async (tx) => {
     const lockedRows = await tx.$queryRawUnsafe(
       `SELECT id, status FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1 FOR UPDATE`,
@@ -1973,6 +1975,16 @@ export async function recordClaimDecision({
       ].filter(Boolean).join('\n'),
       recorded_by ? String(recorded_by) : null,
     );
+
+    // Phase 4 enforce: on insurer approval shift PATIENT_AR -> INSURANCE_AR
+    // INSIDE the decision tx so a ledger failure rolls back the decision. Uses
+    // the committed amount = COALESCE(param, existing) to mirror the UPDATE above.
+    if (wiring.sameTx && (decision === 'approved' || decision === 'partially_approved') && cl.invoice_id) {
+      await postInsuranceShiftEntry({
+        claim: { id: cl.id, invoice_id: cl.invoice_id, patient_uid: cl.patient_uid, approved_amount: approved_amount ?? cl.approved_amount },
+        tenantId: tid, tx,
+      });
+    }
   });
 
   const updated = await getClaim({ tenantId, id });
@@ -1980,7 +1992,7 @@ export async function recordClaimDecision({
   // PATIENT_AR -> INSURANCE_AR for the approved amount. Post-commit best-effort;
   // a ledger problem never blocks the claim decision. Only meaningful when the
   // claim is invoice-linked and the insurer committed an amount.
-  if ((decision === 'approved' || decision === 'partially_approved') && updated && updated.invoice_id) {
+  if (wiring.postCommit && (decision === 'approved' || decision === 'partially_approved') && updated && updated.invoice_id) {
     try {
       await postInsuranceShiftEntry({
         claim: {

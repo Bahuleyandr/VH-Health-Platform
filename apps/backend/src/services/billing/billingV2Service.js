@@ -692,13 +692,15 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
   if (items[0].c === 0) throw AppError.badRequest('Cannot issue an invoice with no items');
 
   const number = await nextInvoiceNumber(inv.tenant_id);
+  const wiring = await resolveLedgerWiring(requireTenantId(inv.tenant_id));
   // GST compliance: backfill recipient name/phone and (for IP) issuing
   // doctor + department at issue time. These are statutory snapshot
   // fields — a B2C tax invoice with null recipient name is not a valid
   // tax document, and joining at read time loses the value if the
   // patient/admission row changes later. Finding:
   //   2026-05-09-inpatient-admission-billing-invoice-missing-patient-fields
-  await prisma.$executeRawUnsafe(
+  // The DRAFT→ISSUED UPDATE, runnable on a plain client (shadow) or a tx (enforce).
+  const doIssueUpdate = (db) => db.$executeRawUnsafe(
     `UPDATE billing_invoices
         SET invoice_number = $1,
             status = 'ISSUED',
@@ -724,17 +726,39 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
       WHERE id = $2::int`,
     number, Number(invoiceId),
   );
-
-  // Issuing transitions DRAFT → ISSUED without changing totals, but
-  // re-check the TPA cap anyway so a draft that's already over cap
-  // surfaces an alert at issuance. recomputeInvoiceTotals only fires
-  // on item / discount mutations.
-  const meta = await prisma.$queryRawUnsafe(
+  // Issuing transitions DRAFT → ISSUED without changing totals; read them back
+  // for the TPA cap re-check and the INVOICE_ISSUE ledger post.
+  const readIssueMeta = (db) => db.$queryRawUnsafe(
     `SELECT admission_id, patient_uid, tenant_id, total_amount,
             (COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(igst_amount,0)) AS tax_amount
        FROM billing_invoices WHERE id = $1::int`,
     Number(invoiceId),
   );
+
+  let meta;
+  if (wiring.sameTx) {
+    // Enforce: the ISSUED transition and the INVOICE_ISSUE ledger post (debit
+    // PATIENT_AR / credit REVENUE) commit together, so a ledger failure rolls
+    // back the issuance.
+    meta = await setTenantTx(requireTenantId(inv.tenant_id), async (tx) => {
+      await doIssueUpdate(tx);
+      const m = await readIssueMeta(tx);
+      if (m.length && m[0].patient_uid) {
+        await postInvoiceIssueEntry({
+          invoice: { id: invoiceId, patient_uid: m[0].patient_uid, total_amount: m[0].total_amount, tax_amount: m[0].tax_amount },
+          tenantId: m[0].tenant_id, tx,
+        });
+      }
+      return m;
+    });
+  } else {
+    await doIssueUpdate(prisma);
+    meta = await readIssueMeta(prisma);
+  }
+
+  // Re-check the TPA cap so a draft that's already over cap surfaces an alert at
+  // issuance (best-effort, both modes). recomputeInvoiceTotals only fires on
+  // item / discount mutations.
   if (meta.length && meta[0].admission_id && meta[0].patient_uid) {
     try {
       await maybeEmitTpaCapAlerts({
@@ -751,11 +775,10 @@ export async function issueInvoice(invoiceId, { tenantId } = {}) {
     }
   }
 
-  // Ledger (Phase 2a): post-commit best-effort INVOICE_ISSUE entry (debit
-  // PATIENT_AR / credit REVENUE). The legacy invoice is already ISSUED — a
-  // ledger failure is logged and dropped, never blocking issuance. The ledger
-  // is not yet authoritative; reconciliation (Phase 2b) catches any drift.
-  if (meta.length && meta[0].patient_uid) {
+  // Shadow: post-commit best-effort INVOICE_ISSUE (debit PATIENT_AR / credit
+  // REVENUE) — the legacy invoice is already ISSUED, a ledger failure is logged
+  // and dropped, reconciliation (Phase 2b) catches drift. Off: skip.
+  if (wiring.postCommit && meta.length && meta[0].patient_uid) {
     try {
       await postInvoiceIssueEntry({
         invoice: { id: invoiceId, patient_uid: meta[0].patient_uid, total_amount: meta[0].total_amount, tax_amount: meta[0].tax_amount },
@@ -1335,7 +1358,9 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
   const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
-  const rows = await prisma.$queryRawUnsafe(
+  const wiring = await resolveLedgerWiring(tenant);
+  // The advance INSERT, runnable on a plain client (shadow) or a tx (enforce).
+  const insertAdvance = (db) => db.$queryRawUnsafe(
     `INSERT INTO billing_advances
       (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes, tenant_id)
      VALUES ($1::uuid, $2, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7, $8::uuid)
@@ -1345,13 +1370,26 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     Number(amount), mode, reference || null,
     collected_by ? String(collected_by) : null, notes || null, tenant,
   );
-  const advance = rows[0];
-  // Ledger (Phase 3a): post-commit best-effort ADVANCE_COLLECT (debit CASH|BANK
-  // / credit PATIENT_ADVANCE). Non-blocking — the advance is already recorded.
-  try {
-    await postAdvanceCollectEntry({ advance, tenantId: tenant });
-  } catch (ledgerErr) {
-    logger.error('Ledger ADVANCE_COLLECT post failed (non-blocking)', { advance_id: advance?.id, error: ledgerErr.message });
+  let advance;
+  if (wiring.sameTx) {
+    // Enforce: INSERT + ledger post in one tx so a ledger failure rolls back the advance.
+    advance = await setTenantTx(tenant, async (tx) => {
+      const r = await insertAdvance(tx);
+      await postAdvanceCollectEntry({ advance: r[0], tenantId: tenant, tx });
+      return r[0];
+    });
+  } else {
+    const rows = await insertAdvance(prisma);
+    advance = rows[0];
+  }
+  // Shadow: post-commit best-effort ADVANCE_COLLECT (debit CASH|BANK / credit
+  // PATIENT_ADVANCE) — the advance is already recorded. Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postAdvanceCollectEntry({ advance, tenantId: tenant });
+    } catch (ledgerErr) {
+      logger.error('Ledger ADVANCE_COLLECT post failed (non-blocking)', { advance_id: advance?.id, error: ledgerErr.message });
+    }
   }
   return advance;
 }
@@ -1573,21 +1611,37 @@ export async function raiseRefund({
 export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
   const params = [approved_by ? String(approved_by) : null, Number(refundId)];
   const tenantSql = appendTenantPredicate(params, tenantId);
-  const rows = await prisma.$queryRawUnsafe(
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
+  // The PENDING→APPROVED UPDATE, runnable on a plain client (shadow) or a tx (enforce).
+  const doApprove = (db) => db.$queryRawUnsafe(
     `UPDATE billing_refunds
         SET approval_status = 'APPROVED', approved_by = $1::uuid, approved_at = NOW(), updated_at = NOW()
       WHERE id = $2::int AND approval_status = 'PENDING'${tenantSql}
       RETURNING *`,
     ...params,
   );
-  if (!rows.length) throw AppError.notFound('Refund not found or not pending');
-  const refund = rows[0];
-  // Ledger (Phase 3b): post-commit best-effort REFUND_APPROVE (credit
-  // REFUNDS_PAYABLE / debit PATIENT_AR|PATIENT_ADVANCE). Non-blocking.
-  try {
-    await postRefundApproveEntry({ refund, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger REFUND_APPROVE post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+  let refund;
+  if (wiring.sameTx) {
+    // Enforce: UPDATE + ledger post in one tx so a ledger failure rolls back the approval.
+    refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+      const rows = await doApprove(tx);
+      if (!rows.length) throw AppError.notFound('Refund not found or not pending');
+      await postRefundApproveEntry({ refund: rows[0], tenantId: requireTenantId(tenantId), tx });
+      return rows[0];
+    });
+  } else {
+    const rows = await doApprove(prisma);
+    if (!rows.length) throw AppError.notFound('Refund not found or not pending');
+    refund = rows[0];
+  }
+  // Shadow: post-commit best-effort REFUND_APPROVE (credit REFUNDS_PAYABLE /
+  // debit PATIENT_AR|PATIENT_ADVANCE). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postRefundApproveEntry({ refund, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger REFUND_APPROVE post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+    }
   }
   return refund;
 }
@@ -1613,6 +1667,7 @@ export async function rejectRefund(refundId, { rejected_by, rejection_reason, te
 }
 
 export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const refund = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     // The APPROVED → PAID guard in the WHERE makes the payout idempotent: a
     // double "mark paid" affects zero rows on the second call (already PAID),
@@ -1677,14 +1732,18 @@ export async function markRefundPaid(refundId, { paid_by, reference, tenantId } 
         );
       }
     }
+    // Phase 4 enforce: post REFUND_PAID INSIDE the tx so a ledger failure rolls back.
+    if (wiring.sameTx) await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId), tx });
     return refund;
   });
-  // Ledger (Phase 3b): post-commit best-effort REFUND_PAID (debit
-  // REFUNDS_PAYABLE / credit CASH|BANK). Non-blocking.
-  try {
-    await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger REFUND_PAID post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+  // Shadow: post-commit best-effort REFUND_PAID (debit REFUNDS_PAYABLE /
+  // credit CASH|BANK). Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postRefundPaidEntry({ refund, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger REFUND_PAID post failed (non-blocking)', { refund_id: refund?.id, error: ledgerErr.message });
+    }
   }
   return refund;
 }

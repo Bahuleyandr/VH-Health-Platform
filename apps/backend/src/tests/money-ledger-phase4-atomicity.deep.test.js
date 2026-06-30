@@ -67,9 +67,13 @@ afterAll(async () => {
 
 describe('Phase 4 atomicity — failing ledger post handled by mode', () => {
   it('enforce: a failing ledger post ROLLS BACK the payment (no billing_payments row)', async () => {
-    process.env.LEDGER_AUTHORITATIVE_MODE = 'enforce';
+    // Issue the invoice under shadow so issueInvoice's (now enforce-wired) ledger
+    // post can't roll back the setup while postLedgerEntry is mocked to throw.
+    process.env.LEDGER_AUTHORITATIVE_MODE = 'shadow';
     const patient = await makePatient();
     const invoiceId = await makeIssuedInvoice(patient, 1000);
+    // Switch to enforce for the payment under test.
+    process.env.LEDGER_AUTHORITATIVE_MODE = 'enforce';
     await expect(billing.collectPayment({
       invoice_id: invoiceId, amount: 400, mode: 'CASH', shift: 'MORNING', collected_by: patient, tenantId: TENANT,
     })).rejects.toThrow();

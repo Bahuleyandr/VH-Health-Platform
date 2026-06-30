@@ -13,6 +13,7 @@ import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { collectPayment } from './billingV2Service.js';
 import { postPaymentEntry } from './ledger/ledgerPostings.js';
+import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 
 const DEFAULT_EXPIRY_HOURS = 48;
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -239,6 +240,7 @@ export async function markPaymentLinkPaid({
   // additionally backstopped by migration 317's unique (tenant_id, reference,
   // mode) index, so even two links re-presenting the same gateway reference
   // collapse to one payment row.
+  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   const payment = await setTenantTx(requireTenantId(tenantId), async (tx) => {
     const linkRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, patient_uid, amount, upi_transaction_ref, status
@@ -273,16 +275,21 @@ export async function markPaymentLinkPaid({
         WHERE id = $4::int`,
       paid_via || 'upi', paid_reference || null, createdPayment.id, link.id,
     );
+    // Phase 4 enforce: collectPayment(tx) skips its own post (caller-owned tx);
+    // post the PAYMENT here INSIDE the link tx so a ledger failure rolls back.
+    if (wiring.sameTx) await postPaymentEntry({ payment: createdPayment, tenantId: requireTenantId(tenantId), tx });
     return createdPayment;
   });
 
-  // Ledger (Phase 3-tail): collectPayment was called with a caller-owned tx, so
-  // its inline post is skipped. Post here post-commit best-effort, after the
-  // link tx commits — keeps the live payment-link path unbreakable by the ledger.
-  try {
-    await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
-  } catch (ledgerErr) {
-    logger.error('Ledger PAYMENT post (payment-link) failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+  // Shadow: collectPayment(tx) skipped its inline post, so post here post-commit
+  // best-effort after the link tx commits — keeps the live payment-link path
+  // unbreakable by the ledger. Off: skip.
+  if (wiring.postCommit) {
+    try {
+      await postPaymentEntry({ payment, tenantId: requireTenantId(tenantId) });
+    } catch (ledgerErr) {
+      logger.error('Ledger PAYMENT post (payment-link) failed (non-blocking)', { payment_id: payment?.id, error: ledgerErr.message });
+    }
   }
 
   return { link: await getPaymentLink({ tenantId, link_token }), payment };
