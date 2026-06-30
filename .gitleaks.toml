@@ -97,4 +97,10 @@ regexes = [
   # HL7 per-tenant HMAC test secret — a fixture in
   # hl7-receive-tenant-equality.deep.test.js, not a real credential.
   '''hl7-can021-per-tenant-secret''',
+  # Test idempotency-key fixtures in ledgerPostings.test.js (Phase 4 P4-6).
+  # The generic-api-key heuristic trips on the `idempotencyKey:
+  # 'ipd-advance-refund-N'` object-literal shape (identifier ends in "Key",
+  # value entropy >3.5). These are arbitrary opaque idempotency tokens for the
+  # postAdvanceRefundEntry unit test, not credentials.
+  '''ipd-advance-refund-\d+''',
 ]
