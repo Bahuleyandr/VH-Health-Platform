@@ -117,8 +117,11 @@ describe('canonical clinical platform foundation coverage guard', () => {
     expect(mainScaffold).toContain('policyFeatureIds: _policyFeatureIds');
 
     const autoRbacMarker = rbacRoutes.indexOf('BASIC RBAC ROUTES');
+    // /policy auth is enforced router-level (HEAD-004/CAN-004: `router.use(jwtAuth)`
+    // mounts before the route), so the inline jwtAuth was removed — match the
+    // current registration form.
     const policyRoute = rbacRoutes.indexOf(
-      "router.get('/policy', jwtAuth, wrapAsync(rbacController.getPolicy))",
+      "router.get('/policy', wrapAsync(rbacController.getPolicy))",
     );
     expect(policyRoute).toBeGreaterThan(-1);
     expect(autoRbacMarker).toBeGreaterThan(policyRoute);

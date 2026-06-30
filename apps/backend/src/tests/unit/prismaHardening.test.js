@@ -62,9 +62,12 @@ describe('src/lib/prisma.js hardening', () => {
   // Count occurrences of the named 42P01 fallback series in the exposition output.
   function undefinedTableFallbackCount() {
     const out = metricsModule.serializeMetrics();
+    // The counter has no labels, so the exposition value line is
+    // `db_undefined_table_fallback_total N` (no `{...}`). Match the value line in
+    // either labeled or unlabeled form, excluding the `# HELP`/`# TYPE` lines.
     const line = out
       .split('\n')
-      .find((l) => l.startsWith('db_undefined_table_fallback_total{'));
+      .find((l) => /^db_undefined_table_fallback_total[ {]/.test(l));
     if (!line) return 0;
     return Number(line.trim().split(/\s+/).pop()) || 0;
   }
