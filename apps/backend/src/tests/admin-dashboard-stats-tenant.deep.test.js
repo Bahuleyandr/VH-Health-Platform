@@ -63,7 +63,14 @@ const totalUsers = (body) => Number(body.data?.overview?.totalUsers ?? 0);
 const pendingReviews = (body) => Number(body.data?.pending_reviews ?? 0);
 
 d('Admin dashboard stats/activity tenant scope (CAN-015)', () => {
-  beforeAll(async () => { await clean(); }, 30000);
+  beforeAll(async () => {
+    await clean();
+    // Fresh CI DBs only have the default tenant (TENANT_A); seed TENANT_B so the
+    // cross-tenant inserts below don't hit users_tenant_id_fkey (23503).
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can015-tenant-b', 'CAN-015 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
+  }, 30000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 30000);
 
   it('users seeded in tenant B do not change a tenant-A dashboard total', async () => {

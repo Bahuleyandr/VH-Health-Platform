@@ -31,6 +31,9 @@ d('Upload by-key tenant scope (CAN-023)', () => {
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can023-tenant-b', 'CAN-023 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
+    await prisma.$executeRawUnsafe(
       `INSERT INTO file_metadata
          (file_name, file_type, storage_key, storage_url, file_size,
           uploaded_by, scan_status, privacy_level, is_active, tenant_id, updated_at)

@@ -26,6 +26,9 @@ d('Appointment-points award tenant scope (CAN-019)', () => {
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can019-tenant-b', 'CAN-019 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
+    await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid,$2::uuid,$3,'Gamify Holder','PATIENT',true,NOW())`, HOLDER, TENANT_B, PHONE);
   }, 30000);

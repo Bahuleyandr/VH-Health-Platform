@@ -85,6 +85,10 @@ async function cleanup() {
 d('requireConsent as an export gate (audit §3 finding #3)', () => {
   beforeAll(async () => {
     await cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'consent-tenant-b', 'Consent Tenant B') ON CONFLICT (id) DO NOTHING`,
+      OTHER_TENANT_ID,
+    );
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, tenant_id, updated_at)
        VALUES ($1, $2, 'PATIENT', true, $3::uuid, NOW()) RETURNING uid`,

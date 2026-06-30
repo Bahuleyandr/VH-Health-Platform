@@ -55,6 +55,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/death-certification",
   "api/v1/anesthesia",
   "api/v1/clinical",
+  "api/v1/clinical-alerts",
   "api/v1/dialysis",
   "api/v1/icu",
   "api/v1/lab",

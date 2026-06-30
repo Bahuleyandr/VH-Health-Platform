@@ -34,6 +34,9 @@ async function seedAudit(tenantId, userName) {
 d('Admin audit-log tenant scope (CAN-042)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can042-tenant-b', 'CAN-042 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     await seedAudit(TENANT_A, 'AUDIT_TENANT_A');
     await seedAudit(TENANT_B, 'AUDIT_TENANT_B');
   }, 30000);

@@ -35,7 +35,12 @@ async function seedUser(tenantId, phone) {
 const totalUsers = (body) => Number(body.data?.userAnalytics?.total_users ?? 0);
 
 d('Analytics dashboard tenant scope (CAN-015)', () => {
-  beforeAll(async () => { await clean(); }, 30000);
+  beforeAll(async () => {
+    await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can015-analytics-tenant-b', 'CAN-015 Analytics Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
+  }, 30000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 30000);
 
   it('users seeded in tenant B do not change a tenant-A dashboard total', async () => {

@@ -24,6 +24,9 @@ async function clean() {
 d('Adherence-risk tenant scope (CAN-037)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can037-tenant-b', 'CAN-037 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid,$2::uuid,'+919000037701','Adherence Patient','PATIENT',true,NOW())

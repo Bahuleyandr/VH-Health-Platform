@@ -172,12 +172,14 @@ export async function getAbsentReport(date, department = null) {
       s.name,
       s.employee_id,
       s.department,
-      s.phone,
+      u.phone,
       CASE
         WHEN la.id IS NOT NULL THEN 'On Leave'
         ELSE 'Absent Without Notice'
       END AS status
     FROM staff s
+    LEFT JOIN users u
+      ON u.uid = s.user_id
     LEFT JOIN staff_attendance a
       ON s.id = a.staff_id
       AND a.check_in_time::date = $1

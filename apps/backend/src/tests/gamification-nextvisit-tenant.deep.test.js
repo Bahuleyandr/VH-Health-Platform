@@ -22,6 +22,9 @@ d('Next-visit progress tenant scope (CAN-019)', () => {
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can019-tenant-b', 'CAN-019 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
+    await prisma.$executeRawUnsafe(
       `INSERT INTO appointments (phone, patient_name, appointment_date, appointment_time, status, tenant_id, updated_at)
        VALUES ($1, 'NextVisit Patient', CURRENT_DATE + INTERVAL '7 days', '10:00', 'SCHEDULED', $2::uuid, NOW())`,
       PHONE, TENANT_B);

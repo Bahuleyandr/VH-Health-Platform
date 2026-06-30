@@ -45,6 +45,9 @@ async function seedAlert(tenantId, respUid) {
 d('SOS performance report tenant scope (CAN-006)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can006-tenant-b', 'CAN-006 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     await seedResponder(RESP_A, TENANT_A, 'SOS Responder A', '+919000006701');
     await seedResponder(RESP_B, TENANT_B, 'SOS Responder B', '+919000006702');
     await seedAlert(TENANT_A, RESP_A);

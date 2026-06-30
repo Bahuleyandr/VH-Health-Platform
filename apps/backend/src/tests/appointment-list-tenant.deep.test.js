@@ -36,6 +36,9 @@ async function seedAppt(tenantId, name, phone) {
 d('Appointment list + completed-picker tenant scope (CAN-018)', () => {
   beforeAll(async () => {
     await clean();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can018-tenant-b', 'CAN018 Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     await seedAppt(TENANT_A, NAME_A, '+919000018701');
     await seedAppt(TENANT_B, NAME_B, '+919000018702');
   }, 30000);

@@ -22,6 +22,10 @@ async function clean() {
 d('Wellness-service tenant scope (CAN-019/012)', () => {
   beforeAll(async () => {
     await clean();
+    // Fresh CI DBs don't have the non-default tenant; create it idempotently.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'can019-012-wellness-tenant-b', 'CAN-019/012 Wellness Tenant B') ON CONFLICT (id) DO NOTHING`,
+      TENANT_B);
     // A DAILY_CHECKIN entry for today, in tenant B.
     await prisma.$executeRawUnsafe(
       `INSERT INTO health_point_ledger (user_uid, points, activity_type, activity_ref_id, description, earned_at, tenant_id)
