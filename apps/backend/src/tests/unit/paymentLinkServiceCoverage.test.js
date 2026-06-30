@@ -50,6 +50,14 @@ jest.unstable_mockModule('../../utils/notifications/sendWhatsAppNotification.js'
 
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   collectPayment: collectPaymentMock,
+  // Phase 4-3: paymentLinkService now also imports this for the enforce-mode
+  // ledger-derive; provide it so ESM linking succeeds (unused under shadow).
+  deriveInvoicePaymentStateFromLedgerTx: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
+  resolveLedgerWiring: async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }),
+  resolveLedgerModeForTenant: async () => 'shadow',
 }));
 
 const {

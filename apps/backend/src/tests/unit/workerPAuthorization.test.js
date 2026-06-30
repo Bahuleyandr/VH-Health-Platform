@@ -70,6 +70,9 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
   resolveTenantOrThrow: (req) => req?.tenantId || '00000000-0000-4000-8000-000000000001',
   requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
+  // Phase 4: ledgerAuthoritativeMode (pulled in via the billing money-write path)
+  // statically imports getTenantById; provide it for ESM linking.
+  getTenantById: jest.fn(async () => ({ settings: {} })),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   completeWorkflowSla: jest.fn(),

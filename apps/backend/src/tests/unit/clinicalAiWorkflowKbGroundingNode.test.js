@@ -19,6 +19,7 @@ const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 // required by codingValidationService.js, which clinicalAiWorkflowService.js
 // now imports) destructures it at module load.
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: __prismaDefaultMock,
   prismaReadOnly: __prismaDefaultMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
