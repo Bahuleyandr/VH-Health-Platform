@@ -32,7 +32,8 @@ OfflineAdministerIntent buildOfflineAdministerIntent({
   );
   final hardStop = !rights.patient || !rights.drug;
   // Soft-fail without an override can't be auto-queued (the UI must collect a reason).
-  final softBlocked = !rights.allPassed &&
+  final softBlocked =
+      !rights.allPassed &&
       (overrideReason == null || overrideReason.trim().length < 5);
   final maId = dose['id'];
   return OfflineAdministerIntent(

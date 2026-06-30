@@ -8,17 +8,17 @@ void main() {
   ];
 
   OfflineRxIntent build(String deviceType) => buildOfflineRxIntent(
-        deviceType: deviceType,
-        patientId: 11,
-        doctorId: 22,
-        appointmentId: 33,
-        diagnosis: 'Fever',
-        clinicalNotes: 'rest',
-        medications: meds,
-        followUpDate: '2026-07-04',
-        followUpNotes: 'review',
-        vitals: {'temp': '101F'},
-      );
+    deviceType: deviceType,
+    patientId: 11,
+    doctorId: 22,
+    appointmentId: 33,
+    diagnosis: 'Fever',
+    clinicalNotes: 'rest',
+    medications: meds,
+    followUpDate: '2026-07-04',
+    followUpNotes: 'review',
+    vitals: {'temp': '101F'},
+  );
 
   test('phone-mode (mobile) blocks — never enqueues', () {
     final i = build('mobile');
@@ -44,20 +44,23 @@ void main() {
     expect(build('desktop').enqueue, isTrue);
   });
 
-  test('queued body equals the online builder output (no override offline)', () {
-    final i = build('tablet');
-    final online = buildPrescriptionBody(
-      patientId: 11,
-      doctorId: 22,
-      appointmentId: 33,
-      diagnosis: 'Fever',
-      clinicalNotes: 'rest',
-      medications: meds,
-      followUpDate: '2026-07-04',
-      followUpNotes: 'review',
-      vitals: {'temp': '101F'},
-    );
-    expect(i.body, online);
-    expect(i.body.containsKey('override'), isFalse);
-  });
+  test(
+    'queued body equals the online builder output (no override offline)',
+    () {
+      final i = build('tablet');
+      final online = buildPrescriptionBody(
+        patientId: 11,
+        doctorId: 22,
+        appointmentId: 33,
+        diagnosis: 'Fever',
+        clinicalNotes: 'rest',
+        medications: meds,
+        followUpDate: '2026-07-04',
+        followUpNotes: 'review',
+        vitals: {'temp': '101F'},
+      );
+      expect(i.body, online);
+      expect(i.body.containsKey('override'), isFalse);
+    },
+  );
 }

@@ -35,23 +35,34 @@ void main() {
     expect(body.containsKey('visit_type'), isFalse);
   });
 
-  test('omits optionals; clinical_notes key present-but-null; diagnosis present-when-empty', () {
-    final body = buildPrescriptionBody(
-      patientId: 1, doctorId: 2, diagnosis: '', clinicalNotes: null, medications: meds,
-    );
-    expect(body.containsKey('appointment_id'), isFalse);
-    expect(body['diagnosis'], '');
-    expect(body.containsKey('clinical_notes'), isTrue);
-    expect(body['clinical_notes'], isNull);
-    expect(body.containsKey('follow_up_date'), isFalse);
-    expect(body.containsKey('follow_up_notes'), isFalse);
-    expect(body.containsKey('override'), isFalse);
-    expect(body.containsKey('vitals'), isFalse);
-  });
+  test(
+    'omits optionals; clinical_notes key present-but-null; diagnosis present-when-empty',
+    () {
+      final body = buildPrescriptionBody(
+        patientId: 1,
+        doctorId: 2,
+        diagnosis: '',
+        clinicalNotes: null,
+        medications: meds,
+      );
+      expect(body.containsKey('appointment_id'), isFalse);
+      expect(body['diagnosis'], '');
+      expect(body.containsKey('clinical_notes'), isTrue);
+      expect(body['clinical_notes'], isNull);
+      expect(body.containsKey('follow_up_date'), isFalse);
+      expect(body.containsKey('follow_up_notes'), isFalse);
+      expect(body.containsKey('override'), isFalse);
+      expect(body.containsKey('vitals'), isFalse);
+    },
+  );
 
   test('omits follow_up_notes when empty string', () {
     final body = buildPrescriptionBody(
-      patientId: 1, doctorId: 2, diagnosis: 'x', medications: meds, followUpNotes: '',
+      patientId: 1,
+      doctorId: 2,
+      diagnosis: 'x',
+      medications: meds,
+      followUpNotes: '',
     );
     expect(body.containsKey('follow_up_notes'), isFalse);
   });

@@ -36,7 +36,20 @@ function mergeSchemaModules(baseSchemas) {
     }
   }
   const sortedAdded = Object.fromEntries(Object.keys(added).sort().map((k) => [k, added[k]]));
-  return { schemas: { ...baseSchemas, ...sortedAdded }, overlay };
+  const merged = { ...baseSchemas, ...sortedAdded };
+  // swagger_dart_code_generator (the Flutter codegen) cannot emit a class for a
+  // top-level schema whose entire body is a bare `$ref` alias — it references the
+  // aliased type but never defines a class, so json_serializable fails with
+  // `InvalidType`. Wrapping the alias in a single-member `allOf` is semantically
+  // identical (OpenAPI treats `{$ref:X}` and `{allOf:[{$ref:X}]}` the same) but
+  // makes the generator emit a proper class. Normalize here so the `<Name>Data`
+  // envelope-payload aliases — and any future bare-$ref schema — stay codegen-safe.
+  for (const [name, schema] of Object.entries(merged)) {
+    if (schema && typeof schema === 'object' && Object.keys(schema).length === 1 && '$ref' in schema) {
+      merged[name] = { allOf: [{ $ref: schema.$ref }] };
+    }
+  }
+  return { schemas: merged, overlay };
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

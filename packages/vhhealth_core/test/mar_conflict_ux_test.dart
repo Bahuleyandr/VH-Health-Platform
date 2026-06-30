@@ -53,38 +53,36 @@ void main() {
 
       // Clinical framing: the administration was NOT recorded on the server,
       // the drug WAS given offline, and the server reason is shown.
-      expect(
-        find.textContaining('not recorded on the server'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('not recorded on the server'), findsOneWidget);
       expect(find.textContaining('given offline'), findsOneWidget);
       expect(find.textContaining('Order discontinued'), findsOneWidget);
     });
 
-    testWidgets('Discard opens a confirmation dialog; cancel does NOT discard', (
-      tester,
-    ) async {
-      var discarded = false;
-      await _pumpRow(
-        tester,
-        conflict: marConflict,
-        onDiscard: () => discarded = true,
-      );
+    testWidgets(
+      'Discard opens a confirmation dialog; cancel does NOT discard',
+      (tester) async {
+        var discarded = false;
+        await _pumpRow(
+          tester,
+          conflict: marConflict,
+          onDiscard: () => discarded = true,
+        );
 
-      await tester.tap(find.text('Discard'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Discard'));
+        await tester.pumpAndSettle();
 
-      // A confirmation dialog must appear for a MAR conflict.
-      expect(
-        find.textContaining('Discard this administration record?'),
-        findsOneWidget,
-      );
+        // A confirmation dialog must appear for a MAR conflict.
+        expect(
+          find.textContaining('Discard this administration record?'),
+          findsOneWidget,
+        );
 
-      // Cancel → callback NOT fired.
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-      expect(discarded, isFalse);
-    });
+        // Cancel → callback NOT fired.
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(discarded, isFalse);
+      },
+    );
 
     testWidgets('confirming the dialog fires onDiscard exactly once', (
       tester,
@@ -135,16 +133,10 @@ void main() {
       await _pumpRow(tester, conflict: nonMarConflict);
 
       // Generic reason text is rendered verbatim.
-      expect(
-        find.text('Resource was modified on the server'),
-        findsOneWidget,
-      );
+      expect(find.text('Resource was modified on the server'), findsOneWidget);
       // The MAR-specific clinical phrasing must NOT appear.
       expect(find.textContaining('given offline'), findsNothing);
-      expect(
-        find.textContaining('not recorded on the server'),
-        findsNothing,
-      );
+      expect(find.textContaining('not recorded on the server'), findsNothing);
     });
 
     testWidgets('Discard fires immediately (no MAR confirmation dialog)', (

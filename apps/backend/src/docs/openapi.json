@@ -728,7 +728,11 @@
         }
       },
       "AdmissionLookupData": {
-        "$ref": "#/components/schemas/AdmissionLookup"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AdmissionLookup"
+          }
+        ]
       },
       "AdmissionMutationData": {
         "type": "object",
@@ -996,7 +1000,11 @@
         }
       },
       "AdmissionStatsData": {
-        "$ref": "#/components/schemas/AdmissionStats"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AdmissionStats"
+          }
+        ]
       },
       "AdmitAdmissionRow": {
         "type": "object",
@@ -1312,7 +1320,11 @@
         }
       },
       "AdviseAdmissionData": {
-        "$ref": "#/components/schemas/AdviseAdmissionResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AdviseAdmissionResult"
+          }
+        ]
       },
       "AdviseAdmissionRequest": {
         "type": "object",
@@ -4405,7 +4417,11 @@
         }
       },
       "CdsAlertRowData": {
-        "$ref": "#/components/schemas/CdsAlertRow"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CdsAlertRow"
+          }
+        ]
       },
       "CdsCheckAlert": {
         "type": "object",
@@ -4471,7 +4487,11 @@
         }
       },
       "CdsCheckResultData": {
-        "$ref": "#/components/schemas/CdsCheckResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CdsCheckResult"
+          }
+        ]
       },
       "CdsProtocol": {
         "type": "object",
@@ -4518,7 +4538,11 @@
         }
       },
       "CdsProtocolData": {
-        "$ref": "#/components/schemas/CdsProtocol"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CdsProtocol"
+          }
+        ]
       },
       "ClaimQueue": {
         "type": "object",
@@ -5316,7 +5340,11 @@
         }
       },
       "ClinicalAiConfigData": {
-        "$ref": "#/components/schemas/ClinicalAiConfig"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ClinicalAiConfig"
+          }
+        ]
       },
       "ClinicalAiCountListResponse": {
         "type": "object",
@@ -8407,7 +8435,11 @@
         }
       },
       "ClinicalNoteData": {
-        "$ref": "#/components/schemas/ClinicalNote"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ClinicalNote"
+          }
+        ]
       },
       "ClinicalNoteDetail": {
         "type": "object",
@@ -8500,7 +8532,11 @@
         }
       },
       "ClinicalNoteDetailData": {
-        "$ref": "#/components/schemas/ClinicalNoteDetail"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ClinicalNoteDetail"
+          }
+        ]
       },
       "ClinicalNoteVersion": {
         "type": "object",
@@ -8687,7 +8723,11 @@
         }
       },
       "ClinicalOrderCreateData": {
-        "$ref": "#/components/schemas/ClinicalOrderCreateResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ClinicalOrderCreateResult"
+          }
+        ]
       },
       "ClinicalOrderCreateResult": {
         "type": "object",
@@ -8717,7 +8757,11 @@
         }
       },
       "ClinicalOrderData": {
-        "$ref": "#/components/schemas/ClinicalOrder"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ClinicalOrder"
+          }
+        ]
       },
       "CloseDrawerRequest": {
         "type": "object",
@@ -10151,7 +10195,11 @@
         }
       },
       "DiagnosisWithCodingsData": {
-        "$ref": "#/components/schemas/DiagnosisWithCodings"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DiagnosisWithCodings"
+          }
+        ]
       },
       "DischargeConsultRow": {
         "type": "object",
@@ -11358,7 +11406,11 @@
         }
       },
       "DowntimeSnapshotData": {
-        "$ref": "#/components/schemas/DowntimeSnapshot"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DowntimeSnapshot"
+          }
+        ]
       },
       "DrawerPosition": {
         "type": "object",
@@ -14392,7 +14444,11 @@
         }
       },
       "IOBalanceData": {
-        "$ref": "#/components/schemas/IOBalance"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/IOBalance"
+          }
+        ]
       },
       "IOEntry": {
         "type": "object",
@@ -14515,7 +14571,11 @@
         }
       },
       "IORowData": {
-        "$ref": "#/components/schemas/IORow"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/IORow"
+          }
+        ]
       },
       "Icd10Row": {
         "type": "object",
@@ -16350,7 +16410,11 @@
         }
       },
       "LongitudinalRiskRowData": {
-        "$ref": "#/components/schemas/LongitudinalRiskRow"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LongitudinalRiskRow"
+          }
+        ]
       },
       "LongitudinalRiskScore": {
         "type": "object",
@@ -16443,7 +16507,11 @@
         }
       },
       "LongitudinalRiskScoreData": {
-        "$ref": "#/components/schemas/LongitudinalRiskScore"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LongitudinalRiskScore"
+          }
+        ]
       },
       "MarAdministerRequest": {
         "type": "object",
@@ -17750,7 +17818,11 @@
         ]
       },
       "NoteDraftDeleteData": {
-        "$ref": "#/components/schemas/NoteDraftDeleteResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NoteDraftDeleteResult"
+          }
+        ]
       },
       "NoteDraftDeleteResult": {
         "type": "object",
@@ -17765,7 +17837,11 @@
         }
       },
       "NoteDraftUpsertData": {
-        "$ref": "#/components/schemas/NoteDraftUpsertResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NoteDraftUpsertResult"
+          }
+        ]
       },
       "NoteDraftUpsertResult": {
         "type": "object",
@@ -17942,7 +18018,11 @@
         }
       },
       "OrderSetData": {
-        "$ref": "#/components/schemas/OrderSet"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OrderSet"
+          }
+        ]
       },
       "OrderSetItem": {
         "type": "object",
@@ -24764,7 +24844,11 @@
         }
       },
       "TranslationResultData": {
-        "$ref": "#/components/schemas/TranslationResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TranslationResult"
+          }
+        ]
       },
       "TranslationsListData": {
         "type": "object",
@@ -25476,10 +25560,18 @@
         }
       },
       "VitalRowData": {
-        "$ref": "#/components/schemas/VitalRow"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/VitalRow"
+          }
+        ]
       },
       "VitalsRecordData": {
-        "$ref": "#/components/schemas/VitalsRecordResult"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/VitalsRecordResult"
+          }
+        ]
       },
       "VitalsRecordResult": {
         "type": "object",
