@@ -1,6 +1,6 @@
 # Composition-based drug search — design
 
-**Date:** 2026-06-30 (rev. 2 — incorporates independent-verifier review)
+**Date:** 2026-06-30 (rev. 3 — incorporates 2nd-round verifier review)
 **Status:** Approved (design); pending implementation plan
 **Surfaces:** staff app — IPD drug chart + prescription (e-Rx)
 
@@ -27,9 +27,10 @@ dependent on parser luck.
 | Scope | Both surfaces — prescription **and** IPD drug chart |
 | Enhancements | All three — in-stock-first, duplicate-therapy, composition-level allergy |
 | Matching strategy | **Structured composition table** (`drug_compositions`), per-row confidence + curation |
-| Substitutability | One-tap swap only for **directly substitutable** items (same molecules **+ strength + form + route + release-type where known**); other same-molecule items are **informational** |
-| Rollout | **Off by default** behind a feature flag; enabled per-tenant only after a coverage **acceptance gate** is met |
-| Authority | Allergy/duplicate checks are **authoritative server-side** in `validatePrescriptionSafety`, enriched from `catalog_id`; client `composition_id` is advisory-only |
+| Substitutability | One-tap swap only for **directly substitutable** items: same molecules **+ per-ingredient strengths + form + route + release-type** (where known); other same-molecule items are **informational** |
+| Rollout | **Off by default** behind a per-tenant feature flag; enabled only after a coverage **acceptance gate** (row-count **and usage-weighted**) is met |
+| Authority | Server **derives + persists** identity (`composition_id/strength/form/strength_components`) from the tenant-scoped catalog row keyed by `catalog_id`; a client-sent `composition_id` is **never stored or trusted as fact**. Allergy/duplicate checks are authoritative server-side in `validatePrescriptionSafety`. |
+| Deploy safety | The new composition enrichment is **independently guarded** (own try/catch + migration/feature availability check) so missing columns/table during a staggered deploy can never disturb existing allergy checks or block prescribing |
 
 ## Current implementation (verified baseline)
 
@@ -85,9 +86,14 @@ dependent on parser luck.
 | `display_label` | "Amoxicillin + Clavulanic acid" |
 | `active_ingredients text[]` | individual molecules — powers allergy matching |
 | `source` | `parsed` \| `curated` \| `imported` (precedence) |
-| `atc_code, rxnorm_code, snomed_code, external_code` (nullable) | **escape hatch** for a future licensed import — reserved now so no later reshuffle |
-| `import_batch_id` (nullable) | provenance of an imported row |
+| `atc_code` (nullable) | the one widely-available code worth keeping inline |
 | `created_at, updated_at` | |
+
+*External-identifier escape hatch:* richer codes (RxNorm/SNOMED/vendor + import
+batch) are **deferred to a normalized `drug_external_identifiers(composition_id,
+system, code, import_batch_id)` table added with the importer** (out of scope
+now) — a table ages better than fixed code columns, and adding it later is purely
+additive (no reshuffle of existing columns).
 
 **`pharmacy_catalog` — added columns** (parsed; raw `name`/`generic_name` never
 rewritten):
@@ -95,18 +101,29 @@ rewritten):
 - `strength` (display, e.g. `"625 mg"`) + **`strength_key`** (canonical for
   grouping — lowercased, spaces stripped, `µg`→`mcg`, ratios normalized
   `100mg/5ml`)
+- **`strength_components` (jsonb)** — per-ingredient strengths, e.g.
+  `[{ingredient:"amoxicillin",amount:500,unit:"mg"},{ingredient:"clavulanic_acid",amount:125,unit:"mg"}]`.
+  **Total strength alone is ambiguous for combinations** (Augmentin 625 =
+  500+125); a *directly substitutable* combo must match per-ingredient strengths.
+  Often unparseable from the catalog name → typically `curated`/`imported`, which
+  is exactly why combos default to lower confidence until reviewed.
 - `form` (display, e.g. `injection`) + **`form_key`** (canonical) + **`release_key`**
   (`ir|sr|er|xr|null`)
 - `route` (where derivable; else null)
 - `composition_source` (`parsed|curated|imported`) + **`composition_confidence`**
   (`high|medium|low`) + `parsed_notes` (per-row parse provenance/quality)
 
-Index: `pharmacy_catalog(composition_id)`.
+Index: tenant-aware composite for the alternatives lookup —
+`pharmacy_catalog(tenant_id, composition_id, strength_key, form_key, release_key)`
+(partial, `WHERE is_active`), not a bare `composition_id` index.
 
 **New table `drug_composition_curation_queue`** (tenant-scoped) — the backfill
 writes every unresolved / partial-strength / ambiguous-molecule-split /
-ambiguous-form row here for admin/pharmacy review. Turns messy catalog data into
-an operational cleanup loop rather than a one-off printout.
+ambiguous-form row here for admin/pharmacy review (status: `open|resolved|skip`,
+reviewer, timestamp, notes). It needs **a way out**: a curation API/script
+(below) that marks a row curated — setting `composition_id`, `strength_components`,
+confidence, reviewer, timestamp, notes — so the queue is a worklist, not a
+graveyard.
 
 **Principles:** non-destructive + backwards-compatible (additive columns +
 backfill; existing search untouched); `source` precedence; **confidence-gated**
@@ -119,7 +136,10 @@ Single pure, unit-tested module `compositionParser`
 - `compositionKey(genericName)` → `{ key, activeIngredients[], displayLabel,
   confidence, notes }` (lowercase; split on `+ & - , / "and"`; trim; small alias
   map for top combos; sort; join; confidence reflects clean split vs ambiguous).
-- `parseStrength(name)` → `{ display, key, confidence }` (number+unit + ratio).
+- `parseStrength(name)` → `{ display, key, components?, confidence }` — total
+  strength (number+unit + ratio) always; per-ingredient `components` only when the
+  name is unambiguous (e.g. `"500mg + 125mg"`), else null + a curation flag (combos
+  rarely encode per-ingredient strength in the name).
 - `parseForm(name)` → `{ form, formKey, releaseKey, route?, confidence }`.
 
 **Called from every write path** so structured data never drifts: the **backfill
@@ -142,25 +162,39 @@ backfill the importer invokes.
    strength_key`), each tagged `substitutable: true|false` (true only when
    molecules+strength+form+route+release match the selected row) and a stock
    freshness flag.
-3. **Composition checks inside `validatePrescriptionSafety`** — after
-   **server-side enrichment from each med's `catalog_id`/exact catalog lookup**
-   (never trusting a client-supplied `composition_id`):
+3. **Composition checks inside `validatePrescriptionSafety`** — after server-side
+   enrichment from each med's `catalog_id` (exact tenant-scoped catalog lookup;
+   never trusting a client `composition_id`). `validatePrescriptionSafety` already
+   "never throws"; the new composition block is **additionally wrapped in its own
+   try/catch + a migration/feature-availability check**, so a missing column/table
+   silently skips composition checks without disturbing the existing allergy logic
+   or blocking prescribing.
    - **Composition allergy:** match the composition's `active_ingredients` against
      unified allergies; message names molecule **and** brand —
      *"Clavam contains amoxicillin; patient has an amoxicillin allergy."*
-     Severity-aware (blocker vs warning) per existing rules.
-   - **Same-composition duplicate:** two meds sharing `composition_id` → an
-     immediate high-confidence duplicate finding (distinct from the softer
-     class/spectrum CDS stewardship warning, which is unchanged).
-4. **IPD payload:** extend the drug-chart order payload
-   (`order_payloads.dart` + the order create path) to persist `catalog_id,
-   generic_name, composition_id, strength, form` in `clinical_orders.details`;
-   `drugChartService` uses them when present (falls back to text reconstruction
-   when absent) — so IPD duplicate/allergy checks are reliable, not text-luck.
-5. **Substitution audit:** a brand swap records both the **original** and
-   **substituted** `catalog_id` + actor/time/reason/source via
-   `clinical_audit_events` (medicolegal traceability + pharmacy reconciliation).
-6. Add the new route to `src/docs/openapi.json` (+ `openapi:sync-core`).
+     Severity-aware per existing rules.
+   - **Same-composition duplicate:** flag when a submitted med shares
+     `composition_id` with another submitted med **or with an active existing
+     e-prescription or active inpatient medication order** (resolved by
+     `catalog_id`/`composition_id` where available). High-confidence/immediate —
+     distinct from the softer class/spectrum CDS stewardship warning (unchanged).
+4. **IPD payload + server-derived identity:** the drug-chart order sends the
+   trusted `catalog_id` (+ display name); the **backend derives and persists**
+   `composition_id, strength, form, strength_components, generic_name` into
+   `clinical_orders.details` from the tenant-scoped catalog row — a client-sent
+   `composition_id` is never persisted as fact. `drugChartService` uses the
+   persisted identity (falls back to text reconstruction when absent) so IPD
+   duplicate/allergy checks are reliable, not text-luck. (The e-Rx write path
+   derives the same way.)
+5. **Substitution audit (persisted only):** audit on **save** of a
+   prescription/order whose chosen brand differs from the originally-selected one
+   — original `catalog_id`, final `catalog_id`, actor, surface, reason — via
+   `clinical_audit_events`. **Exploratory taps in the panel are not audited.**
+6. **Curation API/script:** mark a curation-queue row resolved — set
+   `composition_id`, `strength_components`, confidence, reviewer, timestamp, notes
+   on the catalog row (and upsert the composition); the parser/backfill respects
+   `source=curated` precedence so it's never overwritten.
+7. Add the new route(s) to `src/docs/openapi.json` (+ `openapi:sync-core`).
 
 ## Flutter UX (both screens)
 
@@ -196,13 +230,17 @@ backfill the importer invokes.
 
 ## Phasing — independently-shippable slices
 
-1. **Foundation (inert):** migrations (`drug_compositions`, catalog columns,
-   curation queue) + `compositionParser` + backfill (coverage report + curation
-   queue) + all write-path hooks. No UI change.
-   **Gate:** review coverage before enabling.
-2. **Backend API:** additive search fields + `/alternatives` + composition
-   allergy/duplicate in `validatePrescriptionSafety` (server-enriched) + IPD
-   payload extension + substitution audit + openapi sync. Backwards-compatible.
+1. **Foundation (inert):** migrations (`drug_compositions`, catalog columns incl.
+   `strength_components`, curation queue) + `compositionParser` + backfill
+   (coverage + usage-weighted report + curation-queue population) + all
+   write-path hooks + the **curation resolve API/script**. No UI change.
+   **Gate:** review coverage (row-count + usage-weighted) before enabling.
+2. **Backend API:** additive search fields + `/alternatives` (catalog-id-keyed,
+   tenant-scoped, substitutability-tagged) + composition allergy/duplicate in
+   `validatePrescriptionSafety` (server-enriched from `catalog_id`, guarded,
+   incl. **active existing e-Rx + IPD orders**) + server-derived IPD/e-Rx
+   identity persistence + persisted-substitution audit + openapi sync.
+   Backwards-compatible.
 3. **Prescription UI** (already rich → lower risk first): richer rows + panel +
    DAW handling + warnings.
 4. **Drug-chart UI:** dropdown + entry-model + payload + same shared
@@ -213,9 +251,12 @@ Each slice degrades gracefully; a pause between any leaves a working app.
 ## Rollout / acceptance gate
 
 Alternatives are **off by default** behind a per-tenant feature flag. Enable only
-after the backfill coverage on the real catalog meets:
-- **≥ 90%** of active catalog rows composition-resolved (`high` confidence),
-- **≥ 80%** strength + form resolved for the common formulary categories,
+after coverage on the real catalog meets both a **row-count** and a
+**usage-weighted** bar (a 90% catalog pass can still miss the 10% used daily):
+- row-count: **≥ 90%** of active rows composition-resolved at `high` confidence;
+  **≥ 80%** strength + form resolved for the common formulary categories;
+- usage-weighted: **≥ 95%** of the **top-N dispensed / top-stocked** items
+  (by recent dispensing + stock) resolved at `high` confidence;
 - **zero** high-risk ambiguous injectables in the enabled set (manually cleared).
 Below threshold, the catalog search keeps working unchanged; alternatives simply
 stay hidden while pharmacy curates via the queue.
@@ -226,11 +267,16 @@ stay hidden while pharmacy curates via the queue.
   normalization + confidence, strength/ratio + `strength_key`, form/`form_key`/
   `release_key`, junk input.
 - **Backend deep tests:** `/alternatives` (strength+form grouping, in-stock-first,
-  tenant scoping, selected-brand exclusion, substitutability tagging); additive
-  search fields; **server-enriched** composition allergy (brand trips molecule)
-  and same-composition duplicate; IPD payload carries identity end-to-end;
-  substitution audit row written; backfill idempotency + curation-queue
-  population + coverage thresholds.
+  tenant scoping, selected-brand exclusion, substitutability tagging incl.
+  combo per-ingredient-strength gating); additive search fields; **server-enriched**
+  composition allergy (brand trips molecule) + same-composition duplicate **against
+  active existing e-Rx + IPD orders**; a **client-sent `composition_id` is ignored**
+  (server derives from `catalog_id`); **guarded enrichment** — simulate missing
+  column/table ⇒ composition checks skipped, existing allergy checks intact, nothing
+  blocked; IPD/e-Rx persisted identity is server-derived; substitution audit written
+  **only on persisted save** (not on panel taps); curation-resolve sets identity +
+  `source=curated` (not overwritten by re-parse); backfill idempotency +
+  curation-queue population + row-count & usage-weighted coverage.
 - **Flutter widget tests:** panel grouping/order/substitutable-vs-info/DAW/swap;
   duplicate + allergy warnings; stock-freshness label; free-text ⇒ no panel.
 
@@ -241,7 +287,14 @@ stay hidden while pharmacy curates via the queue.
 - Fuzzy strength/form/release → raw name kept; canonical `*_key` for grouping;
   substitutability requires the strict match, so injection/SR are never silent
   swaps.
-- Trusting the client → all authoritative checks server-side from `catalog_id`.
+- Trusting the client → server derives + persists identity from `catalog_id`;
+  client `composition_id` never stored/trusted.
+- **Staggered deploy** (columns/table not yet present everywhere) → composition
+  enrichment is guarded + availability-gated; it degrades to "no composition
+  checks," never an exception and never a block, since the safety checker is
+  fail-closed.
+- Combination ambiguity → per-ingredient `strength_components`; combos stay
+  lower-confidence (info-only) until curated, so they're never silent one-tap swaps.
 - Stale stock → freshness label, never a false guarantee.
 - Multi-tenant → compositions global; catalog tenant/RLS scoped; alternatives
   query respects it.
@@ -249,5 +302,5 @@ stay hidden while pharmacy curates via the queue.
 ## Out of scope (YAGNI — model leaves the door open)
 
 Building a class/spectrum duplicate engine (existing CDS already does this); the
-licensed drug-DB importer itself (the reserved `*_code`/`import_batch_id` columns
-make it a clean later add); drug–drug interactions; dose-range checks.
+licensed drug-DB importer + the `drug_external_identifiers` table it brings (a
+clean, purely-additive later add); drug–drug interactions; dose-range checks.
