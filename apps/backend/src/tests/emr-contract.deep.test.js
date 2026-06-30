@@ -22,8 +22,8 @@ const PATIENT_UID = 'e3000002-0001-4e30-8e30-e30000020001';
 const DOCTOR_UID = 'e3000002-0002-4e30-8e30-e30000020002';
 const ADMIN_UID = 'e3000002-0003-4e30-8e30-e30000020003';
 
-function client() {
-  const t = generateTestToken('ADMIN', { uid: ADMIN_UID, id: 990778, deviceType: 'desktop' });
+function client(role, claims) {
+  const t = generateTestToken(role, claims);
   const h = (r) => r.set('x-api-key', API_KEY).set('Authorization', `Bearer ${t}`);
   return {
     get: (p) => h(request(app).get(p)),
@@ -33,7 +33,14 @@ function client() {
     del: (p) => h(request(app).delete(p)),
   };
 }
-const A = client();
+const A = client('ADMIN', { uid: ADMIN_UID, id: 990778, deviceType: 'desktop' });
+// The unified clinical timeline (patient.timeline.view) is relationship-gated:
+// it requires the requester to have an active care-team / admission / etc.
+// relationship with the patient (accessDecisionService), which an ADMIN does
+// not. The attending doctor does (findAdmissionRelationship matches the
+// admission this test creates), so timeline reads go through the doctor — the
+// realistic caller for a comprehensive clinical view.
+const D = client('DOCTOR', { uid: DOCTOR_UID, id: 990779, deviceType: 'desktop' });
 
 // Validate status exactly + the full envelope body against its committed schema.
 function check(res, status, schema) {
@@ -147,7 +154,7 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
     check(await A.get('/api/v1/emr/cds/protocols'), 200, 'EmrCdsProtocolListResponse');
     check(await A.get(`/api/v1/emr/cds/alerts/${PATIENT_UID}`), 200, 'EmrCdsAlertListResponse');
     check(await A.get('/api/v1/emr/icd10/search?q=hypertension'), 200, 'EmrIcd10SearchResponse');
-    check(await A.get(`/api/v1/emr/timeline/${PATIENT_UID}`), 200, 'EmrTimelineResponse');
+    check(await D.get(`/api/v1/emr/timeline/${PATIENT_UID}`), 200, 'EmrTimelineResponse');
   }, 120000);
 
   it('notes-diagnosis: note CRUD/draft/sign + diagnosis create/list/status', async () => {
