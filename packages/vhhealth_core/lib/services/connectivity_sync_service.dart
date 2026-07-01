@@ -128,6 +128,26 @@ class ConnectivitySyncService extends ChangeNotifier {
     await refreshCounts();
   }
 
+  /// Remove queued (not-yet-synced) writes for [endpoint] whose decoded body
+  /// satisfies [matches], then refresh counts so the badge stays accurate.
+  /// Returns the number removed.
+  ///
+  /// Used by an offline draft-discard: dropping the queued draft `PUT` for the
+  /// discarded context stops it recreating the draft on reconnect. Prefer this
+  /// over [OfflineQueue.removePendingMatching] directly so the sync badge/counts
+  /// stay consistent.
+  Future<int> removePendingWrites({
+    required String endpoint,
+    required bool Function(Map<String, dynamic> body) matches,
+  }) async {
+    final removed = await OfflineQueue.removePendingMatching(
+      endpoint: endpoint,
+      matches: matches,
+    );
+    if (removed > 0) await refreshCounts();
+    return removed;
+  }
+
   /// Clear the entire offline write queue and reset observable state.
   ///
   /// Call on logout so the next user on a shared device cannot drain the
