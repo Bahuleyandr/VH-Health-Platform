@@ -103,6 +103,50 @@ class NoteDraftApi {
   );
 }
 
+/// Injectable connectivity + offline-queue surface. Defaults forward to
+/// [ConnectivitySyncService.instance]; tests pass fakes to drive the offline
+/// branch — which is otherwise unreachable, since the real singleton reports
+/// `isOnline == true` in a headless test VM and its state cannot be faked
+/// (private ctor, no setter). Mirrors [NoteDraftApi]'s function-field injection.
+class NoteDraftSync {
+  /// Whether the device currently has connectivity.
+  final bool Function() isOnline;
+
+  /// Enqueue an offline write (best-effort). Mirrors
+  /// [ConnectivitySyncService.enqueue].
+  final Future<int> Function({
+    required String endpoint,
+    required String method,
+    required Map<String, dynamic> body,
+    String? contextLabel,
+  })
+  enqueue;
+
+  /// Drop queued (not-yet-synced) writes for `endpoint` whose decoded body
+  /// satisfies `matches`. Mirrors [ConnectivitySyncService.removePendingWrites].
+  final Future<int> Function({
+    required String endpoint,
+    required bool Function(Map<String, dynamic> body) matches,
+  })
+  removePendingWrites;
+
+  const NoteDraftSync({
+    required this.isOnline,
+    required this.enqueue,
+    required this.removePendingWrites,
+  });
+
+  /// Production wiring against the shared connectivity/offline-queue service.
+  factory NoteDraftSync.live() {
+    final svc = ConnectivitySyncService.instance;
+    return NoteDraftSync(
+      isOnline: () => svc.isOnline,
+      enqueue: svc.enqueue,
+      removePendingWrites: svc.removePendingWrites,
+    );
+  }
+}
+
 /// Drives debounced + heartbeat autosave of a single note draft.
 ///
 /// Usage:
@@ -125,14 +169,14 @@ class NoteDraftAutosave {
     required Map<String, dynamic> Function() snapshot,
     this.appointmentId,
     NoteDraftApi? api,
-    ConnectivitySyncService? connectivity,
+    NoteDraftSync? sync,
     this.debounce = const Duration(seconds: 3),
     this.heartbeat = const Duration(seconds: 15),
     DateTime Function()? clock,
     String Function()? deviceType,
   }) : _snapshot = snapshot,
        _api = api ?? NoteDraftApi.live(),
-       _connectivity = connectivity ?? ConnectivitySyncService.instance,
+       _sync = sync ?? NoteDraftSync.live(),
        _clock = clock ?? DateTime.now,
        _deviceType = deviceType ?? (() => currentDeviceType);
 
@@ -144,7 +188,7 @@ class NoteDraftAutosave {
 
   final Map<String, dynamic> Function() _snapshot;
   final NoteDraftApi _api;
-  final ConnectivitySyncService _connectivity;
+  final NoteDraftSync _sync;
   final DateTime Function() _clock;
 
   /// Current device posture (`currentDeviceType`). Autosave shadows the
@@ -270,15 +314,16 @@ class NoteDraftAutosave {
     // (there is no finalize POST to reap it, unlike Save/Sign). Drop any queued
     // draft PUT for THIS context so the discard is durable instead of leaning
     // on the 14-day TTL janitor. Best-effort — never throws to the caller.
-    if (!_connectivity.isOnline) {
+    if (!_sync.isOnline()) {
       try {
-        await _connectivity.removePendingWrites(
+        await _sync.removePendingWrites(
           endpoint: _draftEndpoint(),
           matches: _isThisDraftContext,
         );
       } catch (e) {
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint('NoteDraftAutosave.clear dequeue failed: $e');
+        }
       }
     }
     try {
@@ -371,9 +416,9 @@ class NoteDraftAutosave {
       // Offline: enqueue best-effort if the queue is available, else just flag.
       // NOTE: an offline enqueue does NOT set _lastSavedJson — the write is not
       // yet confirmed, so a later identical retry must not be wrongly skipped.
-      if (!_connectivity.isOnline) {
+      if (!_sync.isOnline()) {
         try {
-          await _connectivity.enqueue(
+          await _sync.enqueue(
             endpoint: _draftEndpoint(),
             method: 'PUT',
             body: {
