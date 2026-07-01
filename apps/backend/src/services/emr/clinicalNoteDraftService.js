@@ -18,20 +18,43 @@ import logger from '../../logging/logger.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 
+// Serialized-size cap for a draft's content. 256 KB is ample for a text note
+// and sits well under the ~1 MB global JSON body limit (express.json). Enforced
+// BEFORE the DB upsert so an oversize blob never touches Postgres.
+const MAX_DRAFT_CONTENT_BYTES = 256 * 1024;
+
+// Require a draft's content to be a plain JSON object — matching the canonical
+// note path's stricter object requirement. A string is parsed as JSON first;
+// arrays and scalars are rejected (typeof [] === 'object', so they must be
+// excluded explicitly).
 function normContent(content) {
   if (content === null || content === undefined) return {};
-  if (typeof content === 'object') return content;
-  try {
-    return JSON.parse(content);
-  } catch {
-    return {};
+  let value = content;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      throw AppError.badRequest('content must be a JSON object', 'NOTE_DRAFT_CONTENT_INVALID');
+    }
   }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw AppError.badRequest('content must be a JSON object', 'NOTE_DRAFT_CONTENT_INVALID');
+  }
+  return value;
 }
 
+// Distinguish ABSENT (legitimately no appointment) from PRESENT-BUT-INVALID.
+// A malformed appointment_id used to silently collapse into the null-appointment
+// context (confusing + wrong); now it is rejected. Shared by upsert/get/delete,
+// so GET/DELETE reject a malformed id too. 0 is rejected: it is the COALESCE
+// sentinel for "no appointment" in the uniqueness/lookup predicates.
 function normAppointmentId(appointmentId) {
   if (appointmentId === undefined || appointmentId === null || appointmentId === '') return null;
   const n = Number.parseInt(appointmentId, 10);
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isInteger(n) || n <= 0 || String(n) !== String(appointmentId).trim()) {
+    throw AppError.badRequest('appointment_id must be an integer', 'NOTE_DRAFT_APPOINTMENT_INVALID');
+  }
+  return n;
 }
 
 function requireContext({ authorUid, patientUid, noteType }) {
@@ -57,6 +80,9 @@ export async function upsertNoteDraft({
   const tid = requireTenantId(tenantId);
   const apptId = normAppointmentId(appointmentId);
   const json = JSON.stringify(normContent(content));
+  if (Buffer.byteLength(json, 'utf8') > MAX_DRAFT_CONTENT_BYTES) {
+    throw AppError.badRequest('draft content too large', 'NOTE_DRAFT_CONTENT_TOO_LARGE');
+  }
   return setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO note_drafts

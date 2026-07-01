@@ -148,3 +148,180 @@ d('note_drafts autosave store (deep)', () => {
     expect(await draftCount('appointment_id = 102')).toBe(1); // live → kept
   });
 });
+
+// ---------------------------------------------------------------------------
+// Input-validation hardening — draft path was LAXER than the canonical note
+// path (external review). Draft input is now tightened to match the canonical
+// path's stricter object requirement + a serialized-size cap, and a malformed
+// appointment_id is rejected outright instead of silently collapsing into the
+// null-appointment context. note_type stays deliberately BROAD (no whitelist —
+// the route maps loose nursing UI codes to a canonical type only at finalize).
+d('note_drafts input validation (deep)', () => {
+  beforeAll(cleanup);
+  afterAll(cleanup);
+
+  // Helper: assert an async call rejects with an AppError of the given
+  // HTTP status + machine code (exact, not a range).
+  async function expectAppError(fn, statusCode, code) {
+    let thrown = null;
+    try {
+      await fn();
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).not.toBeNull();
+    expect(thrown.name).toBe('AppError');
+    expect(thrown.statusCode).toBe(statusCode);
+    expect(thrown.code).toBe(code);
+  }
+
+  describe('malformed appointment_id is rejected (not silently nulled)', () => {
+    it.each(['not-a-number', '12x'])(
+      'upsert with appointment_id=%p → 400 NOTE_DRAFT_APPOINTMENT_INVALID',
+      async (bad) => {
+        await expectAppError(
+          () => upsertNoteDraft({
+            tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+            appointmentId: bad, noteType: NOTE_TYPE, content: { chief: 'x' },
+          }),
+          400,
+          'NOTE_DRAFT_APPOINTMENT_INVALID',
+        );
+        // and it did NOT collapse into a null-appointment draft row
+        expect(await draftCount('appointment_id IS NULL')).toBe(0);
+      },
+    );
+
+    it('normAppointmentId is shared — GET with a malformed appointment_id also rejects', async () => {
+      await expectAppError(
+        () => getNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: 'not-a-number', noteType: NOTE_TYPE,
+        }),
+        400,
+        'NOTE_DRAFT_APPOINTMENT_INVALID',
+      );
+    });
+
+    it('normAppointmentId is shared — DELETE with a malformed appointment_id also rejects', async () => {
+      await expectAppError(
+        () => deleteNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: '12x', noteType: NOTE_TYPE,
+        }),
+        400,
+        'NOTE_DRAFT_APPOINTMENT_INVALID',
+      );
+    });
+
+    it('a zero / non-positive appointment_id is rejected (0 is the COALESCE sentinel)', async () => {
+      await expectAppError(
+        () => upsertNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: 0, noteType: NOTE_TYPE, content: { chief: 'x' },
+        }),
+        400,
+        'NOTE_DRAFT_APPOINTMENT_INVALID',
+      );
+    });
+  });
+
+  describe('content must be a plain JSON object', () => {
+    it('content as an ARRAY → 400 NOTE_DRAFT_CONTENT_INVALID', async () => {
+      await expectAppError(
+        () => upsertNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: null, noteType: NOTE_TYPE, content: ['a', 'b'],
+        }),
+        400,
+        'NOTE_DRAFT_CONTENT_INVALID',
+      );
+    });
+
+    it('content as a scalar string → 400 NOTE_DRAFT_CONTENT_INVALID', async () => {
+      await expectAppError(
+        () => upsertNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: null, noteType: NOTE_TYPE, content: 'just a string',
+        }),
+        400,
+        'NOTE_DRAFT_CONTENT_INVALID',
+      );
+    });
+
+    it('content as a scalar number → 400 NOTE_DRAFT_CONTENT_INVALID', async () => {
+      await expectAppError(
+        () => upsertNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: null, noteType: NOTE_TYPE, content: 42,
+        }),
+        400,
+        'NOTE_DRAFT_CONTENT_INVALID',
+      );
+    });
+  });
+
+  describe('serialized-size cap', () => {
+    it('content whose JSON.stringify exceeds ~256 KB → 400 NOTE_DRAFT_CONTENT_TOO_LARGE', async () => {
+      const big = { body: 'x'.repeat(300 * 1024) }; // > 256 KB serialized
+      await expectAppError(
+        () => upsertNoteDraft({
+          tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+          appointmentId: null, noteType: NOTE_TYPE, content: big,
+        }),
+        400,
+        'NOTE_DRAFT_CONTENT_TOO_LARGE',
+      );
+      // rejected BEFORE the DB upsert — no row written
+      expect(await draftCount('appointment_id IS NULL')).toBe(0);
+    });
+  });
+
+  describe('legitimate drafts still pass (no over-tightening)', () => {
+    it('valid object content + appointment_id null → OK', async () => {
+      const row = await upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: null, noteType: NOTE_TYPE, content: { chief: 'ok' },
+      });
+      expect(row?.id).toBeTruthy();
+    });
+
+    it('valid object content + a valid integer appointment_id (and numeric string) → OK', async () => {
+      const rowInt = await upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: 4242, noteType: NOTE_TYPE, content: { chief: 'ok' },
+      });
+      expect(rowInt?.id).toBeTruthy();
+      expect(await draftCount('appointment_id = 4242')).toBe(1);
+
+      const rowStr = await upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: '4343', noteType: NOTE_TYPE, content: { chief: 'ok' },
+      });
+      expect(rowStr?.id).toBeTruthy();
+      expect(await draftCount('appointment_id = 4343')).toBe(1);
+    });
+
+    it('a JSON-string content that parses to an object → OK (parsed, not rejected)', async () => {
+      const row = await upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: 5151, noteType: NOTE_TYPE, content: '{"chief":"parsed"}',
+      });
+      expect(row?.id).toBeTruthy();
+      const loaded = await getNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: 5151, noteType: NOTE_TYPE,
+      });
+      expect(loaded.content).toEqual({ chief: 'parsed' });
+    });
+
+    it('a LOOSE note_type (e.g. "shift handover") is STILL accepted — no whitelist', async () => {
+      const row = await upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: null, noteType: 'shift handover', content: { note: 'in progress' },
+      });
+      expect(row?.id).toBeTruthy();
+      expect(await draftCount("note_type = 'shift handover'")).toBe(1);
+    });
+  });
+});
