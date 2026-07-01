@@ -267,6 +267,53 @@ class OfflineQueue {
     await db.delete('pending_writes', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Remove not-yet-drained (`status = 'pending'`) writes for [endpoint] whose
+  /// decoded body satisfies [matches], scoped to the current staff identity.
+  /// Returns the number of rows removed.
+  ///
+  /// Used to make an offline "discard draft" durable: a draft `PUT` enqueued
+  /// while typing offline would otherwise survive in the queue and RECREATE the
+  /// draft on reconnect — there is no finalize `POST` to reap it, unlike the
+  /// Save/Sign path. Dropping the queued PUT for the discarded context removes
+  /// that recreation, so the discard no longer depends on the 14-day TTL
+  /// janitor. Only `status = 'pending'` rows are touched (conflicts are left
+  /// for the user to resolve), and only rows the current staff owns — a
+  /// different user on a shared ward device can never dequeue another's write.
+  static Future<int> removePendingMatching({
+    required String endpoint,
+    required bool Function(Map<String, dynamic> body) matches,
+  }) async {
+    final db = await database;
+    final staffId = await AuthService.getStaffId();
+    if (staffId == null) return 0;
+    final rows = await db.query(
+      'pending_writes',
+      columns: ['id', 'body'],
+      where: "status = 'pending' AND staff_id = ? AND endpoint = ?",
+      whereArgs: [staffId, endpoint],
+    );
+    var removed = 0;
+    for (final row in rows) {
+      Map<String, dynamic> body;
+      try {
+        body = await decodeBody(row['body'] as String);
+      } catch (_) {
+        // Undecodable row — leave it for the normal drain path rather than
+        // guess. Never let one bad row abort the discard.
+        continue;
+      }
+      if (matches(body)) {
+        await db.delete(
+          'pending_writes',
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   /// Increment retry count.
   static Future<void> incrementRetry(int id) async {
     final db = await database;

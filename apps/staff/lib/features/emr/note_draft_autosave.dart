@@ -264,6 +264,23 @@ class NoteDraftAutosave {
     _debounceTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    // Durable discard while offline. The raw DELETE below no-ops with no
+    // connectivity, but a draft PUT enqueued earlier while typing offline
+    // survives in the offline queue and would RECREATE this draft on reconnect
+    // (there is no finalize POST to reap it, unlike Save/Sign). Drop any queued
+    // draft PUT for THIS context so the discard is durable instead of leaning
+    // on the 14-day TTL janitor. Best-effort — never throws to the caller.
+    if (!_connectivity.isOnline) {
+      try {
+        await _connectivity.removePendingWrites(
+          endpoint: _draftEndpoint(),
+          matches: _isThisDraftContext,
+        );
+      } catch (e) {
+        if (kDebugMode)
+          debugPrint('NoteDraftAutosave.clear dequeue failed: $e');
+      }
+    }
     try {
       await _api.delete(
         patientUid: patientUid,
@@ -275,6 +292,15 @@ class NoteDraftAutosave {
     }
     if (!_disposed) status.value = const NoteDraftStatus.idle();
   }
+
+  /// True when [body] is a queued draft PUT for THIS controller's exact
+  /// context. The enqueued body carries `patient_uid` / `note_type` and, when
+  /// present, `appointment_id` (omitted when null, so a null [appointmentId]
+  /// matches a body with no such key).
+  bool _isThisDraftContext(Map<String, dynamic> body) =>
+      body['patient_uid'] == patientUid &&
+      body['note_type'] == noteType &&
+      body['appointment_id'] == appointmentId;
 
   /// Force an immediate save (e.g. on field blur or app-lifecycle pause).
   /// No-op when there are no unsaved changes.
@@ -419,7 +445,7 @@ class NoteDraftAutosave {
   }
 
   /// True when a snapshot carries no meaningful content — every string field
-  /// is empty after `.trim()` and no non-string field holds a value. Used to
+  /// is empty after `.trim()` and no collection field holds a value. Used to
   /// refuse creating a blank draft before any real save (skip-empty).
   bool _isEffectivelyEmpty(Map<String, dynamic> content) {
     for (final value in content.values) {
@@ -431,8 +457,14 @@ class NoteDraftAutosave {
       } else if (value is Map) {
         if (value.isNotEmpty) return false;
       } else {
-        // Any non-string scalar (num, bool, …) counts as meaningful content.
-        return false;
+        // Non-string SCALARS (int/double/num/bool) are identity metadata — a
+        // note draft only ever carries them as machine keys like the injected
+        // `appointment_id`, never as clinical text. They must NOT count as
+        // content, or skip-empty is defeated for every appointment-scoped OP
+        // note (which always carries an int appointment_id) and a blank draft
+        // is created on the first heartbeat. Only Strings and non-empty
+        // List/Map fields represent real authored content.
+        continue;
       }
     }
     return true;
