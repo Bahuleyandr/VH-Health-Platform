@@ -1469,10 +1469,16 @@ export const getCatalog = async (req, res) => {
     params.push(limit);
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, name, generic_name, category, manufacturer, price, unit_price, pack_size,
+      `SELECT pharmacy_catalog.id AS id, name, generic_name, category, manufacturer, price, unit_price, pack_size,
               COALESCE(stock_quantity, stock) AS stock,
-              in_stock, is_available, requires_prescription, reorder_level, description, created_at
-       FROM pharmacy_catalog ${where} ${orderBy}
+              in_stock, is_available, requires_prescription, reorder_level, description,
+              pharmacy_catalog.created_at AS created_at,
+              pharmacy_catalog.composition_id, dc.display_label AS composition_label,
+              pharmacy_catalog.strength, pharmacy_catalog.strength_key, pharmacy_catalog.form,
+              pharmacy_catalog.form_key, pharmacy_catalog.release_key, pharmacy_catalog.composition_confidence
+       FROM pharmacy_catalog
+       LEFT JOIN drug_compositions dc ON dc.id = pharmacy_catalog.composition_id
+       ${where} ${orderBy}
        LIMIT $${params.length}`,
       ...params
     );
