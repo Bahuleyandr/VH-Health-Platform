@@ -6,11 +6,14 @@ import {
 
 // Unique tenant id for this suite to avoid collisions with other deep tests.
 const TENANT = '00000000-0000-4000-8000-0000000c0f01';
+// A second tenant used by the cache-isolation regression test. It has a
+// tenants row but NO composition_search_settings row.
+const TENANT_B = '00000000-0000-4000-8000-0000000c0f02';
 const UNKNOWN_TENANT = '00000000-0000-4000-8000-0000000c0f99';
 
 describe('compositionFeatureService (per-tenant composition-search flag)', () => {
   beforeAll(async () => {
-    // Seed the tenant row (FK target). Some tenant ids FK-fail if absent.
+    // Seed the tenant rows (FK target). Some tenant ids FK-fail if absent.
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name)
        VALUES ($1::uuid, $2, $3)
@@ -19,17 +22,27 @@ describe('compositionFeatureService (per-tenant composition-search flag)', () =>
       'comp-flag-test',
       'Composition Flag Test Tenant',
     );
-    // Clean any prior row so default-state assertions are meaningful.
     await prisma.$executeRawUnsafe(
-      `DELETE FROM composition_search_settings WHERE tenant_id = $1::uuid`,
+      `INSERT INTO tenants (id, slug, name)
+       VALUES ($1::uuid, $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      TENANT_B,
+      'comp-flag-test-b',
+      'Composition Flag Test Tenant B',
+    );
+    // Clean any prior rows so default-state assertions are meaningful.
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid)`,
       TENANT,
+      TENANT_B,
     );
   });
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(
-      `DELETE FROM composition_search_settings WHERE tenant_id = $1::uuid`,
+      `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid)`,
       TENANT,
+      TENANT_B,
     ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -104,5 +117,25 @@ describe('compositionFeatureService (per-tenant composition-search flag)', () =>
     await expect(isCompositionSearchEnabled(null)).resolves.toBe(false);
     await expect(isCompositionSearchEnabled(undefined)).resolves.toBe(false);
     await expect(isCompositionSearchEnabled('')).resolves.toBe(false);
+  });
+
+  it('reading another tenant never evicts/poisons this tenant\'s cache entry', async () => {
+    // Regression for the global-refresh cache-poisoning defect: the old design
+    // did `SELECT ... FROM composition_search_settings` (all rows) + `.clear()`,
+    // so reading tenant B — especially under an ambient tenant-A RLS GUC —
+    // would return only B's rows (or none) and WIPE tenant A's warmed entry,
+    // leaving A reading false for the next 60s TTL. A per-tenant keyed cache
+    // must never let one tenant's read mutate another's entry.
+    await setCompositionSearchEnabled(TENANT, true, {
+      actorUid: '33333333-3333-4333-8333-333333333333',
+      snapshot: { coverage: 1.0 },
+    });
+    expect(await isCompositionSearchEnabled(TENANT)).toBe(true); // warms A
+
+    // Read a DIFFERENT tenant B that has no settings row.
+    expect(await isCompositionSearchEnabled(TENANT_B)).toBe(false);
+
+    // A must still be enabled — reading B did not evict/poison A's entry.
+    expect(await isCompositionSearchEnabled(TENANT)).toBe(true);
   });
 });

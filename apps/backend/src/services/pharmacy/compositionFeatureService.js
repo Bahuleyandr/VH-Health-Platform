@@ -2,43 +2,19 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 // Per-tenant feature flag for composition-based drug search (Phase 2).
-// Mirrors src/services/featureFlags/featureFlagService.js: an in-memory Map
-// cache with a 60s TTL, guarded refresh that logs + degrades on failure, and a
-// synchronous cache update on every write so a flip is observable immediately.
+//
+// The cache is keyed PER TENANT — never a global refresh. composition_search_settings
+// carries RLS, so a global `SELECT ... FROM composition_search_settings` executed
+// while an ambient tenant GUC is set (inside a setTenant/setTenantTx scope) would
+// return only that one tenant's rows; a `.clear()`+repopulate off that result would
+// then evict every OTHER tenant's cached entry and stamp a fresh TTL, so for the
+// next 60s every other tenant would read `false` even when enabled — latent
+// multi-tenant cache poisoning. A per-tenant `WHERE tenant_id = $1::uuid` lookup is
+// correct regardless of the ambient GUC and, crucially, reading one tenant never
+// evicts or mutates another tenant's entry.
 
-const enabledCache = new Map(); // tenant_id (string) -> boolean
-let lastRefresh = 0;
 const REFRESH_INTERVAL_MS = 60 * 1000; // 60 seconds
-
-/**
- * Reload the enabled state for every tenant that currently has a settings row.
- * Never throws — during a staggered deploy the table may not exist yet, in which
- * case the cache stays empty and every tenant degrades to `false`.
- */
-async function refreshCache() {
-  try {
-    const rows = await prisma.$queryRawUnsafe(`
-      SELECT tenant_id, enabled
-      FROM composition_search_settings
-    `);
-    enabledCache.clear();
-    for (const row of rows) {
-      enabledCache.set(String(row.tenant_id), row.enabled === true);
-    }
-    lastRefresh = Date.now();
-    logger.info(`Composition-search flag cache refreshed: ${rows.length} tenant(s) loaded`);
-  } catch (err) {
-    // Table missing (staggered deploy) or transient DB error — degrade to
-    // "no tenant enabled" rather than crash the read path.
-    logger.warn(`Composition-search flag cache refresh failed: ${err.message}`);
-  }
-}
-
-async function ensureCache() {
-  if (Date.now() - lastRefresh > REFRESH_INTERVAL_MS) {
-    await refreshCache();
-  }
-}
+const enabledCache = new Map(); // tenant_id (string) -> { value: boolean, fetchedAt: number }
 
 /**
  * Is composition-based drug search enabled for this tenant?
@@ -49,10 +25,26 @@ async function ensureCache() {
  */
 export async function isCompositionSearchEnabled(tenantId) {
   if (!tenantId) return false;
+  const key = String(tenantId);
+
+  const cached = enabledCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt <= REFRESH_INTERVAL_MS) {
+    return cached.value;
+  }
+
   try {
-    await ensureCache();
-    return enabledCache.get(String(tenantId)) === true;
+    // Scope by tenant_id so the read is correct under any ambient RLS GUC and
+    // can never touch another tenant's cache entry.
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT enabled FROM composition_search_settings WHERE tenant_id = $1::uuid`,
+      tenantId,
+    );
+    const value = rows[0]?.enabled === true;
+    enabledCache.set(key, { value, fetchedAt: Date.now() });
+    return value;
   } catch (err) {
+    // Table missing (staggered deploy) or transient DB error — fail closed and
+    // do NOT cache, so the next call retries rather than pinning `false` for 60s.
     logger.warn(`isCompositionSearchEnabled failed for tenant ${tenantId}: ${err.message}`);
     return false;
   }
@@ -110,8 +102,9 @@ export async function setCompositionSearchEnabled(
     snapshotJson,
   );
 
-  // Update cache immediately so an immediate read observes the flip.
-  enabledCache.set(String(tenantId), enabledBool);
+  // Update this tenant's cache entry immediately so an immediate read observes
+  // the flip (never a global refresh — other tenants' entries are untouched).
+  enabledCache.set(String(tenantId), { value: enabledBool, fetchedAt: Date.now() });
   logger.info(`Composition-search flag set: tenant=${tenantId} enabled=${enabledBool}`);
   return rows[0];
 }
