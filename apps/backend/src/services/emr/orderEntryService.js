@@ -33,6 +33,7 @@ import {
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
+import { recordBrandSubstitutionAudit } from '../pharmacy/compositionSubstitutionAudit.js';
 
 
 // ===================================================================
@@ -595,6 +596,31 @@ async function dispatchPostCreateSideEffects(order) {
     await recordFirstDrugChartEntry(order).catch((err) => {
       logger.warn(`Failed to audit first drug chart entry for order ${order.order_number}: ${err.message}`);
     });
+
+    // Persisted-only brand-substitution audit — post-commit, best-effort. When
+    // the ordered brand (`details.catalog_id`) differs from the first-selected
+    // one (`details.original_catalog_id`), record a server-resolved
+    // clinical_audit_events row. recordBrandSubstitutionAudit never throws, but
+    // guard anyway so it can never fail a persisted order.
+    const details = order.details && typeof order.details === 'object' ? order.details : {};
+    if (details.original_catalog_id != null
+      && String(details.original_catalog_id) !== String(details.catalog_id)) {
+      await recordBrandSubstitutionAudit({
+        tenantId: order.tenant_id,
+        patientUid: order.patient_uid,
+        encounterId: order.encounter_id,
+        actorUid: order.ordered_by,
+        actorRole: null,
+        surface: 'drug_chart',
+        resourceTable: 'clinical_orders',
+        resourceId: order.id,
+        originalCatalogId: details.original_catalog_id,
+        finalCatalogId: details.catalog_id,
+        reason: details.substitution_reason ?? null,
+      }).catch((err) => {
+        logger.warn(`Brand-substitution audit failed for order ${order.order_number}: ${err.message}`);
+      });
+    }
   }
 
   if (order.order_type === 'medication' && order.encounter_id) {

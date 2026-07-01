@@ -8,6 +8,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { enrichMedicationsWithComposition } from '../../services/pharmacy/compositionIdentityService.js';
+import { recordBrandSubstitutionAudit } from '../../services/pharmacy/compositionSubstitutionAudit.js';
 import {
   ensureEncounterForAppointment,
   recordCanonicalClinicalEvent,
@@ -46,6 +47,40 @@ async function bestEffortPrescriptionCanonical(label, fn) {
   } catch (err) {
     logger.warn(`Canonical prescription event failed during ${label}: ${err?.message || err}`);
     return null;
+  }
+}
+
+// Persisted-only brand-substitution audit for an e-Rx save. Iterates the
+// persisted medications; for each med whose first-selected brand
+// (`original_catalog_id`) differs from the final `catalog_id`, records a
+// server-resolved `clinical_audit_events` row. Post-persist + best-effort: the
+// prescription is already saved, so an audit failure must never turn a 2xx into
+// an error — the whole block is wrapped and swallowed.
+async function auditPrescriptionBrandSubstitutions({
+  req, medications, tenantId, patientUid, encounterId, prescriptionId,
+}) {
+  try {
+    if (!Array.isArray(medications)) return;
+    for (const med of medications) {
+      if (med?.original_catalog_id == null) continue;
+      if (String(med.original_catalog_id) === String(med.catalog_id)) continue;
+      await recordBrandSubstitutionAudit({
+        tenantId,
+        patientUid,
+        encounterId: encounterId ?? null,
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        surface: 'prescription',
+        resourceTable: 'e_prescriptions',
+        resourceId: prescriptionId,
+        originalCatalogId: med.original_catalog_id,
+        finalCatalogId: med.catalog_id,
+        reason: med.substitution_reason ?? null,
+        requestId: req.id,
+      });
+    }
+  } catch (err) {
+    logger.warn(`Prescription brand-substitution audit failed for ${prescriptionId}: ${err?.message || err}`);
   }
 }
 
@@ -1140,6 +1175,16 @@ export const createPrescription = async (req, res) => {
       afterState: prescription,
     }));
 
+    // Persisted-only brand-substitution audit — post-persist, best-effort.
+    await auditPrescriptionBrandSubstitutions({
+      req,
+      medications,
+      tenantId: rxTenantId,
+      patientUid,
+      encounterId: encounter?.id || null,
+      prescriptionId: prescription.id,
+    });
+
     // If CDS blockers were overridden, persist the audit row linked to the new Rx.
     if (!safety.safe && override) {
       try {
@@ -1507,6 +1552,16 @@ export const updatePrescription = async (req, res) => {
       timelineIdempotencyKey: `e_prescriptions:${updated.id}:edited:rev${updated.revision || 1}`,
       auditIdempotencyKey: `e_prescriptions:${updated.id}:audit:edited:rev${updated.revision || 1}`,
     }));
+
+    // Persisted-only brand-substitution audit — post-persist, best-effort.
+    await auditPrescriptionBrandSubstitutions({
+      req,
+      medications,
+      tenantId: rxTenantId,
+      patientUid: updated.patient_uid || existing.patient_uid,
+      encounterId: null,
+      prescriptionId: updated.id,
+    });
 
     success(res, updated, 'Prescription updated');
   } catch (err) {
