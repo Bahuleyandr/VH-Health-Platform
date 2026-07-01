@@ -32,6 +32,8 @@ import {
   recordMedicationSafetyReviews,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
+import { recordBrandSubstitutionAudit } from '../pharmacy/compositionSubstitutionAudit.js';
 
 
 // ===================================================================
@@ -164,8 +166,14 @@ async function generateOrderNumber() {
 /**
  * Run CDS (Clinical Decision Support) safety checks for an order.
  * Returns { safe, warnings, blockers }.
+ * @param {string} patientUid
+ * @param {string} orderType
+ * @param {object} details
+ * @param {string|null} [tenantId] threaded to validatePrescriptionSafety so the
+ *   gated + guarded composition allergy / same-composition duplicate screen can
+ *   run for IPD medication orders when the tenant flag is enabled.
  */
-async function runCDSChecks(patientUid, orderType, details) {
+async function runCDSChecks(patientUid, orderType, details, tenantId = null) {
   const result = { safe: true, warnings: [], blockers: [] };
 
   try {
@@ -192,13 +200,24 @@ async function runCDSChecks(patientUid, orderType, details) {
         route: details.route ?? null,
         strength: details.strength ?? null,
         concentration: details.concentration ?? null,
+        // Carry the catalog_id through — it is the authoritative key the
+        // composition safety screen enriches identity from (validate strips any
+        // client composition_id and derives it server-side from catalog_id).
+        // Without this the gated composition allergy / same-composition
+        // duplicate checks could never fire for drug-chart orders. Only the
+        // catalog_id is copied; never a client-sent composition_id.
+        catalog_id: details.catalog_id ?? details.catalogId ?? null,
       };
 
       // Check patient-specific hazards for the new drug first. This preserves
       // the existing hard-block behavior for allergies and paediatric dosing.
+      // tenantId is threaded so the gated composition allergy / same-composition
+      // duplicate screen (which reads this patient's active e-Rx + IPD orders)
+      // can run when the per-tenant flag is enabled; omitting it (legacy path)
+      // degrades cleanly to the deterministic checks only.
       const safetyResult = await validatePrescriptionSafety(patientRow.id, [
         newMedication,
-      ]);
+      ], { tenantId });
 
       result.warnings = safetyResult.warnings || [];
       result.blockers = safetyResult.blockers || [];
@@ -577,6 +596,31 @@ async function dispatchPostCreateSideEffects(order) {
     await recordFirstDrugChartEntry(order).catch((err) => {
       logger.warn(`Failed to audit first drug chart entry for order ${order.order_number}: ${err.message}`);
     });
+
+    // Persisted-only brand-substitution audit — post-commit, best-effort. When
+    // the ordered brand (`details.catalog_id`) differs from the first-selected
+    // one (`details.original_catalog_id`), record a server-resolved
+    // clinical_audit_events row. recordBrandSubstitutionAudit never throws, but
+    // guard anyway so it can never fail a persisted order.
+    const details = order.details && typeof order.details === 'object' ? order.details : {};
+    if (details.original_catalog_id != null
+      && String(details.original_catalog_id) !== String(details.catalog_id)) {
+      await recordBrandSubstitutionAudit({
+        tenantId: order.tenant_id,
+        patientUid: order.patient_uid,
+        encounterId: order.encounter_id,
+        actorUid: order.ordered_by,
+        actorRole: null,
+        surface: 'drug_chart',
+        resourceTable: 'clinical_orders',
+        resourceId: order.id,
+        originalCatalogId: details.original_catalog_id,
+        finalCatalogId: details.catalog_id,
+        reason: details.substitution_reason ?? null,
+      }).catch((err) => {
+        logger.warn(`Brand-substitution audit failed for order ${order.order_number}: ${err.message}`);
+      });
+    }
   }
 
   if (order.order_type === 'medication' && order.encounter_id) {
@@ -633,10 +677,28 @@ export async function createOrder(data) {
   const { tenantId = null } = data;
   const n = await normalizeOrderInput(data);
 
+  // Server-authoritative composition identity (Phase 2). When a medication
+  // order carries a catalog_id, overlay the tenant-scoped server-derived
+  // composition identity onto n.details BEFORE the CDS screen so the
+  // safety-checked payload and the persisted payload are byte-identical
+  // (invariant #7). Enrich strips any client-sent composition_id first, so a
+  // forged value is never persisted as fact. Guarded: a failure leaves the
+  // original details untouched and the write still succeeds. Always-on when a
+  // catalog_id is present — harmless metadata that makes a future flag-flip
+  // immediately effective on in-flight orders.
+  if (n.order_type === 'medication' && (n.details?.catalog_id ?? n.details?.catalogId) != null) {
+    try {
+      const [enriched] = await enrichMedicationsWithComposition(tenantId, [n.details]);
+      if (enriched) n.details = enriched;
+    } catch (err) {
+      logger.warn(`composition enrich (order create) failed: ${err.message}`);
+    }
+  }
+
   // Run CDS safety checks. Blockers reject the order — surface the
   // structured array as `details` so the staff-app CDS modal can show
   // per-blocker context + the override flow.
-  const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details);
+  const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details, tenantId);
   // Fail-closed CDS-exception override (audit 2026-06-18 §4): when the only
   // block is that the automated medication screen could not run, an explicit
   // override-with-reason lets the order through and is recorded on a
@@ -752,7 +814,20 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
     } catch (err) {
       throw AppError.badRequest(`Order #${i + 1}: ${err.message}`, err.code, err.details);
     }
-    const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details);
+    // Server-authoritative composition identity (Phase 2) — same invariant-#7
+    // enrich-before-CDS-then-persist-the-same-object as createOrder, applied to
+    // each prepared medication order's details. Guarded per item so one failure
+    // never aborts the batch.
+    if (normalized.order_type === 'medication'
+      && (normalized.details?.catalog_id ?? normalized.details?.catalogId) != null) {
+      try {
+        const [enriched] = await enrichMedicationsWithComposition(tenantId, [normalized.details]);
+        if (enriched) normalized.details = enriched;
+      } catch (err) {
+        logger.warn(`composition enrich (bulk order create #${i + 1}) failed: ${err.message}`);
+      }
+    }
+    const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details, tenantId);
     // Fail-closed CDS-exception override (audit 2026-06-18 §4): same per-item
     // override-with-reason path as createOrder. A genuine blocker (or a missing
     // reason) still aborts the whole batch.

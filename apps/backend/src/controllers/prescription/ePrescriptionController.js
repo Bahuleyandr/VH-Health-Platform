@@ -7,6 +7,8 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import { enrichMedicationsWithComposition } from '../../services/pharmacy/compositionIdentityService.js';
+import { recordBrandSubstitutionAudit } from '../../services/pharmacy/compositionSubstitutionAudit.js';
 import {
   ensureEncounterForAppointment,
   recordCanonicalClinicalEvent,
@@ -45,6 +47,40 @@ async function bestEffortPrescriptionCanonical(label, fn) {
   } catch (err) {
     logger.warn(`Canonical prescription event failed during ${label}: ${err?.message || err}`);
     return null;
+  }
+}
+
+// Persisted-only brand-substitution audit for an e-Rx save. Iterates the
+// persisted medications; for each med whose first-selected brand
+// (`original_catalog_id`) differs from the final `catalog_id`, records a
+// server-resolved `clinical_audit_events` row. Post-persist + best-effort: the
+// prescription is already saved, so an audit failure must never turn a 2xx into
+// an error — the whole block is wrapped and swallowed.
+async function auditPrescriptionBrandSubstitutions({
+  req, medications, tenantId, patientUid, encounterId, prescriptionId,
+}) {
+  try {
+    if (!Array.isArray(medications)) return;
+    for (const med of medications) {
+      if (med?.original_catalog_id == null) continue;
+      if (String(med.original_catalog_id) === String(med.catalog_id)) continue;
+      await recordBrandSubstitutionAudit({
+        tenantId,
+        patientUid,
+        encounterId: encounterId ?? null,
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        surface: 'prescription',
+        resourceTable: 'e_prescriptions',
+        resourceId: prescriptionId,
+        originalCatalogId: med.original_catalog_id,
+        finalCatalogId: med.catalog_id,
+        reason: med.substitution_reason ?? null,
+        requestId: req.id,
+      });
+    }
+  } catch (err) {
+    logger.warn(`Prescription brand-substitution audit failed for ${prescriptionId}: ${err?.message || err}`);
   }
 }
 
@@ -876,7 +912,7 @@ export const createPrescription = async (req, res) => {
     const doctorId = parseIntegerField(doctor_id);
     const appointmentId = parseIntegerField(appointment_id);
     const admissionId = parseIntegerField(admission_id);
-    const medications = parseJsonField(rawMedications, []);
+    let medications = parseJsonField(rawMedications, []);
     const vitals = parseJsonField(rawVitals, null);
     const override = parseJsonField(req.body.override, null); // { reason, approvedBy? }
 
@@ -905,11 +941,27 @@ export const createPrescription = async (req, res) => {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Server-authoritative composition identity (Phase 2). For any med carrying
+    // a catalog_id, overlay the tenant-scoped server-derived composition
+    // identity BEFORE the safety check, and persist that SAME enriched array
+    // (invariant #7 — the safety-checked payload and the payload bound to $8
+    // must be identical). Enrich strips a client-sent composition_id first, so a
+    // forged value is never persisted as fact. Guarded: a failure keeps the
+    // original array for both safety and persistence.
+    const rxTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+    try {
+      medications = await enrichMedicationsWithComposition(rxTenantId, medications);
+    } catch (enrichErr) {
+      logger.warn(`composition enrich (prescription create) failed: ${enrichErr.message}`);
+    }
+
     // ── Clinical Decision Support hard-block ──
     // Run safety check; if blockers[] non-empty, require an explicit override payload.
     // Override requires a non-empty reason; we log it to prescription_safety_overrides
     // after the prescription is inserted so there's always a prescription_id to link.
-    const safety = await validatePrescriptionSafety(patientId, medications);
+    const safety = await validatePrescriptionSafety(patientId, medications, {
+      tenantId: rxTenantId,
+    });
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
         return error(res, 'Prescription blocked by clinical safety check', HTTP_STATUS.CONFLICT, {
@@ -1122,6 +1174,16 @@ export const createPrescription = async (req, res) => {
       },
       afterState: prescription,
     }));
+
+    // Persisted-only brand-substitution audit — post-persist, best-effort.
+    await auditPrescriptionBrandSubstitutions({
+      req,
+      medications,
+      tenantId: rxTenantId,
+      patientUid,
+      encounterId: encounter?.id || null,
+      prescriptionId: prescription.id,
+    });
 
     // If CDS blockers were overridden, persist the audit row linked to the new Rx.
     if (!safety.safe && override) {
@@ -1343,7 +1405,7 @@ export const updatePrescription = async (req, res) => {
     const editError = assertPrescriptionEditable(req, existing);
     if (editError) return error(res, editError, HTTP_STATUS.FORBIDDEN);
 
-    const medications =
+    let medications =
       req.body.medications !== undefined
         ? normalizeMedicationList(req.body.medications)
         : normalizeMedicationList(existing.medications);
@@ -1351,8 +1413,21 @@ export const updatePrescription = async (req, res) => {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Server-authoritative composition identity (Phase 2) — same enrich-before-
+    // safety-then-persist-the-same-array invariant (#7) as the create path.
+    // Enrich strips any client composition_id; guarded so a failure keeps the
+    // original array for both the safety check and the $3 persist.
+    const rxTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+    try {
+      medications = await enrichMedicationsWithComposition(rxTenantId, medications);
+    } catch (enrichErr) {
+      logger.warn(`composition enrich (prescription update) failed: ${enrichErr.message}`);
+    }
+
     const override = parseJsonField(req.body.override, null);
-    const safety = await validatePrescriptionSafety(existing.patient_id, medications);
+    const safety = await validatePrescriptionSafety(existing.patient_id, medications, {
+      tenantId: rxTenantId,
+    });
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
         return error(res, 'Prescription blocked by clinical safety check', HTTP_STATUS.CONFLICT, {
@@ -1477,6 +1552,16 @@ export const updatePrescription = async (req, res) => {
       timelineIdempotencyKey: `e_prescriptions:${updated.id}:edited:rev${updated.revision || 1}`,
       auditIdempotencyKey: `e_prescriptions:${updated.id}:audit:edited:rev${updated.revision || 1}`,
     }));
+
+    // Persisted-only brand-substitution audit — post-persist, best-effort.
+    await auditPrescriptionBrandSubstitutions({
+      req,
+      medications,
+      tenantId: rxTenantId,
+      patientUid: updated.patient_uid || existing.patient_uid,
+      encounterId: null,
+      prescriptionId: updated.id,
+    });
 
     success(res, updated, 'Prescription updated');
   } catch (err) {
