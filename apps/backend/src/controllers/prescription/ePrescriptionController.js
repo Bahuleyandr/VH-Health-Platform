@@ -7,6 +7,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import { enrichMedicationsWithComposition } from '../../services/pharmacy/compositionIdentityService.js';
 import {
   ensureEncounterForAppointment,
   recordCanonicalClinicalEvent,
@@ -876,7 +877,7 @@ export const createPrescription = async (req, res) => {
     const doctorId = parseIntegerField(doctor_id);
     const appointmentId = parseIntegerField(appointment_id);
     const admissionId = parseIntegerField(admission_id);
-    const medications = parseJsonField(rawMedications, []);
+    let medications = parseJsonField(rawMedications, []);
     const vitals = parseJsonField(rawVitals, null);
     const override = parseJsonField(req.body.override, null); // { reason, approvedBy? }
 
@@ -905,12 +906,26 @@ export const createPrescription = async (req, res) => {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Server-authoritative composition identity (Phase 2). For any med carrying
+    // a catalog_id, overlay the tenant-scoped server-derived composition
+    // identity BEFORE the safety check, and persist that SAME enriched array
+    // (invariant #7 — the safety-checked payload and the payload bound to $8
+    // must be identical). Enrich strips a client-sent composition_id first, so a
+    // forged value is never persisted as fact. Guarded: a failure keeps the
+    // original array for both safety and persistence.
+    const rxTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+    try {
+      medications = await enrichMedicationsWithComposition(rxTenantId, medications);
+    } catch (enrichErr) {
+      logger.warn(`composition enrich (prescription create) failed: ${enrichErr.message}`);
+    }
+
     // ── Clinical Decision Support hard-block ──
     // Run safety check; if blockers[] non-empty, require an explicit override payload.
     // Override requires a non-empty reason; we log it to prescription_safety_overrides
     // after the prescription is inserted so there's always a prescription_id to link.
     const safety = await validatePrescriptionSafety(patientId, medications, {
-      tenantId: req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null,
+      tenantId: rxTenantId,
     });
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
@@ -1345,7 +1360,7 @@ export const updatePrescription = async (req, res) => {
     const editError = assertPrescriptionEditable(req, existing);
     if (editError) return error(res, editError, HTTP_STATUS.FORBIDDEN);
 
-    const medications =
+    let medications =
       req.body.medications !== undefined
         ? normalizeMedicationList(req.body.medications)
         : normalizeMedicationList(existing.medications);
@@ -1353,9 +1368,20 @@ export const updatePrescription = async (req, res) => {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Server-authoritative composition identity (Phase 2) — same enrich-before-
+    // safety-then-persist-the-same-array invariant (#7) as the create path.
+    // Enrich strips any client composition_id; guarded so a failure keeps the
+    // original array for both the safety check and the $3 persist.
+    const rxTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+    try {
+      medications = await enrichMedicationsWithComposition(rxTenantId, medications);
+    } catch (enrichErr) {
+      logger.warn(`composition enrich (prescription update) failed: ${enrichErr.message}`);
+    }
+
     const override = parseJsonField(req.body.override, null);
     const safety = await validatePrescriptionSafety(existing.patient_id, medications, {
-      tenantId: req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null,
+      tenantId: rxTenantId,
     });
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {

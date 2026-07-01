@@ -32,6 +32,7 @@ import {
   recordMedicationSafetyReviews,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
 
 
 // ===================================================================
@@ -650,6 +651,24 @@ export async function createOrder(data) {
   const { tenantId = null } = data;
   const n = await normalizeOrderInput(data);
 
+  // Server-authoritative composition identity (Phase 2). When a medication
+  // order carries a catalog_id, overlay the tenant-scoped server-derived
+  // composition identity onto n.details BEFORE the CDS screen so the
+  // safety-checked payload and the persisted payload are byte-identical
+  // (invariant #7). Enrich strips any client-sent composition_id first, so a
+  // forged value is never persisted as fact. Guarded: a failure leaves the
+  // original details untouched and the write still succeeds. Always-on when a
+  // catalog_id is present — harmless metadata that makes a future flag-flip
+  // immediately effective on in-flight orders.
+  if (n.order_type === 'medication' && (n.details?.catalog_id ?? n.details?.catalogId) != null) {
+    try {
+      const [enriched] = await enrichMedicationsWithComposition(tenantId, [n.details]);
+      if (enriched) n.details = enriched;
+    } catch (err) {
+      logger.warn(`composition enrich (order create) failed: ${err.message}`);
+    }
+  }
+
   // Run CDS safety checks. Blockers reject the order — surface the
   // structured array as `details` so the staff-app CDS modal can show
   // per-blocker context + the override flow.
@@ -768,6 +787,19 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
       normalized = await normalizeOrderInput({ ...items[i], ordered_by });
     } catch (err) {
       throw AppError.badRequest(`Order #${i + 1}: ${err.message}`, err.code, err.details);
+    }
+    // Server-authoritative composition identity (Phase 2) — same invariant-#7
+    // enrich-before-CDS-then-persist-the-same-object as createOrder, applied to
+    // each prepared medication order's details. Guarded per item so one failure
+    // never aborts the batch.
+    if (normalized.order_type === 'medication'
+      && (normalized.details?.catalog_id ?? normalized.details?.catalogId) != null) {
+      try {
+        const [enriched] = await enrichMedicationsWithComposition(tenantId, [normalized.details]);
+        if (enriched) normalized.details = enriched;
+      } catch (err) {
+        logger.warn(`composition enrich (bulk order create #${i + 1}) failed: ${err.message}`);
+      }
     }
     const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details, tenantId);
     // Fail-closed CDS-exception override (audit 2026-06-18 §4): same per-item
