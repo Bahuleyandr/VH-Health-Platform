@@ -252,6 +252,44 @@ d('note_drafts input validation (deep)', () => {
         'NOTE_DRAFT_APPOINTMENT_INVALID',
       );
     });
+
+    // int4 UPPER-bound guard. A numeric-but-out-of-range appointment_id
+    // (> 2147483647) parses to a positive integer and used to pass validation,
+    // reach the `$4::int` bind, and fail at Postgres with 22003 (numeric out of
+    // range) — surfacing as a 500 AND incrementing note_draft_save_errors_total
+    // (whose HELP scopes it to UNEXPECTED DB/write failures). An out-of-range
+    // client input is a deliberate client fault of exactly the class this
+    // validator rejects with a 400, so it must be a 400 (client fault) and must
+    // NOT touch the save-error counter. Because normAppointmentId runs BEFORE the
+    // counted DB-write try-block, the pre-DB throw guarantees both.
+    it.each([3000000000, '3000000000', 2147483648])(
+      'upsert with an out-of-range appointment_id=%p → 400 NOTE_DRAFT_APPOINTMENT_INVALID (int4 upper bound), no 500 / 22003',
+      async (bad) => {
+        const before = counterValue('note_draft_save_errors_total');
+        await expectAppError(
+          () => upsertNoteDraft({
+            tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+            appointmentId: bad, noteType: NOTE_TYPE, content: { chief: 'x' },
+          }),
+          400,
+          'NOTE_DRAFT_APPOINTMENT_INVALID',
+        );
+        // Pre-DB throw ⇒ the save-error counter is untouched (delta 0) — the
+        // out-of-range input never reaches the counted DB write.
+        expect(counterValue('note_draft_save_errors_total') - before).toBe(0);
+        // and it did NOT collapse into a null-appointment draft row either
+        expect(await draftCount('appointment_id IS NULL')).toBe(0);
+      },
+    );
+
+    it('the int4 max itself (2147483647) is a VALID appointment_id → accepted', async () => {
+      const row = await upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: 2147483647, noteType: NOTE_TYPE, content: { chief: 'edge' },
+      });
+      expect(row?.id).toBeTruthy();
+      expect(await draftCount('appointment_id = 2147483647')).toBe(1);
+    });
   });
 
   describe('content must be a plain JSON object', () => {

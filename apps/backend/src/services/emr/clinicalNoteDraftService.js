@@ -52,10 +52,24 @@ function normContent(content) {
 // context (confusing + wrong); now it is rejected. Shared by upsert/get/delete,
 // so GET/DELETE reject a malformed id too. 0 is rejected: it is the COALESCE
 // sentinel for "no appointment" in the uniqueness/lookup predicates.
+// Postgres int4 upper bound. A numeric-but-out-of-range appointment_id parses
+// to a positive integer and would otherwise reach the `$4::int` bind and fail
+// at the DB with 22003 (numeric out of range) — surfacing as a 500 and polluting
+// note_draft_save_errors_total (scoped to UNEXPECTED DB/write failures). An
+// out-of-range input is a deliberate client fault of exactly the class this
+// validator rejects, so it is rejected here as the same 400 (client fault),
+// BEFORE the counted DB write. (Lower bound is covered by the `<= 0` check.)
+const INT4_MAX = 2147483647;
+
 function normAppointmentId(appointmentId) {
   if (appointmentId === undefined || appointmentId === null || appointmentId === '') return null;
   const n = Number.parseInt(appointmentId, 10);
-  if (!Number.isInteger(n) || n <= 0 || String(n) !== String(appointmentId).trim()) {
+  if (
+    !Number.isInteger(n)
+    || n <= 0
+    || n > INT4_MAX
+    || String(n) !== String(appointmentId).trim()
+  ) {
     throw AppError.badRequest('appointment_id must be an integer', 'NOTE_DRAFT_APPOINTMENT_INVALID');
   }
   return n;
