@@ -69,6 +69,55 @@ class _FakeDraftApi {
   );
 }
 
+/// Records every offline-sync call the controller makes and lets a test drive
+/// connectivity, so the otherwise-unreachable offline branch (the real
+/// `ConnectivitySyncService.instance` reports `isOnline == true` in a test VM
+/// and cannot be faked) can be exercised. Mirrors [_FakeDraftApi].
+class _FakeSync {
+  _FakeSync({this.online = true});
+
+  bool online;
+
+  /// When true, the next [enqueue] throws (simulates a queue write failure).
+  bool enqueueThrows = false;
+
+  /// When set, [enqueue] returns this future instead of completing eagerly, so
+  /// a test can hold an enqueue in flight and resolve it after a `clear()`.
+  Completer<int>? enqueueGate;
+
+  final List<Map<String, dynamic>> enqueues = [];
+  final List<Map<String, dynamic>> removals = [];
+
+  NoteDraftSync build() => NoteDraftSync(
+    isOnline: () => online,
+    enqueue:
+        ({
+          required String endpoint,
+          required String method,
+          required Map<String, dynamic> body,
+          String? contextLabel,
+        }) {
+          enqueues.add({
+            'endpoint': endpoint,
+            'method': method,
+            'body': body,
+            'contextLabel': contextLabel,
+          });
+          if (enqueueThrows) throw Exception('enqueue failed');
+          if (enqueueGate != null) return enqueueGate!.future;
+          return Future.value(enqueues.length);
+        },
+    removePendingWrites:
+        ({
+          required String endpoint,
+          required bool Function(Map<String, dynamic> body) matches,
+        }) {
+          removals.add({'endpoint': endpoint, 'matches': matches});
+          return Future.value(0);
+        },
+  );
+}
+
 void main() {
   group('NoteDraftAutosave', () {
     late _FakeDraftApi fake;
@@ -938,6 +987,415 @@ void main() {
           autosave.dispose();
         });
       });
+    });
+
+    // ── Sub-task F: offline branch (enqueue / poison-cache / discard) ──────
+    // The offline path is reachable only through the injected sync seam — the
+    // real ConnectivitySyncService.instance reports isOnline==true headless.
+    group('offline path (F)', () {
+      test('a debounced save enqueues the draft PUT and shows offline', () {
+        fakeAsync((async) {
+          final sync = _FakeSync(online: false);
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            appointmentId: 42,
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'chest pain'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+
+          expect(sync.enqueues, hasLength(1), reason: 'offline → enqueue');
+          expect(sync.enqueues.single['endpoint'], '/emr/notes/draft');
+          expect(sync.enqueues.single['method'], 'PUT');
+          expect(
+            sync.enqueues.single['contextLabel'],
+            'Note draft (op_consultation)',
+            reason:
+                'the queued write carries an operator-facing label the '
+                'SyncStatusSheet renders per pending draft',
+          );
+          final body = sync.enqueues.single['body'] as Map;
+          expect(body['patient_uid'], 'pt-1');
+          expect(body['appointment_id'], 42);
+          expect((body['content'] as Map)['chief_complaint'], 'chest pain');
+          expect(fake.puts, isEmpty, reason: 'offline never PUTs directly');
+          expect(autosave.status.value.kind, NoteDraftStatusKind.offline);
+
+          autosave.dispose();
+        });
+      });
+
+      test('an offline enqueue does NOT poison the skip-unchanged cache', () {
+        fakeAsync((async) {
+          final sync = _FakeSync(online: false);
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'same'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          // Offline: the content is enqueued, not confirmed-saved.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(sync.enqueues, hasLength(1));
+          expect(fake.puts, isEmpty);
+
+          // Reconnect and re-save the SAME content. Because the offline enqueue
+          // must not seed _lastSavedJson, the confirming online PUT still fires
+          // (skip-unchanged must not swallow an unconfirmed write).
+          sync.online = true;
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(
+            fake.puts,
+            hasLength(1),
+            reason:
+                'an offline enqueue must not poison the cache — the identical '
+                'online write still PUTs to actually confirm the draft',
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test(
+        'an enqueue failure re-arms dirty so the next heartbeat retries',
+        () {
+          fakeAsync((async) {
+            final sync = _FakeSync(online: false)..enqueueThrows = true;
+            final autosave = NoteDraftAutosave(
+              patientUid: 'pt-1',
+              noteType: 'op_consultation',
+              snapshot: () => {'chief_complaint': 'x'},
+              api: fake.build(),
+              sync: sync.build(),
+              deviceType: () => 'desktop',
+              debounce: const Duration(seconds: 3),
+              heartbeat: const Duration(seconds: 15),
+            );
+
+            // First enqueue throws → status=offline, dirty re-armed for retry.
+            autosave.onContentChanged();
+            async.elapse(const Duration(seconds: 3));
+            async.flushMicrotasks();
+            expect(
+              sync.enqueues,
+              hasLength(1),
+              reason: 'first enqueue attempted',
+            );
+            expect(autosave.status.value.kind, NoteDraftStatusKind.offline);
+
+            // The queue recovers; the 15s heartbeat must retry the enqueue
+            // because the failed attempt re-armed dirty.
+            sync.enqueueThrows = false;
+            async.elapse(const Duration(seconds: 15));
+            async.flushMicrotasks();
+            expect(
+              sync.enqueues,
+              hasLength(2),
+              reason: 'a failed enqueue re-arms dirty so the heartbeat retries',
+            );
+
+            autosave.dispose();
+          });
+        },
+      );
+
+      test(
+        'offline discard dequeues the pending draft PUT for this context',
+        () {
+          fakeAsync((async) {
+            final sync = _FakeSync(online: false);
+            final autosave = NoteDraftAutosave(
+              patientUid: 'pt-9',
+              appointmentId: 7,
+              noteType: 'op_consultation',
+              snapshot: () => {'chief_complaint': 'typed offline'},
+              api: fake.build(),
+              sync: sync.build(),
+              deviceType: () => 'desktop',
+              debounce: const Duration(seconds: 3),
+            );
+
+            autosave.onContentChanged();
+            async.elapse(const Duration(seconds: 3));
+            async.flushMicrotasks();
+            expect(sync.enqueues, hasLength(1));
+
+            // Discard while offline → dequeue the queued draft PUT so it can't
+            // recreate the draft on reconnect.
+            autosave.clear();
+            async.flushMicrotasks();
+
+            expect(
+              sync.removals,
+              hasLength(1),
+              reason: 'offline clear dequeues',
+            );
+            expect(sync.removals.single['endpoint'], '/emr/notes/draft');
+            // The captured predicate targets THIS context and rejects others.
+            final matches =
+                sync.removals.single['matches']
+                    as bool Function(Map<String, dynamic>);
+            expect(
+              matches({
+                'patient_uid': 'pt-9',
+                'appointment_id': 7,
+                'note_type': 'op_consultation',
+              }),
+              isTrue,
+            );
+            // Each conjunct must be load-bearing: flip ONE field at a time so a
+            // predicate silently narrowed to patient_uid-only (or one that
+            // drops the note_type / appointment_id check) is caught.
+            expect(
+              matches({
+                'patient_uid': 'someone-else',
+                'appointment_id': 7,
+                'note_type': 'op_consultation',
+              }),
+              isFalse,
+              reason: 'a different patient must not be dequeued',
+            );
+            expect(
+              matches({
+                'patient_uid': 'pt-9',
+                'appointment_id': 7,
+                'note_type': 'nursing_note',
+              }),
+              isFalse,
+              reason:
+                  'same patient, DIFFERENT note_type must not be dequeued '
+                  '(note_type is a discriminating conjunct)',
+            );
+            expect(
+              matches({
+                'patient_uid': 'pt-9',
+                'appointment_id': 99,
+                'note_type': 'op_consultation',
+              }),
+              isFalse,
+              reason:
+                  'same patient, DIFFERENT appointment_id must not be dequeued '
+                  '(appointment_id is a discriminating conjunct)',
+            );
+
+            autosave.dispose();
+          });
+        },
+      );
+
+      test('an online discard does not touch the offline queue', () {
+        fakeAsync((async) {
+          final sync = _FakeSync(online: true);
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(fake.puts, hasLength(1));
+
+          autosave.clear();
+          async.flushMicrotasks();
+
+          expect(
+            sync.removals,
+            isEmpty,
+            reason: 'online clear relies on the raw DELETE, not the queue',
+          );
+          expect(fake.deletes, hasLength(1));
+
+          autosave.dispose();
+        });
+      });
+
+      test('an enqueue resolving after clear() does not re-assert offline', () {
+        fakeAsync((async) {
+          final gate = Completer<int>();
+          final sync = _FakeSync(online: false)..enqueueGate = gate;
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          // Arm a save → enqueue is in flight, held by the gate.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(sync.enqueues, hasLength(1));
+
+          // Discard while the enqueue is still awaiting.
+          autosave.clear();
+          async.flushMicrotasks();
+          expect(autosave.status.value.kind, NoteDraftStatusKind.idle);
+
+          // The superseded enqueue now resolves — it must NOT flip to offline.
+          gate.complete(1);
+          async.flushMicrotasks();
+          expect(
+            autosave.status.value.kind,
+            NoteDraftStatusKind.idle,
+            reason: 'a save superseded by clear() must not re-assert offline',
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test('a mobile device offline still refuses to enqueue', () {
+        fakeAsync((async) {
+          // The deviceType guard must short-circuit BEFORE the offline branch:
+          // a phone with no connectivity must NOT queue draft writes (they'd
+          // replay on reconnect and defeat the desktop/tablet-only gate that
+          // exists to stop 403-spam / unauthorized clinical writes from phones).
+          final sync = _FakeSync(online: false);
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'mobile',
+            debounce: const Duration(seconds: 3),
+            heartbeat: const Duration(seconds: 15),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 20));
+          async.flushMicrotasks();
+
+          expect(
+            sync.enqueues,
+            isEmpty,
+            reason: 'phone-mode never enqueues, even offline',
+          );
+          expect(fake.puts, isEmpty);
+
+          autosave.dispose();
+        });
+      });
+
+      test('a blank draft is never enqueued while offline', () {
+        fakeAsync((async) {
+          // skip-empty must short-circuit BEFORE the offline branch: merely
+          // opening a scheduled OP patient offline (all clinical fields empty,
+          // only appointment_id metadata) must NOT queue a blank draft PUT that
+          // would recreate an empty scratchpad on reconnect.
+          final sync = _FakeSync(online: false);
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            appointmentId: 77,
+            noteType: 'op_consultation',
+            snapshot: () => {
+              'chief_complaint': '',
+              'history': '',
+              'examination': '',
+              'diagnosis': '',
+              'plan': '',
+              'summary': '',
+              'appointment_id': 77,
+            },
+            api: fake.build(),
+            sync: sync.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 5));
+          async.flushMicrotasks();
+
+          expect(
+            sync.enqueues,
+            isEmpty,
+            reason: 'skip-empty precedes the offline branch — no blank enqueue',
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test(
+        'a null-appointment draft omits appointment_id and dequeues by null',
+        () {
+          fakeAsync((async) {
+            // Nursing drafts carry no appointment_id. The enqueued body must OMIT
+            // the key (not send null), and the discard predicate must still match
+            // that null context (absent key == null appointmentId).
+            final sync = _FakeSync(online: false);
+            final autosave = NoteDraftAutosave(
+              patientUid: 'pt-1',
+              noteType: 'nursing_note',
+              snapshot: () => {'free_text': 'obs'},
+              api: fake.build(),
+              sync: sync.build(),
+              deviceType: () => 'desktop',
+              debounce: const Duration(seconds: 3),
+            );
+
+            autosave.onContentChanged();
+            async.elapse(const Duration(seconds: 3));
+            async.flushMicrotasks();
+
+            expect(sync.enqueues, hasLength(1));
+            final body = sync.enqueues.single['body'] as Map;
+            expect(
+              body.containsKey('appointment_id'),
+              isFalse,
+              reason: 'a null appointmentId must be OMITTED, not sent as null',
+            );
+
+            // Discard offline → the predicate must match the null-context body.
+            autosave.clear();
+            async.flushMicrotasks();
+            final matches =
+                sync.removals.single['matches']
+                    as bool Function(Map<String, dynamic>);
+            expect(
+              matches({'patient_uid': 'pt-1', 'note_type': 'nursing_note'}),
+              isTrue,
+              reason: 'absent appointment_id key matches a null appointmentId',
+            );
+            expect(
+              matches({
+                'patient_uid': 'pt-1',
+                'note_type': 'nursing_note',
+                'appointment_id': 3,
+              }),
+              isFalse,
+              reason: 'a draft that DID carry an appointment must not match',
+            );
+
+            autosave.dispose();
+          });
+        },
+      );
     });
   });
 }
