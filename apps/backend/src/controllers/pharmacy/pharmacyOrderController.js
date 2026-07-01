@@ -1618,8 +1618,25 @@ export const getCatalogAlternatives = async (req, res) => {
                 pc.strength_key NULLS LAST, pc.name`;
     const rows = await prisma.$queryRawUnsafe(sql, tenantId, selected.composition_id, id);
 
+    // "Is this a combination drug?" is derived from the molecule count on the
+    // composition (drug_compositions.active_ingredients), NOT from whether the
+    // per-ingredient strength split happened to parse. A genuinely-combination
+    // brand curated as high-confidence but WITHOUT a usable strength_components
+    // split (a path the manual curation tool can produce) must still be treated
+    // as a combo so the per-ingredient gate is not silently skipped.
     const selectedComponents = asComponentArray(selected.strength_components);
-    const selectedIsCombo = Array.isArray(selectedComponents) && selectedComponents.length > 0;
+    const selectedIsCombo =
+      (Array.isArray(selected.active_ingredients) && selected.active_ingredients.length >= 2) ||
+      (Array.isArray(selectedComponents) && selectedComponents.length >= 2);
+
+    // Fail-safe: if the selected drug is a combination but we cannot confirm ITS
+    // OWN per-ingredient split (strength_components missing / < 2 elements), then
+    // no sibling can be proven an exact-split match — force every sibling to
+    // non-substitutable (informational only). Decided once, up front, so it
+    // applies uniformly across the response.
+    const selectedSplitUnconfirmable =
+      selectedIsCombo &&
+      !(Array.isArray(selectedComponents) && selectedComponents.length >= 2);
 
     const alternatives = rows.map((r) => {
       const catalogId = Number(r.catalog_id);
@@ -1647,13 +1664,18 @@ export const getCatalogAlternatives = async (req, res) => {
 
       // Combo per-ingredient gate: a combination selected must match the
       // sibling's exact per-ingredient split; a sibling missing components
-      // cannot be confirmed → not substitutable.
+      // cannot be confirmed → not substitutable. If the SELECTED drug's own
+      // split is unconfirmable, no sibling can be substitutable at all.
       if (substitutable && selectedIsCombo) {
-        const sibComponents = asComponentArray(r.strength_components);
-        if (!Array.isArray(sibComponents) || sibComponents.length === 0) {
+        if (selectedSplitUnconfirmable) {
           substitutable = false;
-        } else if (!strengthComponentsEqual(selectedComponents, sibComponents)) {
-          substitutable = false;
+        } else {
+          const sibComponents = asComponentArray(r.strength_components);
+          if (!Array.isArray(sibComponents) || sibComponents.length === 0) {
+            substitutable = false;
+          } else if (!strengthComponentsEqual(selectedComponents, sibComponents)) {
+            substitutable = false;
+          }
         }
       }
 

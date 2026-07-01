@@ -235,6 +235,24 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
       manufacturer: 'Cipla',
     });
 
+    // COMBO_NULL_SPLIT (SELECTED, fail-safe path) — a genuine combination
+    // (active_ingredients has 2 molecules) marked high confidence but whose
+    // strength_components is NULL (models the manual-curation "high + omitted
+    // split" garbage path that the automated parser cannot produce). When THIS
+    // row is the selected brand, no sibling may be substitutable because the
+    // selected drug's own per-ingredient split is unconfirmable.
+    ids.comboNullSplitSelected = await seedCatalog(TENANT_A, 'ALTTEST Curated 625', {
+      compositionId: comboId,
+      strength: '625 mg',
+      strengthKey: '625mg',
+      strengthComponents: null,
+      form: 'tablet',
+      formKey: 'tablet',
+      confidence: 'high',
+      stockQuantity: 15,
+      inStock: true,
+    });
+
     // Tenant A low-confidence brand — should NOT surface alternatives when selected.
     ids.lowConfidence = await seedCatalog(TENANT_A, 'ALTTEST Fuzzy 625', {
       compositionId: comboId,
@@ -408,5 +426,50 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
     expect(Number(res.body.data.selected.catalog_id)).toBe(ids.lowConfidence);
     expect(res.body.data.groups).toEqual([]);
     expect(res.body.data.alternatives).toEqual([]);
+  });
+
+  it('fail-safe: a selected combo with an unconfirmable split (2 molecules, high, NULL strength_components) tags NO sibling substitutable', async () => {
+    // The selected drug is a genuine combination (active_ingredients has amox +
+    // clavulanic_acid) but its per-ingredient split is unknown. Even a sibling
+    // with an identical strength_key/form_key/release/route + a proper 2-element
+    // split MUST come back substitutable:false — we cannot confirm the selected
+    // drug's own split, so no swap is safe. "Combo" is derived from the molecule
+    // count, not from whether strength_components happened to parse.
+    const res = await clientFor(tokenA).get(
+      `/api/v1/pharmacy-orders/catalog/${ids.comboNullSplitSelected}/alternatives`,
+    );
+    expect(res.statusCode).toBe(200);
+
+    const { selected, alternatives } = res.body.data;
+    expect(Number(selected.catalog_id)).toBe(ids.comboNullSplitSelected);
+
+    // Siblings still surface (informational) — the same-composition brands are
+    // returned, just never tagged substitutable.
+    expect(alternatives.length).toBeGreaterThan(0);
+    for (const alt of alternatives) {
+      expect(alt.substitutable).toBe(false);
+    }
+
+    // In particular SUB_OK — which HAS a proper 2-element split identical to the
+    // canonical selected brand — is NOT substitutable here, because THIS
+    // selected row's split is unconfirmable.
+    const subOk = alternatives.find((a) => Number(a.catalog_id) === ids.subOk);
+    expect(subOk).toBeDefined();
+    expect(subOk.substitutable).toBe(false);
+  });
+
+  it('positive control: a selected combo WITH a proper 2-element split still yields substitutable:true for a matching sibling', async () => {
+    // Guards against over-correction: the fail-safe must not neuter the gate
+    // when the selected combo's split IS known. (Mirrors the main case but
+    // asserted here alongside the fail-safe case for a tight before/after pair.)
+    const res = await clientFor(tokenA).get(
+      `/api/v1/pharmacy-orders/catalog/${ids.selected}/alternatives`,
+    );
+    expect(res.statusCode).toBe(200);
+    const subOk = res.body.data.alternatives.find(
+      (a) => Number(a.catalog_id) === ids.subOk,
+    );
+    expect(subOk).toBeDefined();
+    expect(subOk.substitutable).toBe(true);
   });
 });
