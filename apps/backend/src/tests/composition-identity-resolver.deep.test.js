@@ -183,6 +183,83 @@ describe('compositionIdentityService — server-authoritative resolver', () => {
     expect(JSON.stringify(meds)).not.toContain('forged');
   });
 
+  it('enrich strips forged canonical fields for an INVALID catalog_id (0) but keeps clinician free-text', async () => {
+    // catalog_id 0 is not a positive int → not resolvable. The forged canonical
+    // composition fields must NOT ride through, but clinician-entered free-text
+    // (strength/form/route/generic_name) legitimately survives.
+    const input = [{
+      catalog_id: 0,
+      name: 'Handwritten Rx',
+      composition_id: 999999,
+      composition_confidence: 'high',
+      composition_key: 'forged-key',
+      active_ingredients: ['LIES'],
+      strength_key: 'forged-sk',
+      form_key: 'forged-fk',
+      strength: '500mg',
+      form: 'tablet',
+      route: 'oral',
+      generic_name: 'amoxicillin',
+    }];
+    const meds = await enrichMedicationsWithComposition(TENANT_A, input);
+    const med = meds[0];
+    // Forged canonical/derived-only fields are gone.
+    expect(med).not.toHaveProperty('composition_id');
+    expect(med).not.toHaveProperty('composition_confidence');
+    expect(med).not.toHaveProperty('composition_key');
+    expect(med).not.toHaveProperty('active_ingredients');
+    expect(med).not.toHaveProperty('strength_key');
+    expect(med).not.toHaveProperty('form_key');
+    // Clinician free-text survives verbatim.
+    expect(med.name).toBe('Handwritten Rx');
+    expect(med.strength).toBe('500mg');
+    expect(med.form).toBe('tablet');
+    expect(med.route).toBe('oral');
+    expect(med.generic_name).toBe('amoxicillin');
+    // Nothing fabricated; the forged values never survive.
+    expect(JSON.stringify(meds)).not.toContain('999999');
+    expect(JSON.stringify(meds)).not.toContain('LIES');
+    expect(JSON.stringify(meds)).not.toContain('forged');
+    // Input not mutated.
+    expect(input[0].composition_id).toBe(999999);
+  });
+
+  it('enrich strips forged canonical fields for a free-text med (NO catalog_id) but keeps free-text', async () => {
+    const input = [{
+      name: 'Free Rx',
+      dose: '1 tab BID',
+      composition_id: 888888,
+      active_ingredients: ['FORGED'],
+      generic_name: 'amoxicillin',
+      form: 'tablet',
+    }];
+    const meds = await enrichMedicationsWithComposition(TENANT_A, input);
+    const med = meds[0];
+    // Forged canonical fields stripped even with no catalog_id at all.
+    expect(med).not.toHaveProperty('composition_id');
+    expect(med).not.toHaveProperty('active_ingredients');
+    // Clinician free-text survives.
+    expect(med.name).toBe('Free Rx');
+    expect(med.dose).toBe('1 tab BID');
+    expect(med.generic_name).toBe('amoxicillin');
+    expect(med.form).toBe('tablet');
+    expect(JSON.stringify(meds)).not.toContain('888888');
+    expect(JSON.stringify(meds)).not.toContain('FORGED');
+    // Input not mutated.
+    expect(input[0].composition_id).toBe(888888);
+  });
+
+  it('enrich strips forged canonical fields for a NON-NUMERIC catalog_id, no fabrication, no throw', async () => {
+    const meds = await enrichMedicationsWithComposition(TENANT_A, [
+      { catalog_id: 'abc', name: 'Bad Id Rx', composition_id: 777777, strength: '250mg' },
+    ]);
+    const med = meds[0];
+    expect(med).not.toHaveProperty('composition_id');
+    expect(med.name).toBe('Bad Id Rx');
+    expect(med.strength).toBe('250mg'); // free-text survives
+    expect(JSON.stringify(meds)).not.toContain('777777');
+  });
+
   // Real DB-error path: a non-UUID string is truthy (passes the `!tenantId`
   // guard) but makes `$1::uuid` throw 22P02 at execution — exercising the
   // try/catch that logs logger.warn and returns an empty Map. This proves the

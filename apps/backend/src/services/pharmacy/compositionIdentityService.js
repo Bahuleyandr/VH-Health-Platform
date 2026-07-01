@@ -34,6 +34,28 @@ export const COMPOSITION_IDENTITY_FIELDS = [
   'generic_name',
 ];
 
+// Canonical/derived-only identity fields that a clinician NEVER types — they can
+// only be server-derived from a tenant-scoped catalog row. These are stripped
+// from EVERY med unconditionally (before any overlay) so a forged value can
+// never ride through, regardless of catalog_id validity.
+//
+// This is deliberately a STRICT SUBSET of COMPOSITION_IDENTITY_FIELDS: it
+// EXCLUDES the fields a free-text prescription med legitimately carries as
+// clinician input — `strength`, `form`, `route`, `generic_name`. Those pass
+// through untouched for an unresolved med (and are overwritten by catalog
+// values via the full overlay for a resolved one).
+export const CLIENT_UNTRUSTED_COMPOSITION_FIELDS = [
+  'composition_id',
+  'composition_key',
+  'composition_label',
+  'active_ingredients',
+  'strength_key',
+  'form_key',
+  'release_key',
+  'composition_confidence',
+  'strength_components',
+];
+
 // Coerce an arbitrary value to a positive integer id, or null if not one.
 function toPositiveInt(value) {
   const n = Number(value);
@@ -113,15 +135,17 @@ export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalog
 /**
  * Enrich a list of medications with server-derived composition identity.
  *
- * Returns a NEW array (does not mutate the input). For each med:
- *   - a med WITHOUT a catalog_id passes through unchanged (a free-text med
- *     legitimately carries no catalog identity — we do not strip or fabricate);
- *   - a med WITH a catalog_id has any client-sent identity fields stripped
- *     first (never trusted), then, if the server resolves an identity for that
- *     catalog_id, the COMPOSITION_IDENTITY_FIELDS subset is merged on;
- *   - a med WITH a catalog_id that does NOT resolve (wrong tenant / inactive)
- *     keeps its client identity stripped and absent — the client value is
- *     never trusted.
+ * Returns a NEW array (does not mutate the input). For EVERY med, the
+ * canonical/derived-only fields (CLIENT_UNTRUSTED_COMPOSITION_FIELDS) are
+ * stripped first — a client-sent `composition_id` (or any canonical field) is
+ * NEVER trusted or persisted as fact, regardless of catalog_id validity. Then:
+ *   - a med with a RESOLVABLE catalog_id has the FULL server-derived identity
+ *     (COMPOSITION_IDENTITY_FIELDS) overlaid on the stripped copy;
+ *   - a med WITHOUT a resolvable catalog_id (missing / 0 / negative /
+ *     non-numeric / wrong tenant / inactive) returns the stripped copy with NO
+ *     canonical composition fields and nothing fabricated. Clinician free-text
+ *     (strength / form / route / generic_name / dose / name / …) is preserved
+ *     verbatim — those are NOT in the untrusted set.
  *
  * @param {string} tenantId
  * @param {Array<object>} meds
@@ -140,22 +164,21 @@ export async function enrichMedicationsWithComposition(tenantId, meds) {
   const identities = await resolveCompositionIdentitiesByCatalogIds(tenantId, ids);
 
   return meds.map((med) => {
-    const catalogId = toPositiveInt(med?.catalog_id ?? med?.catalogId);
-
-    // No catalog_id at all → pass through unchanged (free-text med).
-    if (catalogId === null) return med;
-
-    // Has a catalog_id → strip any client-sent identity (never trusted).
+    // Strip forged canonical/derived-only fields from EVERY med (never trusted),
+    // on a shallow copy so the input is not mutated.
     const next = { ...med };
-    for (const field of COMPOSITION_IDENTITY_FIELDS) {
+    for (const field of CLIENT_UNTRUSTED_COMPOSITION_FIELDS) {
       delete next[field];
     }
 
-    // Overlay the server-derived identity when we have one.
-    const identity = identities.get(catalogId);
-    if (identity) {
-      for (const field of COMPOSITION_IDENTITY_FIELDS) {
-        next[field] = identity[field];
+    // Overlay the server-derived identity only for a resolvable catalog_id.
+    const catalogId = toPositiveInt(med?.catalog_id ?? med?.catalogId);
+    if (catalogId !== null) {
+      const identity = identities.get(catalogId);
+      if (identity) {
+        for (const field of COMPOSITION_IDENTITY_FIELDS) {
+          next[field] = identity[field];
+        }
       }
     }
     return next;
