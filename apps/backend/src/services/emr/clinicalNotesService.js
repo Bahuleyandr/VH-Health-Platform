@@ -737,6 +737,19 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
     return row;
   });
 
+  // Autosave cleanup (best-effort, post-commit) — the revised note is in the
+  // canonical record, so drop the matching in-progress draft (keyed on the
+  // note's OWN author/patient/appointment/note_type, not the editor). Never
+  // blocks the edit: clearDraftForFinalizedNote swallows its own errors, and a
+  // leftover draft is harmless (the expiry janitor reaps it).
+  await clearDraftForFinalizedNote({
+    tenantId: requireTenantId(tenantId),
+    authorUid: updated.author_uid,
+    patientUid: updated.patient_uid,
+    appointmentId: updated.appointment_id ?? null,
+    noteType: updated.note_type,
+  });
+
   logger.info(
     `Clinical note edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}, admin_override=${adminOverride}`
   );
@@ -864,6 +877,20 @@ export async function signNote(noteId, signerUid, actingUser = null, tenantId = 
   });
 
   logger.info(`Clinical note signed: id=${noteId}, signed_by=${signerUid}`);
+
+  // Autosave cleanup (best-effort, post-commit) — the signed note is now the
+  // authoritative record, so drop the matching in-progress draft (keyed on the
+  // note's OWN author/patient/appointment/note_type). Never blocks the sign:
+  // clearDraftForFinalizedNote swallows its own errors, and a leftover draft is
+  // harmless (the expiry janitor reaps it).
+  await clearDraftForFinalizedNote({
+    tenantId: requireTenantId(tenantId),
+    authorUid: updated.author_uid,
+    patientUid: updated.patient_uid,
+    appointmentId: updated.appointment_id ?? null,
+    noteType: updated.note_type,
+  });
+
   // Encounter lifecycle transition is a separate canonical step (own
   // timeline+audit) and stays best-effort/post-commit — see helper comment.
   if (updated.encounter_id && updated.appointment_id) {

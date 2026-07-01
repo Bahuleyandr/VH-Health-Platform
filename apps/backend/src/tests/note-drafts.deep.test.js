@@ -17,6 +17,7 @@ import {
   clearDraftForFinalizedNote,
   purgeExpiredNoteDrafts,
 } from '../services/emr/clinicalNoteDraftService.js';
+import { createNote, updateNote, signNote } from '../services/emr/clinicalNotesService.js';
 
 const prisma = (await import('../lib/prisma.js')).default;
 
@@ -323,5 +324,185 @@ d('note_drafts input validation (deep)', () => {
       expect(row?.id).toBeTruthy();
       expect(await draftCount("note_type = 'shift handover'")).toBe(1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Finalize-clear parity across the write path — createNote already clears the
+// matching draft post-commit; updateNote + signNote must do the same
+// (defense-in-depth). A draft created AFTER the first save would otherwise be
+// orphaned until the 14-day TTL janitor. These cases seed a real note via
+// createNote, drop a FRESH draft for the same (author, patient, appointment,
+// note_type) context, then finalize via updateNote / signNote and assert the
+// draft is gone — while proving the finalize still succeeds when no draft
+// exists (best-effort) and never touches an UNRELATED context's draft.
+const FT_TENANT = '00000000-0000-4000-8000-000000000001';
+const FT_PATIENT_UID = 'd2a70000-0000-4000-8000-00000000f101';
+const FT_DOCTOR_UID = 'd2a70000-0000-4000-8000-00000000f1d1';
+const FT_ADMIN_UID = 'd2a70000-0000-4000-8000-00000000f1a9';
+const FT_PATIENT_PHONE = '+919000900101';
+const FT_DOCTOR_PHONE = '+919000900102';
+const FT_NOTE_TYPE = 'op_consultation';
+const FT_CONTENT = {
+  chief_complaint: 'Cough x3 days',
+  history: 'No fever',
+  examination: 'Chest clear',
+  diagnosis: 'URTI',
+  plan: 'Rest, fluids',
+};
+
+async function ftSeedUser(uid, phone, role, name) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+     VALUES ($1::uuid, $2, $3, $4, true, NOW()) RETURNING id`,
+    uid, phone, name, role,
+  );
+  return rows[0].id;
+}
+
+// doctor_id is intentionally NULL so the assigned-clinician guard is a no-op —
+// the note author (the doctor) may still create/revise the unsigned OP note.
+async function ftSeedAppointment(patientId, status) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO appointments
+       (uid, phone, patient_id, doctor_id, appointment_date, appointment_time,
+        status, department, tenant_id, updated_at)
+     VALUES (gen_random_uuid(), $1, $2::int, NULL, CURRENT_DATE, '10:00',
+             $3, 'General Medicine', $4::uuid, NOW())
+     RETURNING id`,
+    FT_PATIENT_PHONE, patientId, status, FT_TENANT,
+  );
+  return rows[0].id;
+}
+
+async function ftDraftCount(predicate, ...params) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS n FROM note_drafts WHERE patient_uid = $1::uuid AND ${predicate}`,
+    FT_PATIENT_UID,
+    ...params,
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
+async function ftCleanup() {
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM note_drafts WHERE patient_uid = $1::uuid', FT_PATIENT_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM clinical_notes WHERE patient_uid = $1::uuid', FT_PATIENT_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM appointments WHERE phone = $1', FT_PATIENT_PHONE,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)',
+    FT_PATIENT_UID, FT_DOCTOR_UID, FT_ADMIN_UID,
+  ).catch(() => {});
+}
+
+d('finalize clears the matching draft on updateNote + signNote (deep)', () => {
+  let patientId;
+
+  beforeAll(async () => {
+    await ftCleanup();
+    patientId = await ftSeedUser(FT_PATIENT_UID, FT_PATIENT_PHONE, 'PATIENT', 'FT Patient');
+    await ftSeedUser(FT_DOCTOR_UID, FT_DOCTOR_PHONE, 'DOCTOR', 'FT Doctor');
+    await ftSeedUser(FT_ADMIN_UID, '+919000900103', 'SUPER_ADMIN', 'FT Admin');
+  });
+
+  afterAll(async () => {
+    await ftCleanup();
+    await prisma.$disconnect();
+  });
+
+  // Fresh note per test so the OP one-note-per-appointment guard never fires
+  // across cases. Returns the created note id + its appointment id.
+  async function createOpNote() {
+    const apptId = await ftSeedAppointment(patientId, 'CONFIRMED');
+    const note = await createNote({
+      appointment_id: apptId,
+      patient_uid: FT_PATIENT_UID,
+      author_uid: FT_DOCTOR_UID,
+      author_role: 'DOCTOR',
+      note_type: FT_NOTE_TYPE,
+      content: FT_CONTENT,
+      tenant_id: FT_TENANT,
+    });
+    return { noteId: note.id, apptId };
+  }
+
+  it('updateNote clears the matching draft (created after the first save)', async () => {
+    const { noteId, apptId } = await createOpNote();
+    // A draft the clinician kept typing into after the note was first saved.
+    await upsertNoteDraft({
+      tenantId: FT_TENANT, authorUid: FT_DOCTOR_UID, patientUid: FT_PATIENT_UID,
+      appointmentId: apptId, noteType: FT_NOTE_TYPE, content: { chief_complaint: 'still typing' },
+    });
+    expect(await ftDraftCount('appointment_id = $2::int', apptId)).toBe(1);
+
+    await updateNote(
+      noteId,
+      { ...FT_CONTENT, plan: 'Rest, fluids, review in 3 days' },
+      FT_DOCTOR_UID,
+      'DOCTOR',
+      { uid: FT_DOCTOR_UID, role: 'DOCTOR' },
+      FT_TENANT,
+    );
+
+    expect(await ftDraftCount('appointment_id = $2::int', apptId)).toBe(0);
+  });
+
+  it('signNote clears the matching draft (created after the first save)', async () => {
+    const { noteId, apptId } = await createOpNote();
+    await upsertNoteDraft({
+      tenantId: FT_TENANT, authorUid: FT_DOCTOR_UID, patientUid: FT_PATIENT_UID,
+      appointmentId: apptId, noteType: FT_NOTE_TYPE, content: { chief_complaint: 'still typing' },
+    });
+    expect(await ftDraftCount('appointment_id = $2::int', apptId)).toBe(1);
+
+    await signNote(noteId, FT_DOCTOR_UID, { uid: FT_DOCTOR_UID, role: 'DOCTOR' }, FT_TENANT);
+
+    expect(await ftDraftCount('appointment_id = $2::int', apptId)).toBe(0);
+  });
+
+  it('updateNote still succeeds when NO draft exists (best-effort clear never blocks)', async () => {
+    const { noteId, apptId } = await createOpNote();
+    // createNote already cleared any draft for this context; none exists now.
+    expect(await ftDraftCount('appointment_id = $2::int', apptId)).toBe(0);
+
+    const updated = await updateNote(
+      noteId,
+      { ...FT_CONTENT, plan: 'Updated plan' },
+      FT_DOCTOR_UID,
+      'DOCTOR',
+      { uid: FT_DOCTOR_UID, role: 'DOCTOR' },
+      FT_TENANT,
+    );
+    expect(String(updated.id)).toBe(String(noteId));
+    expect(updated.version).toBe(2); // rewrite bumped the version → finalize succeeded
+  });
+
+  it('signNote still succeeds when NO draft exists (best-effort clear never blocks)', async () => {
+    const { noteId, apptId } = await createOpNote();
+    expect(await ftDraftCount('appointment_id = $2::int', apptId)).toBe(0);
+
+    const signed = await signNote(noteId, FT_DOCTOR_UID, { uid: FT_DOCTOR_UID, role: 'DOCTOR' }, FT_TENANT);
+    expect(signed.is_signed).toBe(true);
+  });
+
+  it('finalize does NOT delete an UNRELATED draft (different note_type context)', async () => {
+    const { noteId, apptId } = await createOpNote();
+    // A draft for the SAME author/patient/appointment but a DIFFERENT note_type —
+    // must survive the op_consultation finalize (context-scoped delete).
+    await upsertNoteDraft({
+      tenantId: FT_TENANT, authorUid: FT_DOCTOR_UID, patientUid: FT_PATIENT_UID,
+      appointmentId: apptId, noteType: 'progress', content: { summary: 'unrelated draft' },
+    });
+    expect(await ftDraftCount("note_type = 'progress'")).toBe(1);
+
+    await signNote(noteId, FT_DOCTOR_UID, { uid: FT_DOCTOR_UID, role: 'DOCTOR' }, FT_TENANT);
+
+    // The unrelated 'progress' draft is untouched.
+    expect(await ftDraftCount("note_type = 'progress'")).toBe(1);
   });
 });
