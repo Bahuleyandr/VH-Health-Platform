@@ -7357,30 +7357,44 @@ model pharmacy_activity_logs {
 }
 
 model pharmacy_catalog {
-  id                    Int       @id @default(autoincrement())
-  name                  String    @db.VarChar(255)
-  generic_name          String?   @db.VarChar(255)
-  category              String?   @default("other") @db.VarChar(100)
-  manufacturer          String?   @db.VarChar(255)
-  unit_price            Decimal?  @db.Decimal(12, 2)
-  price                 Decimal?  @default(0) @db.Decimal(12, 2)
-  pack_size             String?   @db.VarChar(100)
-  requires_prescription Boolean?  @default(true)
-  in_stock              Boolean?  @default(true)
-  is_active             Boolean?  @default(true)
-  is_available          Boolean?  @default(true)
-  stock_quantity        Int?      @default(0)
-  stock                 Int?      @default(0)
-  reorder_level         Int?      @default(10)
-  description           String?
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-  tenant_id             String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants               tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
+  id                              Int                               @id @default(autoincrement())
+  name                            String                            @db.VarChar(255)
+  generic_name                    String?                           @db.VarChar(255)
+  category                        String?                           @default("other") @db.VarChar(100)
+  manufacturer                    String?                           @db.VarChar(255)
+  unit_price                      Decimal?                          @db.Decimal(12, 2)
+  price                           Decimal?                          @default(0) @db.Decimal(12, 2)
+  pack_size                       String?                           @db.VarChar(100)
+  requires_prescription           Boolean?                          @default(true)
+  in_stock                        Boolean?                          @default(true)
+  is_active                       Boolean?                          @default(true)
+  is_available                    Boolean?                          @default(true)
+  stock_quantity                  Int?                              @default(0)
+  stock                           Int?                              @default(0)
+  reorder_level                   Int?                              @default(10)
+  description                     String?
+  created_at                      DateTime?                         @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime?                         @default(now()) @db.Timestamptz(6)
+  tenant_id                       String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  composition_id                  Int?
+  strength                        String?                           @db.VarChar(80)
+  strength_key                    String?                           @db.VarChar(120)
+  strength_components             Json?
+  form                            String?                           @db.VarChar(40)
+  form_key                        String?                           @db.VarChar(40)
+  release_key                     String?                           @db.VarChar(10)
+  route                           String?                           @db.VarChar(40)
+  composition_source              String?                           @db.VarChar(20)
+  composition_confidence          String?                           @db.VarChar(10)
+  parsed_notes                    String?
+  drug_composition_curation_queue drug_composition_curation_queue[]
+  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_catalog_tenant")
+  drug_compositions               drug_compositions?                @relation(fields: [composition_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([is_active, is_available, in_stock], map: "idx_pharmacy_catalog_active")
   @@index([category], map: "idx_pharmacy_catalog_category")
   @@index([tenant_id], map: "idx_pharmacy_catalog_tenant_id")
+  @@index([tenant_id, composition_id, strength_key, form_key, release_key], map: "idx_pharmacy_catalog_composition", where: raw("is_active"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -15116,4 +15130,35 @@ model reconciliation_checks {
   passed              Boolean  @default(true)
 
   @@index([tenant_id, swept_at(sort: Desc)], map: "idx_reconciliation_checks_tenant_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model drug_composition_curation_queue {
+  id               Int              @id @default(autoincrement())
+  tenant_id        String           @db.Uuid
+  catalog_id       Int
+  reason           String           @db.VarChar(40)
+  status           String           @default("open") @db.VarChar(20)
+  parser_output    Json?
+  reviewer         String?          @db.VarChar(120)
+  notes            String?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  pharmacy_catalog pharmacy_catalog @relation(fields: [catalog_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, catalog_id], map: "drug_composition_curation_queue_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model drug_compositions {
+  id                 Int                @id @default(autoincrement())
+  composition_key    String             @unique @db.VarChar(255)
+  display_label      String             @db.VarChar(255)
+  active_ingredients String[]           @default([])
+  source             String             @default("parsed") @db.VarChar(20)
+  atc_code           String?            @db.VarChar(20)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  pharmacy_catalog   pharmacy_catalog[]
 }
