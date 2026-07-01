@@ -4,6 +4,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -12,6 +13,8 @@ import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/p
 import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
 import { emitPharmacyOrderEvent } from '../../services/clinical/canonicalOperationalBridgeService.js';
 import { assertVerificationCleared, ensurePackBarcode } from '../../services/pharmacy/pharmacistVerificationService.js';
+import { isCompositionSearchEnabled } from '../../services/pharmacy/compositionFeatureService.js';
+import { resolveCompositionIdentitiesByCatalogIds } from '../../services/pharmacy/compositionIdentityService.js';
 import { enrichCatalogRowForWrite } from '../../../scripts/backfill-drug-compositions.mjs';
 
 // B1 — shared pharmacist clinical-verification gate for lifecycle
@@ -1486,6 +1489,228 @@ export const getCatalog = async (req, res) => {
   } catch (err) {
     logger.error('Get pharmacy catalog error:', err);
     error(res, 'Failed to fetch catalog', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// --- Same-composition alternatives (Phase 2, gated) helpers ------------------
+//
+// Pure/testable. A brand is only tagged `substitutable` when every clinical
+// identity dimension matches the selected brand; otherwise the sibling is shown
+// as informational (same molecule set, different strength/form/split/etc.).
+
+// A null/empty release_key normalises to 'ir' (immediate-release default), so
+// two brands that both omit the modifier count as a release match.
+function normalizeReleaseKey(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === '' ? 'ir' : text;
+}
+
+// Route match: both null → match (route not asserted on either); else both must
+// be present AND equal (case-insensitive, trimmed). A one-sided route → no match.
+function routesMatch(a, b) {
+  const aHas = a !== null && a !== undefined && String(a).trim() !== '';
+  const bHas = b !== null && b !== undefined && String(b).trim() !== '';
+  if (!aHas && !bHas) return true;
+  if (!aHas || !bHas) return false;
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+
+// Deep, order-insensitive set-equality of two strength_components arrays, each
+// element shaped { ingredient, amount, unit }. Used for the combo per-ingredient
+// gate: two combos with the same total strength_key but a different split (e.g.
+// 500+125 vs 400+100) must NOT be substitutable.
+function strengthComponentsEqual(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  const norm = (c) =>
+    `${String(c?.ingredient ?? '').trim().toLowerCase()}|` +
+    `${String(c?.amount ?? '').trim()}|` +
+    `${String(c?.unit ?? '').trim().toLowerCase()}`;
+  const bag = new Map();
+  for (const c of a) {
+    const k = norm(c);
+    bag.set(k, (bag.get(k) ?? 0) + 1);
+  }
+  for (const c of b) {
+    const k = norm(c);
+    const n = bag.get(k);
+    if (!n) return false;
+    bag.set(k, n - 1);
+  }
+  for (const n of bag.values()) {
+    if (n !== 0) return false;
+  }
+  return true;
+}
+
+// strength_components may arrive as a JSON string or already-parsed array
+// depending on the driver — normalise to an array (or null).
+function asComponentArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * GET /pharmacy-orders/catalog/:id/alternatives
+ *
+ * Keyed by a CATALOG id (never a client composition id), tenant-scoped, gated by
+ * the per-tenant composition-search flag. Returns other brands sharing the
+ * selected brand's composition, grouped by strength+form (matched group first),
+ * in-stock first, each tagged with a server-derived `substitutable` boolean and
+ * an `availability_status`.
+ */
+export const getCatalogAlternatives = async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('Valid catalog id is required');
+  }
+
+  const tenantId = req.tenantId;
+
+  // Flag OFF is a valid empty answer (not a 404).
+  if (!(await isCompositionSearchEnabled(tenantId))) {
+    return success(res, { selected: null, groups: [], alternatives: [] }, 'Alternatives');
+  }
+
+  // Resolve the selected row server-side from the catalog id (tenant-scoped,
+  // active-only). Missing / wrong-tenant / inactive → 404.
+  const selected = (await resolveCompositionIdentitiesByCatalogIds(tenantId, [id])).get(id);
+  if (!selected) {
+    throw AppError.notFound('Catalog item not found');
+  }
+
+  const publicSelected = {
+    catalog_id: selected.catalog_id,
+    composition_id: selected.composition_id,
+    composition_label: selected.composition_label,
+    strength: selected.strength,
+    strength_key: selected.strength_key,
+    form: selected.form,
+    form_key: selected.form_key,
+    release_key: selected.release_key,
+  };
+
+  // The brand exists but has no surfaced alternatives (no composition, or the
+  // parse confidence is not high enough to trust the identity).
+  if (selected.composition_id == null || selected.composition_confidence !== 'high') {
+    return success(res, { selected: publicSelected, groups: [], alternatives: [] }, 'Alternatives');
+  }
+
+  try {
+    const sql = `
+      SELECT pc.id AS catalog_id, pc.name, pc.manufacturer, pc.generic_name,
+             pc.strength, pc.strength_key, pc.strength_components, pc.form, pc.form_key,
+             pc.release_key, pc.route, pc.composition_confidence,
+             pc.stock_quantity, pc.stock, pc.in_stock
+        FROM pharmacy_catalog pc
+       WHERE pc.tenant_id = $1::uuid AND pc.is_active
+         AND pc.composition_id = $2 AND pc.id <> $3
+       ORDER BY (COALESCE(pc.stock_quantity, pc.stock, 0) > 0) DESC,
+                COALESCE(pc.stock_quantity, pc.stock, 0) DESC,
+                pc.strength_key NULLS LAST, pc.name`;
+    const rows = await prisma.$queryRawUnsafe(sql, tenantId, selected.composition_id, id);
+
+    const selectedComponents = asComponentArray(selected.strength_components);
+    const selectedIsCombo = Array.isArray(selectedComponents) && selectedComponents.length > 0;
+
+    const alternatives = rows.map((r) => {
+      const catalogId = Number(r.catalog_id);
+      const stockQuantity =
+        r.stock_quantity === null || r.stock_quantity === undefined
+          ? null
+          : Number(r.stock_quantity);
+
+      let availabilityStatus;
+      if (stockQuantity != null && stockQuantity > 0) {
+        availabilityStatus = 'in_stock';
+      } else if (r.in_stock === true) {
+        availabilityStatus = 'may_be_available';
+      } else {
+        availabilityStatus = 'out_of_stock';
+      }
+
+      // Substitutable only when EVERY identity dimension matches.
+      let substitutable =
+        r.composition_confidence === 'high' &&
+        Boolean(r.strength_key) && r.strength_key === selected.strength_key &&
+        Boolean(r.form_key) && r.form_key === selected.form_key &&
+        normalizeReleaseKey(r.release_key) === normalizeReleaseKey(selected.release_key) &&
+        routesMatch(r.route, selected.route);
+
+      // Combo per-ingredient gate: a combination selected must match the
+      // sibling's exact per-ingredient split; a sibling missing components
+      // cannot be confirmed → not substitutable.
+      if (substitutable && selectedIsCombo) {
+        const sibComponents = asComponentArray(r.strength_components);
+        if (!Array.isArray(sibComponents) || sibComponents.length === 0) {
+          substitutable = false;
+        } else if (!strengthComponentsEqual(selectedComponents, sibComponents)) {
+          substitutable = false;
+        }
+      }
+
+      return {
+        catalog_id: catalogId,
+        name: r.name ?? null,
+        manufacturer: r.manufacturer ?? null,
+        generic_name: r.generic_name ?? null,
+        strength: r.strength ?? null,
+        strength_key: r.strength_key ?? null,
+        form: r.form ?? null,
+        form_key: r.form_key ?? null,
+        release_key: r.release_key ?? null,
+        route: r.route ?? null,
+        stock_quantity: stockQuantity,
+        availability_status: availabilityStatus,
+        substitutable,
+      };
+    });
+
+    // Group by strength_key + form_key, preserving the in-stock-first query
+    // order within each group.
+    const groupMap = new Map();
+    for (const item of alternatives) {
+      const key = `${item.strength_key ?? ''}||${item.form_key ?? ''}`;
+      let group = groupMap.get(key);
+      if (!group) {
+        group = {
+          strength_key: item.strength_key,
+          form_key: item.form_key,
+          strength: item.strength,
+          form: item.form,
+          matched:
+            item.strength_key === selected.strength_key &&
+            item.form_key === selected.form_key,
+          items: [],
+        };
+        groupMap.set(key, group);
+      }
+      group.items.push(item);
+    }
+
+    // Matched group first, then by strength_key (nulls last), then form_key.
+    const groups = [...groupMap.values()].sort((g1, g2) => {
+      if (g1.matched !== g2.matched) return g1.matched ? -1 : 1;
+      const s1 = g1.strength_key ?? '￿';
+      const s2 = g2.strength_key ?? '￿';
+      if (s1 !== s2) return s1 < s2 ? -1 : 1;
+      const f1 = g1.form_key ?? '￿';
+      const f2 = g2.form_key ?? '￿';
+      return f1 < f2 ? -1 : f1 > f2 ? 1 : 0;
+    });
+
+    return success(res, { selected: publicSelected, groups, alternatives }, 'Alternatives');
+  } catch (err) {
+    logger.error('Get pharmacy catalog alternatives error:', err);
+    return error(res, 'Failed to fetch alternatives', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

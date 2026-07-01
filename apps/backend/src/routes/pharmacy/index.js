@@ -72,7 +72,8 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
 // installs router-level RBAC middleware for the routes that follow it.
 wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
   get: [
-    ['/catalog', [], pharmacyOrderController.getCatalog]
+    ['/catalog', [], pharmacyOrderController.getCatalog],
+    ['/catalog/:id/alternatives', [], pharmacyOrderController.getCatalogAlternatives]
   ]
 });
 

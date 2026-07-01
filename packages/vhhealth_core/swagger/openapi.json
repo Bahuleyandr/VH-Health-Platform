@@ -72843,6 +72843,33 @@
         ]
       }
     },
+    "/api/v1/pharmacy-orders/catalog/{id}/alternatives": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_catalog_by_id_alternatives",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/pharmacy-orders/category": {
       "get": {
         "operationId": "get_api_v1_pharmacy_orders_category",
@@ -74831,6 +74858,33 @@
     "/api/v1/pharmacy/catalog/{id}": {
       "delete": {
         "operationId": "delete_api_v1_pharmacy_catalog_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy/catalog/{id}/alternatives": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_catalog_by_id_alternatives",
         "responses": {
           "200": {
             "description": "Successful response",
