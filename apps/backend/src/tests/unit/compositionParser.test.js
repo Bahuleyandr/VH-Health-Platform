@@ -1,4 +1,4 @@
-import { compositionKey, parseStrength } from '../../services/pharmacy/compositionParser.js';
+import { compositionKey, parseStrength, parseForm, parseCatalogRow } from '../../services/pharmacy/compositionParser.js';
 
 describe('compositionKey', () => {
   it('normalizes a single molecule', () => {
@@ -54,5 +54,29 @@ describe('parseStrength', () => {
 
   it('returns null strength for a name with no dosage', () => {
     expect(parseStrength('Vitamin B Complex').key).toBeNull();
+  });
+});
+
+describe('parseForm', () => {
+  it('detects form + canonical key', () => {
+    expect(parseForm('Paracetamol 1g Injection').formKey).toBe('injection');
+    expect(parseForm('Ondansetron Syrup 2mg/5ml').formKey).toBe('syrup');
+    expect(parseForm('Metformin 500mg').formKey).toBe('tablet'); // default oral solid
+  });
+
+  it('detects modified release', () => {
+    expect(parseForm('Metformin 500mg SR').releaseKey).toBe('sr');
+    expect(parseForm('Nifedipine XR 30mg').releaseKey).toBe('xr');
+    expect(parseForm('Amoxicillin 500mg').releaseKey).toBeNull();
+  });
+});
+
+describe('parseCatalogRow', () => {
+  it('combines composition + strength + form with an overall confidence', () => {
+    const r = parseCatalogRow({ name: 'Augmentin 625mg', generic_name: 'Amoxicillin+Clav' });
+    expect(r.composition.key).toBe('amoxicillin+clavulanic_acid');
+    expect(r.strength.key).toBe('625mg');
+    // combo with a total-only strength → flagged for curation
+    expect(r.curationReason).toBe('partial_strength');
   });
 });

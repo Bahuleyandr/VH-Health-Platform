@@ -64,3 +64,42 @@ export function parseStrength(name) {
   const components = tokens.length >= 2 ? tokens : null;
   return { display, key: key.toLowerCase().replace(/\s+/g, ''), components, confidence: 'high' };
 }
+
+const FORM_KEYWORDS = [
+  ['injection', /\b(inj|injection|vial|iv|im)\b/i],
+  ['syrup', /\bsyrup\b/i],
+  ['suspension', /\bsuspension\b/i],
+  ['drops', /\bdrops?\b/i],
+  ['capsule', /\b(cap|capsule)\b/i],
+  ['cream', /\bcream\b/i],
+  ['ointment', /\boint(ment)?\b/i],
+  ['gel', /\bgel\b/i],
+  ['spray', /\bspray\b/i],
+  ['inhaler', /\b(inhaler|mdi|rotacap)\b/i],
+  ['tablet', /\b(tab|tablet)\b/i],
+];
+const RELEASE_RE = /\b(sr|er|xr|cr|mr)\b/i;
+
+export function parseForm(name) {
+  const text = String(name || '');
+  let formKey = null;
+  for (const [key, re] of FORM_KEYWORDS) { if (re.test(text)) { formKey = key; break; } }
+  if (!formKey) formKey = 'tablet'; // oral-solid default for a bare "Name NNmg"
+  const rel = RELEASE_RE.exec(text);
+  const releaseKey = rel ? rel[1].toLowerCase() : null;
+  const route = formKey === 'injection' ? 'parenteral' : null;
+  return { form: formKey, formKey, releaseKey, route, confidence: formKey === 'tablet' ? 'medium' : 'high' };
+}
+
+export function parseCatalogRow(row) {
+  const composition = compositionKey(row.generic_name || '');
+  const strength = parseStrength(row.name || '');
+  const form = parseForm(row.name || '');
+  const isCombo = composition.activeIngredients.length >= 2;
+  let curationReason = null;
+  if (!composition.key) curationReason = 'unresolved';
+  else if (isCombo && !strength.components) curationReason = 'partial_strength';
+  else if (!strength.key) curationReason = 'partial_strength';
+  const confidence = curationReason ? (composition.key ? 'medium' : 'low') : 'high';
+  return { composition, strength, form, confidence, curationReason };
+}
