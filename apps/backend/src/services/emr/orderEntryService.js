@@ -164,8 +164,14 @@ async function generateOrderNumber() {
 /**
  * Run CDS (Clinical Decision Support) safety checks for an order.
  * Returns { safe, warnings, blockers }.
+ * @param {string} patientUid
+ * @param {string} orderType
+ * @param {object} details
+ * @param {string|null} [tenantId] threaded to validatePrescriptionSafety so the
+ *   gated + guarded composition allergy / same-composition duplicate screen can
+ *   run for IPD medication orders when the tenant flag is enabled.
  */
-async function runCDSChecks(patientUid, orderType, details) {
+async function runCDSChecks(patientUid, orderType, details, tenantId = null) {
   const result = { safe: true, warnings: [], blockers: [] };
 
   try {
@@ -196,9 +202,13 @@ async function runCDSChecks(patientUid, orderType, details) {
 
       // Check patient-specific hazards for the new drug first. This preserves
       // the existing hard-block behavior for allergies and paediatric dosing.
+      // tenantId is threaded so the gated composition allergy / same-composition
+      // duplicate screen (which reads this patient's active e-Rx + IPD orders)
+      // can run when the per-tenant flag is enabled; omitting it (legacy path)
+      // degrades cleanly to the deterministic checks only.
       const safetyResult = await validatePrescriptionSafety(patientRow.id, [
         newMedication,
-      ]);
+      ], { tenantId });
 
       result.warnings = safetyResult.warnings || [];
       result.blockers = safetyResult.blockers || [];
@@ -636,7 +646,7 @@ export async function createOrder(data) {
   // Run CDS safety checks. Blockers reject the order — surface the
   // structured array as `details` so the staff-app CDS modal can show
   // per-blocker context + the override flow.
-  const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details);
+  const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details, tenantId);
   // Fail-closed CDS-exception override (audit 2026-06-18 §4): when the only
   // block is that the automated medication screen could not run, an explicit
   // override-with-reason lets the order through and is recorded on a
@@ -752,7 +762,7 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
     } catch (err) {
       throw AppError.badRequest(`Order #${i + 1}: ${err.message}`, err.code, err.details);
     }
-    const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details);
+    const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details, tenantId);
     // Fail-closed CDS-exception override (audit 2026-06-18 §4): same per-item
     // override-with-reason path as createOrder. A genuine blocker (or a missing
     // reason) still aborts the whole batch.

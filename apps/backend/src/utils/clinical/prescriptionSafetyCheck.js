@@ -2,6 +2,11 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getUnifiedActiveAllergies, rankSeverity, SEVERE_BLOCK_RANK } from '../../services/clinical/allergySourceService.js';
 import { evaluateDrugKb } from '../../services/clinical/drugKnowledgeBaseService.js';
+import { isCompositionSearchEnabled } from '../../services/pharmacy/compositionFeatureService.js';
+import {
+  enrichMedicationsWithComposition,
+  resolveCompositionIdentitiesByCatalogIds,
+} from '../../services/pharmacy/compositionIdentityService.js';
 
 /**
  * Per-dose mg/kg ceilings for common paediatric drugs. Names matched
@@ -762,11 +767,17 @@ export function checkAntithromboticInteractions(medications) {
  * Call before saving any new prescription.
  * @param {number} patientId
  * @param {Array} medications - [{ medication_id, name, ... }]
+ * @param {object} [options]
+ * @param {string|null} [options.tenantId] tenant uuid; when present AND the
+ *   per-tenant composition-search flag is enabled, an additional (guarded)
+ *   composition allergy + same-composition duplicate screen runs. Omitting it
+ *   (legacy 2-arg callers) degrades cleanly to no composition checks.
  * @returns {{ safe: boolean, warnings: Array, blockers: Array }}
  */
-export async function validatePrescriptionSafety(patientId, medications) {
+export async function validatePrescriptionSafety(patientId, medications, options = {}) {
   const warnings = [];
   const blockers = [];
+  const tenantId = options.tenantId ?? null;
 
   try {
     // 1. Check patient allergies — ALL stores (roadmap A10). The old query
@@ -914,6 +925,198 @@ export async function validatePrescriptionSafety(patientId, medications) {
           });
         }
       }
+    }
+
+    // 2b. Composition-based allergy + same-composition duplicate screen
+    //     (Phase 2, GATED + GUARDED). Server-authoritative: identity is
+    //     derived ONLY from each med's tenant-scoped catalog_id — a
+    //     client-sent composition_id is never trusted (enrich strips it).
+    //
+    //     GATING: does nothing unless a truthy tenantId is supplied AND the
+    //     per-tenant composition-search flag is enabled. Legacy 2-arg callers
+    //     (no options.tenantId) and disabled tenants skip this entirely.
+    //
+    //     GUARDING: the whole block runs in its OWN inner try/catch that logs
+    //     a warning and CONTINUES (no SAFETY_CHECK_ERROR, no block). A missing
+    //     column/table/feature during a staggered deploy therefore silently
+    //     skips the composition checks while the deterministic allergy /
+    //     duplicate / dose / interaction logic above is untouched. Placed
+    //     after the name-based checks so those always run first, and the
+    //     allergy findings here DEDUP against the name-based ALLERGY_CONFLICT
+    //     for the same (medication, allergen) pair.
+    try {
+      if (tenantId && await isCompositionSearchEnabled(tenantId)) {
+        // -- Composition allergy --
+        // enrichMedicationsWithComposition strips any client identity and
+        // overlays the server-derived one from catalog_id. Never throws.
+        const enriched = await enrichMedicationsWithComposition(tenantId, medications);
+        for (const med of enriched) {
+          if (med.composition_confidence !== 'high') continue;
+          if (!Array.isArray(med.active_ingredients)) continue;
+          const brand = med.name || med.medication_name || '';
+          for (const molecule of med.active_ingredients) {
+            for (const allergy of allergies) {
+              if (!medicationConflictsWithAllergen(molecule, allergy.allergen)) continue;
+              // Dedup: skip if an existing issue (warning OR blocker) already
+              // covers the same medication + allergy pair (e.g. the name-based
+              // ALLERGY_CONFLICT already flagged this brand for this allergen).
+              const alreadyFlagged = blockers.concat(warnings).some(
+                (b) =>
+                  String(b.medication || '').toLowerCase() === String(brand).toLowerCase() &&
+                  String(b.allergy || '').toLowerCase() === String(allergy.allergen || '').toLowerCase(),
+              );
+              if (alreadyFlagged) continue;
+              const issue = {
+                type: 'COMPOSITION_ALLERGY_CONFLICT',
+                medication: brand,
+                molecule,
+                allergy: allergy.allergen,
+                severity: allergy.severity || 'UNKNOWN',
+                message: `"${brand}" contains ${molecule}; patient has a "${allergy.allergen}" allergy`,
+              };
+              // Same severity gate as the name-based loop: SEVERE/CONTRAINDICATED
+              // and above are hard blockers; below that, a warning.
+              if (rankSeverity(allergy.severity) >= SEVERE_BLOCK_RANK) {
+                blockers.push(issue);
+              } else {
+                warnings.push(issue);
+              }
+            }
+          }
+        }
+
+        // -- Same-composition duplicate --
+        // Flag when a submitted high-confidence composition matches (a) another
+        // submitted med, (b) an active existing e-Rx med, or (c) an active
+        // inpatient medication order — all HIGH-CONFIDENCE on both sides.
+        const submitted = enriched
+          .filter((m) => m.composition_confidence === 'high' && m.composition_id != null)
+          .map((m) => ({
+            brand: m.name || m.medication_name || '',
+            compositionId: Number(m.composition_id),
+          }));
+
+        if (submitted.length > 0) {
+          // Resolve patient_uid once — clinical_orders are keyed by UUID, not
+          // the integer id.
+          const uidRows = await prisma.$queryRawUnsafe(
+            `SELECT uid FROM users WHERE id = $1 LIMIT 1`,
+            patientId,
+          );
+          const patientUid = uidRows[0]?.uid || null;
+
+          // Active e-Rx catalog ids (same status filter as the name-based
+          // duplicate query above). One row per medication line.
+          const eRxRows = await prisma.$queryRawUnsafe(
+            `SELECT med.value->>'catalog_id' AS catalog_id, med.value->>'name' AS name
+               FROM e_prescriptions ep
+               LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
+              WHERE ep.patient_id = $1
+                AND LOWER(COALESCE(ep.status, 'active')) IN ('active', 'pharmacy_linked')
+                AND (ep.follow_up_date IS NULL OR ep.follow_up_date >= CURRENT_DATE)`,
+            patientId,
+          );
+
+          // Active IPD (clinical_orders) medication catalog ids.
+          let ipdRows = [];
+          if (patientUid) {
+            ipdRows = await prisma.$queryRawUnsafe(
+              `SELECT co.details->>'catalog_id' AS catalog_id, co.details->>'medication_name' AS name
+                 FROM clinical_orders co
+                WHERE co.patient_uid = $1::uuid
+                  AND co.order_type = 'medication'
+                  AND COALESCE(co.status, 'ordered') !~* '(cancelled|canceled|discontinued|stopped|on[\\s_-]?hold|suspended|completed)'`,
+              patientUid,
+            );
+          }
+
+          // Resolve the active-source catalog ids (e-Rx + IPD) in ONE call →
+          // high-confidence composition ids only.
+          const activeCatalogIds = [];
+          const eRxByCatalog = new Map();
+          const ipdByCatalog = new Map();
+          for (const r of eRxRows) {
+            const cid = Number(r.catalog_id);
+            if (Number.isInteger(cid) && cid > 0) {
+              activeCatalogIds.push(cid);
+              if (!eRxByCatalog.has(cid)) eRxByCatalog.set(cid, r.name || '');
+            }
+          }
+          for (const r of ipdRows) {
+            const cid = Number(r.catalog_id);
+            if (Number.isInteger(cid) && cid > 0) {
+              activeCatalogIds.push(cid);
+              if (!ipdByCatalog.has(cid)) ipdByCatalog.set(cid, r.name || '');
+            }
+          }
+
+          const activeIdentities = await resolveCompositionIdentitiesByCatalogIds(
+            tenantId,
+            activeCatalogIds,
+          );
+
+          // Build composition_id -> [{ brand, source }] for active meds
+          // (high-confidence only, on the EXISTING side too).
+          const activeByComposition = new Map();
+          for (const [cid, brandName] of eRxByCatalog) {
+            const identity = activeIdentities.get(cid);
+            if (!identity || identity.composition_confidence !== 'high' || identity.composition_id == null) continue;
+            const list = activeByComposition.get(Number(identity.composition_id)) || [];
+            list.push({ brand: brandName || identity.name || '', source: 'active_prescription' });
+            activeByComposition.set(Number(identity.composition_id), list);
+          }
+          for (const [cid, brandName] of ipdByCatalog) {
+            const identity = activeIdentities.get(cid);
+            if (!identity || identity.composition_confidence !== 'high' || identity.composition_id == null) continue;
+            const list = activeByComposition.get(Number(identity.composition_id)) || [];
+            list.push({ brand: brandName || identity.name || '', source: 'inpatient_order' });
+            activeByComposition.set(Number(identity.composition_id), list);
+          }
+
+          // Emit one DUPLICATE_COMPOSITION warning per (brand, otherBrand, source)
+          // pair, de-duped.
+          const emittedDupKeys = new Set();
+          const pushDup = (brand, otherBrand, source) => {
+            const key = `${String(brand).toLowerCase()}|${String(otherBrand).toLowerCase()}|${source}`;
+            if (emittedDupKeys.has(key)) return;
+            emittedDupKeys.add(key);
+            warnings.push({
+              type: 'DUPLICATE_COMPOSITION',
+              medication: brand,
+              duplicate_of: otherBrand,
+              source,
+              message: `"${brand}" has the same composition as "${otherBrand}" already active for this patient (${source})`,
+            });
+          };
+
+          for (let i = 0; i < submitted.length; i += 1) {
+            const cur = submitted[i];
+            // (a) another submitted med with the same composition.
+            for (let j = 0; j < submitted.length; j += 1) {
+              if (j === i) continue;
+              const other = submitted[j];
+              if (other.compositionId !== cur.compositionId) continue;
+              // De-dup the unordered pair so only one warning is emitted for
+              // A↔B (the first-seen ordering wins).
+              const pairKey = `submitted|${[String(cur.brand).toLowerCase(), String(other.brand).toLowerCase()].sort().join('~')}`;
+              if (emittedDupKeys.has(pairKey)) continue;
+              emittedDupKeys.add(pairKey);
+              pushDup(cur.brand, other.brand, 'submitted');
+            }
+            // (b)/(c) an active e-Rx or IPD med with the same composition.
+            const activeMatches = activeByComposition.get(cur.compositionId) || [];
+            for (const match of activeMatches) {
+              pushDup(cur.brand, match.brand, match.source);
+            }
+          }
+        }
+      }
+    } catch (compErr) {
+      // GUARD: composition screening is an enrichment, never a hard dependency.
+      // A missing column/table/feature (staggered deploy) or transient DB error
+      // must NOT push SAFETY_CHECK_ERROR and must NOT block prescribing — log
+      // and continue with the deterministic checks already run above.
+      logger.warn(`prescriptionSafetyCheck: composition screen skipped for patient=${patientId} tenant=${tenantId}: ${compErr.message}`);
     }
 
     // 3. Paediatric weight-based dose sanity check. Only fires for patients

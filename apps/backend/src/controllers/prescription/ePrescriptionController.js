@@ -909,7 +909,9 @@ export const createPrescription = async (req, res) => {
     // Run safety check; if blockers[] non-empty, require an explicit override payload.
     // Override requires a non-empty reason; we log it to prescription_safety_overrides
     // after the prescription is inserted so there's always a prescription_id to link.
-    const safety = await validatePrescriptionSafety(patientId, medications);
+    const safety = await validatePrescriptionSafety(patientId, medications, {
+      tenantId: req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null,
+    });
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
         return error(res, 'Prescription blocked by clinical safety check', HTTP_STATUS.CONFLICT, {
@@ -1352,7 +1354,9 @@ export const updatePrescription = async (req, res) => {
     }
 
     const override = parseJsonField(req.body.override, null);
-    const safety = await validatePrescriptionSafety(existing.patient_id, medications);
+    const safety = await validatePrescriptionSafety(existing.patient_id, medications, {
+      tenantId: req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null,
+    });
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
         return error(res, 'Prescription blocked by clinical safety check', HTTP_STATUS.CONFLICT, {
