@@ -21368,6 +21368,323 @@
           }
         }
       },
+      "PharmacyAlternativeItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "catalog_id",
+          "availability_status",
+          "substitutable"
+        ],
+        "properties": {
+          "catalog_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "generic_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "form": {
+            "type": "string",
+            "nullable": true
+          },
+          "form_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "release_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "route": {
+            "type": "string",
+            "nullable": true
+          },
+          "stock_quantity": {
+            "type": "integer",
+            "nullable": true
+          },
+          "availability_status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "may_be_available",
+              "out_of_stock"
+            ]
+          },
+          "substitutable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PharmacyAlternativesData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selected",
+          "groups",
+          "alternatives"
+        ],
+        "properties": {
+          "selected": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PharmacyAlternativesSelected"
+              }
+            ]
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyAlternativesGroup"
+            }
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyAlternativeItem"
+            }
+          }
+        }
+      },
+      "PharmacyAlternativesGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "matched",
+          "items"
+        ],
+        "properties": {
+          "strength_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "form_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength": {
+            "type": "string",
+            "nullable": true
+          },
+          "form": {
+            "type": "string",
+            "nullable": true
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyAlternativeItem"
+            }
+          }
+        }
+      },
+      "PharmacyAlternativesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PharmacyAlternativesData"
+          }
+        }
+      },
+      "PharmacyAlternativesSelected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "catalog_id"
+        ],
+        "properties": {
+          "catalog_id": {
+            "type": "integer"
+          },
+          "composition_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "composition_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "form": {
+            "type": "string",
+            "nullable": true
+          },
+          "form_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "release_key": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCatalogItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "generic_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "price": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_price": {
+            "type": "string",
+            "nullable": true
+          },
+          "pack_size": {
+            "type": "string",
+            "nullable": true
+          },
+          "stock": {
+            "type": "integer",
+            "nullable": true
+          },
+          "in_stock": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "is_available": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "requires_prescription": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "reorder_level": {
+            "type": "integer",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "composition_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "composition_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "form": {
+            "type": "string",
+            "nullable": true
+          },
+          "form_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "release_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "composition_confidence": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PharmacyCatalogListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PharmacyCatalogItem"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "ProposeRevisionRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -72793,7 +73110,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyCatalogListResponse"
                 }
               }
             }
@@ -72852,7 +73169,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyAlternativesResponse"
                 }
               }
             }
@@ -74832,7 +75149,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyCatalogListResponse"
                 }
               }
             }
@@ -74891,7 +75208,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/PharmacyAlternativesResponse"
                 }
               }
             }
