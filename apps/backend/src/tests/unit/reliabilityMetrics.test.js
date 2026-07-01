@@ -3,6 +3,8 @@ import {
   recordWsBroadcastDropped,
   recordEventDeadLettered,
   recordWsFanoutSubscriberError,
+  recordNoteDraftJanitorDeletions,
+  recordNoteDraftSaveError,
   serializeReliabilityMetrics,
 } from '../../observability/reliabilityMetrics.js';
 
@@ -21,6 +23,8 @@ describe('reliabilityMetrics serialization', () => {
       'ws_broadcast_dropped_total',
       'ws_fanout_subscriber_errors_total',
       'event_outbox_dead_lettered_total',
+      'note_draft_janitor_deletions_total',
+      'note_draft_save_errors_total',
     ]) {
       expect(out).toContain(`# TYPE ${name}`);
     }
@@ -37,6 +41,38 @@ describe('reliabilityMetrics serialization', () => {
     expect(out).toContain('ws_broadcast_dropped_total{reason="fanout_local_fallback"} 1');
     expect(out).toContain('ws_fanout_subscriber_errors_total 1');
     expect(out).toContain('event_outbox_dead_lettered_total 1');
+  });
+
+  // Read a no-label counter's current value from the serialized exposition text
+  // (0 if the metric hasn't been touched yet — a Counter emits no sample line
+  // until its first inc). Lets us assert relative deltas on the module-level
+  // singletons without depending on test ordering.
+  function counterValue(out, name) {
+    const m = out.match(new RegExp(`^${name} (\\d+)$`, 'm'));
+    return m ? Number(m[1]) : 0;
+  }
+
+  it('recordNoteDraftJanitorDeletions(n) increments note_draft_janitor_deletions_total by n', () => {
+    const before = counterValue(serializeReliabilityMetrics(), 'note_draft_janitor_deletions_total');
+    recordNoteDraftJanitorDeletions(3);
+    const after = counterValue(serializeReliabilityMetrics(), 'note_draft_janitor_deletions_total');
+    expect(after - before).toBe(3);
+  });
+
+  it('recordNoteDraftJanitorDeletions ignores a 0 / non-positive / non-finite count (no-op)', () => {
+    const before = counterValue(serializeReliabilityMetrics(), 'note_draft_janitor_deletions_total');
+    recordNoteDraftJanitorDeletions(0);
+    recordNoteDraftJanitorDeletions(-5);
+    recordNoteDraftJanitorDeletions(Number.NaN);
+    const after = counterValue(serializeReliabilityMetrics(), 'note_draft_janitor_deletions_total');
+    expect(after).toBe(before);
+  });
+
+  it('recordNoteDraftSaveError() increments note_draft_save_errors_total by 1', () => {
+    const before = counterValue(serializeReliabilityMetrics(), 'note_draft_save_errors_total');
+    recordNoteDraftSaveError();
+    const after = counterValue(serializeReliabilityMetrics(), 'note_draft_save_errors_total');
+    expect(after - before).toBe(1);
   });
 });
 

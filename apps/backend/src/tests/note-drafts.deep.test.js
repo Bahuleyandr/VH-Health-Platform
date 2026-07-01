@@ -18,6 +18,15 @@ import {
   purgeExpiredNoteDrafts,
 } from '../services/emr/clinicalNoteDraftService.js';
 import { createNote, updateNote, signNote } from '../services/emr/clinicalNotesService.js';
+import { serializeReliabilityMetrics } from '../observability/reliabilityMetrics.js';
+
+// Read a no-label counter's current value from the /metrics exposition text
+// (0 before its first inc — a Counter emits no sample line until then). Used to
+// assert the note-draft operational counters move (or don't) at the two sites.
+function counterValue(name) {
+  const m = serializeReliabilityMetrics().match(new RegExp(`^${name} (\\d+)$`, 'm'));
+  return m ? Number(m[1]) : 0;
+}
 
 const prisma = (await import('../lib/prisma.js')).default;
 
@@ -134,7 +143,7 @@ d('note_drafts autosave store (deep)', () => {
     expect(await draftCount('appointment_id = 77')).toBe(0);
   });
 
-  it('purgeExpiredNoteDrafts deletes only past-TTL drafts', async () => {
+  it('purgeExpiredNoteDrafts deletes only past-TTL drafts (and increments the janitor counter by the deleted count)', async () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO note_drafts (tenant_id, author_uid, patient_uid, appointment_id, note_type, content, expires_at)
        VALUES ($1::uuid, $2::uuid, $3::uuid, 101, 'progress', '{}'::jsonb, NOW() - INTERVAL '1 hour')`,
@@ -144,9 +153,27 @@ d('note_drafts autosave store (deep)', () => {
       tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID, appointmentId: 102,
       noteType: 'progress', content: {},
     });
-    await purgeExpiredNoteDrafts();
+    const janitorBefore = counterValue('note_draft_janitor_deletions_total');
+    const removed = await purgeExpiredNoteDrafts();
     expect(await draftCount('appointment_id = 101')).toBe(0); // expired → gone
     expect(await draftCount('appointment_id = 102')).toBe(1); // live → kept
+    // The janitor counter advanced by exactly the number of rows it deleted
+    // (≥1 for our seeded expired draft).
+    expect(removed).toBeGreaterThanOrEqual(1);
+    expect(counterValue('note_draft_janitor_deletions_total') - janitorBefore).toBe(removed);
+  });
+
+  it('a validation-rejected upsert (400) does NOT increment note_draft_save_errors_total', async () => {
+    const before = counterValue('note_draft_save_errors_total');
+    // A deliberate 400 (array content → NOTE_DRAFT_CONTENT_INVALID) — client
+    // fault, thrown before the DB write, so it must NOT count as a save error.
+    await expect(
+      upsertNoteDraft({
+        tenantId: TENANT, authorUid: AUTHOR_A, patientUid: PATIENT_UID,
+        appointmentId: null, noteType: NOTE_TYPE, content: ['not', 'an', 'object'],
+      }),
+    ).rejects.toMatchObject({ name: 'AppError', statusCode: 400 });
+    expect(counterValue('note_draft_save_errors_total')).toBe(before);
   });
 });
 

@@ -17,6 +17,10 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  recordNoteDraftJanitorDeletions,
+  recordNoteDraftSaveError,
+} from '../../observability/reliabilityMetrics.js';
 
 // Serialized-size cap for a draft's content. 256 KB is ample for a text note
 // and sits well under the ~1 MB global JSON body limit (express.json). Enforced
@@ -83,23 +87,33 @@ export async function upsertNoteDraft({
   if (Buffer.byteLength(json, 'utf8') > MAX_DRAFT_CONTENT_BYTES) {
     throw AppError.badRequest('draft content too large', 'NOTE_DRAFT_CONTENT_TOO_LARGE');
   }
-  return setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO note_drafts
-         (tenant_id, author_uid, patient_uid, appointment_id, note_type, content, updated_at, expires_at)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5, $6::jsonb, NOW(), NOW() + INTERVAL '14 days')
-       ON CONFLICT (tenant_id, author_uid, patient_uid, COALESCE(appointment_id, 0), note_type)
-       DO UPDATE SET content = EXCLUDED.content, updated_at = NOW(), expires_at = NOW() + INTERVAL '14 days'
-       RETURNING id, updated_at`,
-      tid,
-      authorUid,
-      patientUid,
-      apptId,
-      String(noteType),
-      json,
-    );
-    return rows[0] || null;
-  });
+  // Everything above this line is deliberate 400 validation (client fault) and
+  // is NOT a save error. Only an UNEXPECTED failure of the DB write below counts
+  // toward note_draft_save_errors_total — a validation AppError is re-thrown
+  // uncounted; any other error increments the counter, then re-throws (never
+  // swallowed).
+  try {
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO note_drafts
+           (tenant_id, author_uid, patient_uid, appointment_id, note_type, content, updated_at, expires_at)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5, $6::jsonb, NOW(), NOW() + INTERVAL '14 days')
+         ON CONFLICT (tenant_id, author_uid, patient_uid, COALESCE(appointment_id, 0), note_type)
+         DO UPDATE SET content = EXCLUDED.content, updated_at = NOW(), expires_at = NOW() + INTERVAL '14 days'
+         RETURNING id, updated_at`,
+        tid,
+        authorUid,
+        patientUid,
+        apptId,
+        String(noteType),
+        json,
+      );
+      return rows[0] || null;
+    });
+  } catch (err) {
+    if (!(err instanceof AppError)) recordNoteDraftSaveError();
+    throw err;
+  }
 }
 
 /**
@@ -198,5 +212,6 @@ export async function purgeExpiredNoteDrafts() {
   const rows = await prisma.$queryRawUnsafe(
     'DELETE FROM note_drafts WHERE expires_at < NOW() RETURNING id',
   );
+  recordNoteDraftJanitorDeletions(rows.length);
   return rows.length;
 }
