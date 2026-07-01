@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma.js';
-import { backfillCompositions } from '../../scripts/backfill-drug-compositions.mjs';
+import { backfillCompositions, enrichCatalogRowForWrite } from '../../scripts/backfill-drug-compositions.mjs';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 
@@ -36,5 +36,15 @@ describe('drug-composition backfill', () => {
     await backfillCompositions({ where: "name LIKE 'BFTEST %'" });
     const r = await prisma.$queryRawUnsafe(`SELECT strength_key FROM pharmacy_catalog WHERE id=$1::int`, augId);
     expect(r[0].strength_key).toBe('OVERRIDDEN'); // curated rows are skipped
+  });
+});
+
+describe('enrichCatalogRowForWrite (write-path hook)', () => {
+  it('returns the structured columns for an upsert payload', () => {
+    const e = enrichCatalogRowForWrite({ name: 'Metformin 500mg SR', generic_name: 'Metformin' });
+    expect(e.strength_key).toBe('500mg');
+    expect(e.form_key).toBe('tablet');
+    expect(e.release_key).toBe('sr');
+    expect(e.composition_confidence).toBe('high');
   });
 });

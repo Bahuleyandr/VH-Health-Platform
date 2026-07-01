@@ -12,6 +12,7 @@ import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/p
 import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
 import { emitPharmacyOrderEvent } from '../../services/clinical/canonicalOperationalBridgeService.js';
 import { assertVerificationCleared, ensurePackBarcode } from '../../services/pharmacy/pharmacistVerificationService.js';
+import { enrichCatalogRowForWrite } from '../../../scripts/backfill-drug-compositions.mjs';
 
 // B1 — shared pharmacist clinical-verification gate for lifecycle
 // progressions (PREPARING / DISPATCH / counter dispense). Returns true when
@@ -1492,31 +1493,59 @@ export const upsertCatalog = async (req, res) => {
 
     if (!name) return error(res, 'Medicine name is required', HTTP_STATUS.BAD_REQUEST);
 
+    // Phase 1 composition layer: derive structured identity columns on write
+    // (pure/DB-free), then resolve the global composition_id via the shared
+    // upsert. Additive — existing search behaviour is unchanged.
+    const enriched = enrichCatalogRowForWrite({ name, generic_name });
+    let compositionId = null;
+    if (enriched._composition.key) {
+      const cr = await prisma.$queryRawUnsafe(
+        `INSERT INTO drug_compositions (composition_key, display_label, active_ingredients, source)
+         VALUES ($1,$2,$3,'parsed') ON CONFLICT (composition_key) DO UPDATE SET updated_at=NOW() RETURNING id`,
+        enriched._composition.key, enriched._composition.displayLabel, enriched._composition.activeIngredients
+      );
+      compositionId = cr[0].id;
+    }
+
     let result;
     if (id) {
       result = await prisma.$queryRawUnsafe(
         `UPDATE pharmacy_catalog SET
           name=$1, generic_name=$2, category=$3, manufacturer=$4,
           unit_price=$5, pack_size=$6, requires_prescription=$7,
-          in_stock=$8, is_available=$8, stock_quantity=$9, reorder_level=$10, updated_at=NOW()
+          in_stock=$8, is_available=$8, stock_quantity=$9, reorder_level=$10,
+          composition_id=$12, strength=$13, strength_key=$14, strength_components=$15,
+          form=$16, form_key=$17, release_key=$18, route=$19,
+          composition_source=$20, composition_confidence=$21, parsed_notes=$22,
+          updated_at=NOW()
         WHERE id=$11 RETURNING id, name, generic_name, category, manufacturer,
           unit_price, pack_size, requires_prescription, in_stock, is_available, stock_quantity,
           reorder_level, updated_at`,
         name, generic_name, category, manufacturer, unit_price, pack_size,
         requires_prescription ?? true, in_stock ?? true,
-        stock_quantity || 0, reorder_level || 10, id
+        stock_quantity || 0, reorder_level || 10, id,
+        compositionId, enriched.strength, enriched.strength_key, enriched.strength_components,
+        enriched.form, enriched.form_key, enriched.release_key, enriched.route,
+        enriched.composition_source, enriched.composition_confidence, enriched.parsed_notes
       );
     } else {
       result = await prisma.$queryRawUnsafe(
         `INSERT INTO pharmacy_catalog
           (name, generic_name, category, manufacturer, unit_price, pack_size,
-           requires_prescription, in_stock, is_available, stock_quantity, reorder_level)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10)
+           requires_prescription, in_stock, is_available, stock_quantity, reorder_level,
+           composition_id, strength, strength_key, strength_components,
+           form, form_key, release_key, route,
+           composition_source, composition_confidence, parsed_notes)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,
+           $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         RETURNING id, name, generic_name, category, manufacturer, unit_price,
           pack_size, requires_prescription, in_stock, is_available, stock_quantity, reorder_level, created_at`,
         name, generic_name || null, category || 'other', manufacturer || null,
         unit_price || null, pack_size || null, requires_prescription ?? true,
-        in_stock ?? true, stock_quantity || 0, reorder_level || 10
+        in_stock ?? true, stock_quantity || 0, reorder_level || 10,
+        compositionId, enriched.strength, enriched.strength_key, enriched.strength_components,
+        enriched.form, enriched.form_key, enriched.release_key, enriched.route,
+        enriched.composition_source, enriched.composition_confidence, enriched.parsed_notes
       );
     }
 

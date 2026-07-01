@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import ExcelJS from 'exceljs';
 import pg from 'pg';
+import { backfillCompositions } from './backfill-drug-compositions.mjs';
 
 const SOURCE_MARKER = 'vh_hospital_medicine_list';
 const DEFAULT_SHEET_NAME = 'Sheet1';
@@ -405,3 +406,10 @@ if (!connectionString) throw new Error('DATABASE_URL or TEST_DATABASE_URL is req
 
 const stats = await importRecords(records, connectionString, args.allowNonTest);
 console.table(stats);
+
+// Phase 1 composition layer: enrich every catalog row with structured
+// composition/strength/form identity (idempotent; curated rows are skipped).
+const compositionStats = await backfillCompositions({ connectionString });
+console.log(
+  `composition backfill: ${compositionStats.total} rows, ${compositionStats.resolved} high-confidence, ${compositionStats.queued} queued for curation`,
+);

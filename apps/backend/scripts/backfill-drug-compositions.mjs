@@ -56,6 +56,17 @@ export async function backfillCompositions({ where = 'TRUE', connectionString } 
   }
 }
 
+export function enrichCatalogRowForWrite(row) {
+  const p = parseCatalogRow(row);
+  return {
+    strength: p.strength.display, strength_key: p.strength.key,
+    strength_components: p.strength.components ? JSON.stringify(p.strength.components) : null,
+    form: p.form.form, form_key: p.form.formKey, release_key: p.form.releaseKey, route: p.form.route,
+    composition_source: 'parsed', composition_confidence: p.confidence, parsed_notes: p.composition.notes || null,
+    _composition: p.composition, _curationReason: p.curationReason,
+  };
+}
+
 const invokedDirectly = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('backfill-drug-compositions.mjs');
 if (invokedDirectly) {
   backfillCompositions().then((s) => {
