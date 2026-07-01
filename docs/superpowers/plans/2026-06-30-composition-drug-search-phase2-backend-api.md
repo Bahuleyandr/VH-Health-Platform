@@ -28,6 +28,15 @@ curation resolve, write-path enrichment) — inert; feature gated off.
 6. **Canonical clinical timeline.** Any persisted clinical write already routes through the
    canonical layer; we only *enrich* `details`/`medications` and *add* an audit event — we
    do not add a new parallel write path. (Root `CLAUDE.md` invariant.)
+7. **Enrich BEFORE safety, persist the SAME enriched object (ordering, verifier-flagged).**
+   In `createOrder`, `runCDSChecks` runs **before** `clinical_orders.create`. So IPD identity
+   enrichment must happen **before** `runCDSChecks`, and the *same* enriched `details` is what
+   gets persisted. For e-Rx, enrich the `medications` array **before** `validatePrescriptionSafety`
+   and persist that *same* enriched array. One server-side enrichment per request feeds both
+   the safety check and the write — never enrich twice with divergent results, never
+   safety-check an un-enriched array then persist an enriched one (or vice-versa).
+   (`validatePrescriptionSafety` still self-enriches defensively from `catalog_id` — idempotent
+   — so callers that don't pre-enrich still get correct checks.)
 
 ## Grounding facts (verified 2026-07-01)
 
@@ -116,7 +125,13 @@ snapshot at flip time, so enabling is evidence-based and auditable.
    shape from migration 350's curation-queue block. **`tenant_id` has no GUC default** (it is
    the PK) → writes must supply it explicitly (the service always does).
 3. `apps/backend/src/services/pharmacy/compositionFeatureService.js`, mirroring
-   `featureFlagService.js` (60s in-memory cache keyed by tenant_id):
+   `featureFlagService.js`'s cache *shape* but **keyed per-tenant** (verifier-flagged):
+   - **Do NOT do a global `SELECT tenant_id, enabled FROM composition_search_settings` refresh.**
+     `composition_search_settings` has RLS; if `isCompositionSearchEnabled` is ever called
+     inside an active tenant GUC scope, a global refresh loads only the current tenant's row
+     and evicts every other tenant from the cache. Instead cache **per tenant** (Map keyed by
+     `tenantId`, each entry `{ enabled, fetchedAt }` with its own 60s TTL) and read with an
+     explicit filter `WHERE tenant_id = $1::uuid` (correct regardless of GUC state).
    - `isCompositionSearchEnabled(tenantId): Promise<boolean>` — false when `tenantId` falsy,
      table missing (guarded try/catch → false), or no row / `enabled=false`.
    - `setCompositionSearchEnabled(tenantId, enabled, { actorUid = null, snapshot = null } = {})`
@@ -226,19 +241,23 @@ the selected row is `high` confidence.
    - each item tagged `substitutable: true` only when molecules **and** `strength_key`
      **and** `form_key` **and** `route` **and** `release_key` match the selected row (for a
      combo whose `strength_components` differ but total matches → `substitutable: false`);
-   - each item carries a stock-freshness flag distinguishing positive `stock_quantity`
-     ("in_stock") from `in_stock=true` with null/stale count ("may_be_available").
-   - **Flag OFF** (tenant with no settings row) ⇒ `{ alternatives: [], groups: [] }` (200).
-   - Selected row `composition_confidence != 'high'` **or** `composition_id NULL` ⇒ empty (200).
-   - Selected `catalog_id` not found / not in caller's tenant ⇒ 404 (or empty per existing
-     controller convention — match the not-found style already used in the file).
+   - each item carries **`availability_status: "in_stock" | "may_be_available" | "out_of_stock"`**
+     (verifier-flagged — call it *status*, not *freshness*: the catalog has no true
+     `stock_updated_at`, so we can't claim freshness). Map: positive `stock_quantity` ⇒
+     `in_stock`; `in_stock=true` with null/zero count ⇒ `may_be_available`; else `out_of_stock`.
+   - **Deterministic status codes (verifier-flagged — pick one, no ambiguity):**
+     - **Flag OFF** (tenant with no settings row / `enabled=false`) ⇒ **200** `{ alternatives: [], groups: [] }`.
+     - **Flag ON + selected `catalog_id` missing or not in caller's tenant** ⇒ **404**.
+     - **Flag ON + row found but `composition_confidence != 'high'` or `composition_id NULL`** ⇒
+       **200** `{ alternatives: [], groups: [] }` (the brand exists but has no surfaced alternatives).
 2. Controller `getCatalogAlternatives(req, res)` in pharmacyOrderController.js:
    - Resolve `tenantId` from `req` (same source the file already uses for tenant-scoped reads).
-   - `isCompositionSearchEnabled(tenantId)` (Task 1) false ⇒ `success(res, { alternatives: [], groups: [] }, 'Alternatives')`.
-   - Load the selected row (tenant-scoped) via Task 3 resolver / a direct tenant-scoped select;
-     bail to empty when missing composition / not high confidence.
+   - `isCompositionSearchEnabled(tenantId)` (Task 1) false ⇒ **200** `success(res, { alternatives: [], groups: [] }, 'Alternatives')` (do NOT 404 — flag-off is a valid, empty answer).
+   - Load the selected row (tenant-scoped) via Task 3 resolver / a direct tenant-scoped select.
+     Missing / wrong-tenant `catalog_id` ⇒ **404** (`AppError.notFound`). Row found but no
+     `composition_id` or `composition_confidence != 'high'` ⇒ **200** empty.
    - Query siblings (tenant-scoped, `is_active`, `composition_id = selected`, `id <> :id`),
-     build groups + tags as above.
+     compute `availability_status`, build groups + tags as above.
 3. Route: after pharmacy/index.js:77 add
    `wrapAutoRBAC(router, 'pharmacyCatalogAlternativesRoutes', { get: [['/catalog/:id/alternatives', [], pharmacyOrderController.getCatalogAlternatives]] });`
    and add `pharmacyCatalogAlternativesRoutes` to `rbacConfig.js` (mirror `pharmacyCatalogRoutes`
@@ -281,13 +300,21 @@ name-based logic.
    - Short-circuit unless `options.tenantId` and `isCompositionSearchEnabled(tenantId)`.
    - `enrichMedicationsWithComposition(tenantId, medications)` (Task 3).
    - Composition allergy: for each enriched med with high-confidence `active_ingredients`,
-     match each molecule against `getUnifiedActiveAllergies` (reuse the existing allergy set +
-     `rankSeverity`); push warning/blocker with the molecule+brand message.
+     match each molecule against `getUnifiedActiveAllergies` — **reuse the existing beta-lactam
+     cross-reactivity logic** (`medicationConflictsWithAllergen`, prescriptionSafetyCheck.js
+     ~L172), NOT just exact molecule/allergen substring equality (verifier-flagged: a
+     **penicillin** allergy must catch amoxicillin/clavulanate). Run each molecule through the
+     same cross-reactivity check + `rankSeverity`; push warning/blocker with the molecule+brand
+     message.
    - Same-composition duplicate: within submitted meds; vs active e-Rx (a tenant-scoped query
      resolving each active e-Rx med's `composition_id` via its `catalog_id`, or extend the
-     L891 query to also surface `catalog_id`); vs active IPD orders
-     (`clinical_orders … order_type='medication' … details->>'composition_id'`). Emit
-     `DUPLICATE_COMPOSITION` distinct from the existing name-based `DUPLICATE_MEDICATION`.
+     L891 query to also surface `catalog_id`); vs active IPD orders. **Resolve the patient's
+     `patient_uid` once first (verifier-flagged):** `validatePrescriptionSafety` receives the
+     integer `users.id`, but `clinical_orders` are keyed by `patient_uid` (UUID) — do a single
+     `users` lookup (id → uid) before the IPD query
+     (`clinical_orders … patient_uid = $uid … order_type='medication' … non-terminal status …
+     details->>'composition_id'`). Emit `DUPLICATE_COMPOSITION` distinct from the existing
+     name-based `DUPLICATE_MEDICATION`.
 3. Thread `tenantId` at the callers that matter:
    - **e-Rx:** `ePrescriptionController.js` CREATE (L912) + UPDATE (L1355) — pass
      `{ tenantId: req.tenantId }`.
@@ -322,15 +349,22 @@ effective on in-flight orders). A client-sent `composition_id` is never persiste
      fields; bogus client `composition_id` overwritten.
    - **Guarded:** simulate missing column/table (or no `catalog_id`) ⇒ order/prescription still
      saves normally with no composition fields; nothing thrown.
-2. **IPD:** in `orderEntryService` (inside `normalizeOrderInput` when `order_type==='medication'`,
-   or a dedicated step in `createOrder` before the `tx.clinical_orders.create`), when
-   `details.catalog_id` present, call Task 3 resolver with the order's `tenantId` and merge the
-   `COMPOSITION_IDENTITY_FIELDS` subset into `details` (stripping any client `composition_id`
-   first). Own try/catch — failure leaves `details` untouched. Apply to **both** single and
-   bulk create paths (L667 / L794).
-3. **e-Rx:** in `ePrescriptionController.js` CREATE + UPDATE, before `JSON.stringify(medications)`,
-   run `enrichMedicationsWithComposition(req.tenantId, medications)` and persist the enriched
-   array. Own try/catch — failure persists the original array.
+2. **IPD (enrich BEFORE CDS — invariant #7):** in `orderEntryService.createOrder`, enrich
+   `details` **before `runCDSChecks(...)`** (which runs at L639, *before* the persist), not just
+   before `tx.clinical_orders.create`. When `order_type==='medication'` and `details.catalog_id`
+   present, call the Task 3 resolver with the order's `tenantId`, strip any client
+   `composition_id`, and merge the `COMPOSITION_IDENTITY_FIELDS` subset into `details`. Then the
+   **same enriched `details`** flows into both `runCDSChecks` and the create (single L667 + bulk
+   L794 — enrich each item in the bulk path too). Do the enrichment once (e.g. a step at the top
+   of `createOrder` right after `normalizeOrderInput`, or inside `normalizeOrderInput` given it
+   is `async` and already awaits DB). Own try/catch — failure leaves `details` untouched and the
+   order still saves. Thread `tenantId` into `runCDSChecks` per Task 5.
+3. **e-Rx (enrich BEFORE safety — invariant #7):** in `ePrescriptionController.js` CREATE + UPDATE,
+   run `enrichMedicationsWithComposition(req.tenantId, medications)` **before**
+   `validatePrescriptionSafety(...)` (L912 / L1355), and persist that **same enriched array**
+   (`JSON.stringify(enriched)` at L1044 / L1391). Strip client `composition_id` (the resolver
+   does). Own try/catch — failure falls back to the original array (safety + persist both use
+   the fallback). The safety-checked array and the persisted array must be identical.
 
 **Acceptance:** deep test green; existing CPOE + e-Rx tests still green.
 
@@ -352,12 +386,18 @@ originally-selected one. Exploratory panel taps are **not** audited (only persis
    - When `original_catalog_id` is absent or equals the final `catalog_id` ⇒ **no** audit row.
    - Audit failure must not fail the save (writer already returns null on error).
 2. Helper `recordBrandSubstitutionAudit({ tenantId, patientUid, encounterId, actorUid,
-   actorRole, surface, resourceTable, resourceId, original, final, reason })` (place in the
-   pharmacy composition service area) that shapes and calls `recordClinicalAuditEvent`. Use a
-   deterministic `idempotencyKey` (e.g. `brand_sub:${resourceTable}:${resourceId}:${originalCatalogId}:${finalCatalogId}`).
+   actorRole, surface, resourceTable, resourceId, originalCatalogId, finalCatalogId, reason })`
+   (place in the pharmacy composition service area). **Treat `original_catalog_id` and the final
+   `catalog_id` as identifiers only (verifier-flagged): resolve BOTH rows tenant-scoped on the
+   server** (via the Task 3 resolver) to build `before_state` (original brand name + catalog_id
+   + composition_id/label) and `after_state` (final brand name + catalog_id + composition_id/label)
+   — never take brand/composition text from the client. Then call `recordClinicalAuditEvent`.
+   Use a deterministic `idempotencyKey`
+   (e.g. `brand_sub:${resourceTable}:${resourceId}:${originalCatalogId}:${finalCatalogId}`).
 3. Call it post-persist in the e-Rx CREATE/UPDATE and IPD create paths when
    `original_catalog_id` is present and differs from the final `catalog_id`. Best-effort
-   (never blocks the save).
+   (never blocks the save). If either id fails to resolve tenant-scoped, skip the audit (do not
+   fabricate state).
 
 **Acceptance:** deep test green; save paths unaffected when no substitution.
 
