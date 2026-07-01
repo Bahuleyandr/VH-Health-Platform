@@ -12,6 +12,7 @@
 import { jest } from '@jest/globals';
 import prisma from '../lib/prisma.js';
 import { validatePrescriptionSafety } from '../utils/clinical/prescriptionSafetyCheck.js';
+import { createOrder } from '../services/emr/orderEntryService.js';
 import { setCompositionSearchEnabled } from '../services/pharmacy/compositionFeatureService.js';
 
 // Enabled tenant (composition search ON) and a disabled tenant (no settings row).
@@ -21,8 +22,10 @@ const TENANT_OFF = '00000000-0000-4000-8000-00000c5a0002';
 // Patient uids/phones unique to this suite.
 const PATIENT_UID = 'c5a00000-0000-4000-8000-00000000a001'; // amoxicillin-allergic patient
 const PATIENT_PENI_UID = 'c5a00000-0000-4000-8000-00000000a002'; // penicillin-allergic patient
+const DOCTOR_UID = 'c5a00000-0000-4000-8000-00000000a003'; // orderer for the IPD createOrder test
 const PATIENT_PHONE = '+919700000501';
 const PATIENT_PENI_PHONE = '+919700000502';
+const DOCTOR_PHONE = '+919700000503';
 
 jest.setTimeout(60000);
 
@@ -69,8 +72,8 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       PATIENT_UID, PATIENT_PENI_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID,
     ).catch(() => {});
 
     // Patient A — recorded amoxicillin allergy (structured store).
@@ -99,6 +102,13 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active, tenant_id)
        VALUES ($1, $2::uuid, 'Penicillin', 'SEVERE', true, $3::uuid)`,
       peniPatientId, PATIENT_PENI_UID, TENANT_ON,
+    );
+
+    // Doctor — orderer for the createOrder (IPD CDS) path test.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'PSC Doctor [test]', 'DOCTOR', true, $3::uuid, NOW())`,
+      DOCTOR_UID, DOCTOR_PHONE, TENANT_ON,
     );
 
     // Global composition (amoxicillin + clavulanic acid).
@@ -173,6 +183,14 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       PATIENT_UID, PATIENT_PENI_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid, $2::uuid) AND source_table = 'clinical_orders'`,
+      PATIENT_UID, PATIENT_PENI_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid) AND resource_table = 'clinical_orders'`,
+      PATIENT_UID, PATIENT_PENI_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid)`,
       PATIENT_UID, PATIENT_PENI_UID,
     ).catch(() => {});
@@ -181,8 +199,8 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       TENANT_ON, TENANT_OFF,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID,
     ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -462,5 +480,129 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
     expect(nameBased.length).toBeGreaterThanOrEqual(1);
     // Same (brand, amoxicillin) pair already flagged by the name-based loop → composition path dedups it.
     expect(compBased.length).toBe(0);
+  });
+
+  // 8. IPD (drug-chart) path through the REAL runCDSChecks/createOrder pipeline.
+  //    This is the end-to-end proof of the fix: an inpatient medication order
+  //    whose details.catalog_id points at the amox+clav composition — with a
+  //    brand name (medication_name) that does NOT contain "amoxicillin" — must
+  //    now trip the composition allergy for the amoxicillin-allergic patient.
+  //    createOrder threads tenantId → runCDSChecks → validatePrescriptionSafety,
+  //    and runCDSChecks now copies details.catalog_id onto the med it screens,
+  //    so the enrich step resolves the high-confidence composition. The SEVERE
+  //    allergy → COMPOSITION_ALLERGY_CONFLICT blocker → createOrder rejects with
+  //    a CDS_BLOCKER. BEFORE the fix, catalog_id was dropped, the composition
+  //    never resolved, and the order was created with no composition finding.
+  it('blocks a drug-chart order via createOrder when details.catalog_id resolves an allergen composition (IPD runCDSChecks path)', async () => {
+    let thrown = null;
+    let created = null;
+    try {
+      created = await createOrder({
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        encounter_id: null,
+        details: {
+          medication_name: 'Clavam 625', // brand — no "amoxicillin" token
+          catalog_id: clavamId,
+          dose: '1 tab',
+          route: 'oral',
+        },
+        ordered_by: DOCTOR_UID,
+        tenantId: TENANT_ON,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    // Must have thrown a CDS_BLOCKER (not created the order).
+    expect(created).toBeNull();
+    expect(thrown).not.toBeNull();
+    expect(thrown.code).toBe('CDS_BLOCKER');
+    const blockers = thrown.details?.blockers || [];
+    const compAllergy = blockers.filter((b) => b.type === 'COMPOSITION_ALLERGY_CONFLICT');
+    expect(compAllergy.length).toBe(1);
+    expect(compAllergy[0].molecule).toBe('amoxicillin');
+    expect(String(compAllergy[0].medication)).toContain('Clavam');
+    // Defensive: no order row was written for the blocked create.
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM clinical_orders WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+    expect(Number(rows[0].n)).toBe(0);
+  });
+
+  // 9. Low-confidence active-side row does NOT emit DUPLICATE_COMPOSITION.
+  //    Locks in "high-confidence on BOTH sides" — a medium/low-confidence
+  //    catalog row on the ACTIVE (existing e-Rx / IPD) side must be ignored
+  //    even though it shares the composition with a submitted high-confidence
+  //    brand.
+  it('does NOT flag DUPLICATE_COMPOSITION when the active-side catalog row is not high confidence', async () => {
+    // Seed a MEDIUM-confidence catalog row for the same composition under TENANT_ON.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
+          form, form_key, route, composition_confidence, composition_source, updated_at)
+       VALUES ('PSCTEST Medium Augmentin', 'Amox+Clav', TRUE, $1::uuid, $2::int,
+               '500mg+125mg', '625mg', 'Tablet', 'tablet', 'oral', 'medium', 'parsed', NOW())`,
+      TENANT_ON, compositionId,
+    );
+    const mediumId = await catalogId('PSCTEST Medium Augmentin');
+
+    // Clean any leftover active meds for the penicillin patient, then seed an
+    // active e-Rx carrying the MEDIUM-confidence catalog_id.
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM e_prescriptions WHERE patient_uid = $1::uuid`,
+      PATIENT_PENI_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`,
+      PATIENT_PENI_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO e_prescriptions
+         (patient_id, patient_uid, status, medications, tenant_id, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'active', $3::jsonb, $4::uuid, NOW(), NOW())`,
+      peniPatientId,
+      PATIENT_PENI_UID,
+      JSON.stringify([{ catalog_id: mediumId, name: 'Medium Augmentin' }]),
+      TENANT_ON,
+    );
+
+    // Submit a HIGH-confidence same-composition brand. The active side is
+    // medium-confidence → no DUPLICATE_COMPOSITION.
+    const res = await validatePrescriptionSafety(
+      peniPatientId,
+      [{ catalog_id: clavamId, name: 'Clavam 625' }],
+      { tenantId: TENANT_ON },
+    );
+    expect(res.warnings.some((w) => w.type === 'DUPLICATE_COMPOSITION')).toBe(false);
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM e_prescriptions WHERE patient_uid = $1::uuid`,
+      PATIENT_PENI_UID,
+    );
+  });
+
+  // 10. Defensive dedup type-filter: a prior issue of a DIFFERENT type that
+  //     happens to carry a matching medication+allergen must NOT suppress a
+  //     real COMPOSITION_ALLERGY_CONFLICT. We simulate this by verifying the
+  //     composition allergy still fires when the ONLY prior matching-pair issue
+  //     is the KB's ALLERGY_CROSS_SENSITIVITY_KB (a non-ALLERGY_CONFLICT type).
+  //     Using the amoxicillin-allergic patient + Clavam: the KB engine emits
+  //     ALLERGY_CROSS_SENSITIVITY_KB (medication='Clavam 625', allergy='Amoxicillin'),
+  //     and the composition path must still emit its own conflict because the
+  //     dedup now filters on ALLERGY_CONFLICT-family types only.
+  it('does NOT let a different-type prior issue (KB cross-sensitivity) suppress COMPOSITION_ALLERGY_CONFLICT', async () => {
+    const res = await validatePrescriptionSafety(
+      patientId,
+      [{ catalog_id: clavamId, name: 'Clavam 625' }],
+      { tenantId: TENANT_ON },
+    );
+    const all = [...res.warnings, ...res.blockers];
+    // The KB cross-sensitivity fires for the same (medication, allergen) pair...
+    expect(all.some((i) => i.type === 'ALLERGY_CROSS_SENSITIVITY_KB'
+      && String(i.medication).includes('Clavam'))).toBe(true);
+    // ...and the composition path is NOT suppressed by it.
+    expect(all.some((i) => i.type === 'COMPOSITION_ALLERGY_CONFLICT'
+      && i.molecule === 'amoxicillin')).toBe(true);
   });
 });

@@ -957,11 +957,16 @@ export async function validatePrescriptionSafety(patientId, medications, options
           for (const molecule of med.active_ingredients) {
             for (const allergy of allergies) {
               if (!medicationConflictsWithAllergen(molecule, allergy.allergen)) continue;
-              // Dedup: skip if an existing issue (warning OR blocker) already
+              // Dedup: skip if an existing ALLERGY_CONFLICT-family issue already
               // covers the same medication + allergy pair (e.g. the name-based
-              // ALLERGY_CONFLICT already flagged this brand for this allergen).
+              // structured/unstructured loop already flagged this brand for this
+              // allergen). Filter on TYPE — mirroring the KB dedup guard below —
+              // so a future non-allergy check that happens to carry a matching
+              // medication+allergen can never silently suppress a real
+              // composition allergy.
               const alreadyFlagged = blockers.concat(warnings).some(
                 (b) =>
+                  (b.type === 'ALLERGY_CONFLICT' || b.type === 'ALLERGY_CONFLICT_UNSTRUCTURED') &&
                   String(b.medication || '').toLowerCase() === String(brand).toLowerCase() &&
                   String(b.allergy || '').toLowerCase() === String(allergy.allergen || '').toLowerCase(),
               );

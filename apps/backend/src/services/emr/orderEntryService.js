@@ -198,6 +198,13 @@ async function runCDSChecks(patientUid, orderType, details, tenantId = null) {
         route: details.route ?? null,
         strength: details.strength ?? null,
         concentration: details.concentration ?? null,
+        // Carry the catalog_id through — it is the authoritative key the
+        // composition safety screen enriches identity from (validate strips any
+        // client composition_id and derives it server-side from catalog_id).
+        // Without this the gated composition allergy / same-composition
+        // duplicate checks could never fire for drug-chart orders. Only the
+        // catalog_id is copied; never a client-sent composition_id.
+        catalog_id: details.catalog_id ?? details.catalogId ?? null,
       };
 
       // Check patient-specific hazards for the new drug first. This preserves
