@@ -7,8 +7,20 @@ import {
 } from '../services/billing/ledger/ledgerReportsService.js';
 import { assertData } from './helpers/assertSchema.js';
 
-const TENANT = '00000000-0000-4000-8000-000000000001';
+// Own, distinct tenant so this suite's derived-id ledger idempotency keys
+// (issue-inv-*, payment-*) live under a unique (tenant_id, idempotency_key)
+// space, and the RLS-scoped GL reports (trialBalance/arAging/cashPosition/…)
+// read ONLY this suite's ledger rows — no cross-suite collision or bleed when
+// the three money-ledger deep suites share one DB in the same CI chunk.
+const TENANT = '00000000-0000-4000-8000-0000000003a2';
 const cleanup = { invoiceIds: [], patientUids: [] };
+
+beforeAll(async () => {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'ledger-reports-tenant', 'Ledger Reports Test') ON CONFLICT (id) DO NOTHING`,
+    TENANT,
+  );
+});
 
 async function makePatient() {
   const uid = randomUUID();

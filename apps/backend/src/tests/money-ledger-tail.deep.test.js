@@ -14,8 +14,19 @@ import { getAccountBalancePaise } from '../services/billing/ledger/ledgerService
 process.env.HOSPITAL_UPI_VPA = process.env.HOSPITAL_UPI_VPA || 'test@upi';
 process.env.HOSPITAL_NAME = process.env.HOSPITAL_NAME || 'Test Hospital';
 
-const TENANT = '00000000-0000-4000-8000-000000000001';
+// Own, distinct tenant so this suite's derived-id ledger idempotency keys
+// (issue-inv-*, payment-*, claim-shift-*, payment-reversal-*) live under a
+// unique (tenant_id, idempotency_key) space — never colliding with the other
+// two money-ledger deep suites when they share one DB in the same CI chunk.
+const TENANT = '00000000-0000-4000-8000-0000000003a1';
 const cleanup = { invoiceIds: [], claimIds: [], preauthIds: [], policyIds: [], patientUids: [] };
+
+beforeAll(async () => {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'ledger-tail-tenant', 'Ledger Tail Test') ON CONFLICT (id) DO NOTHING`,
+    TENANT,
+  );
+});
 
 async function makePatient() {
   const uid = randomUUID();
