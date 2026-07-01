@@ -7,7 +7,6 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../note_draft_autosave.dart';
@@ -15,7 +14,11 @@ import '../note_draft_autosave.dart';
 class NoteDraftStatusIndicator extends StatelessWidget {
   final ValueListenable<NoteDraftStatus> status;
 
-  const NoteDraftStatusIndicator({super.key, required this.status});
+  /// Injectable clock so the relative "Saved 2m ago" label is testable.
+  /// Null → uses the wall clock (kept nullable so the widget stays `const`).
+  final DateTime Function()? now;
+
+  const NoteDraftStatusIndicator({super.key, required this.status, this.now});
 
   @override
   Widget build(BuildContext context) {
@@ -54,13 +57,17 @@ class NoteDraftStatusIndicator extends StatelessWidget {
     switch (value.kind) {
       case NoteDraftStatusKind.idle:
         return (Icons.cloud_done_outlined, null, AppTheme.textSecondary);
+      case NoteDraftStatusKind.dirty:
+        return (
+          Icons.edit_outlined,
+          'Unsaved changes…',
+          AppTheme.textSecondary,
+        );
       case NoteDraftStatusKind.saving:
         return (Icons.cloud_sync_outlined, 'Saving…', AppTheme.textSecondary);
       case NoteDraftStatusKind.saved:
         final at = value.savedAt;
-        final when = at != null
-            ? DateFormat('h:mm a').format(at.toLocal())
-            : '';
+        final when = at != null ? _relativeTime(at) : '';
         return (
           Icons.cloud_done_outlined,
           when.isEmpty ? 'Draft saved' : 'Saved $when',
@@ -79,5 +86,17 @@ class NoteDraftStatusIndicator extends StatelessWidget {
           AppTheme.warningOnSurface,
         );
     }
+  }
+
+  /// Relative "Saved just now / 2m ago / 1h ago" label so a stalled save looks
+  /// visibly old (rather than a static clock time that never changes). Quiet
+  /// by design — no alarming age threshold; the status flips to error on a
+  /// failed PUT, which is the real signal.
+  String _relativeTime(DateTime at) {
+    final delta = (now ?? DateTime.now)().difference(at);
+    if (delta.isNegative || delta.inSeconds < 45) return 'just now';
+    if (delta.inMinutes < 60) return '${delta.inMinutes}m ago';
+    if (delta.inHours < 24) return '${delta.inHours}h ago';
+    return '${delta.inDays}d ago';
   }
 }

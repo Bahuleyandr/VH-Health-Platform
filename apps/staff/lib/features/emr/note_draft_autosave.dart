@@ -18,15 +18,22 @@
 //    touching HTTP.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/platform_info.dart';
 import '../../core/services/connectivity_sync_service.dart';
 import '../../core/services/medical_api_service.dart';
 
 /// Lifecycle state surfaced to the screen so it can render a small
-/// "Saving… / Saved 2:14 pm / Offline / Couldn't save" indicator.
-enum NoteDraftStatusKind { idle, saving, saved, offline, error }
+/// "Unsaved changes… / Saving… / Saved 2m ago / Offline / Couldn't save"
+/// indicator.
+///
+/// [dirty] is a transient state between an edit and the debounce firing so the
+/// author sees "Unsaved changes…" while the ~3 s debounce is pending. It never
+/// alarms — a failed PUT still flips to [error] on its own.
+enum NoteDraftStatusKind { idle, dirty, saving, saved, offline, error }
 
 /// Immutable status snapshot. [savedAt] is set only for [NoteDraftStatusKind.saved].
 @immutable
@@ -37,6 +44,7 @@ class NoteDraftStatus {
   const NoteDraftStatus._(this.kind, [this.savedAt]);
 
   const NoteDraftStatus.idle() : this._(NoteDraftStatusKind.idle);
+  const NoteDraftStatus.dirty() : this._(NoteDraftStatusKind.dirty);
   const NoteDraftStatus.saving() : this._(NoteDraftStatusKind.saving);
   const NoteDraftStatus.saved(DateTime at)
     : this._(NoteDraftStatusKind.saved, at);
@@ -121,10 +129,12 @@ class NoteDraftAutosave {
     this.debounce = const Duration(seconds: 3),
     this.heartbeat = const Duration(seconds: 15),
     DateTime Function()? clock,
+    String Function()? deviceType,
   }) : _snapshot = snapshot,
        _api = api ?? NoteDraftApi.live(),
        _connectivity = connectivity ?? ConnectivitySyncService.instance,
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _deviceType = deviceType ?? (() => currentDeviceType);
 
   final String patientUid;
   final int? appointmentId;
@@ -136,6 +146,41 @@ class NoteDraftAutosave {
   final NoteDraftApi _api;
   final ConnectivitySyncService _connectivity;
   final DateTime Function() _clock;
+
+  /// Current device posture (`currentDeviceType`). Autosave shadows the
+  /// desktop/tablet-only note-finalize write, so on a phone/mobile (or an
+  /// empty/unknown) deviceType it no-ops — never PUTting nor enqueuing —
+  /// exactly as `buildOfflineOrderIntent` gates the offline order path.
+  final String Function() _deviceType;
+
+  /// JSON of the last SUCCESSFULLY-saved snapshot (online PUT success only).
+  /// Used to skip re-PUTting byte-identical content. Deliberately NOT set on a
+  /// failed save (so an identical retry still attempts) nor on an offline
+  /// enqueue (an enqueued-but-unconfirmed save must not poison the cache).
+  String? _lastSavedJson;
+
+  /// Timestamp of the last successful save (and seeded on restore). Lets the
+  /// skip-unchanged branch re-assert `saved(<when>)` instead of leaving the
+  /// indicator stuck on "Unsaved changes…" when nothing actually changed.
+  DateTime? _lastSavedAt;
+
+  /// True once a non-empty snapshot has been saved. Before that we refuse to
+  /// persist an empty/whitespace-only draft (never create a blank scratchpad).
+  /// After that, an intentional clear-to-empty IS a legitimate edit and saves.
+  bool _everSaved = false;
+
+  /// Set when `_save()` is entered while a save is already in flight — the
+  /// completion path re-runs `_save()` so an edit made DURING an in-flight PUT
+  /// is persisted immediately (not only at the next 15 s heartbeat). Without
+  /// this, a flush() on app-pause during a slow save would silently drop the
+  /// newest delta.
+  bool _pendingSave = false;
+
+  /// Monotonic generation bumped by every `clear()`. A `_save()` captures it
+  /// before awaiting its PUT; if it changed by the time the PUT resolves, a
+  /// clear() (finalize/discard) happened meanwhile, so the now-superseded save
+  /// must NOT be cached or marked authoritative-saved.
+  int _clearGeneration = 0;
 
   /// Observable status for the screen's "Saving… / Saved <time>" indicator.
   final ValueNotifier<NoteDraftStatus> status = ValueNotifier<NoteDraftStatus>(
@@ -155,6 +200,12 @@ class NoteDraftAutosave {
   void onContentChanged() {
     if (_disposed) return;
     _dirty = true;
+    // Transient "Unsaved changes…" while the debounce is pending. Quiet by
+    // design — a failed PUT flips to error on its own, so no separate alarm.
+    // Don't clobber a mid-flight "Saving…" indicator.
+    if (status.value.kind != NoteDraftStatusKind.saving) {
+      status.value = const NoteDraftStatus.dirty();
+    }
     _debounceTimer?.cancel();
     _debounceTimer = Timer(debounce, _save);
     _heartbeatTimer ??= Timer.periodic(heartbeat, (_) {
@@ -177,12 +228,17 @@ class NoteDraftAutosave {
       final updatedAt = DateTime.tryParse(
         draft['updated_at']?.toString() ?? '',
       );
-      return {
-        'content': content is Map
-            ? Map<String, dynamic>.from(content)
-            : <String, dynamic>{},
-        'updatedAt': updatedAt,
-      };
+      final contentMap = content is Map
+          ? Map<String, dynamic>.from(content)
+          : <String, dynamic>{};
+      // Seed the skip-unchanged cache to the restored content so the immediate
+      // post-restore save (fired when controllers rehydrate) is correctly
+      // skipped, and treat a non-empty restored draft as an existing save so a
+      // later intentional clear-to-empty still persists.
+      _lastSavedJson = jsonEncode(contentMap);
+      _lastSavedAt = updatedAt ?? _clock();
+      if (!_isEffectivelyEmpty(contentMap)) _everSaved = true;
+      return {'content': contentMap, 'updatedAt': updatedAt};
     } catch (e) {
       if (kDebugMode) debugPrint('NoteDraftAutosave.restore failed: $e');
       return null;
@@ -195,6 +251,15 @@ class NoteDraftAutosave {
   /// janitor sweeps stragglers — so failures here never throw.
   Future<void> clear() async {
     _dirty = false;
+    _pendingSave = false;
+    _lastSavedJson = null;
+    _lastSavedAt = null;
+    // A discard/finalize means the just-typed content is gone: re-arm
+    // skip-empty so a post-discard empty snapshot can't resurrect a blank
+    // scratchpad, and bump the generation so an in-flight PUT that lands after
+    // this DELETE is treated as superseded (not re-cached / re-marked saved).
+    _everSaved = false;
+    _clearGeneration++;
     _debounceTimer?.cancel();
     _debounceTimer = null;
     _heartbeatTimer?.cancel();
@@ -220,54 +285,157 @@ class NoteDraftAutosave {
   }
 
   Future<void> _save() async {
-    if (_disposed || _saveInFlight) return;
+    if (_disposed) return;
+    // Coalesce: a save already running. Remember that more work is due so the
+    // in-flight save's completion path re-runs _save() with the latest
+    // snapshot — otherwise an edit made during a slow PUT (and a flush() on
+    // app-pause) would be lost until the next 15 s heartbeat.
+    if (_saveInFlight) {
+      _pendingSave = true;
+      return;
+    }
     final content = _snapshot();
-    _saveInFlight = true;
-    _dirty = false;
 
-    // Offline: enqueue best-effort if the queue is available, else just flag.
-    if (!_connectivity.isOnline) {
-      try {
-        await _connectivity.enqueue(
-          endpoint: _draftEndpoint(),
-          method: 'PUT',
-          body: {
-            'patient_uid': patientUid,
-            if (appointmentId != null) 'appointment_id': appointmentId,
-            'note_type': noteType,
-            'content': content,
-          },
-          contextLabel: 'Note draft ($noteType)',
-        );
-      } catch (e) {
-        if (kDebugMode) debugPrint('NoteDraftAutosave enqueue failed: $e');
-        // The draft is still safe in the in-memory form; mark dirty so the
-        // next heartbeat/debounce retries once connectivity returns.
-        _dirty = true;
+    // Guard 1 (A) — deviceType. Autosave shadows the desktop/tablet-only
+    // note-finalize write, so on a phone/mobile (or empty/unknown) deviceType
+    // it no-ops: no PUT, no enqueue. Mirrors buildOfflineOrderIntent's gate
+    // (`dt == 'mobile' || dt.isEmpty`). Clear dirty so the heartbeat stops
+    // retrying, and settle the indicator to a neutral (idle) state so it never
+    // lingers on "Unsaved changes…" on a device where autosave is OFF.
+    final dt = _deviceType().trim().toLowerCase();
+    if (dt == 'mobile' || dt.isEmpty) {
+      _dirty = false;
+      _pendingSave = false;
+      if (!_disposed && status.value.kind != NoteDraftStatusKind.idle) {
+        status.value = const NoteDraftStatus.idle();
       }
-      _saveInFlight = false;
-      if (!_disposed) status.value = const NoteDraftStatus.offline();
       return;
     }
 
-    if (!_disposed) status.value = const NoteDraftStatus.saving();
+    final currentJson = jsonEncode(content);
+
+    // Guard 2 (E skip-empty) — never create a blank draft. An all-empty
+    // snapshot before any real save is skipped; once something has been saved,
+    // an intentional clear-to-empty is a legit edit and must persist.
+    if (!_everSaved && _isEffectivelyEmpty(content)) {
+      _dirty = false;
+      return;
+    }
+
+    // Guard 3 (E skip-unchanged) — don't re-PUT byte-identical content. Only
+    // compares against the last SUCCESSFULLY-saved snapshot. Re-assert the
+    // saved status (with the remembered timestamp) so a transient "Unsaved
+    // changes…" set by onContentChanged resolves instead of lingering.
+    if (currentJson == _lastSavedJson) {
+      _dirty = false;
+      if (!_disposed && _lastSavedAt != null) {
+        status.value = NoteDraftStatus.saved(_lastSavedAt!);
+      }
+      return;
+    }
+
+    _saveInFlight = true;
+    _dirty = false;
+    // Snapshot the clear generation BEFORE awaiting. If clear() (finalize /
+    // discard) bumps it while the write is in flight, this save is superseded
+    // and must not be cached or marked authoritative-saved on completion.
+    final generation = _clearGeneration;
+
     try {
-      await _api.put(
-        patientUid: patientUid,
-        appointmentId: appointmentId,
-        noteType: noteType,
-        content: content,
-      );
-      if (!_disposed) status.value = NoteDraftStatus.saved(_clock());
-    } catch (e) {
-      if (kDebugMode) debugPrint('NoteDraftAutosave save failed: $e');
-      // Never surface to the UI as an exception. Re-arm so the next tick
-      // retries the latest content.
-      _dirty = true;
-      if (!_disposed) status.value = const NoteDraftStatus.error();
+      // Offline: enqueue best-effort if the queue is available, else just flag.
+      // NOTE: an offline enqueue does NOT set _lastSavedJson — the write is not
+      // yet confirmed, so a later identical retry must not be wrongly skipped.
+      if (!_connectivity.isOnline) {
+        try {
+          await _connectivity.enqueue(
+            endpoint: _draftEndpoint(),
+            method: 'PUT',
+            body: {
+              'patient_uid': patientUid,
+              if (appointmentId != null) 'appointment_id': appointmentId,
+              'note_type': noteType,
+              'content': content,
+            },
+            contextLabel: 'Note draft ($noteType)',
+          );
+        } catch (e) {
+          if (kDebugMode) debugPrint('NoteDraftAutosave enqueue failed: $e');
+          // The draft is still safe in the in-memory form; mark dirty so the
+          // next heartbeat/debounce retries once connectivity returns.
+          _dirty = true;
+        }
+        if (!_disposed && _clearGeneration == generation) {
+          status.value = const NoteDraftStatus.offline();
+        }
+        return;
+      }
+
+      if (!_disposed) status.value = const NoteDraftStatus.saving();
+      try {
+        await _api.put(
+          patientUid: patientUid,
+          appointmentId: appointmentId,
+          noteType: noteType,
+          content: content,
+        );
+        // A clear() during the PUT supersedes this save — do NOT cache it or
+        // mark saved (the draft was just deleted; caching would wrongly skip a
+        // future identical save, and "saved" would contradict the discard).
+        if (_clearGeneration != generation) return;
+        // SUCCESS branch only: remember what we saved so the next identical
+        // heartbeat is skipped, and record that a real save has happened.
+        _lastSavedJson = currentJson;
+        _lastSavedAt = _clock();
+        if (!_isEffectivelyEmpty(content)) _everSaved = true;
+        if (!_disposed) status.value = NoteDraftStatus.saved(_lastSavedAt!);
+      } catch (e) {
+        if (kDebugMode) debugPrint('NoteDraftAutosave save failed: $e');
+        // Never surface to the UI as an exception. Re-arm so the next tick
+        // retries the latest content (unless a clear superseded it).
+        if (_clearGeneration != generation) return;
+        _dirty = true;
+        if (!_disposed) status.value = const NoteDraftStatus.error();
+      }
     } finally {
       _saveInFlight = false;
+      // Coalesce: re-run ONLY when a save was explicitly requested while this
+      // one was in flight (a debounce/heartbeat/flush() that hit the
+      // `_saveInFlight` guard and set `_pendingSave`). That is the flush-on-
+      // pause "persist the newest delta now" case. Do NOT key this on `_dirty`:
+      // the failure/offline branches set `_dirty = true` to mean "retry at the
+      // next heartbeat" — following up on that would busy-loop this microtask
+      // against a failing/offline endpoint with no backoff. `_pendingSave` is
+      // set only by the in-flight guard and consumed here, so the follow-up is
+      // bounded (it re-fires only for genuinely new content). Skip when a
+      // clear() superseded us.
+      final shouldFollowUp = _pendingSave;
+      _pendingSave = false;
+      if (!_disposed && _clearGeneration == generation && shouldFollowUp) {
+        scheduleMicrotask(() {
+          if (!_disposed) _save();
+        });
+      }
     }
+  }
+
+  /// True when a snapshot carries no meaningful content — every string field
+  /// is empty after `.trim()` and no non-string field holds a value. Used to
+  /// refuse creating a blank draft before any real save (skip-empty).
+  bool _isEffectivelyEmpty(Map<String, dynamic> content) {
+    for (final value in content.values) {
+      if (value == null) continue;
+      if (value is String) {
+        if (value.trim().isNotEmpty) return false;
+      } else if (value is Iterable) {
+        if (value.isNotEmpty) return false;
+      } else if (value is Map) {
+        if (value.isNotEmpty) return false;
+      } else {
+        // Any non-string scalar (num, bool, …) counts as meaningful content.
+        return false;
+      }
+    }
+    return true;
   }
 
   /// The offline-queue endpoint string with the draft context encoded — the

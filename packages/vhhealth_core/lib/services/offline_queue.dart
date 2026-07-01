@@ -200,6 +200,22 @@ class OfflineQueue {
     });
   }
 
+  /// Drain order for [getPending].
+  ///
+  /// `created_at ASC` is the primary key (oldest write first). The `id ASC`
+  /// secondary key makes SAME-MILLISECOND ties deterministic: within one
+  /// `created_at` value rows drain in insert order (lowest auto-increment `id`
+  /// first). Without it the tie order is left to SQLite and is not guaranteed.
+  ///
+  /// This matters for the offline notes flow: an autosave draft
+  /// `PUT /emr/notes/draft` is enqueued while typing (lower `id`) and the final
+  /// `POST /emr/notes` is enqueued on finalize (higher `id`). If both land in
+  /// the same millisecond, the tiebreak guarantees the draft PUT drains BEFORE
+  /// the note POST, so the server's finalize-clear reaps the recreated draft
+  /// (self-healing order) instead of leaving a stale draft behind.
+  @visibleForTesting
+  static const String pendingDrainOrderBy = 'created_at ASC, id ASC';
+
   /// Get all pending writes owned by the current staff identity (excludes
   /// conflicted items and rows belonging to a different user / legacy NULL
   /// owner — those are quarantined, never drained under the wrong identity).
@@ -214,7 +230,7 @@ class OfflineQueue {
       'pending_writes',
       where: "status = 'pending' AND staff_id = ?",
       whereArgs: [staffId],
-      orderBy: 'created_at ASC',
+      orderBy: pendingDrainOrderBy,
     );
   }
 

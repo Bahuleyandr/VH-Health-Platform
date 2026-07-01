@@ -120,7 +120,7 @@ class _AddNoteTab extends StatefulWidget {
   State<_AddNoteTab> createState() => _AddNoteTabState();
 }
 
-class _AddNoteTabState extends State<_AddNoteTab> {
+class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _phoneCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
@@ -142,6 +142,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if ((widget.prefillPhone ?? '').isNotEmpty) {
       _phoneCtrl.text = widget.prefillPhone!;
     }
@@ -156,6 +157,22 @@ class _AddNoteTabState extends State<_AddNoteTab> {
   void _onNoteChanged() {
     if (_restoringDraft) return;
     _autosave?.onContentChanged();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Data-loss guard: force-save the pending debounced delta when the app is
+    // backgrounded/closed so the last <3s of typing isn't lost. flush() is
+    // idempotent, offline-safe, and no-ops when not dirty / disposed / on a
+    // non-workbench device — and `_autosave` may still be null before the
+    // post-frame bind, so the null-safe call just no-ops then.
+    // Deliberately NOT flushed in dispose(): flush() defers an async _save()
+    // that reads the note controller, which dispose() tears down synchronously.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _autosave?.flush();
+    }
   }
 
   // The finalized nursing note is always note_type 'nursing_assessment'; the
@@ -215,10 +232,33 @@ class _AddNoteTabState extends State<_AddNoteTab> {
         backgroundColor: const Color(0xFF00695C),
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
-          label: 'Dismiss',
+          label: 'Discard draft',
           textColor: Colors.white,
-          onPressed: messenger.hideCurrentSnackBar,
+          onPressed: _discardRestoredDraft,
         ),
+      ),
+    );
+  }
+
+  /// Discard a restored draft the nurse doesn't want: delete the server-side
+  /// draft + reset autosave state (`clear()`), and wipe the restored content
+  /// out of the note fields so the UI reflects the discard. The programmatic
+  /// clears run under `_restoringDraft` so emptying the field doesn't
+  /// immediately re-enqueue an empty draft (mirrors _submit's reset guard).
+  void _discardRestoredDraft() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    // Delete the server draft + reset autosave (best-effort; never throws).
+    _autosave?.clear();
+    _restoringDraft = true;
+    _noteCtrl.clear();
+    _restoringDraft = false;
+    if (!mounted) return;
+    setState(() => _noteType = null);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Draft discarded'),
+        duration: Duration(seconds: 3),
       ),
     );
   }
@@ -286,6 +326,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autosave?.dispose();
     _phoneCtrl.dispose();
     _noteCtrl.dispose();

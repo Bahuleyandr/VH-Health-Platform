@@ -27,6 +27,8 @@ const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable
 const wsFanoutSubscriberErrors = new Counter('ws_fanout_subscriber_errors_total', 'WS Redis fan-out subscriber error/reconnect events — the window during which a published broadcast can be silently dropped (at-most-once)', []);
 const eventDeadLettered = new Counter('event_outbox_dead_lettered_total', 'event_outbox rows that crossed MAX_ATTEMPTS into the terminal failed (dead-letter) state', []);
 const ledgerReconciliationDrift = new Counter('ledger_reconciliation_drift_total', 'Money-ledger reconciliation drift signals from the periodic sweep (ledger vs legacy event tables / unwired invoice / unbalanced trial balance). Hard-alerted (Sentry fatal) at enforce mode.', ['kind']);
+const noteDraftJanitorDeletions = new Counter('note_draft_janitor_deletions_total', 'Clinical note_drafts rows removed by the daily TTL janitor (purgeExpiredNoteDrafts). A private-scratchpad cleanup — no canonical clinical events.', []);
+const noteDraftSaveErrors = new Counter('note_draft_save_errors_total', 'Clinical note-draft (autosave) UPSERTs that failed on an UNEXPECTED error (real DB/write failure). Deliberate 400 validation rejections (AppError NOTE_DRAFT_*) are client faults and are NOT counted here.', []);
 
 // reason is a bounded, low-cardinality label. Anything unexpected collapses to 'other'.
 const WS_DROP_REASONS = new Set(['backpressure', 'fanout_local_fallback', 'publish_error']);
@@ -42,6 +44,15 @@ export function recordEventDeadLettered() {
 const LEDGER_DRIFT_KINDS = new Set(['mismatch', 'unwired', 'events', 'trial_balance']);
 export function recordLedgerReconciliationDrift(kind) {
   ledgerReconciliationDrift.inc({ kind: LEDGER_DRIFT_KINDS.has(kind) ? kind : 'other' });
+}
+// Increment by the number of drafts the daily janitor deleted (a non-negative
+// count; a 0-count tick is a harmless no-op).
+export function recordNoteDraftJanitorDeletions(n) {
+  const count = Number(n);
+  if (Number.isFinite(count) && count > 0) noteDraftJanitorDeletions.inc({}, count);
+}
+export function recordNoteDraftSaveError() {
+  noteDraftSaveErrors.inc({});
 }
 
 /**
@@ -92,5 +103,6 @@ export function serializeReliabilityMetrics() {
     dbBreakerOpen,
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
     ledgerReconciliationDrift,
+    noteDraftJanitorDeletions, noteDraftSaveErrors,
   ].map((m) => m.serialize()).filter(Boolean).join('\n\n') + '\n';
 }
