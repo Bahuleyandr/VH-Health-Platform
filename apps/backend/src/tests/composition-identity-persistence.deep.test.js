@@ -6,8 +6,17 @@
 // The invariant under test: whenever a medication write carries a `catalog_id`
 // and the server can resolve a composition identity for it, the PERSISTED
 // payload (clinical_orders.details / e_prescriptions.medications) carries the
-// SERVER-derived composition identity — never a client-sent `composition_id`.
-// A bogus client composition_id (999999) must be OVERWRITTEN by the real one.
+// SERVER-derived CANONICAL composition identity (composition_id, active_ingredients,
+// strength_key/form_key/release_key, composition_confidence, strength_components,
+// composition_key/label) — never a client-sent `composition_id`. A bogus client
+// composition_id (999999) must be OVERWRITTEN by the real one.
+//
+// INERTNESS: the overlay must NOT touch the four clinician-entered clinical
+// free-text fields — `strength`, `form`, `route`, `generic_name`. A doctor who
+// sets route:'IV' (or overrides strength/form) keeps their value verbatim even
+// when the catalog column differs or is NULL. This keeps the always-on persist
+// path from changing what MAR/e-Rx-PDF/drug-chart/pharmacist readers see.
+//
 // The enrichment is always-on when a catalog_id is present (NOT flag-gated) and
 // is guarded so a resolution failure leaves the original payload untouched and
 // the write still succeeds.
@@ -177,7 +186,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
   });
 
   // ── IPD (CPOE) createOrder ────────────────────────────────────────────────
-  it('IPD: createOrder persists server-derived composition identity; bogus client composition_id overwritten; original details survive', async () => {
+  it('IPD: createOrder persists server-derived CANONICAL identity; bogus client composition_id overwritten; clinician route/strength/form/generic_name PRESERVED', async () => {
     const result = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
@@ -187,7 +196,10 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
         catalog_id: augmentinId,
         composition_id: 999999, // bogus client value — must be overwritten
         dose: '1 tab',
-        route: 'oral',
+        route: 'IV', // clinician value DIFFERS from catalog 'oral' — must be preserved
+        strength: '875mg+125mg', // clinician override of catalog '500mg+125mg'
+        form: 'Injection', // clinician override of catalog 'Tablet'
+        generic_name: 'clinician amox+clav', // clinician override of catalog 'Amox+Clav'
         frequency: 'BD',
       },
       ordered_by: DOCTOR_UID,
@@ -202,26 +214,28 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
       ? JSON.parse(rows[0].details)
       : rows[0].details;
 
-    // Server-derived identity — bogus 999999 overwritten with the real one.
+    // Server-derived CANONICAL identity — bogus 999999 overwritten with the real one.
     expect(details.composition_id).toBe(compositionId);
     expect(details.composition_id).not.toBe(999999);
-    expect(details.strength).toBe('500mg+125mg');
-    expect(details.form).toBe('Tablet');
-    expect(details.generic_name).toBe('Amox+Clav');
     expect(Array.isArray(details.strength_components)).toBe(true);
     expect(details.strength_components).toEqual([
       { ingredient: 'amoxicillin', value: 500, unit: 'mg' },
       { ingredient: 'clavulanic_acid', value: 125, unit: 'mg' },
     ]);
+    // Inertness: clinician clinical free-text PRESERVED verbatim — NOT
+    // overwritten by the catalog's route/strength/form/generic_name.
+    expect(details.route).toBe('IV');
+    expect(details.strength).toBe('875mg+125mg');
+    expect(details.form).toBe('Injection');
+    expect(details.generic_name).toBe('clinician amox+clav');
     // Original details fields survive.
     expect(details.medication_name).toBe('Augmentin 625');
     expect(details.dose).toBe('1 tab');
-    expect(details.route).toBe('oral');
     expect(details.frequency).toBe('BD');
     expect(Number(details.catalog_id)).toBe(augmentinId);
   });
 
-  it('IPD: createOrdersBulk persists server-derived composition identity on the medication item', async () => {
+  it('IPD: createOrdersBulk persists server-derived CANONICAL identity on the medication item; clinician route preserved', async () => {
     const results = await createOrdersBulk([
       { patient_uid: PATIENT_UID, order_type: 'investigation', details: { test_name: 'CBC' } },
       {
@@ -232,7 +246,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
           catalog_id: augmentinId,
           composition_id: 999999,
           dose: '1 tab',
-          route: 'oral',
+          route: 'IV', // differs from catalog 'oral' — must be preserved
         },
       },
     ], { ordered_by: DOCTOR_UID, tenantId: TENANT_ID });
@@ -244,10 +258,16 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     const details = typeof rows[0].details === 'string'
       ? JSON.parse(rows[0].details)
       : rows[0].details;
+    // Server-derived canonical identity set.
     expect(details.composition_id).toBe(compositionId);
     expect(details.composition_id).not.toBe(999999);
-    expect(details.strength).toBe('500mg+125mg');
-    expect(details.generic_name).toBe('Amox+Clav');
+    expect(Array.isArray(details.strength_components)).toBe(true);
+    // Clinician route preserved (not overwritten by catalog 'oral').
+    expect(details.route).toBe('IV');
+    // The clinician did not send strength/generic_name; the inert overlay does
+    // NOT fabricate them from the catalog.
+    expect(details).not.toHaveProperty('strength');
+    expect(details).not.toHaveProperty('generic_name');
     expect(details.dose).toBe('1 tab');
   });
 
@@ -309,7 +329,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
   });
 
   // ── e-Rx create ───────────────────────────────────────────────────────────
-  it('e-Rx CREATE persists server-derived composition identity; bogus client composition_id overwritten', async () => {
+  it('e-Rx CREATE persists server-derived CANONICAL identity; bogus client composition_id overwritten; clinician strength/form/route/generic_name PRESERVED', async () => {
     const { req, res } = makeReqRes({
       patient_id: patientId,
       doctor_id: doctorId,
@@ -321,6 +341,10 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
           composition_id: 999999, // bogus client value
           dose: '1 tab',
           frequency: 'BD',
+          route: 'IV', // differs from catalog 'oral' — must be preserved
+          strength: '875mg+125mg', // clinician override of catalog '500mg+125mg'
+          form: 'Injection', // clinician override of catalog 'Tablet'
+          generic_name: 'clinician amox+clav', // clinician override of catalog 'Amox+Clav'
         },
       ],
     }, { id: doctorId });
@@ -333,12 +357,15 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     const meds = await readPersistedRxMedications(prescriptionId);
     expect(meds.length).toBe(1);
     const med = meds[0];
+    // Server-derived canonical identity — bogus overwritten with the real one.
     expect(med.composition_id).toBe(compositionId);
     expect(med.composition_id).not.toBe(999999);
-    expect(med.strength).toBe('500mg+125mg');
-    expect(med.form).toBe('Tablet');
-    expect(med.generic_name).toBe('Amox+Clav');
     expect(Array.isArray(med.strength_components)).toBe(true);
+    // Inertness: clinician clinical free-text PRESERVED verbatim.
+    expect(med.route).toBe('IV');
+    expect(med.strength).toBe('875mg+125mg');
+    expect(med.form).toBe('Injection');
+    expect(med.generic_name).toBe('clinician amox+clav');
     // Original med fields survive.
     expect(med.name).toBe('Augmentin 625');
     expect(med.dose).toBe('1 tab');
@@ -399,7 +426,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     expect(createRes.statusCode).toBe(201);
     const prescriptionId = createRes.payload.data.id;
 
-    // Now UPDATE with a catalog_id + bogus composition_id.
+    // Now UPDATE with a catalog_id + bogus composition_id + a clinician route override.
     const { req, res } = makeReqRes({
       medications: [
         {
@@ -407,6 +434,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
           name: 'Augmentin 625',
           composition_id: 999999,
           dose: '2 tab',
+          route: 'IV', // differs from catalog 'oral' — must be preserved
         },
       ],
     }, { id: doctorId });
@@ -417,10 +445,14 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
 
     const meds = await readPersistedRxMedications(prescriptionId);
     expect(meds.length).toBe(1);
+    // Server-derived canonical identity set.
     expect(meds[0].composition_id).toBe(compositionId);
     expect(meds[0].composition_id).not.toBe(999999);
-    expect(meds[0].strength).toBe('500mg+125mg');
-    expect(meds[0].generic_name).toBe('Amox+Clav');
+    expect(Array.isArray(meds[0].strength_components)).toBe(true);
+    // Clinician route preserved; unsent strength/generic_name not fabricated.
+    expect(meds[0].route).toBe('IV');
+    expect(meds[0]).not.toHaveProperty('strength');
+    expect(meds[0]).not.toHaveProperty('generic_name');
     expect(meds[0].name).toBe('Augmentin 625');
     expect(meds[0].dose).toBe('2 tab');
   });

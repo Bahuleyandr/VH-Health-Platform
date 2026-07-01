@@ -151,6 +151,70 @@ describe('compositionIdentityService — server-authoritative resolver', () => {
     expect(JSON.stringify(meds)).not.toContain('LIES');
   });
 
+  it('enrich overlays server-derived CANONICAL fields but PRESERVES clinician route/strength/form/generic_name verbatim', async () => {
+    // A1 catalog has route='oral', strength='500mg+125mg', form='Tablet',
+    // generic_name='Amoxicillin+Clav'. A clinician who picks this catalog drug
+    // but sets route:'IV' (etc.) must keep their OWN clinical free-text — the
+    // enrich overlay must be INERT for those four fields. Only the 9 canonical /
+    // server-derived fields come from the catalog row.
+    const meds = await enrichMedicationsWithComposition(TENANT_A, [
+      {
+        catalog_id: a1Id,
+        name: 'Augmentin',
+        route: 'IV', // differs from catalog 'oral'
+        strength: 'CLINICIAN-STR', // differs from catalog '500mg+125mg'
+        form: 'Injection', // differs from catalog 'Tablet'
+        generic_name: 'clinician-generic', // differs from catalog
+      },
+    ]);
+    const med = meds[0];
+
+    // Server-derived CANONICAL fields overlaid from the catalog row.
+    expect(med.composition_id).toBe(compositionId);
+    expect(med.composition_key).toBe('amoxicillin+clavulanic_acid');
+    expect(med.composition_label).toBe('Amoxicillin + Clavulanic Acid');
+    expect(Array.isArray(med.active_ingredients)).toBe(true);
+    expect(med.active_ingredients).toContain('amoxicillin');
+    expect(med.strength_key).toBe('625mg');
+    expect(med.form_key).toBe('tablet');
+    expect(med.release_key).toBeNull(); // catalog release_key is NULL
+    expect(med.composition_confidence).toBe('high');
+    expect(typeof med.strength_components).toBe('object');
+
+    // Clinician clinical free-text PRESERVED verbatim — NOT overwritten by the
+    // catalog's route/strength/form/generic_name. This is the inertness guarantee.
+    expect(med.route).toBe('IV');
+    expect(med.strength).toBe('CLINICIAN-STR');
+    expect(med.form).toBe('Injection');
+    expect(med.generic_name).toBe('clinician-generic');
+  });
+
+  it('enrich does NOT overwrite clinician route/strength when the catalog columns are NULL', async () => {
+    // A2 resolves (same tenant, active) but its composition_id / strength / form /
+    // route are all NULL. Overlaying the full identity would blank out the
+    // clinician's route/strength — the regression this fix prevents. With the
+    // narrowed overlay, clinician free-text survives and no canonical field is set.
+    const meds = await enrichMedicationsWithComposition(TENANT_A, [
+      {
+        catalog_id: a2Id,
+        name: 'Freeform',
+        route: 'sublingual',
+        strength: '250mg',
+        form: 'Lozenge',
+        generic_name: 'clinician-freeform-generic',
+      },
+    ]);
+    const med = meds[0];
+    // Clinician free-text is NOT nulled out by the catalog's NULL columns.
+    expect(med.route).toBe('sublingual');
+    expect(med.strength).toBe('250mg');
+    expect(med.form).toBe('Lozenge');
+    expect(med.generic_name).toBe('clinician-freeform-generic');
+    // Canonical fields reflect the resolved (but empty) composition.
+    expect(med.composition_id).toBeNull();
+    expect(med.active_ingredients).toBeNull();
+  });
+
   it('enrich accepts catalogId (camelCase) as well as catalog_id', async () => {
     const meds = await enrichMedicationsWithComposition(TENANT_A, [
       { catalogId: a1Id, name: 'Augmentin' },

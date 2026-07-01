@@ -954,7 +954,15 @@ export async function validatePrescriptionSafety(patientId, medications, options
           if (med.composition_confidence !== 'high') continue;
           if (!Array.isArray(med.active_ingredients)) continue;
           const brand = med.name || med.medication_name || '';
-          for (const molecule of med.active_ingredients) {
+          for (const rawMolecule of med.active_ingredients) {
+            // active_ingredients are stored canonically with spaces normalized to
+            // underscores (compositionParser: \s+ → _), e.g. 'clavulanic_acid'.
+            // A patient allergen is spaced free-text ('clavulanic acid'), so
+            // substring matching on the raw underscored token would MISS a real
+            // multi-word molecule allergy. De-underscore before matching (and use
+            // the readable form in the surfaced finding). Single-word molecules
+            // are unaffected.
+            const molecule = String(rawMolecule).replace(/_/g, ' ').trim();
             for (const allergy of allergies) {
               if (!medicationConflictsWithAllergen(molecule, allergy.allergen)) continue;
               // Dedup: skip if an existing ALLERGY_CONFLICT-family issue already

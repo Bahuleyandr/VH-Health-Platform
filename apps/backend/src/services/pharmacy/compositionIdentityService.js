@@ -15,9 +15,17 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
-// The list of server-derived identity keys callers persist consistently.
-// (`name` is returned by the resolver for convenience but is NOT an identity
-// field callers overwrite — it is the catalog's own display name.)
+// The full list of server-derived identity keys the resolver's Map holds for
+// each catalog row (`name` is also returned for convenience but is not listed
+// here — it is the catalog's own display name). This documents the complete
+// derived set; callers that read the Map directly (/alternatives T4, the
+// substitution audit T7) rely on all of these.
+//
+// NOTE: the enrich OVERLAY does NOT apply this full set — it applies the
+// narrower COMPOSITION_OVERLAY_FIELDS (the 9 canonical fields), so the four
+// clinician clinical free-text fields present here (`strength`, `form`, `route`,
+// `generic_name`) are NEVER overwritten on an enriched med. See
+// COMPOSITION_OVERLAY_FIELDS and enrichMedicationsWithComposition below.
 export const COMPOSITION_IDENTITY_FIELDS = [
   'composition_id',
   'composition_key',
@@ -45,6 +53,30 @@ export const COMPOSITION_IDENTITY_FIELDS = [
 // through untouched for an unresolved med (and are overwritten by catalog
 // values via the full overlay for a resolved one).
 export const CLIENT_UNTRUSTED_COMPOSITION_FIELDS = [
+  'composition_id',
+  'composition_key',
+  'composition_label',
+  'active_ingredients',
+  'strength_key',
+  'form_key',
+  'release_key',
+  'composition_confidence',
+  'strength_components',
+];
+
+// The fields the enrich OVERLAY applies from the resolved catalog row. This is
+// intentionally the SAME set as CLIENT_UNTRUSTED_COMPOSITION_FIELDS — a clean
+// symmetry: strip the 9 canonical/server-derived fields a client can forge, then
+// overlay the 9 canonical/server-derived fields the catalog actually holds.
+//
+// It deliberately EXCLUDES the four clinician-entered clinical free-text fields
+// — `strength`, `form`, `route`, `generic_name`. Those are NOT overlaid: whatever
+// the clinician/client sent is left verbatim. This keeps the always-on persist
+// path (T6) inert for clinician-visible clinical fields — a doctor who sets
+// route:'IV' (or the catalog's route/strength column being NULL) never has that
+// value overwritten or blanked. The resolver's Map still returns all catalog
+// fields for callers that read them directly (/alternatives T4, audit T7).
+export const COMPOSITION_OVERLAY_FIELDS = [
   'composition_id',
   'composition_key',
   'composition_label',
@@ -139,13 +171,17 @@ export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalog
  * canonical/derived-only fields (CLIENT_UNTRUSTED_COMPOSITION_FIELDS) are
  * stripped first — a client-sent `composition_id` (or any canonical field) is
  * NEVER trusted or persisted as fact, regardless of catalog_id validity. Then:
- *   - a med with a RESOLVABLE catalog_id has the FULL server-derived identity
- *     (COMPOSITION_IDENTITY_FIELDS) overlaid on the stripped copy;
+ *   - a med with a RESOLVABLE catalog_id has the server-derived CANONICAL
+ *     identity (COMPOSITION_OVERLAY_FIELDS — the same 9 fields, EXCLUDING the
+ *     four clinician clinical free-text fields) overlaid on the stripped copy;
  *   - a med WITHOUT a resolvable catalog_id (missing / 0 / negative /
  *     non-numeric / wrong tenant / inactive) returns the stripped copy with NO
- *     canonical composition fields and nothing fabricated. Clinician free-text
- *     (strength / form / route / generic_name / dose / name / …) is preserved
- *     verbatim — those are NOT in the untrusted set.
+ *     canonical composition fields and nothing fabricated.
+ *
+ * Clinician clinical free-text (`strength` / `form` / `route` / `generic_name` /
+ * dose / name / …) is preserved VERBATIM in every case — it is neither stripped
+ * (not in the untrusted set) nor overwritten (not in the overlay set). This is
+ * the inertness guarantee for the always-on persist path.
  *
  * @param {string} tenantId
  * @param {Array<object>} meds
@@ -171,12 +207,15 @@ export async function enrichMedicationsWithComposition(tenantId, meds) {
       delete next[field];
     }
 
-    // Overlay the server-derived identity only for a resolvable catalog_id.
+    // Overlay ONLY the canonical/server-derived fields for a resolvable
+    // catalog_id. The four clinician clinical free-text fields (strength / form /
+    // route / generic_name) are intentionally NOT in COMPOSITION_OVERLAY_FIELDS,
+    // so the clinician's value survives verbatim (inertness — see the constant).
     const catalogId = toPositiveInt(med?.catalog_id ?? med?.catalogId);
     if (catalogId !== null) {
       const identity = identities.get(catalogId);
       if (identity) {
-        for (const field of COMPOSITION_IDENTITY_FIELDS) {
+        for (const field of COMPOSITION_OVERLAY_FIELDS) {
           next[field] = identity[field];
         }
       }

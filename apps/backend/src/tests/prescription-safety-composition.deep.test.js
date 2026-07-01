@@ -23,9 +23,11 @@ const TENANT_OFF = '00000000-0000-4000-8000-00000c5a0002';
 const PATIENT_UID = 'c5a00000-0000-4000-8000-00000000a001'; // amoxicillin-allergic patient
 const PATIENT_PENI_UID = 'c5a00000-0000-4000-8000-00000000a002'; // penicillin-allergic patient
 const DOCTOR_UID = 'c5a00000-0000-4000-8000-00000000a003'; // orderer for the IPD createOrder test
+const PATIENT_CLAV_UID = 'c5a00000-0000-4000-8000-00000000a004'; // "clavulanic acid" (multi-word) allergic patient
 const PATIENT_PHONE = '+919700000501';
 const PATIENT_PENI_PHONE = '+919700000502';
 const DOCTOR_PHONE = '+919700000503';
+const PATIENT_CLAV_PHONE = '+919700000504';
 
 jest.setTimeout(60000);
 
@@ -48,6 +50,7 @@ async function catalogId(name) {
 describe('validatePrescriptionSafety — composition allergy + same-composition duplicate (Phase 2)', () => {
   let patientId; // integer users.id for the amoxicillin-allergic patient
   let peniPatientId; // integer users.id for the penicillin-allergic patient
+  let clavPatientId; // integer users.id for the "clavulanic acid" (multi-word) allergic patient
   let compositionId; // amoxicillin + clavulanic_acid
   let augmentinId; // catalog id (tenant ON, high-confidence, that composition)
   let clavamId; // catalog id (tenant ON, high-confidence, that composition)
@@ -60,20 +63,20 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
     // Clean any prior run.
     await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'PSCTEST %'`).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID,
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
 
     // Patient A — recorded amoxicillin allergy (structured store).
@@ -102,6 +105,22 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active, tenant_id)
        VALUES ($1, $2::uuid, 'Penicillin', 'SEVERE', true, $3::uuid)`,
       peniPatientId, PATIENT_PENI_UID, TENANT_ON,
+    );
+
+    // Patient C — recorded MULTI-WORD molecule allergy: "clavulanic acid"
+    // (spaced free-text). The catalog composition stores it underscored as
+    // 'clavulanic_acid', so matching requires de-underscoring the molecule.
+    const p3 = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'PSC Clavulanic Patient [test]', 'PATIENT', true, $3::uuid, NOW())
+       RETURNING id`,
+      PATIENT_CLAV_UID, PATIENT_CLAV_PHONE, TENANT_ON,
+    );
+    clavPatientId = Number(p3[0].id);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active, tenant_id)
+       VALUES ($1, $2::uuid, 'clavulanic acid', 'SEVERE', true, $3::uuid)`,
+      clavPatientId, PATIENT_CLAV_UID, TENANT_ON,
     );
 
     // Doctor — orderer for the createOrder (IPD CDS) path test.
@@ -175,32 +194,32 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'PSCTEST %'`).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid, $2::uuid) AND source_table = 'clinical_orders'`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid) AND source_table = 'clinical_orders'`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid) AND resource_table = 'clinical_orders'`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid) AND resource_table = 'clinical_orders'`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID,
+      `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid)`,
       TENANT_ON, TENANT_OFF,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID,
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID, PATIENT_CLAV_UID,
     ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -241,6 +260,36 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
     expect(compAllergy.length).toBe(1);
     expect(compAllergy[0].molecule).toBe('amoxicillin');
     expect(String(compAllergy[0].allergy).toLowerCase()).toContain('penicillin');
+  });
+
+  // 1c. Multi-word molecule allergy — the composition stores active_ingredients
+  //     canonically underscored ('clavulanic_acid'), but the patient's allergen
+  //     is spaced free-text ('clavulanic acid'). Substring matching on the raw
+  //     underscored token would MISS it (false negative). De-underscoring the
+  //     molecule before matching makes 'clavulanic_acid' → 'clavulanic acid'
+  //     match the allergen. Clavam's composition includes clavulanic_acid, and
+  //     its brand name has no "clavulanic" token, so ONLY the composition path
+  //     (with the de-underscore fix) can catch this.
+  it('flags COMPOSITION_ALLERGY_CONFLICT for a MULTI-WORD molecule allergy (clavulanic acid ↔ clavulanic_acid)', async () => {
+    const res = await validatePrescriptionSafety(
+      clavPatientId,
+      [{ catalog_id: clavamId, name: 'Clavam 625' }],
+      { tenantId: TENANT_ON },
+    );
+    const all = [...res.warnings, ...res.blockers];
+    const compAllergy = all.filter((i) => i.type === 'COMPOSITION_ALLERGY_CONFLICT');
+    expect(compAllergy.length).toBe(1);
+    const issue = compAllergy[0];
+    // The molecule that matched is the (de-underscored) clavulanic acid.
+    expect(String(issue.molecule).toLowerCase()).toContain('clavulanic');
+    expect(String(issue.allergy).toLowerCase()).toContain('clavulanic acid');
+    expect(String(issue.medication)).toContain('Clavam');
+    // Message names the readable molecule + the brand.
+    expect(issue.message.toLowerCase()).toContain('clavulanic acid');
+    expect(issue.message).toContain('Clavam');
+    // SEVERE allergy → blocker.
+    expect(res.blockers.some((b) => b.type === 'COMPOSITION_ALLERGY_CONFLICT')).toBe(true);
+    expect(res.safe).toBe(false);
   });
 
   // 2. A client-sent bogus composition_id is ignored (server derives from catalog_id).
