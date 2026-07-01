@@ -294,5 +294,327 @@ void main() {
         autosave.dispose();
       });
     });
+
+    // ── Sub-task A: deviceType guard ──────────────────────────────────────
+    // Autosave shadows the desktop/tablet-only note-finalize write. On a
+    // phone/mobile (or empty/unknown) deviceType it must NOT PUT and must NOT
+    // enqueue — mirroring buildOfflineOrderIntent's `dt == 'mobile' || isEmpty`
+    // gate so we never 403-spam the audit log every heartbeat.
+    group('deviceType guard (A)', () {
+      test('phone/mobile deviceType → zero PUTs, zero enqueues', () {
+        fakeAsync((async) {
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            deviceType: () => 'mobile',
+            debounce: const Duration(seconds: 3),
+            heartbeat: const Duration(seconds: 15),
+          );
+
+          // Edit + let the debounce fire, then several heartbeats.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 20));
+          async.flushMicrotasks();
+
+          expect(fake.puts, isEmpty, reason: 'phone-mode never PUTs a draft');
+          // Status stays quiet: the guard no-ops before the network, so it
+          // never advances to saving/saved/error (a transient "dirty" hint
+          // while typing is fine — it never becomes a save attempt).
+          expect(
+            autosave.status.value.kind,
+            isNot(
+              anyOf(
+                NoteDraftStatusKind.saving,
+                NoteDraftStatusKind.saved,
+                NoteDraftStatusKind.error,
+                NoteDraftStatusKind.offline,
+              ),
+            ),
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test('empty / unknown deviceType → zero PUTs (fail-closed)', () {
+        fakeAsync((async) {
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            deviceType: () => '   ',
+            debounce: const Duration(seconds: 3),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 5));
+          async.flushMicrotasks();
+
+          expect(fake.puts, isEmpty, reason: 'empty deviceType fails closed');
+
+          autosave.dispose();
+        });
+      });
+
+      test('desktop/tablet deviceType → saves as before', () {
+        fakeAsync((async) {
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            deviceType: () => 'tablet',
+            debounce: const Duration(seconds: 3),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+
+          expect(
+            fake.puts,
+            hasLength(1),
+            reason: 'workbench device still autosaves',
+          );
+
+          autosave.dispose();
+        });
+      });
+    });
+
+    // ── Sub-task E: skip-unchanged + skip-empty ───────────────────────────
+    group('skip-unchanged (E)', () {
+      test('byte-identical content is saved once, then skipped', () {
+        fakeAsync((async) {
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'stable'},
+            api: fake.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          // First save persists.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(fake.puts, hasLength(1), reason: 'first save PUTs');
+
+          // Second cycle with identical content → skipped, no PUT.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(
+            fake.puts,
+            hasLength(1),
+            reason: 'identical content is not re-PUT',
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test('a FAILED save does not cache — identical retry still attempts', () {
+        fakeAsync((async) {
+          var failNext = true;
+          final calls = <Map<String, dynamic>>[];
+          final api = NoteDraftApi(
+            put:
+                ({
+                  required String patientUid,
+                  int? appointmentId,
+                  required String noteType,
+                  required Map<String, dynamic> content,
+                }) async {
+                  calls.add(content);
+                  if (failNext) {
+                    failNext = false;
+                    throw Exception('network down');
+                  }
+                  return {'id': 1, 'updated_at': '2026-06-17T10:00:00Z'};
+                },
+            get:
+                ({
+                  required String patientUid,
+                  int? appointmentId,
+                  required String noteType,
+                }) async => null,
+            delete:
+                ({
+                  required String patientUid,
+                  int? appointmentId,
+                  required String noteType,
+                }) async => {'removed': false},
+          );
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'same'},
+            api: api,
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          // First attempt fails (must NOT poison _lastSavedJson).
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(calls, hasLength(1));
+          expect(autosave.status.value.kind, NoteDraftStatusKind.error);
+
+          // Identical content re-attempts (cache was not poisoned) → succeeds.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(
+            calls,
+            hasLength(2),
+            reason: 'a failed save must not cache, so the retry still PUTs',
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test('post-restore save is skipped (cache seeded from restored draft)', () {
+        fakeAsync((async) {
+          fake.getResult = {
+            'id': 9,
+            'content': {'chief_complaint': 'chest pain'},
+            'updated_at': '2026-06-17T09:30:00Z',
+          };
+          var body = 'chest pain';
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-7',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': body},
+            api: fake.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          // Restore seeds _lastSavedJson to the restored content.
+          Map<String, dynamic>? restored;
+          autosave.restore().then((r) => restored = r);
+          async.flushMicrotasks();
+          expect(restored, isNotNull);
+
+          // Rehydrating controllers fires onContentChanged with identical text.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(
+            fake.puts,
+            isEmpty,
+            reason: 'the immediate post-restore save is skipped',
+          );
+
+          // A real edit after restore DOES save.
+          body = 'chest pain radiating to arm';
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(fake.puts, hasLength(1), reason: 'a genuine edit still saves');
+
+          autosave.dispose();
+        });
+      });
+    });
+
+    group('skip-empty (E)', () {
+      test('all-whitespace before any real save → no PUT', () {
+        fakeAsync((async) {
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': '   ', 'plan': ''},
+            api: fake.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 5));
+          async.flushMicrotasks();
+
+          expect(
+            fake.puts,
+            isEmpty,
+            reason: 'never create a blank draft before a real save',
+          );
+
+          autosave.dispose();
+        });
+      });
+
+      test('after a real save, clearing a field to empty DOES persist', () {
+        fakeAsync((async) {
+          var body = 'chest pain';
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': body},
+            api: fake.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+          );
+
+          // Real non-empty save first.
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(fake.puts, hasLength(1));
+
+          // Doctor deliberately clears the field back to empty → must save.
+          body = '';
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(
+            fake.puts,
+            hasLength(2),
+            reason: 'an intentional clear after a save is a legit edit',
+          );
+          expect((fake.puts.last['content'] as Map)['chief_complaint'], '');
+
+          autosave.dispose();
+        });
+      });
+    });
+
+    // ── Sub-task B2-5: confidence UI (dirty + relative-time state) ─────────
+    group('confidence UI (B2-5)', () {
+      test('status is dirty while editing, saved after the debounce', () {
+        fakeAsync((async) {
+          final autosave = NoteDraftAutosave(
+            patientUid: 'pt-1',
+            noteType: 'op_consultation',
+            snapshot: () => {'chief_complaint': 'x'},
+            api: fake.build(),
+            deviceType: () => 'desktop',
+            debounce: const Duration(seconds: 3),
+            clock: () => DateTime(2026, 6, 17, 14, 14),
+          );
+
+          // Between the edit and the debounce fire we surface "unsaved".
+          autosave.onContentChanged();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+          expect(autosave.status.value.kind, NoteDraftStatusKind.dirty);
+
+          // After the debounce fires and the PUT succeeds → saved + timestamp.
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(autosave.status.value.kind, NoteDraftStatusKind.saved);
+          expect(autosave.status.value.savedAt, DateTime(2026, 6, 17, 14, 14));
+
+          autosave.dispose();
+        });
+      });
+    });
   });
 }
