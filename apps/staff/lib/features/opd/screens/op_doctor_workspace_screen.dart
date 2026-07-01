@@ -49,7 +49,8 @@ class OpDoctorWorkspaceScreen extends StatefulWidget {
       _OpDoctorWorkspaceScreenState();
 }
 
-class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
+class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
+    with WidgetsBindingObserver {
   List<Map<String, dynamic>> _events = const [];
   bool _loading = true;
   bool _completing = false;
@@ -72,10 +73,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   // commits the real note via the unchanged flow and clears the draft.
   late final NoteDraftAutosave _autosave;
   bool _draftRestoreChecked = false;
+  // Suppresses the field listener while we programmatically empty the composer
+  // on "Discard draft", so wiping the fields doesn't immediately re-PUT a blank
+  // draft (autosave's skip-empty is bypassed once a draft has been saved).
+  bool _discardingDraft = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _status = _clean(widget.status).isEmpty
         ? 'CONFIRMED'
         : _clean(widget.status).toUpperCase();
@@ -102,12 +108,34 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     // Don't autosave a signed/closed note or before the restore check has run
     // (restore itself populates the controllers, which would otherwise fire
     // this listener and immediately re-PUT the just-restored content).
-    if (!_draftRestoreChecked || _opNoteSigned || _opSessionClosed) return;
+    if (!_draftRestoreChecked ||
+        _discardingDraft ||
+        _opNoteSigned ||
+        _opSessionClosed) {
+      return;
+    }
     _autosave.onContentChanged();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Data-loss guard: when the app is backgrounded/closed, force-save the
+    // pending debounced delta so the last <3s of typing isn't lost. flush() is
+    // idempotent, offline-safe, and no-ops when not dirty / disposed / on a
+    // non-workbench device, so firing it on transient `inactive` is cheap.
+    // Deliberately NOT flushed in dispose(): flush() defers an async _save()
+    // that reads the text controllers, which dispose() tears down synchronously
+    // — a deferred save would then read disposed controllers.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _autosave.flush();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autosave.dispose();
     _chiefCtrl.dispose();
     _historyCtrl.dispose();
@@ -232,10 +260,38 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         backgroundColor: AppTheme.primaryBlue,
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
-          label: 'Dismiss',
+          label: 'Discard draft',
           textColor: Colors.white,
-          onPressed: messenger.hideCurrentSnackBar,
+          onPressed: _discardRestoredDraft,
         ),
+      ),
+    );
+  }
+
+  /// Discard a restored draft the author doesn't want: delete the server-side
+  /// draft + reset autosave state (`clear()`), and wipe the restored content
+  /// out of the composer fields so the UI reflects the discard.
+  void _discardRestoredDraft() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    // Delete the server draft + reset autosave (best-effort; never throws).
+    _autosave.clear();
+    // Wipe the restored content from the composer under the suppression guard
+    // so emptying the fields doesn't fire the listener and re-PUT a blank draft
+    // (autosave's skip-empty is bypassed once a draft has already been saved).
+    _discardingDraft = true;
+    _chiefCtrl.clear();
+    _historyCtrl.clear();
+    _examCtrl.clear();
+    _diagnosisCtrl.clear();
+    _planCtrl.clear();
+    _discardingDraft = false;
+    if (!mounted) return;
+    setState(() => _diagnosisCoding = null);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Draft discarded'),
+        duration: Duration(seconds: 3),
       ),
     );
   }
