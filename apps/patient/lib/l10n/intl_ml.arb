@@ -1464,6 +1464,58 @@
   "@yourHealthClinicianOverride": {
     "description": "Label before clinician override note"
   },
+  "yourHealthTabExplanations": "വിശദീകരണങ്ങൾ",
+  "@yourHealthTabExplanations": {
+    "description": "Machine translated; review required. Tab label for accepted patient explanations in Your Health"
+  },
+  "yourHealthExplanationsDetailTitle": "വിശദീകരണം",
+  "@yourHealthExplanationsDetailTitle": {
+    "description": "Machine translated; review required. App bar title for a patient explanation detail"
+  },
+  "yourHealthExplanationsReviewedLabel": "പരിശോധിച്ചു",
+  "@yourHealthExplanationsReviewedLabel": {
+    "description": "Machine translated; review required. Label before the reviewed date on a patient explanation"
+  },
+  "yourHealthExplanationsSummary": "സംഗ്രഹം",
+  "@yourHealthExplanationsSummary": {
+    "description": "Machine translated; review required. Section heading for explanation summary"
+  },
+  "yourHealthExplanationsKeyPoints": "പ്രധാന പോയിന്റുകൾ",
+  "@yourHealthExplanationsKeyPoints": {
+    "description": "Machine translated; review required. Section heading for explanation key points"
+  },
+  "yourHealthExplanationsNextSteps": "അടുത്ത ഘട്ടങ്ങൾ",
+  "@yourHealthExplanationsNextSteps": {
+    "description": "Machine translated; review required. Section heading for explanation next steps"
+  },
+  "yourHealthExplanationsWhenToSeekHelp": "എപ്പോൾ സഹായം തേടണം",
+  "@yourHealthExplanationsWhenToSeekHelp": {
+    "description": "Machine translated; review required. Section heading for explanation urgent-care guidance"
+  },
+  "yourHealthExplanationsSafetyTitle": "പരിശോധനാ സൂചന",
+  "@yourHealthExplanationsSafetyTitle": {
+    "description": "Machine translated; review required. Heading for safety or review flag banner on explanation detail"
+  },
+  "yourHealthExplanationsSafetyBody": "നിങ്ങളുടെ പരിചരണ സംഘം ഈ വിശദീകരണത്തിന് കൂടുതൽ ശ്രദ്ധ വേണമെന്ന് അടയാളപ്പെടുത്തിയിട്ടുണ്ട്. താഴെയുള്ള മാർഗ്ഗനിർദ്ദേശം പാലിക്കുക; ലക്ഷണങ്ങൾ മോശമാകുകയാണെങ്കിൽ ആശുപത്രിയെ ബന്ധപ്പെടുക.",
+  "@yourHealthExplanationsSafetyBody": {
+    "description": "Machine translated; review required. Body text for safety or review flag banner on explanation detail"
+  },
+  "yourHealthExplanationsNoSummary": "വിശദാംശങ്ങൾ നൽകിയിട്ടില്ല",
+  "@yourHealthExplanationsNoSummary": {
+    "description": "Machine translated; review required. Fallback text when an explanation section is empty"
+  },
+  "yourHealthExplanationsLoadFailed": "ഈ വിശദീകരണം ലോഡ് ചെയ്യാനായില്ല.",
+  "@yourHealthExplanationsLoadFailed": {
+    "description": "Machine translated; review required. Error text when explanation detail loading fails"
+  },
+  "yourHealthExplanationsRetry": "വീണ്ടും ശ്രമിക്കുക",
+  "@yourHealthExplanationsRetry": {
+    "description": "Machine translated; review required. Retry button label for explanation detail"
+  },
+  "yourHealthExplanationsEmpty": "ഇനിയും പരിശോധന കഴിഞ്ഞ വിശദീകരണങ്ങളില്ല",
+  "@yourHealthExplanationsEmpty": {
+    "description": "Machine translated; review required. Empty state for explanations tab if a visible tab refreshes to no data"
+  },
   "appointmentsCancel": "അപ്പോയിൻ്റ്മെൻ്റ് റദ്ദാക്കുക",
   "@appointmentsCancel": {
     "description": "Dialog title to cancel an appointment"

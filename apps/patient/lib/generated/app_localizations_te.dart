@@ -1422,6 +1422,46 @@ class AppLocalizationsTe extends AppLocalizations {
   String get yourHealthClinicianOverride => 'ఫైల్‌పై వైద్యుడు ఓవర్‌రైడ్:';
 
   @override
+  String get yourHealthTabExplanations => 'వివరణలు';
+
+  @override
+  String get yourHealthExplanationsDetailTitle => 'వివరణ';
+
+  @override
+  String get yourHealthExplanationsReviewedLabel => 'సమీక్షించబడింది';
+
+  @override
+  String get yourHealthExplanationsSummary => 'సారాంశం';
+
+  @override
+  String get yourHealthExplanationsKeyPoints => 'ముఖ్య అంశాలు';
+
+  @override
+  String get yourHealthExplanationsNextSteps => 'తదుపరి దశలు';
+
+  @override
+  String get yourHealthExplanationsWhenToSeekHelp => 'ఎప్పుడు సహాయం పొందాలి';
+
+  @override
+  String get yourHealthExplanationsSafetyTitle => 'సమీక్ష హెచ్చరిక';
+
+  @override
+  String get yourHealthExplanationsSafetyBody =>
+      'మీ సంరక్షణ బృందం ఈ వివరణకు అదనపు శ్రద్ధ అవసరమని గుర్తించింది. క్రింద ఉన్న మార్గదర్శకాన్ని అనుసరించండి; లక్షణాలు మరింత తీవ్రమైతే ఆసుపత్రిని సంప్రదించండి.';
+
+  @override
+  String get yourHealthExplanationsNoSummary => 'వివరాలు అందుబాటులో లేవు';
+
+  @override
+  String get yourHealthExplanationsLoadFailed => 'ఈ వివరణను లోడ్ చేయలేకపోయాం.';
+
+  @override
+  String get yourHealthExplanationsRetry => 'మళ్లీ ప్రయత్నించండి';
+
+  @override
+  String get yourHealthExplanationsEmpty => 'ఇంకా సమీక్షించిన వివరణలు లేవు';
+
+  @override
   String get appointmentsCancel => 'అపాయింట్‌మెంట్ రద్దు చేయండి';
 
   @override

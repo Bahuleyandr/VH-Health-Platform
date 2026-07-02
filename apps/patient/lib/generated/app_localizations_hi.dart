@@ -1405,6 +1405,46 @@ class AppLocalizationsHi extends AppLocalizations {
   String get yourHealthClinicianOverride => 'फ़ाइल में चिकित्सक का ओवरराइड:';
 
   @override
+  String get yourHealthTabExplanations => 'व्याख्याएँ';
+
+  @override
+  String get yourHealthExplanationsDetailTitle => 'व्याख्या';
+
+  @override
+  String get yourHealthExplanationsReviewedLabel => 'समीक्षित';
+
+  @override
+  String get yourHealthExplanationsSummary => 'सारांश';
+
+  @override
+  String get yourHealthExplanationsKeyPoints => 'मुख्य बातें';
+
+  @override
+  String get yourHealthExplanationsNextSteps => 'अगले कदम';
+
+  @override
+  String get yourHealthExplanationsWhenToSeekHelp => 'कब मदद लें';
+
+  @override
+  String get yourHealthExplanationsSafetyTitle => 'समीक्षा संकेत';
+
+  @override
+  String get yourHealthExplanationsSafetyBody =>
+      'आपकी देखभाल टीम ने इस व्याख्या पर अतिरिक्त ध्यान देने के लिए चिह्नित किया है। नीचे दिए गए मार्गदर्शन का पालन करें और लक्षण बिगड़ने पर अस्पताल से संपर्क करें।';
+
+  @override
+  String get yourHealthExplanationsNoSummary => 'कोई विवरण उपलब्ध नहीं है';
+
+  @override
+  String get yourHealthExplanationsLoadFailed => 'यह व्याख्या लोड नहीं हो सकी।';
+
+  @override
+  String get yourHealthExplanationsRetry => 'पुनः प्रयास करें';
+
+  @override
+  String get yourHealthExplanationsEmpty => 'अभी तक कोई समीक्षित व्याख्या नहीं';
+
+  @override
   String get appointmentsCancel => 'अपॉइंटमेंट रद्द करें';
 
   @override
