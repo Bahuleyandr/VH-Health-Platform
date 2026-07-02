@@ -80,13 +80,15 @@ function groundingQueryFromPayload(payload) {
 // this set — module validity comes from getClinicalAiModule(moduleKey)
 // which trusts the clinical_ai_modules registry. New tier-A / tier-C / etc.
 // modules consume runExplainerPipeline directly without needing entries here.
-const EXPLAINER_MODULES = new Set([
+export const PATIENT_EXPLAINER_MODULE_KEYS = Object.freeze([
   'lab_patient_explanation',
   'radiology_patient_explanation',
   'patient_report_explainer',
   'prescription_patient_explainer',
   'invoice_patient_explainer',
 ]);
+
+const EXPLAINER_MODULES = new Set(PATIENT_EXPLAINER_MODULE_KEYS);
 
 const SHARED_OUTPUT_SCHEMA_INSTRUCTION = [
   'Return JSON only with these top-level keys:',

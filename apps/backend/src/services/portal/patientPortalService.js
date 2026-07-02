@@ -15,6 +15,8 @@ import * as paymentLinkService from '../billing/paymentLinkService.js';
 import * as pointService from '../gamification/pointService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { releaseVisibilitySql, releaseDelayHours } from './portalAccessService.js';
+import { getClinicalAiModule } from '../ai/clinicalAiModuleService.js';
+import { PATIENT_EXPLAINER_MODULE_KEYS } from '../ai/patientExplainersService.js';
 
 const ACTIVE_APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'CHECKED_IN'];
 const PENDING_LAB_ORDER_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'SAMPLE_COLLECTED', 'PROCESSING'];
@@ -458,6 +460,91 @@ function pendingUploads(uploads) {
 
 function unreadThreads(threads) {
   return (threads || []).filter((thread) => asInt(thread.patient_unread_count) > 0);
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizePositiveInt(value, label) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+async function enabledExplainerModulesForTenant(tenantId) {
+  const modules = await Promise.all(PATIENT_EXPLAINER_MODULE_KEYS.map(async (moduleKey) => {
+    const module = await getClinicalAiModule(moduleKey, { tenantId });
+    return module?.enabled ? module : null;
+  }));
+  return modules.filter(Boolean);
+}
+
+function normalizeExplainerRow(row, moduleByKey) {
+  const module = moduleByKey.get(row.module_key);
+  return {
+    id: row.review_id,
+    review_id: row.review_id,
+    generation_id: row.generation_id,
+    module_key: row.module_key,
+    module_name: module?.display_name || row.module_key,
+    patient_uid: row.patient_uid,
+    published_at: row.published_at,
+    draft: row.published_draft || {},
+    source_citations: asArray(row.source_citations),
+    model_tier: row.model_tier || null,
+  };
+}
+
+async function queryPublishedExplainers({
+  tenantId,
+  patient_uid,
+  modules,
+  reviewId = null,
+  limit = 50,
+}) {
+  if (!modules.length) return [];
+  const moduleKeys = modules.map((module) => module.module_key);
+  const moduleByKey = new Map(modules.map((module) => [module.module_key, module]));
+  const params = [
+    tenantId,
+    String(patient_uid),
+    moduleKeys,
+  ];
+  const conditions = [
+    `r.tenant_id = $1::uuid`,
+    `r.patient_uid = $2::uuid`,
+    `g.patient_uid = $2::uuid`,
+    `r.decision = 'accepted'`,
+    `g.status IN ('draft', 'accepted')`,
+    `r.module_key = ANY($3::text[])`,
+  ];
+  if (reviewId != null) {
+    params.push(reviewId);
+    conditions.push(`r.id = $${params.length}::int`);
+  }
+  params.push(Math.min(Math.max(asInt(limit, 50), 1), 100));
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT r.id AS review_id,
+            r.generation_id,
+            r.module_key,
+            r.patient_uid,
+            r.updated_at AS published_at,
+            COALESCE(r.edited_draft, g.draft) AS published_draft,
+            g.citations AS source_citations,
+            COALESCE(g.metadata->>'model_tier', g.metadata->>'tier') AS model_tier
+       FROM clinical_ai_reviews r
+       JOIN clinical_ai_generations g
+         ON g.id = r.generation_id
+        AND g.tenant_id = r.tenant_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY r.updated_at DESC, r.id DESC
+      LIMIT $${params.length}::int`,
+    ...params,
+  );
+  return rows.map((row) => normalizeExplainerRow(row, moduleByKey));
 }
 
 function buildTodayCards({
@@ -1103,6 +1190,39 @@ export async function listMyClinicalNotesForAppointment({ patient_uid, appointme
     apptId,
     appt.created_at,
   );
+}
+
+// ── Clinical AI patient explainers (accepted review read surface) ─────
+//
+// Patients only see explainer drafts after a human review has accepted the
+// shared clinical_ai_reviews row. Disabled or unknown modules resolve to an
+// empty patient list, not a 403, so tenant rollout state never leaks as an
+// error surface.
+
+export async function listMyExplainers({ tenantId, patient_uid, limit = 50 }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const modules = await enabledExplainerModulesForTenant(tenantId);
+  return queryPublishedExplainers({
+    tenantId,
+    patient_uid,
+    modules,
+    limit,
+  });
+}
+
+export async function getMyExplainer({ tenantId, patient_uid, id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const reviewId = normalizePositiveInt(id, 'explainer id');
+  const modules = await enabledExplainerModulesForTenant(tenantId);
+  const rows = await queryPublishedExplainers({
+    tenantId,
+    patient_uid,
+    modules,
+    reviewId,
+    limit: 1,
+  });
+  if (!rows.length) throw AppError.notFound('Explainer not found');
+  return rows[0];
 }
 
 // ── Patient-side Rx PDF (download prescription) ──────────────────────

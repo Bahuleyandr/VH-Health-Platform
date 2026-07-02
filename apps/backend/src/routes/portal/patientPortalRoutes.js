@@ -74,6 +74,14 @@ function useAuthenticatedPatientPhone(req, res, next) {
   next();
 }
 
+function attachPatientPhiContext(req, _res, next) {
+  req.phiContext = {
+    ...(req.phiContext || {}),
+    patientUid: patientUidOf(req),
+  };
+  next();
+}
+
 // ── Standard patient mobile contract ─────────────────────────────────
 router.get('/command-center', requirePatient, wrap(async (req) =>
   portal.getPatientCommandCenter({
@@ -286,6 +294,23 @@ router.get('/clinical-notes/:id', requirePatient, wrap(async (req) => {
   logClinicalNoteAccess(req);
   return result;
 }));
+
+// ── Clinical AI explainers (accepted human-review outputs only) ──────
+router.get('/explainers', requirePatient, attachPatientPhiContext, wrap(async (req) =>
+  portal.listMyExplainers({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/explainers/:id', requirePatient, attachPatientPhiContext, wrap(async (req) =>
+  portal.getMyExplainer({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  }),
+));
 
 // ── B-5 — TPA / insurance claims (read-only) ────────────────────────
 router.get('/tpa/claims', requirePatient, wrap(async (req) =>
