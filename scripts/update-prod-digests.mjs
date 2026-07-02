@@ -2,12 +2,14 @@
 // scripts/update-prod-digests.mjs
 //
 // Resolves released image tags to their immutable @sha256 digests and writes
-// them into infra/kubernetes/apps/kustomization.yaml — the tree the ArgoCD
-// `apps` Application syncs (audit finding H11 — prod must deploy digests,
-// never mutable tags).
+// them into a kustomization images block. By default this targets
+// infra/kubernetes/apps/kustomization.yaml, the tree the ArgoCD `apps`
+// Application syncs for production (audit finding H11 — prod must deploy
+// digests, never mutable tags). Pass --kustomization for staging/repair paths.
 //
 // Usage:
 //   node scripts/update-prod-digests.mjs --tag backend-v1.2.3 [--tag admin-v1.2.0] [--tag staff-web-v1.0.4]
+//   node scripts/update-prod-digests.mjs --kustomization infra/kubernetes/overlays/staging/apps/kustomization.yaml --tag backend-v1.2.3
 //   node scripts/update-prod-digests.mjs --image ghcr.io/<owner>/vh-health-platform-backend:backend-v1.2.3
 //
 // Auth: uses GHCR_TOKEN or CONTAINER_REGISTRY_PASSWORD from the env. GitHub
@@ -23,7 +25,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const KUSTOMIZATION = path.resolve(
+const DEFAULT_KUSTOMIZATION = path.resolve(
   __dirname,
   '../infra/kubernetes/apps/kustomization.yaml',
 );
@@ -39,6 +41,7 @@ const TAG_PREFIX_TO_IMAGE = {
 
 function parseArgs(argv) {
   const targets = [];
+  let kustomization = DEFAULT_KUSTOMIZATION;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--tag') {
       const tag = argv[++i];
@@ -52,12 +55,20 @@ function parseArgs(argv) {
       const idx = ref?.lastIndexOf(':');
       if (!ref || idx < 0) throw new Error(`--image ${ref}: expected <image>:<tag>`);
       targets.push({ image: ref.slice(0, idx), tag: ref.slice(idx + 1) });
+    } else if (argv[i] === '--kustomization') {
+      const requestedPath = argv[++i];
+      if (!requestedPath) {
+        throw new Error('--kustomization requires a path');
+      }
+      kustomization = path.resolve(process.cwd(), requestedPath);
+    } else {
+      throw new Error(`Unknown argument: ${argv[i]}`);
     }
   }
   if (targets.length === 0) {
     throw new Error('No targets. Pass at least one --tag or --image.');
   }
-  return targets;
+  return { targets, kustomization };
 }
 
 async function ghcrToken(repoPath) {
@@ -108,7 +119,7 @@ async function resolveDigest(image, tag) {
   return digest;
 }
 
-function writeDigest(yamlText, image, digest) {
+function writeDigest(yamlText, image, digest, kustomization) {
   // Replace the digest line that immediately follows the matching name line.
   const lines = yamlText.split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -123,15 +134,15 @@ function writeDigest(yamlText, image, digest) {
       throw new Error(`images entry for ${image} has no digest line to update`);
     }
   }
-  throw new Error(`no images entry found for ${image} in ${KUSTOMIZATION}`);
+  throw new Error(`no images entry found for ${image} in ${kustomization}`);
 }
 
-const targets = parseArgs(process.argv.slice(2));
-let yamlText = fs.readFileSync(KUSTOMIZATION, 'utf8');
+const { targets, kustomization } = parseArgs(process.argv.slice(2));
+let yamlText = fs.readFileSync(kustomization, 'utf8');
 for (const { image, tag } of targets) {
   const digest = await resolveDigest(image, tag);
-  yamlText = writeDigest(yamlText, image, digest);
+  yamlText = writeDigest(yamlText, image, digest, kustomization);
   console.log(`${image}: ${tag} → ${digest}`);
 }
-fs.writeFileSync(KUSTOMIZATION, yamlText);
-console.log(`Updated ${path.relative(process.cwd(), KUSTOMIZATION)}`);
+fs.writeFileSync(kustomization, yamlText);
+console.log(`Updated ${path.relative(process.cwd(), kustomization)}`);

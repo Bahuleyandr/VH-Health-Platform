@@ -1,0 +1,175 @@
+# overlays/staging/apps/kustomization.yaml
+#
+# Staging app-tier overlay. The platform substrate remains in
+# infra/kubernetes/overlays/staging; this overlay wraps the existing app-tier
+# manifests so CI can pin immutable image digests and operators can apply/sync
+# staging without touching the prod app path.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-apps-staging
+
+resources:
+  - ../../../apps
+
+commonAnnotations:
+  vhhealth.app/environment: "staging"
+  vhhealth.app/deploy-mode: "manual"
+
+patches:
+  - target:
+      kind: Deployment
+      name: vhhealth-backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: vhhealth-admin
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: vhhealth-staff-web
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: vhhealth-backend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: vhhealth-admin
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: vhhealth-staff-web
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+
+  - target:
+      kind: PodDisruptionBudget
+      name: vhhealth-backend
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 1
+  - target:
+      kind: PodDisruptionBudget
+      name: vhhealth-admin
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 1
+
+  - target:
+      kind: ConfigMap
+      name: vhhealth-backend-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: vhhealth-backend-config
+      data:
+        ALLOWED_ORIGINS: "https://admin.staging.vhhealth.app,https://api.staging.vhhealth.app"
+        LOG_LEVEL: "debug"
+        PUBLIC_BASE_URL: "https://api.staging.vhhealth.app"
+        SENTRY_ENVIRONMENT: "staging"
+        TENANT_BASE_HOST: "staging.vhhealth.app"
+  - target:
+      kind: ConfigMap
+      name: vhhealth-admin-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: vhhealth-admin-config
+      data:
+        NEXT_PUBLIC_API_URL: "https://api.staging.vhhealth.app"
+        NEXT_PUBLIC_ALLOWED_ORIGIN: "https://admin.staging.vhhealth.app"
+        ADMIN_CANONICAL_ORIGIN: "https://admin.staging.vhhealth.app"
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: "staging"
+        SENTRY_ENVIRONMENT: "staging"
+
+  - target:
+      kind: Ingress
+      name: vhhealth-backend
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-staging
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: api.staging.vhhealth.app
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.staging.vhhealth.app
+      - op: replace
+        path: /spec/rules/1/host
+        value: "*.staging.vhhealth.app"
+  - target:
+      kind: Ingress
+      name: vhhealth-admin
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-staging
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: admin.staging.vhhealth.app
+      - op: replace
+        path: /spec/rules/0/host
+        value: admin.staging.vhhealth.app
+  - target:
+      kind: Ingress
+      name: vhhealth-backend-clinical-internal
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: clinical-staging.vhhealth.hospital.local
+      - op: replace
+        path: /spec/rules/0/host
+        value: clinical-staging.vhhealth.hospital.local
+  - target:
+      kind: Ingress
+      name: vhhealth-staff-web
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: clinical-staging.vhhealth.hospital.local
+      - op: replace
+        path: /spec/rules/0/host
+        value: clinical-staging.vhhealth.hospital.local
+
+# Written by .github/workflows/deploy-staging.yml. The all-zero digests fail
+# closed until a manual staging dispatch resolves signed/scanned release tags.
+images:
+  - name: ghcr.io/bahuleyandr/vh-health-platform-backend
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - name: ghcr.io/bahuleyandr/vh-health-platform-adminportal
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - name: ghcr.io/bahuleyandr/vhhealth-staff-web
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
