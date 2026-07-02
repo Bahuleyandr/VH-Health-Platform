@@ -7,6 +7,7 @@ on:
     paths:
       - 'apps/admin/**'
       - 'apps/backend/**'
+      - 'apps/backend/scripts/smoke-*.mjs'
       - 'scripts/smoke-*.ps1'
       - 'scripts/check-clinical-ai-tenant-preflight.ps1'
       - '.github/workflows/smoke-e2e.yml'
@@ -48,6 +49,8 @@ jobs:
       TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
       BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
       REQUIRE_MFA_FOR_SUPER_ADMIN: 'false'
+      ALLOW_DEV_OTP: 'true'
+      ENABLE_DEV_AUTH: 'true'
       VH_ALLOW_NON_TEST_DATA_SEED: 'true'
       # Single-tenant smoke: the W1 tenant-context middleware fails CLOSED
       # (403 TENANT_CONTEXT_REQUIRED) for any authenticated request that
@@ -163,6 +166,14 @@ jobs:
           done
           cat ../../output/ci-smoke/admin.log
           exit 1
+
+      - name: Realtime admin:kpi WebSocket smoke
+        working-directory: apps/backend
+        run: node scripts/smoke-realtime-admin-kpi.mjs
+
+      - name: Patient OTP login API smoke
+        working-directory: apps/backend
+        run: node scripts/smoke-patient-otp-login.mjs
 
       - name: Admin browser route smoke
         working-directory: apps/admin
