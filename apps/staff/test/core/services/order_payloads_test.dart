@@ -41,4 +41,63 @@ void main() {
     );
     expect(body.containsKey('encounter_id'), isFalse);
   });
+
+  test(
+    'carries catalog identity for server-derived composition enrichment',
+    () {
+      final body = buildInpatientMedicationOrderBody(
+        patientUid: 'p',
+        encounterId: null,
+        medicationName: 'Clavam 625',
+        dose: '1 tab',
+        route: 'oral',
+        frequency: 'BD',
+        catalogId: 12,
+        originalCatalogId: 10,
+        compositionId: 3,
+        compositionLabel: 'Amoxicillin + Clavulanic acid',
+        compositionConfidence: 'high',
+        genericName: 'Amoxicillin + Clavulanate',
+        strength: '625 mg',
+        strengthKey: '625mg',
+        form: 'Tablet',
+        formKey: 'tablet',
+        releaseKey: 'ir',
+        doNotSubstitute: true,
+        startDate: DateTime.utc(2026),
+      );
+
+      final details = body['details'] as Map<String, dynamic>;
+      expect(details['catalog_id'], 12);
+      expect(details['original_catalog_id'], 10);
+      expect(details['composition_id'], 3);
+      expect(details['composition_label'], 'Amoxicillin + Clavulanic acid');
+      expect(details['composition_confidence'], 'high');
+      expect(details['generic_name'], 'Amoxicillin + Clavulanate');
+      expect(details['strength'], '625 mg');
+      expect(details['strength_key'], '625mg');
+      expect(details['form'], 'Tablet');
+      expect(details['form_key'], 'tablet');
+      expect(details['release_key'], 'ir');
+      expect(details['do_not_substitute'], isTrue);
+    },
+  );
+
+  test('omits original_catalog_id when selected catalog was not swapped', () {
+    final body = buildInpatientMedicationOrderBody(
+      patientUid: 'p',
+      encounterId: null,
+      medicationName: 'Augmentin 625',
+      dose: '1 tab',
+      route: 'oral',
+      frequency: 'BD',
+      catalogId: 10,
+      originalCatalogId: 10,
+      startDate: DateTime.utc(2026),
+    );
+
+    final details = body['details'] as Map<String, dynamic>;
+    expect(details['catalog_id'], 10);
+    expect(details.containsKey('original_catalog_id'), isFalse);
+  });
 }

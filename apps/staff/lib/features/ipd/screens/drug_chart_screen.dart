@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
+import '../../../core/models/composition_alternatives.dart';
 import '../../../core/platform_info.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -14,6 +15,7 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../drug_chart_offline_order.dart';
 import '../utils/drug_chart_utils.dart';
+import '../../pharmacy/widgets/composition_alternatives_panel.dart';
 
 const _routeOptions = <String, String>{
   'oral': 'Oral',
@@ -174,6 +176,18 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           instructions: row.notesCtrl.text.trim().isEmpty
               ? null
               : row.notesCtrl.text.trim(),
+          catalogId: row.catalogId,
+          originalCatalogId: row.originalCatalogId,
+          compositionId: row.compositionId,
+          compositionLabel: row.compositionLabel,
+          compositionConfidence: row.compositionConfidence,
+          genericName: row.genericName,
+          strength: row.strength,
+          strengthKey: row.strengthKey,
+          form: row.form,
+          formKey: row.formKey,
+          releaseKey: row.releaseKey,
+          doNotSubstitute: row.daw,
           startDate: DateTime.now(),
         );
         if (intent.block) {
@@ -206,6 +220,18 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         instructions: row.notesCtrl.text.trim().isEmpty
             ? null
             : row.notesCtrl.text.trim(),
+        catalogId: row.catalogId,
+        originalCatalogId: row.originalCatalogId,
+        compositionId: row.compositionId,
+        compositionLabel: row.compositionLabel,
+        compositionConfidence: row.compositionConfidence,
+        genericName: row.genericName,
+        strength: row.strength,
+        strengthKey: row.strengthKey,
+        form: row.form,
+        formKey: row.formKey,
+        releaseKey: row.releaseKey,
+        doNotSubstitute: row.daw,
       );
       if (!mounted) return;
       _removeDraftRow(row);
@@ -280,6 +306,21 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     );
   }
 
+  void _applyCompositionAlternative(
+    _DrugChartDraftRow row,
+    CompositionAlternativeItem item,
+  ) {
+    final originalCatalogId = row.originalCatalogId ?? row.catalogId;
+    final catalogRow = item.toCatalogRow(
+      compositionId: row.compositionId,
+      compositionLabel: row.compositionLabel ?? row.genericName,
+    );
+    setState(() {
+      row.applyCatalogRow(catalogRow, originalCatalogId: originalCatalogId);
+      row.applyDerivedDose(overwrite: true);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -327,6 +368,36 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           onStopOrder: _stopOrder,
           onAdministrationChanged: _load,
         ),
+        _buildCompositionAlternativesSection(),
+      ],
+    );
+  }
+
+  Widget _buildCompositionAlternativesSection() {
+    final panels = _draftRows
+        .where(
+          (row) => shouldShowCompositionAlternativesPanel(
+            catalogId: row.catalogId,
+            compositionConfidence: row.compositionConfidence,
+          ),
+        )
+        .toList(growable: false);
+    if (panels.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        for (final row in panels)
+          CompositionAlternativesPanel(
+            key: ValueKey(
+              'drug-chart-composition-alternatives-${identityHashCode(row)}-${row.catalogId}',
+            ),
+            catalogId: row.catalogId,
+            visible: true,
+            doNotSubstitute: row.daw,
+            selectedLabel: row.drugCtrl.text.trim(),
+            onSwap: (item) => _applyCompositionAlternative(row, item),
+          ),
       ],
     );
   }
@@ -792,13 +863,7 @@ class _DrugChartDraftTableRow extends StatefulWidget {
 
 class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
   void _applyDerivedDose(String drug, {bool overwrite = false}) {
-    final derived = deriveDoseFromDrug(drug);
-    if (derived.isEmpty) return;
-    final current = widget.row.doseCtrl.text.trim();
-    if (overwrite || current.isEmpty || current == widget.row.lastAutoDose) {
-      widget.row.doseCtrl.text = derived;
-      widget.row.lastAutoDose = derived;
-    }
+    widget.row.applyDerivedDose(drug: drug, overwrite: overwrite);
   }
 
   @override
@@ -819,10 +884,14 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             height: _draftRowHeight,
             child: _DrugAutocompleteField(
               controller: row.drugCtrl,
-              onTextChanged: (value) =>
-                  setState(() => _applyDerivedDose(value)),
-              onSelected: (value) =>
-                  setState(() => _applyDerivedDose(value, overwrite: true)),
+              onTextChanged: (value) => setState(() {
+                row.clearCatalogIdentity();
+                _applyDerivedDose(value);
+              }),
+              onSelected: (catalogRow) => setState(() {
+                row.applyCatalogRow(catalogRow);
+                row.applyDerivedDose(overwrite: true);
+              }),
             ),
           ),
           _tableCell(
@@ -941,7 +1010,19 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                     isDense: true,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilterChip(
+                    visualDensity: VisualDensity.compact,
+                    label: const Text('DAW'),
+                    selected: row.daw,
+                    onSelected: row.saving
+                        ? null
+                        : (value) => setState(() => row.daw = value),
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
@@ -983,7 +1064,7 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
 class _DrugAutocompleteField extends StatefulWidget {
   final TextEditingController controller;
   final ValueChanged<String>? onTextChanged;
-  final ValueChanged<String> onSelected;
+  final ValueChanged<Map<String, dynamic>> onSelected;
 
   const _DrugAutocompleteField({
     required this.controller,
@@ -1033,28 +1114,43 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
     _debounce = Timer(const Duration(milliseconds: 250), () => _search(value));
   }
 
+  Iterable<Map<String, dynamic>> _optionsFor(String query) {
+    final q = query.trim();
+    if (q.length < 2) return const <Map<String, dynamic>>[];
+    final rows = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void add(Map<String, dynamic> row) {
+      final label = _catalogDrugLabel(row);
+      if (label.isEmpty) return;
+      if (seen.add(label.toLowerCase())) rows.add(row);
+    }
+
+    for (final row in _catalogSuggestions) {
+      if (_catalogRowMatchesQuery(row, q)) add(row);
+    }
+    for (final drug in _fallbackDrugs) {
+      if (drug.toLowerCase().contains(q.toLowerCase())) {
+        add({'name': drug, '__fallback': true});
+      }
+    }
+    return rows.take(7);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return RawAutocomplete<String>(
+    return RawAutocomplete<Map<String, dynamic>>(
       textEditingController: widget.controller,
       focusNode: _focusNode,
-      optionsBuilder: (value) {
-        final query = value.text.trim().toLowerCase();
-        if (query.length < 2) return const Iterable<String>.empty();
-        final names = <String>[
-          ..._catalogSuggestions.map(
-            (row) => _text(row['name'], fallback: _text(row['label'])),
-          ),
-          ..._fallbackDrugs.where((drug) => drug.toLowerCase().contains(query)),
-        ].where((name) => name.isNotEmpty).toList();
-        return names.toSet().take(7);
-      },
-      onSelected: (value) {
-        widget.controller.text = value;
+      displayStringForOption: _catalogDrugLabel,
+      optionsBuilder: (value) => _optionsFor(value.text),
+      onSelected: (row) {
+        final label = _catalogDrugLabel(row);
+        widget.controller.text = label;
         widget.controller.selection = TextSelection.collapsed(
-          offset: value.length,
+          offset: label.length,
         );
-        widget.onSelected(value);
+        widget.onSelected(row);
       },
       fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
         return TextField(
@@ -1081,6 +1177,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
       },
       optionsViewBuilder: (context, onSelected, options) {
         final optionList = options.toList();
+        if (optionList.isEmpty) return const SizedBox.shrink();
         return Align(
           alignment: Alignment.topLeft,
           child: Material(
@@ -1099,7 +1196,23 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                 separatorBuilder: (context, index) =>
                     Divider(height: 1, color: AppTheme.divider),
                 itemBuilder: (context, index) {
-                  final name = optionList[index];
+                  final row = optionList[index];
+                  final name = _catalogDrugLabel(row);
+                  final generic = _rowText(row, const [
+                    'generic_name',
+                    'generic',
+                  ]);
+                  final strength = _catalogStrength(row);
+                  final form = _catalogForm(row);
+                  final catalogBacked = row['__fallback'] != true;
+                  final availability = _text(
+                    row['availability_status'],
+                  ).toLowerCase();
+                  final stockColor = availability == 'may_be_available'
+                      ? AppTheme.warningOnSurface
+                      : _isCatalogRowInStock(row)
+                      ? AppTheme.successOnSurface
+                      : AppTheme.errorOnSurface;
                   return ListTile(
                     dense: true,
                     title: Text(
@@ -1108,7 +1221,28 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: AppTheme.textPrimary),
                     ),
-                    onTap: () => onSelected(name),
+                    subtitle: Text(
+                      catalogBacked
+                          ? [
+                              if (generic.isNotEmpty) generic,
+                              if (strength.isNotEmpty) strength,
+                              if (form.isNotEmpty) form,
+                            ].join(' - ')
+                          : 'Free text',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: catalogBacked
+                        ? _MiniPill(
+                            label: _catalogStockLabel(row),
+                            color: stockColor,
+                          )
+                        : null,
+                    onTap: () => onSelected(row),
                   );
                 },
               ),
@@ -1409,9 +1543,75 @@ class _DrugChartDraftRow {
   final notesCtrl = TextEditingController();
   final selectedTimes = <String>{'08:00', '20:00'};
   String? lastAutoDose;
+  int? catalogId;
+  int? originalCatalogId;
+  int? compositionId;
+  String? compositionLabel;
+  String? compositionConfidence;
+  String? genericName;
+  String? strength;
+  String? strengthKey;
+  String? form;
+  String? formKey;
+  String? releaseKey;
   String route = 'oral';
   String foodTiming = '';
   bool saving = false;
+  bool daw = false;
+
+  void applyDerivedDose({String? drug, bool overwrite = false}) {
+    final derived = _text(strength).isNotEmpty
+        ? _text(strength)
+        : deriveDoseFromDrug(drug ?? drugCtrl.text);
+    if (derived.isEmpty) return;
+    final current = doseCtrl.text.trim();
+    if (overwrite || current.isEmpty || current == lastAutoDose) {
+      doseCtrl.text = derived;
+      lastAutoDose = derived;
+    }
+  }
+
+  void clearCatalogIdentity() {
+    catalogId = null;
+    originalCatalogId = null;
+    compositionId = null;
+    compositionLabel = null;
+    compositionConfidence = null;
+    genericName = null;
+    strength = null;
+    strengthKey = null;
+    form = null;
+    formKey = null;
+    releaseKey = null;
+  }
+
+  void applyCatalogRow(Map<String, dynamic> row, {int? originalCatalogId}) {
+    final label = _catalogDrugLabel(row);
+    drugCtrl.text = label;
+    drugCtrl.selection = TextSelection.collapsed(offset: label.length);
+
+    if (row['__fallback'] == true) {
+      clearCatalogIdentity();
+      return;
+    }
+
+    catalogId = _catalogIdFromRow(row);
+    this.originalCatalogId = originalCatalogId ?? catalogId;
+    compositionId = _asInt(row['composition_id']);
+    compositionLabel = _nullableText(row['composition_label']);
+    compositionConfidence = _nullableText(row['composition_confidence']);
+    genericName = _nullableText(
+      _rowText(row, const ['generic_name', 'generic']),
+    );
+    strength = _nullableText(_catalogStrength(row));
+    strengthKey = _nullableText(row['strength_key']);
+    form = _nullableText(_catalogForm(row));
+    formKey = _nullableText(row['form_key']);
+    releaseKey = _nullableText(row['release_key']);
+
+    final catalogRoute = _catalogRoute(row);
+    if (catalogRoute != null) route = catalogRoute;
+  }
 
   void dispose() {
     drugCtrl.dispose();
@@ -1437,7 +1637,7 @@ const double _foodCol = 150;
 const double _actionCol = 240;
 const double _headerRowHeight = 54;
 const double _orderRowHeight = 142;
-const double _draftRowHeight = 144;
+const double _draftRowHeight = 168;
 const double _chartWidth =
     _drugCol +
     _doseCol +
@@ -1516,6 +1716,132 @@ String _text(Object? value, {String fallback = ''}) {
 int? _asInt(Object? value) {
   if (value is int) return value;
   return int.tryParse(value?.toString() ?? '');
+}
+
+String? _nullableText(Object? value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty || text.toLowerCase() == 'null') return null;
+  return text;
+}
+
+String _rowText(Map<String, dynamic> row, List<String> keys) {
+  for (final key in keys) {
+    final text = _text(row[key]);
+    if (text.isNotEmpty) return text;
+  }
+  return '';
+}
+
+int _catalogStockCount(Map<String, dynamic> row) {
+  final value = row['stock_quantity'] ?? row['stock'] ?? row['quantity'];
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+bool _isCatalogRowInStock(Map<String, dynamic> row) {
+  final availability = _text(row['availability_status']).toLowerCase();
+  if (availability == 'in_stock' || availability == 'may_be_available') {
+    return true;
+  }
+  final explicit = row['in_stock'] ?? row['is_available'];
+  if (explicit is bool && explicit == false) return false;
+  return _catalogStockCount(row) > 0 || explicit == true;
+}
+
+String _catalogStockLabel(Map<String, dynamic> row) {
+  final availability = _text(row['availability_status']).toLowerCase();
+  if (availability == 'may_be_available') return 'May be available';
+  final count = _catalogStockCount(row);
+  if (!_isCatalogRowInStock(row)) return 'Out of stock';
+  return count > 0 ? 'In stock ($count)' : 'In stock';
+}
+
+int? _catalogIdFromRow(Map<String, dynamic> row) {
+  return _asInt(row['catalog_id']) ?? _asInt(row['id']);
+}
+
+String _catalogDrugLabel(Map<String, dynamic> row) {
+  return _text(
+    row['name'],
+    fallback: _text(
+      row['drug_name'],
+      fallback: _text(row['medicine_name'], fallback: _text(row['label'])),
+    ),
+  );
+}
+
+String _catalogStrength(Map<String, dynamic> row) {
+  final direct = _text(row['strength']);
+  if (direct.isNotEmpty) return direct;
+  final options = row['strength_options'];
+  if (options is List) {
+    for (final value in options) {
+      final text = _text(value);
+      if (text.isNotEmpty) return text;
+    }
+  }
+  return deriveDoseFromDrug(_catalogDrugLabel(row));
+}
+
+String _catalogForm(Map<String, dynamic> row) {
+  return _rowText(row, const ['form', 'dosage_form', 'medicine_type']);
+}
+
+String? _catalogRoute(Map<String, dynamic> row) {
+  final raw = _nullableText(row['route'])?.toLowerCase();
+  const aliases = {
+    'po': 'oral',
+    'oral': 'oral',
+    'iv': 'iv',
+    'intravenous': 'iv',
+    'im': 'im',
+    'intramuscular': 'im',
+    'sc': 'sc',
+    'subcutaneous': 'sc',
+    'sl': 'sublingual',
+    'sublingual': 'sublingual',
+    'inhaled': 'inhaled',
+    'inhalation': 'inhaled',
+    'topical': 'topical',
+  };
+  final route = aliases[raw];
+  if (route != null && _routeOptions.containsKey(route)) return route;
+
+  final form = _catalogForm(row).toLowerCase();
+  if (form.contains('inj') || form.contains('infusion')) return 'iv';
+  if (form.contains('tablet') ||
+      form.contains('capsule') ||
+      form.contains('syrup') ||
+      form.contains('suspension')) {
+    return 'oral';
+  }
+  if (form.contains('inhaler')) return 'inhaled';
+  if (form.contains('cream') || form.contains('ointment')) return 'topical';
+  return null;
+}
+
+List<String> _catalogSearchTokens(Object? value) {
+  final text = value?.toString().toLowerCase() ?? '';
+  return RegExp(r'[a-z0-9]+')
+      .allMatches(text)
+      .map((match) => match.group(0) ?? '')
+      .where((token) => token.isNotEmpty)
+      .toList(growable: false);
+}
+
+bool _catalogRowMatchesQuery(Map<String, dynamic> row, String query) {
+  final queryTokens = _catalogSearchTokens(query);
+  if (queryTokens.isEmpty) return true;
+  final fieldTokens = <String>[
+    ..._catalogSearchTokens(_catalogDrugLabel(row)),
+    ..._catalogSearchTokens(_rowText(row, const ['generic_name', 'generic'])),
+    ..._catalogSearchTokens(_catalogStrength(row)),
+    ..._catalogSearchTokens(_catalogForm(row)),
+  ];
+  return queryTokens.every(
+    (queryToken) =>
+        fieldTokens.any((fieldToken) => fieldToken.startsWith(queryToken)),
+  );
 }
 
 DateTime? _dateTime(Object? value) {

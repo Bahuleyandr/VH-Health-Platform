@@ -40,15 +40,49 @@ void main() {
   });
 
   test('queued body is byte-identical to the online builder', () {
-    final i = build('tablet');
-    final online = buildInpatientMedicationOrderBody(
+    final i = buildOfflineOrderIntent(
+      deviceType: 'tablet',
       patientUid: 'p-uid',
       encounterId: 'enc-1',
-      medicationName: 'Paracetamol',
-      dose: '500mg',
+      medicationName: 'Clavam 625',
+      dose: '1 tab',
       route: 'oral',
       frequency: 'BD',
       doseTimes: ['morning', 'night'],
+      catalogId: 12,
+      originalCatalogId: 10,
+      compositionId: 3,
+      compositionLabel: 'Amoxicillin + Clavulanic acid',
+      compositionConfidence: 'high',
+      genericName: 'Amoxicillin + Clavulanate',
+      strength: '625 mg',
+      strengthKey: '625mg',
+      form: 'Tablet',
+      formKey: 'tablet',
+      releaseKey: 'ir',
+      doNotSubstitute: true,
+      startDate: DateTime.utc(2026, 6, 27, 9),
+    );
+    final online = buildInpatientMedicationOrderBody(
+      patientUid: 'p-uid',
+      encounterId: 'enc-1',
+      medicationName: 'Clavam 625',
+      dose: '1 tab',
+      route: 'oral',
+      frequency: 'BD',
+      doseTimes: ['morning', 'night'],
+      catalogId: 12,
+      originalCatalogId: 10,
+      compositionId: 3,
+      compositionLabel: 'Amoxicillin + Clavulanic acid',
+      compositionConfidence: 'high',
+      genericName: 'Amoxicillin + Clavulanate',
+      strength: '625 mg',
+      strengthKey: '625mg',
+      form: 'Tablet',
+      formKey: 'tablet',
+      releaseKey: 'ir',
+      doNotSubstitute: true,
       startDate: DateTime.utc(2026, 6, 27, 9),
     );
     expect(i.body, online);

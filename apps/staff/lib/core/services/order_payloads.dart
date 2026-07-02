@@ -19,9 +19,25 @@ Map<String, dynamic> buildInpatientMedicationOrderBody({
   List<String>? doseTimes,
   String? foodTiming,
   String? instructions,
+  int? catalogId,
+  int? originalCatalogId,
+  int? compositionId,
+  String? compositionLabel,
+  String? compositionConfidence,
+  String? genericName,
+  String? strength,
+  String? strengthKey,
+  String? form,
+  String? formKey,
+  String? releaseKey,
+  bool doNotSubstitute = false,
   String priority = 'routine',
   required DateTime startDate,
 }) {
+  final shouldSendOriginalCatalogId =
+      originalCatalogId != null &&
+      catalogId != null &&
+      originalCatalogId != catalogId;
   return {
     'patient_uid': patientUid,
     'encounter_id': ?encounterId,
@@ -37,6 +53,18 @@ Map<String, dynamic> buildInpatientMedicationOrderBody({
       'dose_times': ?doseTimes,
       'food_timing': ?foodTiming,
       'instructions': ?instructions,
+      'catalog_id': ?catalogId,
+      if (shouldSendOriginalCatalogId) 'original_catalog_id': originalCatalogId,
+      'composition_id': ?compositionId,
+      'composition_label': ?compositionLabel,
+      'composition_confidence': ?compositionConfidence,
+      'generic_name': ?genericName,
+      'strength': ?strength,
+      'strength_key': ?strengthKey,
+      'form': ?form,
+      'form_key': ?formKey,
+      'release_key': ?releaseKey,
+      if (doNotSubstitute) 'do_not_substitute': true,
     },
   };
 }
