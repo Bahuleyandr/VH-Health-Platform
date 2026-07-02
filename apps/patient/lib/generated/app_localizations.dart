@@ -2738,6 +2738,84 @@ abstract class AppLocalizations {
   /// **'Clinician override on file:'**
   String get yourHealthClinicianOverride;
 
+  /// Tab label for accepted patient explanations in Your Health
+  ///
+  /// In en, this message translates to:
+  /// **'Explanations'**
+  String get yourHealthTabExplanations;
+
+  /// App bar title for a patient explanation detail
+  ///
+  /// In en, this message translates to:
+  /// **'Explanation'**
+  String get yourHealthExplanationsDetailTitle;
+
+  /// Label before the reviewed date on a patient explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Reviewed'**
+  String get yourHealthExplanationsReviewedLabel;
+
+  /// Section heading for explanation summary
+  ///
+  /// In en, this message translates to:
+  /// **'Summary'**
+  String get yourHealthExplanationsSummary;
+
+  /// Section heading for explanation key points
+  ///
+  /// In en, this message translates to:
+  /// **'Key points'**
+  String get yourHealthExplanationsKeyPoints;
+
+  /// Section heading for explanation next steps
+  ///
+  /// In en, this message translates to:
+  /// **'Next steps'**
+  String get yourHealthExplanationsNextSteps;
+
+  /// Section heading for explanation urgent-care guidance
+  ///
+  /// In en, this message translates to:
+  /// **'When to seek help'**
+  String get yourHealthExplanationsWhenToSeekHelp;
+
+  /// Heading for safety or review flag banner on explanation detail
+  ///
+  /// In en, this message translates to:
+  /// **'Review flag'**
+  String get yourHealthExplanationsSafetyTitle;
+
+  /// Body text for safety or review flag banner on explanation detail
+  ///
+  /// In en, this message translates to:
+  /// **'Your care team marked this explanation for extra attention. Follow the guidance below and contact the hospital if symptoms worsen.'**
+  String get yourHealthExplanationsSafetyBody;
+
+  /// Fallback text when an explanation section is empty
+  ///
+  /// In en, this message translates to:
+  /// **'No details provided'**
+  String get yourHealthExplanationsNoSummary;
+
+  /// Error text when explanation detail loading fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load this explanation.'**
+  String get yourHealthExplanationsLoadFailed;
+
+  /// Retry button label for explanation detail
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get yourHealthExplanationsRetry;
+
+  /// Empty state for explanations tab if a visible tab refreshes to no data
+  ///
+  /// In en, this message translates to:
+  /// **'No reviewed explanations yet'**
+  String get yourHealthExplanationsEmpty;
+
   /// Dialog title to cancel an appointment
   ///
   /// In en, this message translates to:

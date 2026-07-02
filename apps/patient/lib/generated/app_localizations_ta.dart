@@ -1432,6 +1432,49 @@ class AppLocalizationsTa extends AppLocalizations {
   String get yourHealthClinicianOverride => 'கோப்பில் மருத்துவர் மேலெழுதல்:';
 
   @override
+  String get yourHealthTabExplanations => 'விளக்கங்கள்';
+
+  @override
+  String get yourHealthExplanationsDetailTitle => 'விளக்கம்';
+
+  @override
+  String get yourHealthExplanationsReviewedLabel => 'மதிப்பாய்வு செய்யப்பட்டது';
+
+  @override
+  String get yourHealthExplanationsSummary => 'சுருக்கம்';
+
+  @override
+  String get yourHealthExplanationsKeyPoints => 'முக்கிய குறிப்புகள்';
+
+  @override
+  String get yourHealthExplanationsNextSteps => 'அடுத்த படிகள்';
+
+  @override
+  String get yourHealthExplanationsWhenToSeekHelp =>
+      'எப்போது உதவி தேட வேண்டும்';
+
+  @override
+  String get yourHealthExplanationsSafetyTitle => 'மதிப்பாய்வு குறிப்பு';
+
+  @override
+  String get yourHealthExplanationsSafetyBody =>
+      'உங்கள் பராமரிப்பு குழு இந்த விளக்கத்திற்கு கூடுதல் கவனம் தேவை எனக் குறித்துள்ளது. கீழே உள்ள வழிகாட்டுதலைப் பின்பற்றுங்கள்; அறிகுறிகள் மோசமடைந்தால் மருத்துவமனையைத் தொடர்புகொள்ளுங்கள்.';
+
+  @override
+  String get yourHealthExplanationsNoSummary => 'விவரங்கள் வழங்கப்படவில்லை';
+
+  @override
+  String get yourHealthExplanationsLoadFailed =>
+      'இந்த விளக்கத்தை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get yourHealthExplanationsRetry => 'மீண்டும் முயற்சி';
+
+  @override
+  String get yourHealthExplanationsEmpty =>
+      'இன்னும் மதிப்பாய்வு செய்யப்பட்ட விளக்கங்கள் இல்லை';
+
+  @override
   String get appointmentsCancel => 'அப்பாயிண்ட்மெண்ட்டை ரத்து செய்';
 
   @override

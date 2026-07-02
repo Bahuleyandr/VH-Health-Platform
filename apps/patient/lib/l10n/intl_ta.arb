@@ -1464,6 +1464,58 @@
   "@yourHealthClinicianOverride": {
     "description": "Label before clinician override note"
   },
+  "yourHealthTabExplanations": "விளக்கங்கள்",
+  "@yourHealthTabExplanations": {
+    "description": "Machine translated; review required. Tab label for accepted patient explanations in Your Health"
+  },
+  "yourHealthExplanationsDetailTitle": "விளக்கம்",
+  "@yourHealthExplanationsDetailTitle": {
+    "description": "Machine translated; review required. App bar title for a patient explanation detail"
+  },
+  "yourHealthExplanationsReviewedLabel": "மதிப்பாய்வு செய்யப்பட்டது",
+  "@yourHealthExplanationsReviewedLabel": {
+    "description": "Machine translated; review required. Label before the reviewed date on a patient explanation"
+  },
+  "yourHealthExplanationsSummary": "சுருக்கம்",
+  "@yourHealthExplanationsSummary": {
+    "description": "Machine translated; review required. Section heading for explanation summary"
+  },
+  "yourHealthExplanationsKeyPoints": "முக்கிய குறிப்புகள்",
+  "@yourHealthExplanationsKeyPoints": {
+    "description": "Machine translated; review required. Section heading for explanation key points"
+  },
+  "yourHealthExplanationsNextSteps": "அடுத்த படிகள்",
+  "@yourHealthExplanationsNextSteps": {
+    "description": "Machine translated; review required. Section heading for explanation next steps"
+  },
+  "yourHealthExplanationsWhenToSeekHelp": "எப்போது உதவி தேட வேண்டும்",
+  "@yourHealthExplanationsWhenToSeekHelp": {
+    "description": "Machine translated; review required. Section heading for explanation urgent-care guidance"
+  },
+  "yourHealthExplanationsSafetyTitle": "மதிப்பாய்வு குறிப்பு",
+  "@yourHealthExplanationsSafetyTitle": {
+    "description": "Machine translated; review required. Heading for safety or review flag banner on explanation detail"
+  },
+  "yourHealthExplanationsSafetyBody": "உங்கள் பராமரிப்பு குழு இந்த விளக்கத்திற்கு கூடுதல் கவனம் தேவை எனக் குறித்துள்ளது. கீழே உள்ள வழிகாட்டுதலைப் பின்பற்றுங்கள்; அறிகுறிகள் மோசமடைந்தால் மருத்துவமனையைத் தொடர்புகொள்ளுங்கள்.",
+  "@yourHealthExplanationsSafetyBody": {
+    "description": "Machine translated; review required. Body text for safety or review flag banner on explanation detail"
+  },
+  "yourHealthExplanationsNoSummary": "விவரங்கள் வழங்கப்படவில்லை",
+  "@yourHealthExplanationsNoSummary": {
+    "description": "Machine translated; review required. Fallback text when an explanation section is empty"
+  },
+  "yourHealthExplanationsLoadFailed": "இந்த விளக்கத்தை ஏற்ற முடியவில்லை.",
+  "@yourHealthExplanationsLoadFailed": {
+    "description": "Machine translated; review required. Error text when explanation detail loading fails"
+  },
+  "yourHealthExplanationsRetry": "மீண்டும் முயற்சி",
+  "@yourHealthExplanationsRetry": {
+    "description": "Machine translated; review required. Retry button label for explanation detail"
+  },
+  "yourHealthExplanationsEmpty": "இன்னும் மதிப்பாய்வு செய்யப்பட்ட விளக்கங்கள் இல்லை",
+  "@yourHealthExplanationsEmpty": {
+    "description": "Machine translated; review required. Empty state for explanations tab if a visible tab refreshes to no data"
+  },
   "appointmentsCancel": "அப்பாயிண்ட்மெண்ட்டை ரத்து செய்",
   "@appointmentsCancel": {
     "description": "Dialog title to cancel an appointment"

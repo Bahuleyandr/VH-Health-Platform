@@ -1464,6 +1464,58 @@
   "@yourHealthClinicianOverride": {
     "description": "Label before clinician override note"
   },
+  "yourHealthTabExplanations": "వివరణలు",
+  "@yourHealthTabExplanations": {
+    "description": "Machine translated; review required. Tab label for accepted patient explanations in Your Health"
+  },
+  "yourHealthExplanationsDetailTitle": "వివరణ",
+  "@yourHealthExplanationsDetailTitle": {
+    "description": "Machine translated; review required. App bar title for a patient explanation detail"
+  },
+  "yourHealthExplanationsReviewedLabel": "సమీక్షించబడింది",
+  "@yourHealthExplanationsReviewedLabel": {
+    "description": "Machine translated; review required. Label before the reviewed date on a patient explanation"
+  },
+  "yourHealthExplanationsSummary": "సారాంశం",
+  "@yourHealthExplanationsSummary": {
+    "description": "Machine translated; review required. Section heading for explanation summary"
+  },
+  "yourHealthExplanationsKeyPoints": "ముఖ్య అంశాలు",
+  "@yourHealthExplanationsKeyPoints": {
+    "description": "Machine translated; review required. Section heading for explanation key points"
+  },
+  "yourHealthExplanationsNextSteps": "తదుపరి దశలు",
+  "@yourHealthExplanationsNextSteps": {
+    "description": "Machine translated; review required. Section heading for explanation next steps"
+  },
+  "yourHealthExplanationsWhenToSeekHelp": "ఎప్పుడు సహాయం పొందాలి",
+  "@yourHealthExplanationsWhenToSeekHelp": {
+    "description": "Machine translated; review required. Section heading for explanation urgent-care guidance"
+  },
+  "yourHealthExplanationsSafetyTitle": "సమీక్ష హెచ్చరిక",
+  "@yourHealthExplanationsSafetyTitle": {
+    "description": "Machine translated; review required. Heading for safety or review flag banner on explanation detail"
+  },
+  "yourHealthExplanationsSafetyBody": "మీ సంరక్షణ బృందం ఈ వివరణకు అదనపు శ్రద్ధ అవసరమని గుర్తించింది. క్రింద ఉన్న మార్గదర్శకాన్ని అనుసరించండి; లక్షణాలు మరింత తీవ్రమైతే ఆసుపత్రిని సంప్రదించండి.",
+  "@yourHealthExplanationsSafetyBody": {
+    "description": "Machine translated; review required. Body text for safety or review flag banner on explanation detail"
+  },
+  "yourHealthExplanationsNoSummary": "వివరాలు అందుబాటులో లేవు",
+  "@yourHealthExplanationsNoSummary": {
+    "description": "Machine translated; review required. Fallback text when an explanation section is empty"
+  },
+  "yourHealthExplanationsLoadFailed": "ఈ వివరణను లోడ్ చేయలేకపోయాం.",
+  "@yourHealthExplanationsLoadFailed": {
+    "description": "Machine translated; review required. Error text when explanation detail loading fails"
+  },
+  "yourHealthExplanationsRetry": "మళ్లీ ప్రయత్నించండి",
+  "@yourHealthExplanationsRetry": {
+    "description": "Machine translated; review required. Retry button label for explanation detail"
+  },
+  "yourHealthExplanationsEmpty": "ఇంకా సమీక్షించిన వివరణలు లేవు",
+  "@yourHealthExplanationsEmpty": {
+    "description": "Machine translated; review required. Empty state for explanations tab if a visible tab refreshes to no data"
+  },
   "appointmentsCancel": "అపాయింట్‌మెంట్ రద్దు చేయండి",
   "@appointmentsCancel": {
     "description": "Dialog title to cancel an appointment"

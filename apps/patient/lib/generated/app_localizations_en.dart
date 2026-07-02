@@ -1397,6 +1397,47 @@ class AppLocalizationsEn extends AppLocalizations {
   String get yourHealthClinicianOverride => 'Clinician override on file:';
 
   @override
+  String get yourHealthTabExplanations => 'Explanations';
+
+  @override
+  String get yourHealthExplanationsDetailTitle => 'Explanation';
+
+  @override
+  String get yourHealthExplanationsReviewedLabel => 'Reviewed';
+
+  @override
+  String get yourHealthExplanationsSummary => 'Summary';
+
+  @override
+  String get yourHealthExplanationsKeyPoints => 'Key points';
+
+  @override
+  String get yourHealthExplanationsNextSteps => 'Next steps';
+
+  @override
+  String get yourHealthExplanationsWhenToSeekHelp => 'When to seek help';
+
+  @override
+  String get yourHealthExplanationsSafetyTitle => 'Review flag';
+
+  @override
+  String get yourHealthExplanationsSafetyBody =>
+      'Your care team marked this explanation for extra attention. Follow the guidance below and contact the hospital if symptoms worsen.';
+
+  @override
+  String get yourHealthExplanationsNoSummary => 'No details provided';
+
+  @override
+  String get yourHealthExplanationsLoadFailed =>
+      'Could not load this explanation.';
+
+  @override
+  String get yourHealthExplanationsRetry => 'Retry';
+
+  @override
+  String get yourHealthExplanationsEmpty => 'No reviewed explanations yet';
+
+  @override
   String get appointmentsCancel => 'Cancel Appointment';
 
   @override

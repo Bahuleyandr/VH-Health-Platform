@@ -15,11 +15,14 @@ import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
+import 'package:vhhealth/features/your_health/services/patient_explainers_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/l10n/app_localizations_ext.dart';
 
 import 'package:vhhealth/features/your_health/widgets/prescriptions_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/consultations_tab.dart';
+import 'package:vhhealth/features/your_health/widgets/explanations_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/health_summary_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/health_timeline_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/hospital_documents_tab.dart';
@@ -27,14 +30,22 @@ import 'package:vhhealth/features/your_health/widgets/my_uploads_tab.dart';
 
 class YourHealthScreen extends StatefulWidget {
   final int initialTab;
-  const YourHealthScreen({super.key, this.initialTab = 0});
+  final PatientExplainersRepository explainersRepository;
+
+  const YourHealthScreen({
+    super.key,
+    this.initialTab = 0,
+    this.explainersRepository = const ApiPatientExplainersRepository(),
+  });
 
   @override
   State<YourHealthScreen> createState() => _YourHealthScreenState();
 }
 
 class _YourHealthScreenState extends State<YourHealthScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
+  static const int _baseTabCount = 7;
+
   // Health Records tab state (kept here due to complex offline caching)
   List<dynamic> records = [];
   bool _isLoadingRecords = true;
@@ -45,6 +56,9 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   late final String _phone;
   Color _color = FeatureScreenScaffold.featureColors['your-health']!;
   late TabController _tabController;
+  bool _hasExplanationsTab = false;
+  bool _didRequestExplainers = false;
+  List<PatientExplainer> _explainers = [];
 
   /// GlobalKey for the My Uploads tab so we can call showUploadSheet from the FAB.
   final GlobalKey<MyUploadsTabState> _myUploadsKey = GlobalKey();
@@ -54,11 +68,19 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     super.initState();
     _phone = context.read<UserProvider>().phone;
     _tabController = TabController(
-      length: 7,
+      length: _tabCount,
       vsync: this,
-      initialIndex: widget.initialTab,
+      initialIndex: _clampedTabIndex(widget.initialTab, _tabCount),
     );
     _isGuest = _phone.trim().isEmpty || _phone.toLowerCase() == 'guest';
+  }
+
+  int get _tabCount => _baseTabCount + (_hasExplanationsTab ? 1 : 0);
+
+  int _clampedTabIndex(int index, int length) {
+    if (index < 0) return 0;
+    if (index >= length) return length - 1;
+    return index;
   }
 
   @override
@@ -74,12 +96,16 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     // Allow tab override from route extra
     final tabIndex = extra?['tab'] as int?;
-    if (tabIndex != null && tabIndex >= 0 && tabIndex < 7) {
+    if (tabIndex != null && tabIndex >= 0 && tabIndex < _tabCount) {
       _tabController.index = tabIndex;
     }
 
     if (!_isGuest) {
       _fetchRecords();
+      if (!_didRequestExplainers) {
+        _didRequestExplainers = true;
+        _fetchExplainersPreview();
+      }
     } else {
       setState(() {
         _isLoadingRecords = false;
@@ -246,6 +272,44 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     }
   }
 
+  Future<void> _fetchExplainersPreview() async {
+    try {
+      final explainers = await widget.explainersRepository.listExplainers();
+      if (!mounted) return;
+      _updateExplainers(explainers);
+    } catch (e) {
+      debugPrint('Patient explainers fetch failed: $e');
+      if (!mounted) return;
+      _updateExplainers(const []);
+    }
+  }
+
+  void _updateExplainers(List<PatientExplainer> explainers) {
+    final shouldShowTab = explainers.isNotEmpty;
+    if (shouldShowTab == _hasExplanationsTab) {
+      setState(() {
+        _explainers = explainers;
+      });
+      return;
+    }
+
+    final oldController = _tabController;
+    final nextLength = _baseTabCount + (shouldShowTab ? 1 : 0);
+    final nextIndex = _clampedTabIndex(oldController.index, nextLength);
+    final nextController = TabController(
+      length: nextLength,
+      vsync: this,
+      initialIndex: nextIndex,
+    );
+
+    setState(() {
+      _explainers = explainers;
+      _hasExplanationsTab = shouldShowTab;
+      _tabController = nextController;
+    });
+    oldController.dispose();
+  }
+
   @override
   void dispose() {
     _tabController.dispose();
@@ -330,15 +394,10 @@ class _YourHealthScreenState extends State<YourHealthScreen>
               isScrollable: true,
               tabAlignment: TabAlignment.start,
               onTap: (_) => setState(() {}), // Rebuild to toggle FAB
-              tabs: [
-                const Tab(text: 'Timeline'),
-                Tab(text: l10n.yourHealthTabRecords),
-                const Tab(text: 'Hospital Docs'),
-                const Tab(text: 'My Uploads'),
-                const Tab(text: 'Prescriptions'),
-                Tab(text: l10n.yourHealthTabConsultations),
-                Tab(text: l10n.yourHealthTabSummary),
-              ],
+              tabs: buildYourHealthTabs(
+                l10n,
+                includeExplanations: _hasExplanationsTab,
+              ),
             ),
             Expanded(
               child: TabBarView(
@@ -361,6 +420,12 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                   PrescriptionsTab(phone: _phone),
                   const ConsultationsTab(),
                   const HealthSummaryTab(),
+                  if (_hasExplanationsTab)
+                    ExplanationsTab(
+                      explainers: _explainers,
+                      repository: widget.explainersRepository,
+                      onRefresh: _fetchExplainersPreview,
+                    ),
                 ],
               ),
             ),
@@ -522,4 +587,21 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         return Icons.insert_drive_file_outlined;
     }
   }
+}
+
+@visibleForTesting
+List<Tab> buildYourHealthTabs(
+  AppLocalizations l10n, {
+  required bool includeExplanations,
+}) {
+  return [
+    const Tab(text: 'Timeline'),
+    Tab(text: l10n.yourHealthTabRecords),
+    const Tab(text: 'Hospital Docs'),
+    const Tab(text: 'My Uploads'),
+    const Tab(text: 'Prescriptions'),
+    Tab(text: l10n.yourHealthTabConsultations),
+    Tab(text: l10n.yourHealthTabSummary),
+    if (includeExplanations) Tab(text: l10n.yourHealthTabExplanations),
+  ];
 }

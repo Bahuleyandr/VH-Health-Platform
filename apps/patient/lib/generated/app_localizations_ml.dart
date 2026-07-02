@@ -1431,6 +1431,48 @@ class AppLocalizationsMl extends AppLocalizations {
   String get yourHealthClinicianOverride => 'ഫയലിൽ ക്ലിനിഷ്യൻ അസാധുവാക്കുന്നു:';
 
   @override
+  String get yourHealthTabExplanations => 'വിശദീകരണങ്ങൾ';
+
+  @override
+  String get yourHealthExplanationsDetailTitle => 'വിശദീകരണം';
+
+  @override
+  String get yourHealthExplanationsReviewedLabel => 'പരിശോധിച്ചു';
+
+  @override
+  String get yourHealthExplanationsSummary => 'സംഗ്രഹം';
+
+  @override
+  String get yourHealthExplanationsKeyPoints => 'പ്രധാന പോയിന്റുകൾ';
+
+  @override
+  String get yourHealthExplanationsNextSteps => 'അടുത്ത ഘട്ടങ്ങൾ';
+
+  @override
+  String get yourHealthExplanationsWhenToSeekHelp => 'എപ്പോൾ സഹായം തേടണം';
+
+  @override
+  String get yourHealthExplanationsSafetyTitle => 'പരിശോധനാ സൂചന';
+
+  @override
+  String get yourHealthExplanationsSafetyBody =>
+      'നിങ്ങളുടെ പരിചരണ സംഘം ഈ വിശദീകരണത്തിന് കൂടുതൽ ശ്രദ്ധ വേണമെന്ന് അടയാളപ്പെടുത്തിയിട്ടുണ്ട്. താഴെയുള്ള മാർഗ്ഗനിർദ്ദേശം പാലിക്കുക; ലക്ഷണങ്ങൾ മോശമാകുകയാണെങ്കിൽ ആശുപത്രിയെ ബന്ധപ്പെടുക.';
+
+  @override
+  String get yourHealthExplanationsNoSummary => 'വിശദാംശങ്ങൾ നൽകിയിട്ടില്ല';
+
+  @override
+  String get yourHealthExplanationsLoadFailed =>
+      'ഈ വിശദീകരണം ലോഡ് ചെയ്യാനായില്ല.';
+
+  @override
+  String get yourHealthExplanationsRetry => 'വീണ്ടും ശ്രമിക്കുക';
+
+  @override
+  String get yourHealthExplanationsEmpty =>
+      'ഇനിയും പരിശോധന കഴിഞ്ഞ വിശദീകരണങ്ങളില്ല';
+
+  @override
   String get appointmentsCancel => 'അപ്പോയിൻ്റ്മെൻ്റ് റദ്ദാക്കുക';
 
   @override
