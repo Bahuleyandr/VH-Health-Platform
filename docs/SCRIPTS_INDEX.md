@@ -1,0 +1,47 @@
+# Operator Script Index
+
+This is the operator-facing catalog for scripts that can change tenant state,
+security posture, ledger posture, QA database state, or clinical-AI readiness.
+Run them from the repository root unless the script notes otherwise.
+
+## Production And Go-Live Scripts
+
+| Script | Purpose | Run Context | Prerequisites | Failure Modes |
+| --- | --- | --- | --- | --- |
+| `apps/backend/scripts/onboard-tenant.mjs` | Idempotently creates or updates a tenant row, branding, per-tenant KEK, and bootstrap tenant `ADMIN`; prints the tenant API/admin hosts and client build defines. | New-tenant onboarding or rerun after partial onboarding failure. Supports `--dry-run`. | `DATABASE_URL`, field-encryption KEK secrets (`FIELD_ENCRYPTION_MASTER_KEK` plus `FIELD_ENCRYPTION_KEK` or fallback), tenant slug/name, wildcard DNS/TLS plan. | Invalid slug/name exits before writes; missing encryption keys fail KEK provisioning; DB errors can leave an earlier idempotent step complete and later steps pending, so rerun after fixing the cause. |
+| `apps/backend/scripts/runtime-role-cutover-drill.mjs` | Staging drill for the production non-superuser runtime DB role and RLS cutover; creates a scratch DB, applies migrations, creates runtime roles, proves RLS enforcement, and tears down. | Pre-go-live rehearsal against local QA Postgres on `127.0.0.1:55432`; never against production. | QA Postgres running, usually via `node apps/backend/scripts/qa-cluster-up.mjs`; local `pg` binaries and migrations available. | Fails if Postgres is down, pgvector cannot be provisioned by the expected superuser bootstrap path, migrations fail, runtime roles are superuser/bypassrls, or tenant RLS checks leak or block incorrectly. |
+| `apps/backend/scripts/ledger-opening-balance-cutover.mjs` | One-time idempotent cutover that seeds opening patient AR ledger entries for every tenant's outstanding invoices. | After Phase-2a ledger wiring is deployed, before any authoritative ledger flip. | `DATABASE_URL` pointing at the target DB; tenant/invoice data present; ledger migrations deployed. | Per-tenant failures are logged and the script continues; rerun is safe because each invoice has a stable idempotency key. Investigate any tenant `FAILED` line before flip. |
+| `apps/backend/scripts/ledger-reconciliation-evidence.mjs` | Read-only evidence report over `reconciliation_checks`; prints per-tenant `FLIP-READY` / `NOT-READY` verdicts for `ledger_authoritative_mode='enforce'`. | Before considering an authoritative ledger flip; optionally pass a tenant UUID. | `DATABASE_URL`; reconciliation cron must have recorded enough sweeps. Optional `LEDGER_FLIP_MIN_CLEAN_STREAK` and `LEDGER_FLIP_MIN_SPAN_DAYS`. | No rows means no evidence yet; non-ready verdict means do not flip. Query failures or stale reconciliation data indicate the evidence gate is not usable. |
+| `apps/backend/scripts/check-clinical-ai-readiness.mjs` | Verifies a clinical-AI module is actually using a model (`used_ai=true`) and not silently falling back to a deterministic template. | Before trusting or enabling a module for a tenant, especially local Ollama/deep-tier rollout. | `DATABASE_URL`, provider env (`CLINICAL_AI_PROVIDER`, `CLINICAL_AI_BASE_URL`, `CLINICAL_AI_MODEL`, optional `CLINICAL_AI_DEEP_*`), and a generous `CLINICAL_AI_TIMEOUT_MS=120000` for cold local models. | Exit `1` for provider/model not ready, model not pulled, template fallback, or timeout; exit `2` for usage errors. Treat `used_ai=false` as not ready. |
+| `apps/backend/scripts/phi-backfill.mjs` | Idempotently encrypts legacy plaintext PHI into migration-132 `*_encrypted` shadow columns and computes phone search hashes. | Post-migration backfill or rerun after partial PHI encryption. Supports `--dry-run`, `--batch-size`, and `--table`. | `DATABASE_URL`, `KMS_MASTER_KEY`, `PHI_SEARCH_HASH_KEY`; schema with PHI shadow columns. | Exits for missing keys; skips tables not migrated; row-level update failures are logged. Rerun after resolving bad rows or schema drift. |
+| `apps/backend/scripts/phi-rewrap-tenant-keks.mjs` | Rewraps existing `enc:v2` field-encrypted values from global KEK to each tenant KEK for crypto-shred coverage. | Tenant crypto migration or rerun after interrupted rewrap. Supports `--tenant`, `--table`, and `--dry-run`. | `DATABASE_URL`, `FIELD_ENCRYPTION_MASTER_KEK`, active tenant KEKs in `encryption_keys`. | No active KEKs means no-op; missing manifest tables/columns are skipped; decryption/rewrap failures abort and should be investigated before rerun. |
+
+## QA And Local Test Harness
+
+| Script | Purpose | Run Context | Prerequisites | Failure Modes |
+| --- | --- | --- | --- | --- |
+| `apps/backend/scripts/qa-cluster-up.mjs` | Starts or verifies the local QA Postgres cluster, creates `vhhealth_test` and `qa_writer`, applies raw SQL migrations, and provisions RLS test roles. | First command before backend deep tests on this Windows host or local QA workflows. | Initialized PGDATA at the configured path, PostgreSQL binaries, free IPv4 port `55432`; run `ensure-test-db.mjs` first if PGDATA is missing. | Fails fast for missing PGDATA, non-UTF8 DB, bind/permission errors, migration failure, or role provisioning failure. Check the printed logfile tail. |
+
+## Seed Family
+
+These scripts create synthetic data and should be treated as test/QA tools unless
+the script explicitly documents a production-safe use. Several scripts guard
+non-local databases unless `VH_ALLOW_NON_TEST_DATA_SEED=true` is set.
+
+| Script | Purpose | Run Context | Prerequisites | Failure Modes |
+| --- | --- | --- | --- | --- |
+| `apps/backend/scripts/seed-test-staff-accounts.mjs` | Idempotently seeds staff logins across the staff-role matrix (`EMP-1001` onward). | Local/staging staff-app testing. | `DATABASE_URL`; optional `VH_TEST_STAFF_PASSWORD`. | Fails on DB/schema errors; changing the `EMP-NNN` format breaks staff-app login validation. |
+| `apps/backend/scripts/seed-sprint-fixtures.mjs` | Idempotently seeds representative sprint 1-10 data for billing, lab, insurance, OT, maternity, and patient messaging. | E2E/Playwright fixtures. | Local `DATABASE_URL` or explicit `VH_ALLOW_NON_TEST_DATA_SEED=true`. | Refuses non-local DBs by default; fixture SQL drift or missing tables abort the run. |
+| `apps/backend/scripts/seed-smoke-admin-totp.mjs` | Enrolls a known TOTP secret for the seeded `admin` super-admin and prints the plaintext secret for smoke E2E. | Admin route-crawl smoke setup only. | `DATABASE_URL`, `TOTP_ENCRYPTION_KEY`, exactly one seeded `admin` row. | Exits if env is missing or the update count is not exactly one; stdout is consumed by CI, so keep logs on stderr. |
+| `apps/backend/scripts/seed-icd10-local.mjs` | Seeds ICD-10 catalog rows and federates them into `terminology_concepts` when present. | Local terminology/clinical-coding tests. | `DATABASE_URL`; ICD10 seed data module present. | Individual code insert failures are counted; terminology federation is best-effort and logs skips. |
+| `apps/backend/scripts/seed-departments-doctors-local.mjs` | Seeds common departments and doctor profiles. | Local/demo scheduling and OPD workflows. | `DATABASE_URL`; user/doctor/department schema present. | Runs in one transaction; any insert/update error rolls back the whole seed. |
+| `apps/backend/scripts/seed-current-bed-structure.mjs` | Seeds the current VH inpatient bed/ward/zone structure and cleans legacy seed beds when safe. | Local QA bed-management, housekeeping, and admission workflows. | Local `vhhealth_test` or explicit `VH_ALLOW_NON_TEST_DATA_SEED=true`. | Refuses non-local DBs by default; cleanup skips active admissions but schema drift aborts. |
+| `apps/backend/scripts/seed-comprehensive-test-data.mjs` | Broad local test-data bootstrap, including beds, users, staff/admin passwords, and special-case workflow tables that generic seeding cannot satisfy. | Full local backend/admin/staff test environments. | Local `vhhealth_test` or explicit `VH_ALLOW_NON_TEST_DATA_SEED=true`; optional `VH_TEST_STAFF_PASSWORD` / `VH_TEST_ADMIN_PASSWORD`. | Refuses non-local DBs by default; table constraints and missing columns are the usual failure points. |
+| `apps/backend/scripts/seed-clinical-ai-preflight-reviewers.mjs` | Derives enabled clinical-AI modules' `reviewRoles` and seeds missing active reviewer users for a tenant. | Clinical-AI rollout preflight on smoke/test DBs. | `DATABASE_URL`; optional `--tenant <uuid>`. | Creates synthetic users; do not run against production without an explicit operator decision. Fails on clinical-AI schema drift. |
+
+## Operator Rules
+
+- Prefer dry runs where offered before changing production-like state.
+- Never run seed scripts against production unless the script and the change plan explicitly allow it.
+- Capture command output in the incident/change ticket; many of these scripts are the audit evidence for a later governed mode flip.
+- If a script reports partial tenant failure, fix the root cause and rerun the same script rather than hand-editing rows.
