@@ -5,7 +5,68 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/ward_list_filter_bar.dart';
 import '../../../l10n/app_strings.dart';
+
+const String admissionAllWards = '';
+const String admissionActiveStatus = 'active';
+const String admissionDischargedStatus = 'discharged';
+
+List<WardListFilterOption> admissionWardFilterOptions(
+  List<Map<String, dynamic>> rows,
+) {
+  final byValue = <String, String>{};
+  for (final row in rows) {
+    final value = _admissionText(
+      row['name'] ?? row['ward'] ?? row['ward_name'],
+    );
+    if (value.isEmpty) continue;
+    final label = _admissionText(row['label']);
+    byValue.putIfAbsent(value, () => label.isEmpty ? value : label);
+  }
+  final options = byValue.entries.toList()
+    ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+  return [
+    const WardListFilterOption(value: admissionAllWards, label: 'All wards'),
+    for (final option in options)
+      WardListFilterOption(value: option.key, label: option.value),
+  ];
+}
+
+List<WardListFilterOption> admissionStatusFilterOptions() {
+  return const [
+    WardListFilterOption(value: admissionActiveStatus, label: 'Active'),
+    WardListFilterOption(value: admissionDischargedStatus, label: 'Discharged'),
+  ];
+}
+
+String? admissionStatusQueryValue(String statusValue) {
+  return statusValue == admissionDischargedStatus
+      ? admissionDischargedStatus
+      : null;
+}
+
+List<Map<String, dynamic>> filterAdmissionRows(
+  List<Map<String, dynamic>> rows, {
+  String wardValue = admissionAllWards,
+  String statusValue = admissionActiveStatus,
+}) {
+  final ward = wardValue.trim().toLowerCase();
+  final status = statusValue.trim().toLowerCase();
+  return rows.where((row) {
+    if (ward.isNotEmpty && _admissionText(row['ward']).toLowerCase() != ward) {
+      return false;
+    }
+    if (status == admissionDischargedStatus) {
+      return _admissionText(row['status']).toLowerCase() ==
+          admissionDischargedStatus;
+    }
+    return _admissionText(row['status']).toLowerCase() !=
+        admissionDischargedStatus;
+  }).toList();
+}
+
+String _admissionText(Object? value) => (value ?? '').toString().trim();
 
 /// EMR Admissions screen — list active admissions, admit patients, view details.
 class AdmissionScreen extends StatefulWidget {
@@ -23,12 +84,28 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
   int _page = 1;
   int _totalAdmissions = 0;
   Map<String, dynamic> _scope = const {};
+  String _selectedWardValue = admissionAllWards;
+  String _selectedAdmissionStatus = admissionActiveStatus;
+  List<WardListFilterOption> _wardOptions = const [
+    WardListFilterOption(value: admissionAllWards, label: 'All wards'),
+  ];
   static const int _pageSize = 100;
 
   @override
   void initState() {
     super.initState();
+    _loadWardOptions();
     _loadAdmissions();
+  }
+
+  Future<void> _loadWardOptions() async {
+    try {
+      final rows = await MedicalApiService.getAdmissionWardOptions();
+      if (!mounted) return;
+      setState(() => _wardOptions = admissionWardFilterOptions(rows));
+    } catch (_) {
+      // The admission list itself still carries ward names; fall back to them.
+    }
   }
 
   Future<void> _loadAdmissions({bool append = false}) async {
@@ -46,6 +123,10 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       final data = await MedicalApiService.getActiveAdmissions(
         page: pageToLoad,
         limit: _pageSize,
+        ward: _selectedWardValue == admissionAllWards
+            ? null
+            : _selectedWardValue,
+        status: admissionStatusQueryValue(_selectedAdmissionStatus),
       );
       final list = _listFromAdmissions(data);
       final total =
@@ -55,6 +136,10 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         _admissions = append ? [..._admissions, ...list] : list;
         _totalAdmissions = total;
         _scope = _mapFrom(data['scope']);
+        if (_wardOptions.length <= 1 &&
+            _selectedWardValue == admissionAllWards) {
+          _wardOptions = admissionWardFilterOptions(list);
+        }
         _loading = false;
         _loadingMore = false;
       });
@@ -89,6 +174,10 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
 
   bool get _hasMoreAdmissions =>
       _totalAdmissions > 0 && _admissions.length < _totalAdmissions;
+
+  bool get _hasActiveAdmissionFilters =>
+      _selectedWardValue != admissionAllWards ||
+      _selectedAdmissionStatus != admissionActiveStatus;
 
   Map<String, dynamic> _mapFrom(dynamic value) {
     if (value is Map<String, dynamic>) return value;
@@ -603,104 +692,134 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                 ],
               ),
             )
-          : _admissions.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.bed, size: 64, color: AppTheme.divider),
-                  const SizedBox(height: 12),
-                  Text(
-                    s.admissionNoActive,
-                    style: TextStyle(color: AppTheme.textSecondary),
+          : Column(
+              children: [
+                WardListFilterBar(
+                  keyPrefix: 'admissions',
+                  wardOptions: _wardOptions,
+                  selectedWardValue: _selectedWardValue,
+                  onWardChanged: (value) {
+                    setState(() => _selectedWardValue = value);
+                    _loadAdmissions();
+                  },
+                  filterLabel: 'Admission status',
+                  filterOptions: admissionStatusFilterOptions(),
+                  selectedFilterValue: _selectedAdmissionStatus,
+                  onFilterChanged: (value) {
+                    setState(() => _selectedAdmissionStatus = value);
+                    _loadAdmissions();
+                  },
+                  hasActiveFilters: _hasActiveAdmissionFilters,
+                  onClear: () {
+                    setState(() {
+                      _selectedWardValue = admissionAllWards;
+                      _selectedAdmissionStatus = admissionActiveStatus;
+                    });
+                    _loadAdmissions();
+                  },
+                ),
+                Expanded(child: _buildAdmissionsBody(s)),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildAdmissionsBody(AppStrings s) {
+    if (_admissions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.bed, size: 64, color: AppTheme.divider),
+            const SizedBox(height: 12),
+            Text(
+              _selectedAdmissionStatus == admissionDischargedStatus
+                  ? 'No discharged admissions'
+                  : s.admissionNoActive,
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadAdmissions,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: _admissions.length + 1 + (_hasMoreAdmissions ? 1 : 0),
+        itemBuilder: (ctx, i) {
+          if (i == 0) return _buildScopeSummary(Theme.of(context));
+          final admissionIndex = i - 1;
+          if (admissionIndex >= _admissions.length) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Center(
+                child: OutlinedButton.icon(
+                  onPressed: _loadingMore
+                      ? null
+                      : () => _loadAdmissions(append: true),
+                  icon: _loadingMore
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.expand_more),
+                  label: Text(
+                    _loadingMore ? 'Loading patients' : 'Load more patients',
                   ),
+                ),
+              ),
+            );
+          }
+          final a = _admissions[admissionIndex];
+          final bedNumber = a['bed_number'] ?? a['bed'];
+          return Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              leading: CircleAvatar(
+                backgroundColor: _priorityColor(
+                  a['priority'] as String?,
+                ).withValues(alpha: 0.15),
+                child: Icon(
+                  Icons.local_hospital,
+                  color: _priorityColor(a['priority'] as String?),
+                ),
+              ),
+              title: Text(
+                a['patient_name'] as String? ?? s.admissionPatientFallback,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${a['ward'] ?? ''} ${bedNumber != null ? '- Bed $bedNumber' : ''}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  if (a['chief_complaint'] != null)
+                    Text(
+                      a['chief_complaint'] as String,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                 ],
               ),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadAdmissions,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount:
-                    _admissions.length + 1 + (_hasMoreAdmissions ? 1 : 0),
-                itemBuilder: (ctx, i) {
-                  if (i == 0) return _buildScopeSummary(Theme.of(context));
-                  final admissionIndex = i - 1;
-                  if (admissionIndex >= _admissions.length) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Center(
-                        child: OutlinedButton.icon(
-                          onPressed: _loadingMore
-                              ? null
-                              : () => _loadAdmissions(append: true),
-                          icon: _loadingMore
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.expand_more),
-                          label: Text(
-                            _loadingMore
-                                ? 'Loading patients'
-                                : 'Load more patients',
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-                  final a = _admissions[admissionIndex];
-                  final bedNumber = a['bed_number'] ?? a['bed'];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      leading: CircleAvatar(
-                        backgroundColor: _priorityColor(
-                          a['priority'] as String?,
-                        ).withValues(alpha: 0.15),
-                        child: Icon(
-                          Icons.local_hospital,
-                          color: _priorityColor(a['priority'] as String?),
-                        ),
-                      ),
-                      title: Text(
-                        a['patient_name'] as String? ??
-                            s.admissionPatientFallback,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${a['ward'] ?? ''} ${bedNumber != null ? '- Bed $bedNumber' : ''}',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          if (a['chief_complaint'] != null)
-                            Text(
-                              a['chief_complaint'] as String,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondary,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                        ],
-                      ),
-                      trailing: _statusBadge(a['status'] as String?),
-                      onTap: () => _showAdmissionDetail(a),
-                    ),
-                  );
-                },
-              ),
+              trailing: _statusBadge(a['status'] as String?),
+              onTap: () => _showAdmissionDetail(a),
             ),
+          );
+        },
+      ),
     );
   }
 }
