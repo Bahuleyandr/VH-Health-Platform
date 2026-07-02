@@ -27,6 +27,7 @@ export const RLS_TEST_ROLES = [
   'rls_sectx_test_app',
   'rls_phi_routes_test_app',
   'rls_journey_test_app',
+  'rls_w2_test_app',
 ];
 
 export async function provisionRlsTestRoles({ connectionString, grantToRole } = {}) {

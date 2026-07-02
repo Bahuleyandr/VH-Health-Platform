@@ -21,6 +21,13 @@ let noteId;
 let signatureId;
 let tamperedAuditId;
 
+async function withAuditBypass(fn) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    return fn(tx);
+  });
+}
+
 async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_document_signatures WHERE signature_statement LIKE 'C4TEST%'`,
@@ -38,10 +45,11 @@ async function cleanup() {
   // process via JEST_CI_ISOLATED_TESTS), so clearing the default-tenant chain
   // here is safe and makes the verdict deterministic. It still fully exercises
   // the trigger (rows chain on insert) + the verifier (tamper detected). NB:
-  // clinical_audit_events has no FK dependents, so a plain DELETE is sufficient.
-  await prisma.$executeRawUnsafe(
+  // clinical_audit_events is DB-enforced append-only (migration 324); test
+  // maintenance uses the explicit transaction-local bypass documented there.
+  await withAuditBypass((tx) => tx.$executeRawUnsafe(
     `DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`, DEFAULT_TENANT,
-  ).catch(() => {});
+  )).catch(() => {});
 }
 
 d('Document integrity — deep round-trip (roadmap C4)', () => {
@@ -99,20 +107,20 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
   });
 
   test('tampering with a chained row is detected', async () => {
-    await prisma.$executeRawUnsafe(
+    await withAuditBypass((tx) => tx.$executeRawUnsafe(
       `UPDATE clinical_audit_events SET action = 'c4test.event_two_TAMPERED' WHERE id = $1::uuid`,
       tamperedAuditId,
-    );
+    ));
     const verdict = await verifyAuditChain({ tenantId: DEFAULT_TENANT });
     expect(verdict.intact).toBe(false);
     expect(verdict.breaks).toBeGreaterThanOrEqual(1);
     expect(verdict.first_break_id).toBeTruthy();
 
     // Restore so later assertions (and other suites) see an intact chain.
-    await prisma.$executeRawUnsafe(
+    await withAuditBypass((tx) => tx.$executeRawUnsafe(
       `UPDATE clinical_audit_events SET action = 'c4test.event_two' WHERE id = $1::uuid`,
       tamperedAuditId,
-    );
+    ));
     const restored = await verifyAuditChain({ tenantId: DEFAULT_TENANT });
     expect(restored.intact).toBe(true);
   });

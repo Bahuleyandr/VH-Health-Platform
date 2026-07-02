@@ -24,6 +24,7 @@
 import prisma from '../lib/prisma.js';
 
 import { authClient } from './testClient.js';
+import { withAuditBypass } from './helpers/auditBypass.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -33,11 +34,11 @@ const PATIENT_NAME = 'SHADOWGUARD Patient';
 let patientUid;
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(
+  await withAuditBypass(prisma, (tx) => tx.$executeRawUnsafe(
     `DELETE FROM patient_access_audit_log
       WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`,
     PATIENT_NAME,
-  ).catch(() => {});
+  )).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = $1`, PATIENT_NAME).catch(() => {});
 }
 
@@ -76,10 +77,10 @@ d('CDS Hooks + clinical-document care-team guard (hard-enforce lock-in #5)', () 
   // Clear between tests so latestAuditRow() unambiguously reflects the row the
   // mount under test wrote (CDS and documents both target the same patient).
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
+    await withAuditBypass(prisma, (tx) => tx.$executeRawUnsafe(
       `DELETE FROM patient_access_audit_log WHERE patient_uid = $1::uuid`,
       patientUid,
-    ).catch(() => {});
+    )).catch(() => {});
   });
 
   test('a CDS Hooks invoke for an unrelated patient is BLOCKED (403) by the enforce guard', async () => {

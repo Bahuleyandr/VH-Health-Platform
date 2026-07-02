@@ -12,6 +12,7 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { generateTestToken } from './testClient.js';
+import { withAuditBypass } from './helpers/auditBypass.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
@@ -38,6 +39,21 @@ function asGuardian({ uid, id, phone }) {
   };
 }
 
+async function purgeActingAsAuditRows(uids) {
+  await withAuditBypass(prisma, async (tx) => {
+    for (const uid of uids) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM hipaa_access_log WHERE actor_uid = $1::uuid OR subject_uid = $1::uuid OR accessed_by = $1::uuid`,
+        uid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1::text`,
+        uid,
+      );
+    }
+  });
+}
+
 describe('Acting-as delegation — deep integration', () => {
   let guardianId;
   let otherGuardianId;
@@ -56,16 +72,7 @@ describe('Acting-as delegation — deep integration', () => {
     ];
 
     // Clean any prior runs in FK-safe order.
-    for (const uid of allUids) {
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM hipaa_access_log WHERE actor_uid = $1::uuid OR subject_uid = $1::uuid OR accessed_by = $1::uuid`,
-        uid,
-      );
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1::text`,
-        uid,
-      );
-    }
+    await purgeActingAsAuditRows(allUids);
     await prisma.$executeRawUnsafe(
       `UPDATE users SET guardian_user_id = NULL WHERE uid = ANY($1::uuid[])`,
       allUids,
@@ -157,16 +164,7 @@ describe('Acting-as delegation — deep integration', () => {
       GUARDIAN_UID, OTHER_GUARDIAN_UID,
       MINOR_LINKED_UID, MINOR_OTHER_UID, MINOR_FOREIGN_UID,
     ];
-    for (const uid of allUids) {
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM hipaa_access_log WHERE actor_uid = $1::uuid OR subject_uid = $1::uuid OR accessed_by = $1::uuid`,
-        uid,
-      );
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1::text`,
-        uid,
-      );
-    }
+    await purgeActingAsAuditRows(allUids);
     await prisma.$executeRawUnsafe(
       `UPDATE users SET guardian_user_id = NULL WHERE uid = ANY($1::uuid[])`,
       allUids,

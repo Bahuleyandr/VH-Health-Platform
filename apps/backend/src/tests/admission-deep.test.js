@@ -7,6 +7,7 @@ import prisma from '../lib/prisma.js';
 import { collectAdmissionClinicalContext } from '../services/emr/clinicalTimelineService.js';
 import request from 'supertest';
 import app from '../app.js';
+import { withAuditBypass } from './helpers/auditBypass.js';
 
 // Unique v4-shaped UUIDs so the suite is rerunnable and isolated from other tests.
 const DOCTOR_UID = 'a1111111-1111-4111-8111-111111111a01';
@@ -30,6 +31,18 @@ function adminAs(uid = ADMIN_UID) {
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
+}
+
+async function purgeAdmissionAuditLogs(patientUids) {
+  await withAuditBypass(prisma, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' IN ($1, $2, $3)`,
+      ...patientUids,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource = 'admissions'`,
+    );
+  });
 }
 
 describe('EMR admission/discharge/transfer — deep integration', () => {
@@ -58,11 +71,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' IN ($1, $2, $3)`,
-      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource = 'admissions'`);
+    await purgeAdmissionAuditLogs([PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID]);
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_consents WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
@@ -155,10 +164,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' IN ($1, $2, $3)`,
-      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource = 'admissions'`).catch(() => {});
+    await purgeAdmissionAuditLogs([PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID]).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_consents WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});

@@ -34,6 +34,23 @@ function clientAs({ uid, id, role = 'PATIENT', phone = null }) {
   };
 }
 
+async function withAuditBypass(fn) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    return fn(tx);
+  });
+}
+
+async function purgeDependentAuditLogs(uids) {
+  await withAuditBypass(async (tx) => {
+    for (const uid of uids) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1::text`, uid,
+      );
+    }
+  });
+}
+
 describe('User dependents — deep integration', () => {
   let guardianId;
   let otherGuardianId;
@@ -50,11 +67,7 @@ describe('User dependents — deep integration', () => {
     const allUids = [
       GUARDIAN_UID, OTHER_GUARDIAN_UID, MINOR_A_UID, MINOR_B_UID, ADULT_UID,
     ];
-    for (const uid of allUids) {
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1::text`, uid,
-      );
-    }
+    await purgeDependentAuditLogs(allUids);
     // Reset any prior guardian_user_id pointers before we delete the row
     // they reference; otherwise the FK ON DELETE SET NULL fires fine,
     // but resetting here keeps the DELETE clean.
@@ -120,11 +133,7 @@ describe('User dependents — deep integration', () => {
     const allUids = [
       GUARDIAN_UID, OTHER_GUARDIAN_UID, MINOR_A_UID, MINOR_B_UID, ADULT_UID,
     ];
-    for (const uid of allUids) {
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1::text`, uid,
-      );
-    }
+    await purgeDependentAuditLogs(allUids);
     await prisma.$executeRawUnsafe(
       `UPDATE users SET guardian_user_id = NULL WHERE uid = ANY($1::uuid[])`,
       allUids,

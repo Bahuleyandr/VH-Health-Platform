@@ -2,6 +2,7 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_TENANT_ID = '22222222-2222-4222-8222-222222222222';
@@ -36,7 +37,8 @@ describe('admin forecast routes', () => {
        ON CONFLICT (id) DO NOTHING`,
       OTHER_TENANT_ID
     );
-    await prisma.$executeRawUnsafe(
+    await deleteWithAuditBypass(
+      prisma,
       `DELETE FROM audit_logs
        WHERE action IN (
          'CLINICAL_AI_BED_FORECAST_GENERATED',
@@ -130,7 +132,8 @@ describe('admin forecast routes', () => {
        SET enabled = false
        WHERE module_key IN ('bed_discharge_forecast', 'pharmacy_stockout_predictor')`
     ).catch(() => {});
-    await prisma.$executeRawUnsafe(
+    await deleteWithAuditBypass(
+      prisma,
       `DELETE FROM audit_logs
        WHERE action IN (
          'CLINICAL_AI_BED_FORECAST_GENERATED',

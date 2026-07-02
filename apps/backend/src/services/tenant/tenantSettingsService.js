@@ -9,6 +9,10 @@
 //     rateLimits?: { <profile>: { windowMs?: number, max?: number } },
 //     branding?:   { name?, logoUrl?, primaryColor?, supportEmail? },
 //     cache?:      { enabledRoutes?: string[] },
+//     notificationChannels?: {
+//       appointment_reminder?: ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
+//       results_ready?:        ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
+//     },
 //   }
 import { getTenantById } from './tenantService.js';
 
