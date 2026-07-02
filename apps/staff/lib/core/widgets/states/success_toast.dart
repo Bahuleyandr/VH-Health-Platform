@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/utils/request_reference.dart';
 import '../../theme/app_theme.dart';
 
 /// Replaces the 4-second-auto-dismiss [SnackBar] for save actions.
@@ -72,9 +73,14 @@ class ErrorToast {
   static void show(
     BuildContext context,
     String message, {
+    String? requestId,
     SnackBarAction? action,
     Duration duration = const Duration(seconds: 8),
   }) {
+    final displayMessage = formatErrorWithRequestRef(
+      message.replaceFirst('Exception: ', ''),
+      requestId: requestId,
+    );
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -83,14 +89,14 @@ class ErrorToast {
           // even more reliable assistive-tech announcement than success.
           content: Semantics(
             liveRegion: true,
-            label: 'Error: $message',
+            label: 'Error: $displayMessage',
             child: Row(
               children: [
                 const Icon(Icons.error_outline, color: Colors.white, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    message,
+                    displayMessage,
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w500,

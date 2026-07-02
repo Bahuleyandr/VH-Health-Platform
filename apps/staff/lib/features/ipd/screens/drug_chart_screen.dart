@@ -615,6 +615,7 @@ class _DrugChartHeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       width: _chartWidth,
       height: _headerRowHeight,
@@ -627,18 +628,21 @@ class _DrugChartHeaderRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _tableHeaderCell('Drug', width: _drugCol),
-          _tableHeaderCell('Dose', width: _doseCol),
-          _tableHeaderCell('Route', width: _routeCol),
-          _tableHeaderCell('Started', width: _startedCol),
+          _tableHeaderCell(s.drugChartColumnDrug, width: _drugCol),
+          _tableHeaderCell(s.drugChartColumnDose, width: _doseCol),
+          _tableHeaderCell(s.drugChartColumnRoute, width: _routeCol),
+          _tableHeaderCell(s.drugChartColumnStarted, width: _startedCol),
           ..._doseSlots.map(
             (slot) => _tableHeaderCell(
-              '${slot.label}\n${slot.time}',
+              '${_doseSlotLabel(s, slot)}\n${slot.time}',
               width: _timeCol,
             ),
           ),
-          _tableHeaderCell('Food', width: _foodCol),
-          _tableHeaderCell('Safety / MAR / actions', width: _actionCol),
+          _tableHeaderCell(s.drugChartColumnFood, width: _foodCol),
+          _tableHeaderCell(
+            s.drugChartColumnSafetyMarActions,
+            width: _actionCol,
+          ),
         ],
       ),
     );
@@ -662,6 +666,7 @@ class _DrugChartOrderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final details =
         (order['details'] as Map?)?.cast<String, dynamic>() ?? const {};
     final administrations = _administrations(order);
@@ -729,7 +734,7 @@ class _DrugChartOrderRow extends StatelessWidget {
           ),
           _tableTextCell(dose, width: _doseCol),
           _tableTextCell(
-            _routeLabel(_text(details['route'])),
+            _routeLabel(s, _text(details['route'])),
             width: _routeCol,
           ),
           _StartedCell(
@@ -747,7 +752,7 @@ class _DrugChartOrderRow extends StatelessWidget {
             ),
           ),
           _tableTextCell(
-            _foodLabel(_text(details['food_timing'])),
+            _foodLabel(s, _text(details['food_timing'])),
             width: _foodCol,
           ),
           _tableCell(
@@ -798,6 +803,7 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final row = widget.row;
     return Container(
       width: _chartWidth,
@@ -826,10 +832,10 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
               controller: row.doseCtrl,
               minLines: 1,
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Dose',
-                hintText: 'auto-filled from drug strength',
-                helperText: 'Edit only if dose differs',
+              decoration: InputDecoration(
+                labelText: s.drugChartColumnDose,
+                hintText: s.drugChartDoseHint,
+                helperText: s.drugChartDoseHelper,
                 isDense: true,
               ),
             ),
@@ -840,15 +846,15 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             child: DropdownButtonFormField<String>(
               initialValue: row.route,
               isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Route',
+              decoration: InputDecoration(
+                labelText: s.drugChartColumnRoute,
                 isDense: true,
               ),
               items: _routeOptions.entries
                   .map(
                     (entry) => DropdownMenuItem(
                       value: entry.key,
-                      child: Text(entry.value),
+                      child: Text(_routeLabel(s, entry.key)),
                     ),
                   )
                   .toList(),
@@ -903,15 +909,15 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             child: DropdownButtonFormField<String>(
               initialValue: row.foodTiming,
               isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Food',
+              decoration: InputDecoration(
+                labelText: s.drugChartColumnFood,
                 isDense: true,
               ),
               items: _foodOptions.entries
                   .map(
                     (entry) => DropdownMenuItem(
                       value: entry.key,
-                      child: Text(entry.value),
+                      child: Text(_foodLabel(s, entry.key)),
                     ),
                   )
                   .toList(),
@@ -1605,13 +1611,41 @@ int _slotIndex(String time) {
   return index == -1 ? 999 : index;
 }
 
-String _routeLabel(String route) {
-  if (route.isEmpty) return '-';
-  return _routeOptions[route.toLowerCase()] ?? route;
+String _doseSlotLabel(AppStrings s, _DoseSlot slot) {
+  return switch (slot.key) {
+    'morning' => s.drugChartDoseMorning,
+    'afternoon' => s.drugChartDoseAfternoon,
+    'evening' => s.drugChartDoseEvening,
+    'night' => s.drugChartDoseNight,
+    _ => slot.label,
+  };
 }
 
-String _foodLabel(String value) {
-  return _foodOptions[value] ?? _foodOptions[value.toLowerCase()] ?? '-';
+String _routeLabel(AppStrings s, String route) {
+  if (route.isEmpty) return '-';
+  return switch (route.toLowerCase()) {
+    'oral' => s.drugChartRouteOral,
+    'iv' => s.drugChartRouteIv,
+    'im' => s.drugChartRouteIm,
+    'sc' => s.drugChartRouteSc,
+    'sublingual' => s.drugChartRouteSl,
+    'inhaled' => s.drugChartRouteInhaled,
+    'topical' => s.drugChartRouteTopical,
+    _ => _routeOptions[route.toLowerCase()] ?? route,
+  };
+}
+
+String _foodLabel(AppStrings s, String value) {
+  return switch (value.toLowerCase()) {
+    '' => s.drugChartFoodNone,
+    'before_food' => s.drugChartFoodBefore,
+    'after_food' => s.drugChartFoodAfter,
+    'with_food' => s.drugChartFoodWith,
+    'empty_stomach' => s.drugChartFoodEmptyStomach,
+    'bedtime' => s.drugChartFoodBedtime,
+    'prn' => s.drugChartFoodPrn,
+    _ => _foodOptions[value] ?? _foodOptions[value.toLowerCase()] ?? '-',
+  };
 }
 
 String _displayDose(Map<String, dynamic> details, String medicationName) {

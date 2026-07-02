@@ -749,6 +749,19 @@ class AppStrings {
   String get queueRecordFallback => _t('queue.record_fallback');
   String get queueUnknownPatient => _t('queue.unknown_patient');
 
+  // ── Front office workbench ────────────────────────────────────────
+  String get frontOfficeQueueToday => _t('front_office.queue.today');
+  String get frontOfficeQueueTomorrow => _t('front_office.queue.tomorrow');
+  String get frontOfficeQueueFollowingDay =>
+      _t('front_office.queue.following_day');
+  String get frontOfficeQueueTodayOp => _t('front_office.queue.today_op_queue');
+  String get frontOfficeQueueTomorrowOp =>
+      _t('front_office.queue.tomorrow_op_queue');
+  String get frontOfficeQueueFollowingDayOp =>
+      _t('front_office.queue.following_day_op_queue');
+  String frontOfficeQueueDatedOp(String date) =>
+      '$date ${_t('front_office.queue.op_queue_suffix')}';
+
   // ── Prescriptions screen ───────────────────────────────────────────
   String get prescriptionsTitle => _t('prescriptions.title');
   String get prescriptionsTabNew => _t('prescriptions.tab.new');
@@ -1128,6 +1141,33 @@ class AppStrings {
   String get drugChartSavedToast => _t('drug_chart.saved_toast');
   String get drugChartEmpty => _t('drug_chart.empty');
   String get drugChartGiven => _t('drug_chart.given');
+  String get drugChartColumnDrug => _t('drug_chart.column.drug');
+  String get drugChartColumnDose => _t('drug_chart.column.dose');
+  String get drugChartColumnRoute => _t('drug_chart.column.route');
+  String get drugChartColumnStarted => _t('drug_chart.column.started');
+  String get drugChartColumnFood => _t('drug_chart.column.food');
+  String get drugChartColumnSafetyMarActions =>
+      _t('drug_chart.column.safety_mar_actions');
+  String get drugChartDoseHint => _t('drug_chart.dose_hint');
+  String get drugChartDoseHelper => _t('drug_chart.dose_helper');
+  String get drugChartRouteOral => _t('drug_chart.route.oral');
+  String get drugChartRouteIv => _t('drug_chart.route.iv');
+  String get drugChartRouteIm => _t('drug_chart.route.im');
+  String get drugChartRouteSc => _t('drug_chart.route.sc');
+  String get drugChartRouteSl => _t('drug_chart.route.sl');
+  String get drugChartRouteInhaled => _t('drug_chart.route.inhaled');
+  String get drugChartRouteTopical => _t('drug_chart.route.topical');
+  String get drugChartFoodNone => _t('drug_chart.food.none');
+  String get drugChartFoodBefore => _t('drug_chart.food.before_food');
+  String get drugChartFoodAfter => _t('drug_chart.food.after_food');
+  String get drugChartFoodWith => _t('drug_chart.food.with_food');
+  String get drugChartFoodEmptyStomach => _t('drug_chart.food.empty_stomach');
+  String get drugChartFoodBedtime => _t('drug_chart.food.bedtime');
+  String get drugChartFoodPrn => _t('drug_chart.food.prn');
+  String get drugChartDoseMorning => _t('drug_chart.dose_slot.morning');
+  String get drugChartDoseAfternoon => _t('drug_chart.dose_slot.afternoon');
+  String get drugChartDoseEvening => _t('drug_chart.dose_slot.evening');
+  String get drugChartDoseNight => _t('drug_chart.dose_slot.night');
 
   // ── Vitals chart screen ────────────────────────────────────────────
   String get vitalsChartTitle => _t('vitals_chart.title');
@@ -2909,6 +2949,32 @@ class AppStrings {
       'drug_chart.saved_toast': 'Drug order saved and pharmacy intimated',
       'drug_chart.empty': 'No inpatient drugs charted',
       'drug_chart.given': 'Given',
+      'drug_chart.column.drug': 'Drug',
+      'drug_chart.column.dose': 'Dose',
+      'drug_chart.column.route': 'Route',
+      'drug_chart.column.started': 'Started',
+      'drug_chart.column.food': 'Food',
+      'drug_chart.column.safety_mar_actions': 'Safety / MAR / actions',
+      'drug_chart.dose_hint': 'auto-filled from drug strength',
+      'drug_chart.dose_helper': 'Edit only if dose differs',
+      'drug_chart.route.oral': 'Oral',
+      'drug_chart.route.iv': 'IV',
+      'drug_chart.route.im': 'IM',
+      'drug_chart.route.sc': 'SC',
+      'drug_chart.route.sl': 'SL',
+      'drug_chart.route.inhaled': 'Inhaled',
+      'drug_chart.route.topical': 'Topical',
+      'drug_chart.food.none': '-',
+      'drug_chart.food.before_food': 'Before food',
+      'drug_chart.food.after_food': 'After food',
+      'drug_chart.food.with_food': 'With food',
+      'drug_chart.food.empty_stomach': 'Empty stomach',
+      'drug_chart.food.bedtime': 'Bedtime',
+      'drug_chart.food.prn': 'PRN',
+      'drug_chart.dose_slot.morning': 'Morning',
+      'drug_chart.dose_slot.afternoon': 'Afternoon',
+      'drug_chart.dose_slot.evening': 'Evening',
+      'drug_chart.dose_slot.night': 'Night',
       'summary.title': 'Patient summary',
       'summary.tooltip': 'Patient summary',
       'summary.admitted_bed': 'Admitted · Bed {bed}',
@@ -3187,7 +3253,7 @@ class AppStrings {
       'nursing_notes.offline_queued':
           'Saved offline - will sync when connected',
       'nursing_notes.recent_empty':
-          'Your recent nursing notes will appear here once the backend API is connected.',
+          'No recent nursing notes are recorded for this patient yet.',
       'nursing_notes.type.observation': 'Observation',
       'nursing_notes.type.medication': 'Medication Note',
       'nursing_notes.type.post_procedure': 'Post-Procedure',
@@ -3274,6 +3340,13 @@ class AppStrings {
       'queue.no_phone_number': 'No phone number available',
       'queue.record_fallback': 'Record',
       'queue.unknown_patient': 'Unknown',
+      'front_office.queue.today': 'Today',
+      'front_office.queue.tomorrow': 'Tomorrow',
+      'front_office.queue.following_day': 'Following day',
+      'front_office.queue.today_op_queue': 'Today OP Queue',
+      'front_office.queue.tomorrow_op_queue': 'Tomorrow OP Queue',
+      'front_office.queue.following_day_op_queue': 'Following Day OP Queue',
+      'front_office.queue.op_queue_suffix': 'OP Queue',
       // Prescriptions
       'prescriptions.title': 'E-Prescriptions',
       'prescriptions.tab.new': 'New Prescription',
@@ -5081,6 +5154,32 @@ class AppStrings {
           'दवा आदेश सहेजा गया और फ़ार्मेसी को सूचित किया गया',
       'drug_chart.empty': 'कोई इनपेशेंट दवा चार्ट नहीं',
       'drug_chart.given': 'दिया गया',
+      'drug_chart.column.drug': 'दवा',
+      'drug_chart.column.dose': 'खुराक',
+      'drug_chart.column.route': 'मार्ग',
+      'drug_chart.column.started': 'शुरू',
+      'drug_chart.column.food': 'भोजन',
+      'drug_chart.column.safety_mar_actions': 'सुरक्षा / MAR / कार्रवाई',
+      'drug_chart.dose_hint': 'दवा की ताकत से अपने आप भरेगा',
+      'drug_chart.dose_helper': 'खुराक अलग हो तो ही बदलें',
+      'drug_chart.route.oral': 'मौखिक',
+      'drug_chart.route.iv': 'IV',
+      'drug_chart.route.im': 'IM',
+      'drug_chart.route.sc': 'SC',
+      'drug_chart.route.sl': 'SL',
+      'drug_chart.route.inhaled': 'इनहेल्ड',
+      'drug_chart.route.topical': 'स्थानीय',
+      'drug_chart.food.none': '-',
+      'drug_chart.food.before_food': 'भोजन से पहले',
+      'drug_chart.food.after_food': 'भोजन के बाद',
+      'drug_chart.food.with_food': 'भोजन के साथ',
+      'drug_chart.food.empty_stomach': 'खाली पेट',
+      'drug_chart.food.bedtime': 'सोते समय',
+      'drug_chart.food.prn': 'PRN',
+      'drug_chart.dose_slot.morning': 'सुबह',
+      'drug_chart.dose_slot.afternoon': 'दोपहर',
+      'drug_chart.dose_slot.evening': 'शाम',
+      'drug_chart.dose_slot.night': 'रात',
       // REVIEW: hi patient-summary batch — clinical wording
       'summary.title': 'रोगी सारांश',
       'summary.tooltip': 'रोगी सारांश',
@@ -5359,7 +5458,7 @@ class AppStrings {
       'nursing_notes.offline_queued':
           'ऑफ़लाइन सहेजा गया - कनेक्ट होने पर सिंक होगा',
       'nursing_notes.recent_empty':
-          'बैकएंड API कनेक्ट होने पर आपके हाल के नर्सिंग नोट्स यहाँ दिखाई देंगे।',
+          'इस मरीज़ के लिए अभी कोई हाल का नर्सिंग नोट दर्ज नहीं है।',
       'nursing_notes.type.observation': 'अवलोकन',
       'nursing_notes.type.medication': 'दवा नोट',
       'nursing_notes.type.post_procedure': 'प्रक्रिया के बाद',
@@ -5448,6 +5547,13 @@ class AppStrings {
       'queue.no_phone_number': 'कोई फ़ोन नंबर उपलब्ध नहीं',
       'queue.record_fallback': 'रिकॉर्ड',
       'queue.unknown_patient': 'अज्ञात',
+      'front_office.queue.today': 'आज',
+      'front_office.queue.tomorrow': 'कल',
+      'front_office.queue.following_day': 'परसों',
+      'front_office.queue.today_op_queue': 'आज की OP कतार',
+      'front_office.queue.tomorrow_op_queue': 'कल की OP कतार',
+      'front_office.queue.following_day_op_queue': 'परसों की OP कतार',
+      'front_office.queue.op_queue_suffix': 'OP कतार',
       // Prescriptions
       'prescriptions.title': 'ई-प्रिस्क्रिप्शन',
       'prescriptions.tab.new': 'नया प्रिस्क्रिप्शन',

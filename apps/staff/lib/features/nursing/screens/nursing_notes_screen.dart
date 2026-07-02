@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/widgets/data_state_builder.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -11,6 +12,28 @@ import '../../../l10n/app_strings.dart';
 import '../../emr/note_draft_autosave.dart';
 import '../../emr/widgets/note_draft_status_indicator.dart';
 
+typedef RecentNursingNotesLoader =
+    Future<Map<String, dynamic>> Function(
+      String patientUid, {
+      int page,
+      int limit,
+      String? noteType,
+    });
+
+Future<Map<String, dynamic>> defaultRecentNursingNotesLoader(
+  String patientUid, {
+  int page = 1,
+  int limit = 10,
+  String? noteType,
+}) {
+  return MedicalApiService.getPatientNotes(
+    patientUid,
+    noteType: noteType,
+    page: page,
+    limit: limit,
+  );
+}
+
 /// Nursing Notes screen — for Nursing Staff to add clinical notes per patient.
 /// Notes are saved to /emr/notes as append-only nursing assessments.
 ///
@@ -21,11 +44,13 @@ class NursingNotesScreen extends StatefulWidget {
   final String? prefillPatientUid;
   final String? prefillPatientName;
   final String? prefillPatientPhone;
+  final RecentNursingNotesLoader recentNotesLoader;
   const NursingNotesScreen({
     super.key,
     this.prefillPatientUid,
     this.prefillPatientName,
     this.prefillPatientPhone,
+    this.recentNotesLoader = defaultRecentNursingNotesLoader,
   });
 
   @override
@@ -90,7 +115,11 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
                   prefillPatientUid: widget.prefillPatientUid,
                   prefillPhone: widget.prefillPatientPhone,
                 ),
-                const _RecentNotesTab(),
+                RecentNursingNotesTab(
+                  patientUid: widget.prefillPatientUid,
+                  patientName: widget.prefillPatientName,
+                  loadNotes: widget.recentNotesLoader,
+                ),
                 // Cross-role visibility: doctor + nurse + every other author
                 // role for this patient, read-only with role badges. Admin
                 // sees an edit pencil on each row (PUT /emr/notes/:id).
@@ -638,38 +667,366 @@ class _NoPatientContext extends StatelessWidget {
   }
 }
 
-class _RecentNotesTab extends StatelessWidget {
-  const _RecentNotesTab();
+@visibleForTesting
+List<Map<String, dynamic>> recentNursingNotesFromResponse(
+  Map<String, dynamic> response,
+) {
+  final data = response['data'];
+  final candidates = <dynamic>[
+    response['notes'],
+    response['items'],
+    data,
+    if (data is Map) data['notes'],
+    if (data is Map) data['items'],
+  ];
+  for (final candidate in candidates) {
+    if (candidate is List) {
+      return candidate
+          .whereType<Map>()
+          .map((row) => row.cast<String, dynamic>())
+          .toList(growable: false);
+    }
+  }
+  return const [];
+}
+
+@visibleForTesting
+bool recentNursingNotesHasNextPage(Map<String, dynamic> response) {
+  final data = response['data'];
+  final meta = _mapFromAny(response['meta']);
+  final pagination = _mapFromAny(response['pagination'] ?? meta?['pagination']);
+  final nestedPagination = data is Map ? _mapFromAny(data['pagination']) : null;
+  final page = nestedPagination ?? pagination;
+  if (page == null) return false;
+  final explicit = page['hasNext'] ?? page['has_next'] ?? page['has_more'];
+  if (explicit is bool) return explicit;
+  final currentPage = _intFrom(page['page']);
+  final totalPages = _intFrom(page['totalPages'] ?? page['pages']);
+  if (currentPage != null && totalPages != null) {
+    return currentPage < totalPages;
+  }
+  final total = _intFrom(page['total']);
+  final limit = _intFrom(page['limit']);
+  if (currentPage != null && total != null && limit != null && limit > 0) {
+    return currentPage * limit < total;
+  }
+  return false;
+}
+
+class RecentNursingNotesTab extends StatefulWidget {
+  final String? patientUid;
+  final String? patientName;
+  final RecentNursingNotesLoader loadNotes;
+  final int pageSize;
+
+  const RecentNursingNotesTab({
+    super.key,
+    required this.patientUid,
+    this.patientName,
+    this.loadNotes = defaultRecentNursingNotesLoader,
+    this.pageSize = 10,
+  });
+
+  @override
+  State<RecentNursingNotesTab> createState() => _RecentNursingNotesTabState();
+}
+
+class _RecentNursingNotesTabState extends State<RecentNursingNotesTab> {
+  static const _noteType = 'nursing_assessment';
+
+  bool _loading = false;
+  bool _loadingMore = false;
+  String? _error;
+  int _page = 1;
+  bool _hasNext = false;
+  List<Map<String, dynamic>> _notes = const [];
+
+  String get _patientUid => widget.patientUid?.trim() ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (_patientUid.isNotEmpty) {
+      Future<void>.microtask(_loadFirstPage);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant RecentNursingNotesTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.patientUid != widget.patientUid && _patientUid.isNotEmpty) {
+      _loadFirstPage();
+    }
+  }
+
+  Future<void> _loadFirstPage() async => _loadPage(1, reset: true);
+
+  Future<void> _loadNextPage() async {
+    if (!_hasNext || _loadingMore || _loading) return;
+    await _loadPage(_page + 1);
+  }
+
+  Future<void> _loadPage(int page, {bool reset = false}) async {
+    final uid = _patientUid;
+    if (uid.isEmpty) return;
+    setState(() {
+      if (reset) {
+        _loading = true;
+        _notes = const [];
+      } else {
+        _loadingMore = true;
+      }
+      _error = null;
+    });
+    try {
+      final response = await widget.loadNotes(
+        uid,
+        noteType: _noteType,
+        page: page,
+        limit: widget.pageSize,
+      );
+      final notes = recentNursingNotesFromResponse(response);
+      notes.sort((a, b) {
+        final left = _dateTime(a['created_at']) ?? DateTime(1970);
+        final right = _dateTime(b['created_at']) ?? DateTime(1970);
+        return right.compareTo(left);
+      });
+      if (!mounted) return;
+      setState(() {
+        _page = page;
+        _notes = reset ? notes : [..._notes, ...notes];
+        _hasNext = recentNursingNotesHasNextPage(response);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    // TODO: Fetch recent notes from backend when API is available
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.edit_note, size: 56, color: AppTheme.textSecondary),
-          const SizedBox(height: 16),
-          Text(
-            s.nursingNotesTabRecent,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.textPrimary,
-            ),
+    if (_patientUid.isEmpty) return _NoPatientContext();
+
+    return DataStateBuilder<Map<String, dynamic>>(
+      isLoading: _loading,
+      error: _error,
+      data: _notes,
+      onRetry: _loadFirstPage,
+      emptyIcon: Icons.edit_note_outlined,
+      emptyTitle: s.nursingNotesTabRecent,
+      emptySubtitle: s.nursingNotesRecentEmpty,
+      builder: (context, notes) {
+        return RefreshIndicator(
+          onRefresh: _loadFirstPage,
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            itemCount: notes.length + (_hasNext ? 1 : 0),
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              if (index >= notes.length) {
+                return Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _loadingMore ? null : _loadNextPage,
+                    icon: _loadingMore
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more),
+                    label: Text(_loadingMore ? 'Loading...' : 'Load more'),
+                  ),
+                );
+              }
+              return _RecentNursingNoteCard(note: notes[index]);
+            },
           ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              s.nursingNotesRecentEmpty,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.textSecondary),
+        );
+      },
+    );
+  }
+}
+
+class _RecentNursingNoteCard extends StatelessWidget {
+  final Map<String, dynamic> note;
+
+  const _RecentNursingNoteCard({required this.note});
+
+  @override
+  Widget build(BuildContext context) {
+    final type = _text(note['note_type'], fallback: 'nursing_assessment');
+    final content = note['content'];
+    final body = _noteBody(content);
+    final category = content is Map
+        ? _text(content['note_category'], fallback: _displayNoteType(type))
+        : _displayNoteType(type);
+    final author = _firstText([
+      note['author_name'],
+      note['created_by_name'],
+      note['author'] is Map ? (note['author'] as Map)['name'] : null,
+    ]);
+    final createdAt = _dateTime(note['created_at']);
+    final signed = note['is_signed'] == true;
+
+    return Card(
+      elevation: 0,
+      color: AppTheme.cardSurface,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: AppTheme.divider),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _RecentNoteBadge(
+                  label: category,
+                  color: const Color(0xFF00695C),
+                ),
+                if (signed) ...[
+                  const SizedBox(width: 6),
+                  _RecentNoteBadge(
+                    label: 'SIGNED',
+                    color: AppTheme.successOnSurface,
+                  ),
+                ],
+                const Spacer(),
+                Text(
+                  _formatDateTime(createdAt),
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                ),
+              ],
             ),
-          ),
-        ],
+            if (author.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.person_outline,
+                    size: 14,
+                    color: AppTheme.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    author,
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              body.isEmpty ? '-' : body,
+              style: TextStyle(color: AppTheme.textPrimary),
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  String _noteBody(dynamic content) {
+    if (content is Map) {
+      return _firstText([
+        content['free_text'],
+        content['body'],
+        content['note'],
+        content['summary'],
+        content['text'],
+      ]);
+    }
+    return _text(content);
+  }
+}
+
+class _RecentNoteBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _RecentNoteBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.36)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+Map<String, dynamic>? _mapFromAny(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+int? _intFrom(dynamic value) {
+  if (value is int) return value;
+  return int.tryParse(value?.toString() ?? '');
+}
+
+DateTime? _dateTime(dynamic value) {
+  if (value == null) return null;
+  return DateTime.tryParse(value.toString())?.toLocal();
+}
+
+String _formatDateTime(DateTime? value) {
+  if (value == null) return '-';
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$year-$month-$day $hour:$minute';
+}
+
+String _displayNoteType(String type) {
+  final normalized = type.trim().toLowerCase().replaceAll('_', ' ');
+  if (normalized.isEmpty) return 'Nursing note';
+  return normalized.replaceFirstMapped(
+    RegExp(r'^.'),
+    (match) => match[0]!.toUpperCase(),
+  );
+}
+
+String _firstText(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = _text(value);
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  return '';
+}
+
+String _text(dynamic value, {String fallback = ''}) {
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? fallback : text;
 }

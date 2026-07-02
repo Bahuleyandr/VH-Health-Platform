@@ -15,6 +15,7 @@ import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
@@ -32,6 +33,28 @@ String frontOfficeQueueDateLabel(DateTime date, {DateTime? now}) {
   if (offset == 1) return 'Tomorrow OP Queue';
   if (offset == 2) return 'Following Day OP Queue';
   return '${DateFormat('EEE, d MMM').format(day)} OP Queue';
+}
+
+String frontOfficeQueueDateLabelForStrings(
+  AppStrings s,
+  DateTime date, {
+  DateTime? now,
+}) {
+  final today = _dateOnly(now ?? DateTime.now());
+  final day = _dateOnly(date);
+  final offset = day.difference(today).inDays;
+  if (offset == 0) return s.frontOfficeQueueTodayOp;
+  if (offset == 1) return s.frontOfficeQueueTomorrowOp;
+  if (offset == 2) return s.frontOfficeQueueFollowingDayOp;
+  return s.frontOfficeQueueDatedOp(DateFormat('EEE, d MMM').format(day));
+}
+
+String frontOfficeQuickQueueDateLabel(AppStrings s, int offset) {
+  return switch (offset) {
+    0 => s.frontOfficeQueueToday,
+    1 => s.frontOfficeQueueTomorrow,
+    _ => s.frontOfficeQueueFollowingDay,
+  };
 }
 
 @visibleForTesting
@@ -3109,6 +3132,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildHeader(AppDeviceMode mode) {
+    final s = AppStrings.of(context);
     return _Surface(
       child: Wrap(
         spacing: 12,
@@ -3147,7 +3171,7 @@ class _FrontOfficeWorkbenchScreenState
           ),
           _Metric(
             icon: Icons.event_available,
-            label: 'Today OP Queue',
+            label: s.frontOfficeQueueTodayOp,
             value: '${_todayQueue.length}',
             color: AppTheme.primaryTeal,
             onTap: () => _scrollTo(_queuePanelKey),
@@ -3551,10 +3575,11 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildQueuePanel() {
+    final s = AppStrings.of(context);
     final queueScope = _queueScope;
     final title = queueScope == FrontOfficeQueueScope.mine
-        ? 'My ${frontOfficeQueueDateLabel(_queueDate)}'
-        : frontOfficeQueueDateLabel(_queueDate);
+        ? 'My ${frontOfficeQueueDateLabelForStrings(s, _queueDate)}'
+        : frontOfficeQueueDateLabelForStrings(s, _queueDate);
     final dateParam = _dateParam(_queueDate);
     return _Surface(
       child: Column(
@@ -4836,6 +4861,7 @@ class _QueueDateSwitcher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final today = _dateOnly(DateTime.now());
     final days = [
       today,
@@ -4848,11 +4874,9 @@ class _QueueDateSwitcher extends StatelessWidget {
         children: [
           for (final day in days) ...[
             ChoiceChip(
-              label: Text(switch (day.difference(today).inDays) {
-                0 => 'Today',
-                1 => 'Tomorrow',
-                _ => 'Following day',
-              }),
+              label: Text(
+                frontOfficeQuickQueueDateLabel(s, day.difference(today).inDays),
+              ),
               selected: _dateOnly(selectedDate) == day,
               onSelected: (_) => onSelected(day),
             ),

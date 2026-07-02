@@ -53,7 +53,7 @@ class MedicalApiService {
         return raw;
       }
     }
-    throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
+    throw Exception(resp.failureMessage());
   }
 
   // ─── Consultations ──────────────────────────────────────────────────────────
@@ -1083,8 +1083,18 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> getPatientNotes(
     String uid, {
     String? noteType,
+    int page = 1,
+    int limit = 20,
   }) async {
-    return _get('/emr/notes/patient/$uid', query: {'note_type': ?noteType});
+    return _get(
+      '/emr/notes/patient/$uid',
+      query: {
+        if (noteType != null && noteType.trim().isNotEmpty)
+          'note_type': noteType.trim(),
+        'page': page.toString(),
+        'limit': limit.toString(),
+      },
+    );
   }
 
   /// GET /patients/:uid/timeline — canonical patient timeline.
