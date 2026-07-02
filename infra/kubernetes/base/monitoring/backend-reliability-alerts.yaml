@@ -100,6 +100,14 @@ spec:
           annotations:
             summary: "Prisma DB circuit breaker is OPEN — queries are being rejected fast"
             runbook: "docs/RUNBOOK_ONCALL.md#dbcircuitbreakeropen"
+        - alert: DbReadReplicaLagHigh
+          expr: max(db_read_replica_lag_seconds) > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Backend read-replica lag above 30s — read-only routes may serve stale data"
+            runbook: "docs/RUNBOOK_ONCALL.md#dbreadreplicalaghigh"
     - name: backend-safety-signals
       interval: 30s
       rules:

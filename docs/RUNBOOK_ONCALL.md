@@ -250,3 +250,31 @@ GitOps audit trail.
 Use this path during an active outage when a known-good ArgoCD history entry is
 available and waiting for a Git revert would extend patient- or operator-facing
 impact. Follow with the Git revert as soon as the service is stable.
+
+## DbReadReplicaLagHigh
+
+The backend exporter is reporting `db_read_replica_lag_seconds > 30` through
+`prismaReadOnly`, which means read-only analytics/dashboard routes may serve
+stale data.
+1. Confirm the app metric and CNPG agree: Grafana backend Reliability →
+   read-replica lag, then `kubectl -n vhhealth-platform get cluster vhhealth-pg -o wide`.
+2. If lag is rising, inspect replica pod CPU/I/O, WAL replay, and network health.
+   Do not route additional reads to the replica while the alert is firing.
+3. If stale reads are clinically or operationally risky, unset/seal out
+   `DATABASE_READ_URL` so `prismaReadOnly` falls back to primary, then restart
+   backend pods and watch read latency.
+
+## Read Replica Activation
+
+Use this only after the CNPG read-only pooler is healthy and the go-live checklist
+owner approves the read split. This is a DSN activation, not a clinical-mode flip.
+1. Seal the read-only DSN that points at the CNPG RO pooler service, not a direct
+   pod address and not the primary pooler.
+2. Point backend `DATABASE_READ_URL` at that sealed CNPG RO pooler value and sync
+   the backend secret through the normal GitOps path.
+3. Restart or roll the backend Deployment so `prismaReadOnly` is created against
+   the replica DSN.
+4. Verify `db_read_replica_lag_seconds` appears in `/metrics`, Grafana backend
+   Reliability shows the lag series, and `DbReadReplicaLagHigh` stays green.
+5. Confirm analytics/dashboard reads are healthy, then record the activation time,
+   DSN secret version, lag baseline, and rollback owner in the incident/change log.
