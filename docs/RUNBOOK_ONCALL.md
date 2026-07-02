@@ -205,3 +205,48 @@ Availability error budget for the **99.95% SLO** (~21 min/month) is burning fast
 For one-off tenant onboarding, RLS/runtime-role rehearsal, ledger cutover
 evidence, clinical-AI readiness checks, PHI encryption jobs, QA cluster bring-up,
 and seed scripts, use [`SCRIPTS_INDEX.md`](SCRIPTS_INDEX.md).
+
+## Rollback
+
+Use this section for staging/prod app image digest rollbacks. Digest-pin rollback
+is the default when the bad rollout came from a Git pin commit; ArgoCD rollback
+is the fallback when Git cannot be changed quickly enough or ArgoCD history is
+the only known-good reference.
+
+### Preferred: revert the digest-pin commit
+
+1. Identify the pin commit that changed the app image digests:
+   `git log --oneline -- infra/kubernetes/apps/kustomization.yaml infra/kubernetes/overlays/staging/apps/kustomization.yaml`.
+2. Revert that commit on a new branch:
+   `git switch -c revert/bad-image-pin && git revert <pin-commit-sha>`.
+3. Validate the affected kustomize path before pushing:
+   `kubectl kustomize infra/kubernetes/apps >/tmp/vhhealth-apps.yaml` for prod app pins, or
+   `kubectl kustomize infra/kubernetes/overlays/staging/apps >/tmp/vhhealth-staging-apps.yaml` for staging app pins.
+4. Merge the revert and push `main`, then sync the relevant ArgoCD app:
+   `argocd app sync vhhealth-apps --revision <revert-commit-sha>` or
+   `argocd app sync vhhealth-apps-staging --revision <revert-commit-sha>`.
+5. Verify rollout health:
+   `argocd app wait <app-name> --health --sync --timeout 900`,
+   `kubectl -n vhhealth rollout status deploy/vhhealth-backend deploy/vhhealth-admin`,
+   and `curl -fsS https://api.vhhealth.app/api/v1/health` (or the staging host).
+
+Use this path when the faulty state is isolated to one or more pinned image
+digests, the previous Git commit is known-good, and there is time to preserve the
+GitOps audit trail.
+
+### Fallback: ArgoCD application rollback
+
+1. Inspect application history:
+   `argocd app history vhhealth-apps` or `argocd app history vhhealth-apps-staging`.
+2. Roll back to the last known-good history ID:
+   `argocd app rollback <app-name> <history-id>`.
+3. Immediately open a Git revert branch for the bad digest-pin commit so the
+   repository catches up with the live state; otherwise the next sync can reapply
+   the bad digest.
+4. Verify the same health signals as above plus the backend logs for migration or
+   startup failures:
+   `kubectl -n vhhealth logs deploy/vhhealth-backend --since=10m | tail -100`.
+
+Use this path during an active outage when a known-good ArgoCD history entry is
+available and waiting for a Git revert would extend patient- or operator-facing
+impact. Follow with the Git revert as soon as the service is stable.

@@ -1,0 +1,134 @@
+name: Deploy staging
+
+# Manual-only staging preparation. This workflow resolves already-built,
+# signed, and scanned release image tags into immutable digests, commits those
+# pins into the staging app overlay, validates the staging kustomize trees, and
+# prints the exact manual ArgoCD/kubectl commands. It does not mutate a cluster.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: "Existing backend image tag from release-images.yml, e.g. backend-v1.2.3"
+        required: true
+        type: string
+      admin_tag:
+        description: "Existing admin image tag from release-images.yml, e.g. admin-v1.2.3"
+        required: true
+        type: string
+      staff_web_tag:
+        description: "Existing staff web image tag from release-images.yml, e.g. staff-web-v1.2.3"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  pin-and-summarize:
+    name: Pin staging digests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install kubectl for kubectl kustomize validation
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.34.1
+
+      - name: Resolve image digests into staging app overlay
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BACKEND_TAG: ${{ inputs.backend_tag }}
+          ADMIN_TAG: ${{ inputs.admin_tag }}
+          STAFF_WEB_TAG: ${{ inputs.staff_web_tag }}
+        run: |
+          node scripts/update-prod-digests.mjs \
+            --kustomization infra/kubernetes/overlays/staging/apps/kustomization.yaml \
+            --tag "${BACKEND_TAG}" \
+            --tag "${ADMIN_TAG}" \
+            --tag "${STAFF_WEB_TAG}"
+
+      - name: Validate staging kustomize paths
+        run: |
+          kubectl kustomize infra/kubernetes/overlays/staging > /tmp/vhhealth-staging-platform.yaml
+          kubectl kustomize infra/kubernetes/overlays/staging/apps > /tmp/vhhealth-staging-apps.yaml
+
+      - name: Commit staging digest pins
+        id: commit
+        env:
+          BACKEND_TAG: ${{ inputs.backend_tag }}
+          ADMIN_TAG: ${{ inputs.admin_tag }}
+          STAFF_WEB_TAG: ${{ inputs.staff_web_tag }}
+        run: |
+          if git diff --quiet -- infra/kubernetes/overlays/staging/apps/kustomization.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "vh-staging-digest-bot"
+          git config user.email "noreply@vhhealth.app"
+          git add infra/kubernetes/overlays/staging/apps/kustomization.yaml
+          git commit -m "chore(staging): pin app image digests"
+          git push origin main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Write manual deploy summary
+        env:
+          PIN_SHA: ${{ steps.commit.outputs.sha }}
+          CHANGED: ${{ steps.commit.outputs.changed }}
+          BACKEND_TAG: ${{ inputs.backend_tag }}
+          ADMIN_TAG: ${{ inputs.admin_tag }}
+          STAFF_WEB_TAG: ${{ inputs.staff_web_tag }}
+        run: |
+          {
+            echo "# VH Health staging deploy preparation"
+            echo ""
+            echo "| Input | Tag |"
+            echo "| --- | --- |"
+            echo "| Backend | \`${BACKEND_TAG}\` |"
+            echo "| Admin | \`${ADMIN_TAG}\` |"
+            echo "| Staff web | \`${STAFF_WEB_TAG}\` |"
+            echo ""
+            echo "**Digest pin commit:** \`${PIN_SHA}\`"
+            echo "**Created new pin commit:** \`${CHANGED}\`"
+            echo ""
+            echo "This workflow only updated Git and rendered kustomize. It did not mutate any cluster."
+            echo ""
+            echo "## Manual ArgoCD path"
+            echo ""
+            echo "Run this only after the staging ArgoCD Applications exist and point at the staging paths:"
+            echo ""
+            echo '```bash'
+            echo "argocd app sync vhhealth-platform-staging --revision ${PIN_SHA}"
+            echo "argocd app sync vhhealth-apps-staging --revision ${PIN_SHA}"
+            echo "argocd app wait vhhealth-platform-staging vhhealth-apps-staging --health --sync --timeout 900"
+            echo '```'
+            echo ""
+            echo "## Manual kubectl path"
+            echo ""
+            echo "Run this from a workstation with staging kubeconfig:"
+            echo ""
+            echo '```bash'
+            echo "git fetch origin main"
+            echo "git checkout ${PIN_SHA}"
+            echo "kubectl apply -k infra/kubernetes/overlays/staging"
+            echo "kubectl apply -k infra/kubernetes/overlays/staging/apps"
+            echo "kubectl -n vhhealth-platform get pods"
+            echo "kubectl -n vhhealth get deploy,po"
+            echo '```'
+            echo ""
+            echo "Rollback instructions are appended in docs/RUNBOOK_ONCALL.md."
+          } >> "$GITHUB_STEP_SUMMARY"
