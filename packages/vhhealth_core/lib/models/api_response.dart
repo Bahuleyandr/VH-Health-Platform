@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../utils/request_reference.dart';
 
 /// Parsed backend response envelope.
 class ApiResponse {
@@ -9,6 +10,7 @@ class ApiResponse {
   final dynamic data;
   final dynamic raw;
   final String? message;
+  final String? requestId;
 
   bool get isUnauthorized => statusCode == 401;
 
@@ -18,23 +20,32 @@ class ApiResponse {
     this.data,
     this.raw,
     this.message,
+    this.requestId,
   });
 
   factory ApiResponse.fromHttp(http.Response response) {
-    return ApiResponse.parse(response.statusCode, response.body);
+    return ApiResponse.parse(
+      response.statusCode,
+      response.body,
+      requestId: _requestIdFromHeaders(response.headers),
+    );
   }
 
-  static ApiResponse parse(int statusCode, String body) {
+  static ApiResponse parse(int statusCode, String body, {String? requestId}) {
     final isSuccess = statusCode >= 200 && statusCode < 300;
     dynamic decoded;
     dynamic data;
     String? message;
+    String? parsedRequestId = requestId?.trim();
 
     try {
       decoded = jsonDecode(body);
       if (decoded is Map<String, dynamic>) {
         data = decoded['data'];
         message = (decoded['message'] ?? decoded['error'])?.toString();
+        parsedRequestId = (parsedRequestId == null || parsedRequestId.isEmpty)
+            ? decoded['requestId']?.toString().trim()
+            : parsedRequestId;
       } else {
         data = decoded;
       }
@@ -52,6 +63,14 @@ class ApiResponse {
       data: data,
       raw: decoded,
       message: message,
+      requestId: parsedRequestId?.isEmpty == true ? null : parsedRequestId,
+    );
+  }
+
+  String failureMessage([String? fallback]) {
+    return formatErrorWithRequestRef(
+      message ?? fallback ?? 'Request failed ($statusCode)',
+      requestId: requestId,
     );
   }
 
@@ -66,6 +85,17 @@ class ApiResponse {
   Map<String, dynamic> dataAsMap() {
     if (data is Map<String, dynamic>) return data;
     return {};
+  }
+
+  static String? _requestIdFromHeaders(Map<String, String> headers) {
+    for (final entry in headers.entries) {
+      final key = entry.key.toLowerCase();
+      if (key == 'x-request-id' || key == 'request-id') {
+        final value = entry.value.trim();
+        return value.isEmpty ? null : value;
+      }
+    }
+    return null;
   }
 }
 

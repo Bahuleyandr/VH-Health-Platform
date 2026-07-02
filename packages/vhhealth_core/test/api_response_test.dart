@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/models/api_response.dart';
+import 'package:vhhealth_core/utils/request_reference.dart';
 
 void main() {
   group('ApiResponse.parse', () {
@@ -75,6 +77,59 @@ void main() {
 
       expect(resp.data, isA<List>());
       expect(resp.data.length, 2);
+    });
+
+    test('captures request id from HTTP headers', () {
+      final response = http.Response(
+        jsonEncode({'success': false, 'message': 'Nope'}),
+        500,
+        headers: {'x-request-id': 'abcdef1234567890'},
+      );
+
+      final resp = ApiResponse.fromHttp(response);
+
+      expect(resp.requestId, 'abcdef1234567890');
+      expect(resp.failureMessage(), 'Nope · ref abcdef12');
+    });
+
+    test(
+      'captures request id from response envelope when header is absent',
+      () {
+        final resp = ApiResponse.parse(
+          400,
+          jsonEncode({
+            'success': false,
+            'message': 'Invalid request',
+            'requestId': 'req-9000000',
+          }),
+        );
+
+        expect(resp.requestId, 'req-9000000');
+        expect(resp.failureMessage(), 'Invalid request · ref req-9000');
+      },
+    );
+  });
+
+  group('request reference formatter', () {
+    test('appends the first eight request-id characters', () {
+      expect(
+        formatErrorWithRequestRef('Save failed', requestId: 'abcdef1234567890'),
+        'Save failed · ref abcdef12',
+      );
+    });
+
+    test('leaves blank request ids and existing refs alone', () {
+      expect(
+        formatErrorWithRequestRef(' Save failed ', requestId: ' '),
+        'Save failed',
+      );
+      expect(
+        formatErrorWithRequestRef(
+          'Save failed · ref abcdef12',
+          requestId: 'abcdef1234567890',
+        ),
+        'Save failed · ref abcdef12',
+      );
     });
   });
 
