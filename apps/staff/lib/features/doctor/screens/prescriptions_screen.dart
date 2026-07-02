@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
+import '../../../core/models/composition_alternatives.dart';
 import '../../../core/platform_info.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -23,6 +24,7 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
 import '../../ipd/utils/drug_chart_utils.dart';
+import '../../pharmacy/widgets/composition_alternatives_panel.dart';
 import '../prescription_offline_rx.dart';
 import '../widgets/cds_blocker_modal.dart';
 
@@ -96,11 +98,31 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
 // Medication model
 // ═══════════════════════════════════════════════════════════════════════════════
 
+int? _entryInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+String? _entryText(Object? value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty || text.toLowerCase() == 'null') return null;
+  return text;
+}
+
 class _MedicationEntry {
   String name;
   String displayName;
   String? genericName;
   int? catalogId;
+  int? originalCatalogId;
+  int? compositionId;
+  String? compositionLabel;
+  String? compositionConfidence;
+  String? strengthKey;
+  String? form;
+  String? formKey;
+  String? releaseKey;
   List<Map<String, dynamic>> catalogRows;
   String strength;
   List<String> strengthOptions;
@@ -126,6 +148,14 @@ class _MedicationEntry {
     this.displayName = '',
     this.genericName,
     this.catalogId,
+    this.originalCatalogId,
+    this.compositionId,
+    this.compositionLabel,
+    this.compositionConfidence,
+    this.strengthKey,
+    this.form,
+    this.formKey,
+    this.releaseKey,
     List<Map<String, dynamic>>? catalogRows,
     this.strength = '',
     List<String>? strengthOptions,
@@ -163,6 +193,18 @@ class _MedicationEntry {
       if (visibleName.isNotEmpty) 'display_name': visibleName,
       if (genericName != null) 'generic_name': genericName,
       if (catalogId != null) 'catalog_id': catalogId,
+      if (originalCatalogId != null &&
+          catalogId != null &&
+          originalCatalogId != catalogId)
+        'original_catalog_id': originalCatalogId,
+      if (compositionId != null) 'composition_id': compositionId,
+      if (compositionLabel != null) 'composition_label': compositionLabel,
+      if (compositionConfidence != null)
+        'composition_confidence': compositionConfidence,
+      if (strengthKey != null) 'strength_key': strengthKey,
+      if (form != null) 'form': form,
+      if (formKey != null) 'form_key': formKey,
+      if (releaseKey != null) 'release_key': releaseKey,
       if (strength.trim().isNotEmpty) 'strength': strength.trim(),
       'dosage': dosage.trim().isNotEmpty ? dosage.trim() : strength.trim(),
       'frequency': frequency,
@@ -194,9 +236,15 @@ class _MedicationEntry {
       displayName:
           json['display_name']?.toString() ?? json['name']?.toString() ?? '',
       genericName: json['generic_name']?.toString(),
-      catalogId: json['catalog_id'] is int
-          ? json['catalog_id'] as int
-          : int.tryParse(json['catalog_id']?.toString() ?? ''),
+      catalogId: _entryInt(json['catalog_id'] ?? json['id']),
+      originalCatalogId: _entryInt(json['original_catalog_id']),
+      compositionId: _entryInt(json['composition_id']),
+      compositionLabel: _entryText(json['composition_label']),
+      compositionConfidence: _entryText(json['composition_confidence']),
+      strengthKey: _entryText(json['strength_key']),
+      form: _entryText(json['form']),
+      formKey: _entryText(json['form_key']),
+      releaseKey: _entryText(json['release_key']),
       strength: json['strength']?.toString() ?? '',
       strengthOptions: (json['strength_options'] as List?)
           ?.map((value) => value.toString())
@@ -504,6 +552,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         ..displayName = favorite.displayName
         ..genericName = favorite.genericName
         ..catalogId = favorite.catalogId
+        ..originalCatalogId = favorite.originalCatalogId ?? favorite.catalogId
+        ..compositionId = favorite.compositionId
+        ..compositionLabel = favorite.compositionLabel
+        ..compositionConfidence = favorite.compositionConfidence
+        ..strengthKey = favorite.strengthKey
+        ..form = favorite.form
+        ..formKey = favorite.formKey
+        ..releaseKey = favorite.releaseKey
         ..strength = favorite.strength
         ..strengthOptions = _uniqueStrengths([
           favorite.strength,
@@ -981,6 +1037,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           return;
         }
         overrideReason = outcome.overrideReason;
+      } else if (warnings.isNotEmpty) {
+        if (!mounted) return;
+        final proceed = await _showPrescriptionWarnings(warnings);
+        if (proceed != true) {
+          if (mounted) setState(() => _submitting = false);
+          return;
+        }
       }
 
       final body = buildPrescriptionBody(
@@ -1074,6 +1137,71 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Future<bool?> _showPrescriptionWarnings(List<dynamic> warnings) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_outlined, color: Colors.orange),
+            SizedBox(width: 8),
+            Expanded(child: Text('Review prescription warnings')),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'The server returned non-blocking CDS warnings for this prescription.',
+              ),
+              const SizedBox(height: 12),
+              for (final warning in warnings)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color: AppTheme.warningOnSurface,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_cdsIssueText(warning))),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Review draft'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _cdsIssueText(dynamic issue) {
+    if (issue is Map) {
+      for (final key in const ['message', 'reason', 'description', 'type']) {
+        final text = issue[key]?.toString().trim() ?? '';
+        if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+      }
+    }
+    final text = issue?.toString().trim() ?? '';
+    return text.isEmpty ? 'Prescription warning' : text;
   }
 
   Future<void> _pickPhoto() async {
@@ -1248,7 +1376,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     final selected = med.strength.trim().toLowerCase();
     for (final row in med.catalogRows) {
       if (_extractStrengthFromCatalog(row).toLowerCase() == selected) {
-        med.catalogId = _rowInt(row, 'id') ?? med.catalogId;
+        _syncCatalogIdentityFromRow(med, row, resetOriginal: true);
         med.type = _extractMedicineTypeFromCatalog(row);
         med.route = _routeForMedicineType(med.type);
         med.category = _rowText(row, const ['category', 'drug_class']);
@@ -1462,9 +1590,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   }
 
   String _stockLabel(Map<String, dynamic> row) {
+    final availability = _rowText(row, const ['availability_status']);
+    if (availability == 'may_be_available') return 'May be available';
     final count = _stockCount(row);
-    if (!_isCatalogRowInStock(row)) return 'Out';
-    if (count <= 0) return 'Stocked';
+    if (!_isCatalogRowInStock(row)) return 'Out of stock';
+    if (count <= 0) return 'In stock';
     return '$count in stock';
   }
 
@@ -1506,9 +1636,16 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         '__grouped': true,
         '__rows': rows,
         'id': first['id'],
+        'catalog_id': first['catalog_id'] ?? first['id'],
         'name': _extractDrugNameFromCatalog(first),
         'generic_name': _rowText(first, const ['generic_name', 'generic']),
         'category': _rowText(first, const ['category', 'drug_class']),
+        'composition_id': first['composition_id'],
+        'composition_label': first['composition_label'],
+        'composition_confidence': first['composition_confidence'],
+        'strength_key': first['strength_key'],
+        'form_key': first['form_key'],
+        'release_key': first['release_key'],
         'strength_options': strengths,
         'strength': strengths.isNotEmpty ? strengths.first : '',
         'form': forms.isNotEmpty
@@ -1607,6 +1744,53 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return int.tryParse(value?.toString() ?? '');
   }
 
+  int? _catalogIdFromRow(Map<String, dynamic> row) {
+    return _rowInt(row, 'id') ?? _rowInt(row, 'catalog_id');
+  }
+
+  void _syncCatalogIdentityFromRow(
+    _MedicationEntry med,
+    Map<String, dynamic> row, {
+    bool resetOriginal = false,
+    int? originalCatalogId,
+  }) {
+    med.catalogId = _catalogIdFromRow(row) ?? med.catalogId;
+    med.compositionId = _rowInt(row, 'composition_id') ?? med.compositionId;
+    med.compositionLabel =
+        _entryText(_rowText(row, const ['composition_label'])) ??
+        med.compositionLabel;
+    med.compositionConfidence =
+        _entryText(_rowText(row, const ['composition_confidence'])) ??
+        med.compositionConfidence;
+    med.strengthKey =
+        _entryText(_rowText(row, const ['strength_key'])) ?? med.strengthKey;
+    med.form = _entryText(_rowText(row, const ['form'])) ?? med.form;
+    med.formKey = _entryText(_rowText(row, const ['form_key'])) ?? med.formKey;
+    med.releaseKey =
+        _entryText(_rowText(row, const ['release_key'])) ?? med.releaseKey;
+    if (originalCatalogId != null) {
+      med.originalCatalogId = originalCatalogId;
+    } else if (resetOriginal) {
+      med.originalCatalogId = med.catalogId;
+    } else {
+      med.originalCatalogId ??= med.catalogId;
+    }
+  }
+
+  void _clearCatalogIdentity(_MedicationEntry med) {
+    med
+      ..catalogId = null
+      ..originalCatalogId = null
+      ..compositionId = null
+      ..compositionLabel = null
+      ..compositionConfidence = null
+      ..strengthKey = null
+      ..form = null
+      ..formKey = null
+      ..releaseKey = null
+      ..catalogRows = const [];
+  }
+
   _MedicationEntry _medicationFromCatalogRow(Map<String, dynamic> row) {
     final name = _extractDrugNameFromCatalog(row);
     final strength = _extractStrengthFromCatalog(row);
@@ -1624,7 +1808,17 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       genericName: _rowText(row, const ['generic_name', 'generic']).isEmpty
           ? null
           : _rowText(row, const ['generic_name', 'generic']),
-      catalogId: _rowInt(row, 'id'),
+      catalogId: _catalogIdFromRow(row),
+      originalCatalogId: _catalogIdFromRow(row),
+      compositionId: _rowInt(row, 'composition_id'),
+      compositionLabel: _entryText(_rowText(row, const ['composition_label'])),
+      compositionConfidence: _entryText(
+        _rowText(row, const ['composition_confidence']),
+      ),
+      strengthKey: _entryText(_rowText(row, const ['strength_key'])),
+      form: _entryText(_rowText(row, const ['form'])),
+      formKey: _entryText(_rowText(row, const ['form_key'])),
+      releaseKey: _entryText(_rowText(row, const ['release_key'])),
       catalogRows: catalogRows,
       strength: strength,
       strengthOptions: _strengthOptionsForCatalogRow(row, [row]),
@@ -1671,6 +1865,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         ..displayName = selected.displayName
         ..genericName = selected.genericName
         ..catalogId = selected.catalogId
+        ..originalCatalogId = selected.originalCatalogId
+        ..compositionId = selected.compositionId
+        ..compositionLabel = selected.compositionLabel
+        ..compositionConfidence = selected.compositionConfidence
+        ..strengthKey = selected.strengthKey
+        ..form = selected.form
+        ..formKey = selected.formKey
+        ..releaseKey = selected.releaseKey
         ..catalogRows = selected.catalogRows
         ..strength = selected.strength
         ..strengthOptions = strengthOptions
@@ -1689,6 +1891,51 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         ..type = selected.type
         ..category = selected.category
         ..pharmacy = selected.pharmacy;
+      _drugSuggestions[target] = [];
+      _drugSuggestionLoading.remove(target);
+      _drugSuggestionQuery.remove(target);
+      _syncMedicationDerivedFields(target);
+      _updateDrugControllerText(target);
+    });
+  }
+
+  void _applyCompositionAlternative(
+    _MedicationEntry target,
+    CompositionAlternativeItem item,
+  ) {
+    final originalCatalogId = target.originalCatalogId ?? target.catalogId;
+    final row = item.toCatalogRow(
+      compositionId: target.compositionId,
+      compositionLabel: target.compositionLabel ?? target.genericName,
+    );
+    final selected = _medicationFromCatalogRow(row);
+    final strengthOptions = _uniqueStrengths([
+      selected.strength,
+      ...target.strengthOptions,
+    ]);
+    setState(() {
+      target
+        ..name = selected.name
+        ..displayName = selected.displayName
+        ..genericName = selected.genericName
+        ..catalogId = selected.catalogId
+        ..originalCatalogId = originalCatalogId
+        ..compositionId = target.compositionId ?? selected.compositionId
+        ..compositionLabel =
+            target.compositionLabel ?? selected.compositionLabel
+        ..compositionConfidence =
+            target.compositionConfidence ?? selected.compositionConfidence
+        ..strengthKey = selected.strengthKey
+        ..form = selected.form
+        ..formKey = selected.formKey
+        ..releaseKey = selected.releaseKey
+        ..catalogRows = [row]
+        ..strength = selected.strength
+        ..strengthOptions = strengthOptions
+        ..dosage = selected.dosage
+        ..route = selected.route
+        ..type = selected.type
+        ..category = selected.category;
       _drugSuggestions[target] = [];
       _drugSuggestionLoading.remove(target);
       _drugSuggestionQuery.remove(target);
@@ -2144,9 +2391,41 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             ],
             const SizedBox(height: 8),
             _buildMedicationTable(),
+            _buildCompositionAlternativesSection(),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCompositionAlternativesSection() {
+    final panels = _medications
+        .where(
+          (med) => shouldShowCompositionAlternativesPanel(
+            catalogId: med.catalogId,
+            compositionConfidence: med.compositionConfidence,
+          ),
+        )
+        .toList(growable: false);
+    if (panels.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        for (final med in panels)
+          CompositionAlternativesPanel(
+            key: ValueKey(
+              'composition-alternatives-${identityHashCode(med)}-${med.catalogId}',
+            ),
+            catalogId: med.catalogId,
+            visible: true,
+            doNotSubstitute: med.daw,
+            selectedLabel: med.displayName.trim().isNotEmpty
+                ? med.displayName.trim()
+                : med.name.trim(),
+            onSwap: (item) => _applyCompositionAlternative(med, item),
+          ),
+      ],
     );
   }
 
@@ -2400,6 +2679,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           _flagChip('PRN', med.prn, (value) {
             setState(() => med.prn = value);
           }),
+          _flagChip('DAW', med.daw, (value) {
+            setState(() => med.daw = value);
+          }),
           IconButton(
             tooltip: 'Save favorite',
             visualDensity: VisualDensity.compact,
@@ -2472,12 +2754,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   medication
                     ..name = cleanName
                     ..displayName = ''
-                    ..catalogId = null
-                    ..catalogRows = const []
                     ..strength = ''
                     ..strengthOptions = []
                     ..dosage = ''
                     ..type = '';
+                  _clearCatalogIdentity(medication);
                   _searchDrugSuggestions(medication, value);
                 },
                 onFieldSubmitted: (_) => onFieldSubmitted(),
