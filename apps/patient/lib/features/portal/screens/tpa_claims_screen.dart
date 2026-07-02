@@ -15,6 +15,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/cache_file_utils.dart';
 
 class TpaClaimsScreen extends StatefulWidget {
   const TpaClaimsScreen({super.key});
@@ -186,7 +187,10 @@ class TpaClaimDetailScreen extends StatefulWidget {
 class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
   bool _loading = true;
   String? _error;
+  String? _documentsError;
   Map<String, dynamic>? _data;
+  List<Map<String, dynamic>> _documents = const [];
+  final Set<int> _downloadingDocIds = <int>{};
 
   @override
   void initState() {
@@ -198,13 +202,30 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _documentsError = null;
     });
     try {
       final resp = await ApiClient.get('/portal/tpa/claims/${widget.claimId}');
       if (!mounted) return;
       if (resp.isSuccess) {
+        List<Map<String, dynamic>> docs = const [];
+        String? docsError;
+        final docsResp = await ApiClient.get(
+          '/portal/tpa/claims/${widget.claimId}/documents',
+        );
+        if (!mounted) return;
+        if (docsResp.isSuccess) {
+          docs = docsResp
+              .dataAsList()
+              .whereType<Map<String, dynamic>>()
+              .toList();
+        } else {
+          docsError = docsResp.message ?? 'Could not load claim documents';
+        }
         setState(() {
           _data = resp.dataAsMap();
+          _documents = docs;
+          _documentsError = docsError;
           _loading = false;
         });
       } else {
@@ -218,6 +239,61 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         setState(() {
           _error = 'Unable to load claim';
           _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _downloadDocument(Map<String, dynamic> doc) async {
+    final docId = _toInt(doc['id']);
+    if (docId == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final theme = Theme.of(context);
+    setState(() {
+      _downloadingDocIds.add(docId);
+    });
+
+    try {
+      final resp = await ApiClient.get(
+        '/portal/tpa/claims/${widget.claimId}/documents/$docId/download-url',
+        timeout: const Duration(seconds: 20),
+      );
+      if (!mounted) return;
+      if (!resp.isSuccess) {
+        throw Exception(resp.message ?? 'Download URL request failed');
+      }
+      final data = resp.dataAsMap();
+      final url = data['url']?.toString();
+      if (url == null || url.isEmpty) {
+        throw Exception('Download URL missing');
+      }
+      final returnedDoc = (data['document'] as Map?)?.cast<String, dynamic>();
+      final fileName =
+          returnedDoc?['file_name']?.toString() ??
+          doc['file_name']?.toString() ??
+          'claim-document-$docId.pdf';
+      final cacheKey =
+          'tpa_claim_${widget.claimId}_document_${docId}_$fileName';
+      final file = await CacheFileUtils.downloadAndCacheFile(cacheKey, url);
+      if (!mounted) return;
+      if (file == null) {
+        throw Exception('Could not save document');
+      }
+      await CacheFileUtils.openCachedFile(file.path);
+    } catch (e) {
+      debugPrint('Claim document download failed: $e');
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Could not download document'),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloadingDocIds.remove(docId);
         });
       }
     }
@@ -289,6 +365,11 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
       }
     }
 
+    if (_documents.isNotEmpty || _documentsError != null) {
+      widgets.add(const SizedBox(height: 16));
+      widgets.add(_claimDocumentsCard(theme));
+    }
+
     if (correspondence.isNotEmpty) {
       widgets.add(const SizedBox(height: 16));
       widgets.add(_correspondenceList(theme, correspondence));
@@ -322,6 +403,103 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
             if (copay > 0) _row(theme, 'Policy co-pay', copay),
             const Divider(),
             _row(theme, 'You paid', patient, highlight: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _claimDocumentsCard(ThemeData theme) {
+    final dateFmt = DateFormat('dd MMM yyyy');
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Claim documents', style: theme.textTheme.titleMedium),
+            if (_documentsError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _documentsError!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            if (_documents.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ..._documents.map((doc) {
+                final id = _toInt(doc['id']);
+                final downloading =
+                    id != null && _downloadingDocIds.contains(id);
+                DateTime? uploadedAt;
+                try {
+                  final raw = doc['uploaded_at']?.toString();
+                  uploadedAt = raw == null
+                      ? null
+                      : DateTime.parse(raw).toLocal();
+                } catch (_) {
+                  uploadedAt = null;
+                }
+                final meta = [
+                  doc['doc_type']?.toString().replaceAll('_', ' '),
+                  if (uploadedAt != null) dateFmt.format(uploadedAt),
+                  _formatBytes(doc['file_size_bytes']),
+                ].where((v) => v != null && v.isNotEmpty).join(' • ');
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              doc['file_name']?.toString() ?? 'Document',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (meta.isNotEmpty)
+                              Text(
+                                meta,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'Download',
+                        onPressed: downloading || id == null
+                            ? null
+                            : () => _downloadDocument(doc),
+                        icon: downloading
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              )
+                            : const Icon(Icons.download_outlined),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
           ],
         ),
       ),
@@ -523,4 +701,14 @@ double _toNum(dynamic v) => v == null
     ? 0.0
     : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
 
+int? _toInt(dynamic v) => v is int ? v : int.tryParse(v?.toString() ?? '');
+
 String _inr(double n) => '₹${n.toStringAsFixed(0)}';
+
+String? _formatBytes(dynamic v) {
+  final bytes = _toNum(v);
+  if (bytes <= 0) return null;
+  if (bytes < 1024) return '${bytes.toStringAsFixed(0)} B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}

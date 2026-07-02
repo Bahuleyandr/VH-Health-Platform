@@ -17,6 +17,7 @@ import * as portal from '../../services/portal/patientPortalService.js';
 import * as portalAccess from '../../services/portal/portalAccessService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -80,6 +81,12 @@ function attachPatientPhiContext(req, _res, next) {
     patientUid: patientUidOf(req),
   };
   next();
+}
+
+function signedUrlBaseOf(req) {
+  const host = req.get('host');
+  if (!host) return null;
+  return `${req.protocol}://${host}`;
 }
 
 // ── Standard patient mobile contract ─────────────────────────────────
@@ -329,15 +336,30 @@ router.get('/tpa/claims/:id', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// `for_patient` is the ONE sanctioned exception to "never trust a
+// caller-provided patient uid": it only ever resolves through an active
+// proxy grant (E6) and every proxy read is audited with the grant id.
+async function effectivePatientAccess(req, scope = 'results') {
+  return portalAccess.resolvePortalPatient({
+    requesterUid: patientUidOf(req),
+    forPatientUid: req.query.for_patient || null,
+    scope,
+  });
+}
+
+async function effectivePatientUid(req, scope = 'results') {
+  const resolved = await effectivePatientAccess(req, scope);
+  return resolved.patientUid;
+}
+
 // D69 — Patient TPA claim documents. Read-only list of the document
 // metadata attached to a claim (and to its parent preauth, since the
 // hospital often uploads supporting scans against the preauth before
 // the claim is filed). Returns only patient-visible columns — no
 // staff uploaded_by uid, no internal review notes. The patient app
 // renders the list with the doc_type / file_name / size / timestamp;
-// downloads go through a separate signed-URL endpoint (TODO — gated
-// on R2 PHI-export ACL design; for now the metadata alone closes the
-// "I can't see what was submitted on my behalf" gap).
+// downloads go through a separate short-lived signed-URL endpoint
+// below. The list endpoint must remain metadata-only.
 // Findings: 95008441, 0a3e84c3.
 router.get('/tpa/claims/:id/documents', requirePatient, wrap(async (req) =>
   portal.listMyClaimDocuments({
@@ -347,19 +369,34 @@ router.get('/tpa/claims/:id/documents', requirePatient, wrap(async (req) =>
   }),
 ));
 
-// ── Lab results ─────────────────────────────────────────────────────
-// `for_patient` is the ONE sanctioned exception to "never trust a
-// caller-provided patient uid": it only ever resolves through an active
-// proxy grant (E6) and every proxy read is audited with the grant id.
-async function effectivePatientUid(req, scope = 'results') {
-  const resolved = await portalAccess.resolvePortalPatient({
-    requesterUid: patientUidOf(req),
-    forPatientUid: req.query.for_patient || null,
-    scope,
-  });
-  return resolved.patientUid;
-}
+router.get(
+  '/tpa/claims/:id/documents/:docId/download-url',
+  requirePatient,
+  attachPatientPhiContext,
+  phiAccessLogger('TPA_CLAIM_DOCUMENT'),
+  wrap(async (req) => {
+    const access = await effectivePatientAccess(req, 'claim_documents');
+    req.phiContext = {
+      ...(req.phiContext || {}),
+      patientUid: access.patientUid,
+    };
+    return portal.getMyClaimDocumentDownloadUrl({
+      tenantId: tenantOf(req),
+      patient_uid: access.patientUid,
+      claim_id: req.params.id,
+      doc_id: req.params.docId,
+      baseUrl: signedUrlBaseOf(req),
+      actorUid: patientUidOf(req),
+      actorRole: req.user?.role,
+      requestId: req.id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      proxyGrantId: access.grantId || null,
+    });
+  }),
+);
 
+// ── Lab results ─────────────────────────────────────────────────────
 router.get('/lab-results', requirePatient, wrap(async (req) =>
   portal.listMyLabResults({
     tenantId: tenantOf(req),

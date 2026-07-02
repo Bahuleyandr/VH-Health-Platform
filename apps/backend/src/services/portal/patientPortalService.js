@@ -17,10 +17,12 @@ import { sendPushNotification } from '../../utils/notifications/sendPushNotifica
 import { releaseVisibilitySql, releaseDelayHours } from './portalAccessService.js';
 import { getClinicalAiModule } from '../ai/clinicalAiModuleService.js';
 import { PATIENT_EXPLAINER_MODULE_KEYS } from '../ai/patientExplainersService.js';
+import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 const ACTIVE_APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'CHECKED_IN'];
 const PENDING_LAB_ORDER_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'SAMPLE_COLLECTED', 'PROCESSING'];
 const OPEN_CLAIM_STATUSES = ['draft', 'submitted', 'in_review', 'query', 'approved', 'partially_approved'];
+const CLAIM_DOCUMENT_SIGNED_URL_TTL_SECONDS = 300;
 
 function asInt(value, fallback = 0) {
   const parsed = Number(value);
@@ -34,6 +36,35 @@ function asMoney(value) {
 
 function first(items) {
   return Array.isArray(items) && items.length > 0 ? items[0] : null;
+}
+
+function positiveInt(value, label) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  return n;
+}
+
+function storageKeyFromClaimDocumentUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('r2://') || lower.startsWith('local://')) {
+    const key = raw.slice(raw.indexOf('://') + 3).replace(/^\/+/, '');
+    return key && !key.includes('\0') ? key : null;
+  }
+  if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    try {
+      const parsed = new URL(raw);
+      const key = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+      return key && !key.includes('\0') ? key : null;
+    } catch {
+      return null;
+    }
+  }
+  const key = raw.replace(/^\/+/, '');
+  return key && !key.includes('\0') ? key : null;
 }
 
 async function safeCommandSection(label, fn, fallback) {
@@ -1709,10 +1740,7 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
 // mint) if they want to download.
 
 export async function listMyClaimDocuments({ tenantId, patient_uid, id }) {
-  const claimId = Number(id);
-  if (!Number.isInteger(claimId) || claimId <= 0) {
-    throw AppError.badRequest('Claim id must be a positive integer');
-  }
+  const claimId = positiveInt(id, 'Claim id');
   // Ownership check: the claim must belong to the authenticated
   // patient AND be in the caller's tenant. Skips the
   // tpa_claim_documents query entirely on miss → 404 rather than
@@ -1754,6 +1782,94 @@ export async function listMyClaimDocuments({ tenantId, patient_uid, id }) {
     if (err?.meta?.code === '42P01') return [];
     throw err;
   }
+}
+
+export async function getMyClaimDocumentDownloadUrl({
+  tenantId,
+  patient_uid,
+  claim_id,
+  doc_id,
+  baseUrl = null,
+  actorUid = null,
+  actorRole = null,
+  requestId = null,
+  ipAddress = null,
+  userAgent = null,
+  proxyGrantId = null,
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const claimId = positiveInt(claim_id, 'Claim id');
+  const docId = positiveInt(doc_id, 'Document id');
+
+  const claimRows = await prisma.$queryRawUnsafe(
+    `SELECT id, preauth_id
+       FROM tpa_claims
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND patient_uid = $3::uuid`,
+    claimId, tenantId, String(patient_uid),
+  );
+  if (!claimRows.length) throw AppError.notFound('Claim document not found');
+  const { preauth_id: preauthId } = claimRows[0];
+
+  const docRows = await prisma.$queryRawUnsafe(
+    `SELECT id, claim_id, preauth_id, doc_type, file_name, file_url,
+            file_size_bytes::int AS file_size_bytes,
+            mime_type, uploaded_at
+       FROM tpa_claim_documents
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND (
+          claim_id = $3::int
+          OR ($4::int IS NOT NULL AND preauth_id = $4::int)
+        )
+      LIMIT 1`,
+    docId, tenantId, claimId, preauthId,
+  );
+  if (!docRows.length) throw AppError.notFound('Claim document not found');
+  const doc = docRows[0];
+  const storageKey = storageKeyFromClaimDocumentUrl(doc.file_url);
+  if (!storageKey) throw AppError.notFound('Claim document file not available');
+
+  const { getSignedFileUrl } = await import('../../utils/r2Storage.js');
+  const url = await getSignedFileUrl(storageKey, CLAIM_DOCUMENT_SIGNED_URL_TTL_SECONDS, { baseUrl });
+
+  await recordClinicalAuditEvent({
+    tenantId,
+    patientUid: patient_uid,
+    action: 'portal.tpa_claim_document_download_url_issued',
+    actorUid,
+    actorRole,
+    resourceType: 'claim_document',
+    resourceTable: 'tpa_claim_documents',
+    resourceId: String(doc.id),
+    requestId,
+    ipAddress,
+    userAgent,
+    metadata: {
+      claim_id: claimId,
+      doc_type: doc.doc_type,
+      file_name: doc.file_name,
+      expires_in_seconds: CLAIM_DOCUMENT_SIGNED_URL_TTL_SECONDS,
+      proxy_grant_id: proxyGrantId || null,
+    },
+    idempotencyKey: `portal-claim-doc-url:${tenantId}:${patient_uid}:${doc.id}:${requestId || Date.now()}`,
+  });
+
+  return {
+    url,
+    expires_in_seconds: CLAIM_DOCUMENT_SIGNED_URL_TTL_SECONDS,
+    document: {
+      id: doc.id,
+      claim_id: doc.claim_id,
+      preauth_id: doc.preauth_id,
+      doc_type: doc.doc_type,
+      file_name: doc.file_name,
+      file_size_bytes: doc.file_size_bytes,
+      mime_type: doc.mime_type,
+      uploaded_at: doc.uploaded_at,
+    },
+  };
 }
 
 // ── Lab orders (investigations) ─────────────────────────────────────
