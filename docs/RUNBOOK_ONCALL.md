@@ -199,3 +199,9 @@ Availability error budget for the **99.95% SLO** (~21 min/month) is burning fast
    — if this pages on routine deploys (not real incidents), the fix is to raise the
    target to 99.9% in `backend-slo.yaml` OR add a 2nd replica + `maxUnavailable=0`
    surge for zero-downtime deploys. Do NOT just silence it.
+
+## Operator Script Index
+
+For one-off tenant onboarding, RLS/runtime-role rehearsal, ledger cutover
+evidence, clinical-AI readiness checks, PHI encryption jobs, QA cluster bring-up,
+and seed scripts, use [`SCRIPTS_INDEX.md`](SCRIPTS_INDEX.md).

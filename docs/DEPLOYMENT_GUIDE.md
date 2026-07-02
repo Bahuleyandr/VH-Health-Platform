@@ -560,3 +560,12 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
 - **Offsite DR cluster** — see `DISASTER-RECOVERY.md` Scenario 6.
 - **Multi-region failover for cross-border clients** — only when the
   platform ships to a second hospital in a second country.
+
+---
+
+## 11. Operator Script Index
+
+Before running tenant onboarding, RLS/runtime-role rehearsal, ledger cutover
+evidence, clinical-AI readiness checks, PHI encryption jobs, QA cluster bring-up,
+or seed scripts, review [`SCRIPTS_INDEX.md`](SCRIPTS_INDEX.md) for purpose,
+run context, prerequisites, and failure modes.

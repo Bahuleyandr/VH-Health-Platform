@@ -180,7 +180,7 @@ request body). Don't hand-author response interfaces that the spec already types
 
 ## Future Directions
 
-Use the root [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md)
+Use the root [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md)
 and [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md) for
 current platform priorities. For admin-specific work, create a focused
 branch/issue plan and keep durable conventions in this file.

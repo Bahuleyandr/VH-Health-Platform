@@ -95,7 +95,7 @@ Owned by the live checklist: **[`SECURITY_HARDENING_CHECKLIST.md`](SECURITY_HARD
 - **ABDM certification.** Obtain NHA sandbox creds (`ABDM_CLIENT_ID/SECRET`, callback secret), register the bridge, run M1/M2/M3 with NHA observers, mark the `india_compliance_evidence` rows verified. Substrate (FIDELIUS-equivalent crypto, callback HMAC/replay guard, gateway) is built. → **[`ABDM_READINESS.md`](ABDM_READINESS.md)**.
 - **Penetration test.** Schedule + run the engagement; the RoE + STRIDE + probe-list pack is ready. → **[`PENTEST_READINESS.md`](PENTEST_READINESS.md)**.
 - **NABH / DPDP / CERT-In.** NABH assessment; DPDP data-inventory + DSR dry-run + counsel sign-off; CERT-In registered POC + incident tabletop (≤6h). → **[`india-deployment-readiness.md`](india-deployment-readiness.md)**.
-  - ⚠️ **One concrete platform gap (not paperwork):** CERT-In requires **180-day** Indian-jurisdiction log retention; current Loki retention is ~30 days. Needs an archive/SIEM layer or increased primary retention before go-live.
+  - ⚠️ **One concrete platform gap (not paperwork):** CERT-In requires **180-day** Indian-jurisdiction log retention; Loki primary retention is now configured to 180 days (`infra/kubernetes/base/monitoring/loki-values.yaml`). Before go-live, still prove PVC capacity/backup and/or add object-store archive/SIEM retention for durable evidence.
 
 ## 4. Procurement `[PROCUREMENT]`
 
