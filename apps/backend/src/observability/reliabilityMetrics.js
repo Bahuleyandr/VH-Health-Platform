@@ -8,7 +8,7 @@
 //   event_outbox.status      pending|processing|delivered|failed  (failed = dead-letter @ MAX_ATTEMPTS=7)
 //   webhook_deliveries.status pending|failed|dead                 (dead = terminal undelivered)
 //   notification_outbox.status PENDING|SENT|FAILED                (UPPERCASE)
-import prisma, { circuitBreakerStatus, prismaReadOnly } from '../lib/prisma.js';
+import prisma, { circuitBreakerStatus } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { Gauge, Counter } from './metricPrimitives.js';
 
@@ -63,6 +63,12 @@ function hasReadReplicaDsn() {
 async function collectReadReplicaLagMetric() {
   if (!hasReadReplicaDsn()) return;
   try {
+    // prismaReadOnly is lazy-imported so it is NOT part of this module's eager
+    // import graph — this file is reached from eventOutboxService (and thus
+    // most services), and a static named import breaks every test that mocks
+    // ../lib/prisma.js without prismaReadOnly (the clinicalAiWorkflowService
+    // guard-comment class). Only runs when DATABASE_READ_URL is configured.
+    const { prismaReadOnly } = await import('../lib/prisma.js');
     const [row] = await prismaReadOnly.$queryRawUnsafe(`
       SELECT
         CASE

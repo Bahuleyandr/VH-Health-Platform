@@ -102,14 +102,22 @@ export function roleClient(role, { uid, id, phone } = {}) {
 // the UTC midnight boundary. (Phase 0.5 convention in apps/backend/CLAUDE.md.)
 // ----------------------------------------------------------------------------
 
+// "Today" in the HOSPITAL clinical tz (Asia/Kolkata) — NOT the DB session tz.
+// The local QA cluster runs IST so current_date used to coincide, but CI
+// Postgres is UTC: between 18:30 and 24:00 UTC current_date is one day behind
+// the IST date that clinical gates compare against (clinicalNotesService
+// assertOpenOpAppointmentSession's HOSPITAL_TIME_ZONE date key), which 409'd
+// the OPD journeys only in that window.
 export async function hospitalToday() {
-  const rows = await prisma.$queryRawUnsafe('SELECT current_date::text AS d');
-  return rows[0].d; // YYYY-MM-DD in the server tz
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date::text AS d`,
+  );
+  return rows[0].d; // YYYY-MM-DD in the hospital tz
 }
 
 export async function hospitalDateOffset(days) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT (current_date + ($1 || ' days')::interval)::date::text AS d`,
+    `SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date + ($1 || ' days')::interval)::date::text AS d`,
     String(days),
   );
   return rows[0].d;

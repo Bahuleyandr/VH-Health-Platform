@@ -46,6 +46,7 @@ import {
   cleanupJourney,
   CANONICAL_EVENTS,
   DEFAULT_TENANT,
+  hospitalToday,
   prisma,
 } from './_journeyHarness.js';
 
@@ -267,7 +268,7 @@ describeJourney('Journey: surgical-day-care', () => {
         procedure_name: 'Right eye cataract surgery (phacoemulsification + IOL)',
         procedure_code: 'right-eye-cataract',
         ot_room: `OT-DC-${RUN}`.slice(0, 20),
-        scheduled_date: new Date().toISOString().slice(0, 10),
+        scheduled_date: await hospitalToday(),
         scheduled_time: '10:00',
         estimated_duration: 45,
         blood_arranged: false,

@@ -75,7 +75,8 @@ async function seedAppointmentForA(patientAId, status) {
     `INSERT INTO appointments
        (uid, phone, patient_id, doctor_id, appointment_date, appointment_time,
         status, department, tenant_id, updated_at)
-     VALUES (gen_random_uuid(), $1, $2::int, NULL, CURRENT_DATE, '10:00',
+     VALUES (gen_random_uuid(), $1, $2::int, NULL,
+             (NOW() AT TIME ZONE 'Asia/Kolkata')::date, '10:00',
              $3, 'General Medicine', $4::uuid, NOW())
      RETURNING id`,
     PHONE_A, patientAId, status, TENANT,
