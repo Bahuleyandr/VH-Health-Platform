@@ -22,7 +22,7 @@ CI job will validate each one against the official HL7 validator JAR.
 3. Save as `<resource>_<scenario>.json` (e.g. `patient_minimal.json`,
    `observation_vitals_full.json`, `medicationrequest_with_dosage.json`).
 4. The CI job runs:
-   `java -jar validator_cli.jar <file> -version 4.0.1`
+   `java -jar validator_cli.jar <file> -version 4.0.1 -tx n/a`
 
 ## What this catches
 
@@ -34,14 +34,13 @@ CI job will validate each one against the official HL7 validator JAR.
 ## What it does NOT catch
 
 - Slicing rules — only when explicit `meta.profile` is set.
-- Terminology code validity — full LOINC/SNOMED/ICD lookups need the
-  packaged terminology server, which the JAR can pull from `tx.fhir.org`
-  but at the cost of CI runtime.
+- Live terminology code validity — branch CI uses local terminology mode
+  (`-tx n/a`) so FHIR validation does not block on `tx.fhir.org` latency or
+  outages.
 - Business semantics — "is this combination of fields meaningful for our
   workflow" is out of scope.
 
-## Why CI is non-blocking (continue-on-error)
+## CI blocking scope
 
-Until the team has triaged every legitimate warning, blocking CI on any
-diagnostic would freeze unrelated PRs. Move it to blocking once the
-validator runs clean against the full sample set.
+Root-level samples are informational. Golden samples under `golden/`, when
+present, are strict and fail CI on validation errors.

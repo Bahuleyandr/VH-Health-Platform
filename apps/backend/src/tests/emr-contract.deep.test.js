@@ -18,6 +18,8 @@ import app from '../app.js';
 import { assertData } from './helpers/assertSchema.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const PATIENT_RECORD_SUMMARY_MODULE = 'patient_record_summary';
 const PATIENT_UID = 'e3000002-0001-4e30-8e30-e30000020001';
 const DOCTOR_UID = 'e3000002-0002-4e30-8e30-e30000020002';
 const ADMIN_UID = 'e3000002-0003-4e30-8e30-e30000020003';
@@ -66,6 +68,22 @@ async function clean() {
   await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'EMRC-WARD'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid)`,
     PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
+  // Delete, do not set enabled=false: a false override poisons the shared QA DB
+  // by beating the module defaults for later suites.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_ai_tenant_modules
+     WHERE tenant_id = $1::uuid AND module_key = $2`,
+    TENANT_ID, PATIENT_RECORD_SUMMARY_MODULE).catch(() => {});
+}
+
+async function enablePatientRecordSummaryModule() {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO clinical_ai_tenant_modules
+       (tenant_id, module_key, enabled, settings, created_at, updated_at)
+     VALUES ($1::uuid, $2, true, '{}'::jsonb, NOW(), NOW())
+     ON CONFLICT (tenant_id, module_key)
+     DO UPDATE SET enabled = true, updated_at = NOW()`,
+    TENANT_ID, PATIENT_RECORD_SUMMARY_MODULE);
 }
 
 describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
@@ -73,6 +91,7 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
 
   beforeAll(async () => {
     await clean();
+    await enablePatientRecordSummaryModule();
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at) VALUES
         ($1::uuid,'9300000021','EMRC Patient','PATIENT',true,NOW()),

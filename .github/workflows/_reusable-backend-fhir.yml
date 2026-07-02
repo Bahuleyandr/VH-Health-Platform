@@ -74,7 +74,7 @@ jobs:
           shopt -s nullglob
           for f in src/services/fhir/__samples__/*.json; do
             echo "=== Validating (informational) $f ==="
-            java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 || true
+            java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 -tx n/a || true
           done
 
       - name: Validate golden bundles strict (R4)
@@ -87,7 +87,7 @@ jobs:
           failed=0
           for f in src/services/fhir/__samples__/golden/*.json; do
             echo "=== Validating (STRICT) $f ==="
-            if ! java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1; then
+            if ! java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 -tx n/a; then
               failed=$((failed + 1))
             fi
           done
