@@ -79,6 +79,11 @@ jobs:
 
       - name: Run ${{ matrix.stage }} CI stage
         env:
-          JEST_CI_CHUNK_SIZE: '30'
-          JEST_OLD_SPACE_MB: '4096'
+          # Forgejo's self-hosted backend runner OOMs with large Jest chunks.
+          # apps/backend/scripts/run-ci-jest.mjs reads these through
+          # run-db-guardrails-docker.mjs, so GitHub/default local behavior stays
+          # unchanged while Forgejo uses smaller memory envelopes.
+          JEST_CI_CHUNK_SIZE: '6'
+          JEST_OLD_SPACE_MB: '2560'
+          JEST_TEST_TIMEOUT_MS: '90000'
         run: node scripts/ci/run.mjs --install --only=${{ matrix.stage }}
