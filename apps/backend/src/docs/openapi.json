@@ -72770,6 +72770,41 @@
         ]
       }
     },
+    "/api/v1/patient/tpa/claims/{id}/documents/{docId}/download-url": {
+      "get": {
+        "operationId": "get_api_v1_patient_tpa_claims_by_id_documents_by_docId_download_url",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/patient/virtual-ward/check-in": {
       "post": {
         "operationId": "post_api_v1_patient_virtual_ward_check_in",
@@ -77872,6 +77907,41 @@
         "parameters": [
           {
             "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/portal/tpa/claims/{id}/documents/{docId}/download-url": {
+      "get": {
+        "operationId": "get_api_v1_portal_tpa_claims_by_id_documents_by_docId_download_url",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "docId",
             "in": "path",
             "required": true,
             "schema": {

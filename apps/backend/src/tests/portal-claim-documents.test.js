@@ -15,7 +15,10 @@
 //   * Internal columns (uploaded_by, notes) are NOT in the response.
 //   * Documents attached to the parent preauth surface alongside
 //     documents attached to the claim itself.
+//   * Download URLs are issued only after the same ownership check,
+//     expire quickly, and write an append-only audit row.
 
+import crypto from 'crypto';
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
@@ -33,9 +36,17 @@ describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)
   let claimId;
   let policyId;
   let preauthId;
+  let claimDocumentId;
   let patientToken;
   let otherToken;
   const admissionId = 950500 + (Date.now() % 5000);
+
+  function expiredStorageToken(key) {
+    const secret = process.env.JWT_SECRET || 'test-jwt-secret';
+    const expiryMs = Date.now() - 1000;
+    const sig = crypto.createHmac('sha256', secret).update(`${key}|${expiryMs}`).digest('base64url');
+    return `${sig}.${expiryMs}`;
+  }
 
   beforeAll(async () => {
     const userRows = await prisma.$queryRawUnsafe(
@@ -96,14 +107,16 @@ describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)
 
     // Three documents: 2 on the claim, 1 on the parent preauth — the
     // patient should see all three.
-    await prisma.$executeRawUnsafe(
+    const docRows = await prisma.$queryRawUnsafe(
       `INSERT INTO tpa_claim_documents
          (claim_id, preauth_id, doc_type, file_name, mime_type, file_size_bytes, file_url, uploaded_at, uploaded_by, notes)
        VALUES ($1::int, NULL, 'clinical_summary',  'clinical_summary.pdf',  'application/pdf', 12345, 'r2://docs/clin.pdf',  NOW() - INTERVAL '1 day', NULL, 'internal staff note A'),
               ($1::int, NULL, 'discharge_summary', 'discharge_summary.pdf', 'application/pdf', 23456, 'r2://docs/disch.pdf', NOW() - INTERVAL '2 hours', NULL, 'internal staff note B'),
-              (NULL, $2::int, 'preauth_approval',  'preauth_letter.pdf',    'application/pdf', 5678,  'r2://docs/pa.pdf',    NOW() - INTERVAL '3 days', NULL, 'internal staff note C')`,
+              (NULL, $2::int, 'preauth_approval',  'preauth_letter.pdf',    'application/pdf', 5678,  'r2://docs/pa.pdf',    NOW() - INTERVAL '3 days', NULL, 'internal staff note C')
+       RETURNING id, doc_type`,
       claimId, preauthId,
     );
+    claimDocumentId = docRows.find((d) => d.doc_type === 'discharge_summary')?.id;
   });
 
   afterAll(async () => {
@@ -170,5 +183,61 @@ describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${otherToken}`);
     expect(res.statusCode).toBe(404);
+  });
+
+  it('issues a short-lived signed download URL for the owner and writes an audit row', async () => {
+    const res = await request(app)
+      .get(`/api/v1/portal/tpa/claims/${claimId}/documents/${claimDocumentId}/download-url`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${patientToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.expires_in_seconds).toBeLessThanOrEqual(300);
+    expect(res.body.data.url).toContain('/api/v1/storage/file/docs/disch.pdf?token=');
+    expect(res.body.data.document).toEqual(expect.objectContaining({
+      id: claimDocumentId,
+      claim_id: claimId,
+      doc_type: 'discharge_summary',
+      file_name: 'discharge_summary.pdf',
+    }));
+    expect(res.body.data.document).not.toHaveProperty('file_url');
+
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT action, metadata
+         FROM clinical_audit_events
+        WHERE patient_uid = $1::uuid
+          AND resource_table = 'tpa_claim_documents'
+          AND resource_id = $2
+          AND action = 'portal.tpa_claim_document_download_url_issued'
+        ORDER BY occurred_at DESC
+        LIMIT 1`,
+      PATIENT_UID, String(claimDocumentId),
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0].metadata).toEqual(expect.objectContaining({
+      claim_id: claimId,
+      doc_type: 'discharge_summary',
+      expires_in_seconds: 300,
+    }));
+  });
+
+  it('returns 404 when another patient requests a document download URL', async () => {
+    const res = await request(app)
+      .get(`/api/v1/portal/tpa/claims/${claimId}/documents/${claimDocumentId}/download-url`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${otherToken}`);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body.data).toBeUndefined();
+  });
+
+  it('rejects an expired local signed storage URL', async () => {
+    const token = expiredStorageToken('docs/disch.pdf');
+    const res = await request(app)
+      .get(`/api/v1/storage/file/docs/disch.pdf?token=${encodeURIComponent(token)}`);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.message).toBe('Invalid or expired token');
   });
 });
