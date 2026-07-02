@@ -61,7 +61,7 @@ describe('POST /appointments/:id/advise-admission — drop JUNIOR_DOCTOR from al
              (uid, phone, patient_id, doctor_id, appointment_date, appointment_time,
               status, department, tenant_id, updated_at)
            VALUES (gen_random_uuid(), $1, $2::int, $3::int,
-                   CURRENT_DATE, '10:00', 'CONFIRMED', 'General Medicine',
+                   (NOW() AT TIME ZONE 'Asia/Kolkata')::date, '10:00', 'CONFIRMED', 'General Medicine',
                    '00000000-0000-4000-8000-000000000001'::uuid, NOW())
            RETURNING id`,
           `99500400${STAMP.slice(-2)}`, patientId, consultantId,
@@ -71,7 +71,7 @@ describe('POST /appointments/:id/advise-admission — drop JUNIOR_DOCTOR from al
              (uid, phone, patient_id, doctor_id, appointment_date, appointment_time,
               status, department, updated_at)
            VALUES (gen_random_uuid(), $1, $2::int, $3::int,
-                   CURRENT_DATE, '10:00', 'CONFIRMED', 'General Medicine',
+                   (NOW() AT TIME ZONE 'Asia/Kolkata')::date, '10:00', 'CONFIRMED', 'General Medicine',
                    NOW())
            RETURNING id`,
           `99500400${STAMP.slice(-2)}`, patientId, consultantId,
