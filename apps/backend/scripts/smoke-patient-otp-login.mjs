@@ -3,6 +3,10 @@
 const BACKEND_BASE_URL = stripTrailingSlash(process.env.BACKEND_URL || 'http://127.0.0.1:5206');
 const API_KEY = process.env.API_KEY || process.env.NEXT_PUBLIC_X_API_KEY || '';
 const PATIENT_PHONE = process.env.SMOKE_PATIENT_PHONE || '+918888880001';
+// The OTP validators require the bare 10-digit form (/^[0-9]{10}$/) — the DB
+// stores +91-prefixed values and the backend normalizes on lookup, so send the
+// last 10 digits regardless of how the env/seed spells the number.
+const API_PHONE = String(PATIENT_PHONE).replace(/\D/g, '').slice(-10);
 
 function stripTrailingSlash(value) {
   return String(value || '').replace(/\/+$/, '');
@@ -42,7 +46,7 @@ function payload(envelope) {
 
 const otpRequest = await request('/api/v1/auth/request-otp', {
   method: 'POST',
-  body: { phone: PATIENT_PHONE, purpose: 'login' },
+  body: { phone: API_PHONE, purpose: 'login' },
 });
 if (!otpRequest.response.ok) {
   fail(`OTP request failed with HTTP ${otpRequest.response.status}`, otpRequest.data || otpRequest.text);
@@ -55,7 +59,7 @@ if (!otp) {
 
 const otpVerify = await request('/api/v1/auth/verify-otp', {
   method: 'POST',
-  body: { phone: PATIENT_PHONE, otp },
+  body: { phone: API_PHONE, otp },
 });
 if (!otpVerify.response.ok) {
   fail(`OTP verify failed with HTTP ${otpVerify.response.status}`, otpVerify.data || otpVerify.text);
