@@ -268,8 +268,7 @@ import loadSwaggerDocument from './swaggerLoader.js';
 // were lost whenever the inline send failed. The drain below is the missing
 // consumer.
 import { notificationOutbox } from './notifications/notificationOutbox.js';
-import { sendPushNotification } from './notifications/sendPushNotification.js';
-import { sendSMS } from '../services/smsService.js';
+import { deliverNotificationOutboxRow } from './notifications/notificationOutboxDelivery.js';
 
 // Audit hash-chain scheduled verifier (platform audit 2026-06-18 §3). The
 // tamper-evident chain on clinical_audit_events (migration 282) was only ever
@@ -341,62 +340,18 @@ export async function runAuditChainVerification() {
 }
 
 /**
- * Resolve a recipient_id (stored as text — may be an integer users.id or a
- * uuid uid) to its known FCM/device tokens across the three device homes:
- * users.device_token, user_devices.fcm_token, staff_devices.device_token.
- * Returns a de-duplicated, non-empty token array (may be empty).
- */
-async function resolveRecipientTokens(recipientId) {
-  if (recipientId === null || recipientId === undefined || recipientId === '') return [];
-  const idText = String(recipientId);
-  const tokens = new Set();
-  try {
-    // users.device_token — match on int id OR uuid uid (text-cast for safety).
-    const userRows = await prisma.$queryRawUnsafe(
-      `SELECT device_token AS t FROM users
-        WHERE device_token IS NOT NULL
-          AND (id::text = $1 OR uid::text = $1)`,
-      idText,
-    );
-    for (const r of userRows) if (r.t) tokens.add(r.t);
-  } catch (err) {
-    logger.warn('outbox-drain: users token lookup failed:', err.message);
-  }
-  try {
-    const udRows = await prisma.$queryRawUnsafe(
-      `SELECT fcm_token AS t FROM user_devices
-        WHERE fcm_token IS NOT NULL AND user_uid::text = $1`,
-      idText,
-    );
-    for (const r of udRows) if (r.t) tokens.add(r.t);
-  } catch (err) {
-    logger.warn('outbox-drain: user_devices token lookup failed:', err.message);
-  }
-  // staff_devices keys on an integer staff_id — only probe when numeric.
-  if (/^\d+$/.test(idText)) {
-    try {
-      const sdRows = await prisma.$queryRawUnsafe(
-        `SELECT device_token AS t FROM staff_devices
-          WHERE device_token IS NOT NULL AND is_active = true AND staff_id = $1::int`,
-        idText,
-      );
-      for (const r of sdRows) if (r.t) tokens.add(r.t);
-    } catch (err) {
-      logger.warn('outbox-drain: staff_devices token lookup failed:', err.message);
-    }
-  }
-  return [...tokens];
-}
-
-/**
  * Drain the notification outbox: claim a batch of due PENDING/FAILED rows
  * (FOR UPDATE SKIP LOCKED), attempt delivery via the real send path, and mark
  * each row SENT or FAILED (with the existing 5-min backoff + 3-attempt cap).
  *
  * Send-path routing per row:
+ * The row delivery helper preserves the legacy path when tenant preferences
+ * are unset:
  *   - SMS rows  (type='sms' or only a recipient_phone)        → sendSMS
  *   - push rows (everything else, resolve device tokens)      → sendPushNotification
- * Push also fires a WebSocket delivery via userId inside sendPushNotification.
+ * For appointment reminder / result-ready rows with an explicit
+ * tenants.settings.notificationChannels override, it fans out through the
+ * shared notification dispatcher (including WhatsApp/voice dry-run logging).
  *
  * A row with no deliverable target (no phone, no resolvable token) is marked
  * FAILED with a reason and backs off — after 3 such attempts it drops out of
@@ -415,30 +370,8 @@ export async function drainNotificationOutbox({ limit = 50 } = {}) {
   let sent = 0;
   let failed = 0;
   for (const row of batch) {
-    const isSms = String(row.type || '').toLowerCase() === 'sms'
-      || (!!row.recipient_phone && !row.recipient_id);
     try {
-      if (isSms) {
-        if (!row.recipient_phone) throw new Error('SMS outbox row has no recipient_phone');
-        await sendSMS(row.recipient_phone, row.body || row.title || '');
-      } else {
-        const tokens = await resolveRecipientTokens(row.recipient_id);
-        const data = row.payload && typeof row.payload === 'object' ? row.payload : {};
-        if (!tokens.length && !row.recipient_id) {
-          throw new Error('push outbox row has no resolvable device token or recipient_id');
-        }
-        // sendPushNotification handles an empty token list gracefully (WS-only
-        // delivery via userId) and never throws on zero tokens, so a row with a
-        // recipient_id but no live token still resolves as "sent" (WS attempt)
-        // rather than looping forever.
-        await sendPushNotification({
-          tokens,
-          title: row.title || '',
-          body: row.body || '',
-          data,
-          userId: row.recipient_id || null,
-        });
-      }
+      await deliverNotificationOutboxRow(row);
       await notificationOutbox.markSent(row.id);
       sent += 1;
     } catch (err) {

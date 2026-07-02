@@ -13,12 +13,22 @@ import { assertData } from './helpers/assertSchema.js';
 // read ONLY this suite's ledger rows — no cross-suite collision or bleed when
 // the three money-ledger deep suites share one DB in the same CI chunk.
 const TENANT = '00000000-0000-4000-8000-0000000003a2';
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const cleanup = { invoiceIds: [], patientUids: [] };
 
 beforeAll(async () => {
   await prisma.$executeRawUnsafe(
     `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'ledger-reports-tenant', 'Ledger Reports Test') ON CONFLICT (id) DO NOTHING`,
     TENANT,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO ledger_accounts (tenant_id, code, type, description)
+       SELECT $1::uuid, code, type, description
+         FROM ledger_accounts
+        WHERE tenant_id = $2::uuid
+      ON CONFLICT (tenant_id, code) DO NOTHING`,
+    TENANT,
+    DEFAULT_TENANT,
   );
 });
 

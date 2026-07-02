@@ -19,12 +19,22 @@ process.env.HOSPITAL_NAME = process.env.HOSPITAL_NAME || 'Test Hospital';
 // unique (tenant_id, idempotency_key) space — never colliding with the other
 // two money-ledger deep suites when they share one DB in the same CI chunk.
 const TENANT = '00000000-0000-4000-8000-0000000003a1';
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const cleanup = { invoiceIds: [], claimIds: [], preauthIds: [], policyIds: [], patientUids: [] };
 
 beforeAll(async () => {
   await prisma.$executeRawUnsafe(
     `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'ledger-tail-tenant', 'Ledger Tail Test') ON CONFLICT (id) DO NOTHING`,
     TENANT,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO ledger_accounts (tenant_id, code, type, description)
+       SELECT $1::uuid, code, type, description
+         FROM ledger_accounts
+        WHERE tenant_id = $2::uuid
+      ON CONFLICT (tenant_id, code) DO NOTHING`,
+    TENANT,
+    DEFAULT_TENANT,
   );
 });
 

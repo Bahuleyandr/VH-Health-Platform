@@ -7,6 +7,7 @@ import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
+import { withAuditBypass } from './helpers/auditBypass.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const CLEANING_REQUESTER_UID = 'a8888888-8888-4888-8888-888888888b01';
@@ -34,6 +35,24 @@ function clientAs(role, overrides = {}) {
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     delete: (p) => request(app).delete(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
+}
+
+async function purgeBedDeepAuditLogs(wardName, emptyWardName) {
+  await withAuditBypass(prisma, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE action = 'BED_DELETED' AND metadata->>'bed_number' LIKE 'BD-DEEP-%'`,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE action IN ('BED_CREATED', 'WARD_CREATED', 'WARD_DELETED')
+          AND (
+            metadata->>'bed_number' LIKE 'BD-DEEP-%'
+            OR metadata->>'ward_name' IN ($1, $2)
+          )`,
+      wardName,
+      emptyWardName,
+    );
+  });
 }
 
 describe('Bed + ward management — deep integration', () => {
@@ -69,19 +88,7 @@ describe('Bed + ward management — deep integration', () => {
     );
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name IN ($1, $2)`, WARD_NAME, EMPTY_WARD_NAME);
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs WHERE action = 'BED_DELETED' AND metadata->>'bed_number' LIKE 'BD-DEEP-%'`,
-    );
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs
-        WHERE action IN ('BED_CREATED', 'WARD_CREATED', 'WARD_DELETED')
-          AND (
-            metadata->>'bed_number' LIKE 'BD-DEEP-%'
-            OR metadata->>'ward_name' IN ($1, $2)
-          )`,
-      WARD_NAME,
-      EMPTY_WARD_NAME,
-    );
+    await purgeBedDeepAuditLogs(WARD_NAME, EMPTY_WARD_NAME);
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       CLEANING_REQUESTER_UID,
@@ -112,19 +119,7 @@ describe('Bed + ward management — deep integration', () => {
     ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name IN ($1, $2)`, WARD_NAME, EMPTY_WARD_NAME).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs WHERE action = 'BED_DELETED' AND metadata->>'bed_number' LIKE 'BD-DEEP-%'`,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM audit_logs
-        WHERE action IN ('BED_CREATED', 'WARD_CREATED', 'WARD_DELETED')
-          AND (
-            metadata->>'bed_number' LIKE 'BD-DEEP-%'
-            OR metadata->>'ward_name' IN ($1, $2)
-          )`,
-      WARD_NAME,
-      EMPTY_WARD_NAME,
-    ).catch(() => {});
+    await purgeBedDeepAuditLogs(WARD_NAME, EMPTY_WARD_NAME).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       CLEANING_REQUESTER_UID,

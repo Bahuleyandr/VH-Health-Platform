@@ -33,6 +33,7 @@ jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.
 
 const prisma = (await import('../lib/prisma.js')).default;
 const bedService = (await import('../services/bed/bedManagementService.js')).default;
+const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = randomUUID();
@@ -74,7 +75,11 @@ async function cleanupTxn() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
+    PATIENT_UID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
 }
 

@@ -44,7 +44,7 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
       : await prisma.$queryRawUnsafe(
         `SELECT id, uid, phone, email, name, device_token, preferred_channel
          FROM users
-         WHERE phone = $1
+         WHERE id::text = $1 OR phone = $1
          LIMIT 1`,
         identifier
       );
@@ -237,7 +237,7 @@ export async function dispatchToPatient({ userId, title, body, data = {}, type =
           identifier,
         )
         : await prisma.$queryRawUnsafe(
-          `SELECT preferred_channel FROM users WHERE phone = $1 LIMIT 1`,
+          `SELECT preferred_channel FROM users WHERE id::text = $1 OR phone = $1 LIMIT 1`,
           identifier,
         );
       if (rows[0]?.preferred_channel) preferred = rows[0].preferred_channel;
