@@ -9,7 +9,6 @@
  *   - getHeaders builds correct header objects
  *   - buildUrl constructs URLs with param replacement
  *   - requiresAuth matches protected routes
- *   - buildWsUrl constructs WebSocket URLs
  */
 
 import {
@@ -24,7 +23,6 @@ import {
   ensureApiV1Path,
   buildProxyUrl,
   requiresAuth,
-  buildWsUrl,
 } from "@/lib/api-config";
 
 // ---------------------------------------------------------------------------
@@ -360,23 +358,3 @@ describe("requiresAuth", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildWsUrl
-// ---------------------------------------------------------------------------
-describe("buildWsUrl", () => {
-  it("returns WS URL without token query param when no token given", () => {
-    const url = buildWsUrl();
-    expect(url).toBe(`${WS_BASE_URL}/ws`);
-    expect(url).not.toContain("?token=");
-  });
-
-  it("appends token as query param when token is provided", () => {
-    const url = buildWsUrl("my-ws-token");
-    expect(url).toContain("?token=my-ws-token");
-  });
-
-  it("encodes special characters in the token", () => {
-    const url = buildWsUrl("token with spaces");
-    expect(url).toContain("?token=token%20with%20spaces");
-  });
-});

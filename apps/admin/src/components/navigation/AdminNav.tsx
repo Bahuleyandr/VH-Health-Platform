@@ -27,6 +27,12 @@ const CLINICAL_AI_CONTROL_ROLES = [
   "SYSTEM_ADMIN",
 ];
 
+// Deliberately hidden from this grouped side nav:
+// - feature-flags: super-admin release switchboard; keep out of routine admin flow.
+// - database: live DB browser; access should stay intentional and policy-gated.
+// - executive: leadership summary page that is not part of operational admin nav.
+// - compliance: broad audit/compliance workspace; keep reachable by route, not default nav.
+// - system-logs: raw operational logs; system-audit remains the safer default entry point.
 const navSections: NavSection[] = [
   {
     title: "Overview",
@@ -42,6 +48,7 @@ const navSections: NavSection[] = [
       { name: "My Leave", href: "/dashboard/my-leave" },
       { name: "My Payslips", href: "/dashboard/my-payslips" },
       { name: "My Replacements", href: "/dashboard/my-replacements" },
+      { name: "Shift Management", href: "/dashboard/shifts" },
       { name: "Upload Prescription", href: "/dashboard/upload-prescription" },
     ],
   },
@@ -108,6 +115,7 @@ const navSections: NavSection[] = [
       { name: "ICU Command Centre", href: "/dashboard/icu" },
       { name: "Dialysis Unit", href: "/dashboard/dialysis" },
       { name: "Immunisations", href: "/dashboard/immunisations" },
+      { name: "Consent", href: "/dashboard/consent" },
     ],
   },
   {
@@ -134,9 +142,11 @@ const navSections: NavSection[] = [
       { name: "Clinical Governance", href: "/dashboard/clinical-governance" },
       { name: "Payroll", href: "/dashboard/payroll" },
       { name: "Analytics", href: "/dashboard/analytics" },
+      { name: "Report Builder", href: "/dashboard/report-builder" },
       { name: "Operations", href: "/dashboard/operations" },
       { name: "Dashboards", href: "/dashboard/dashboards" },
       { name: "Insurance", href: "/dashboard/insurance" },
+      { name: "Billing Denials", href: "/dashboard/billing/denials" },
       { name: "PM-JAY", href: "/dashboard/pmjay" },
       { name: "Day-care Packages", href: "/dashboard/billing/packages" },
       { name: "General Ledger", href: "/dashboard/billing/ledger" },
@@ -155,6 +165,8 @@ const navSections: NavSection[] = [
       { name: "Audit Logs", href: "/dashboard/audit" },
       { name: "Audit Explorer", href: "/dashboard/audit-explorer" },
       { name: "Integrations", href: "/dashboard/integrations" },
+      { name: "ABDM", href: "/dashboard/abdm" },
+      { name: "Devices", href: "/dashboard/devices" },
     ],
   },
 ];
