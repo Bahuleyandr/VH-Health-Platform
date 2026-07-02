@@ -650,6 +650,115 @@ export async function getOne({ tenantId, id }) {
   return { ...rows[0], sections };
 }
 
+const PRINTABLE_DISCHARGE_SUMMARY_STATUSES = new Set(['signed', 'delivered']);
+
+function positiveInt(value, label) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw AppError.badRequest(`${label} must be a positive integer`, 'INVALID_ID');
+  }
+  return parsed;
+}
+
+async function findDischargeSummaryForPdf({ tenantId, id = null, admissionId = null }) {
+  if (id != null) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, admission_id, patient_uid, status, signed_at, delivered_at
+         FROM discharge_summaries
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        LIMIT 1`,
+      id,
+      tenantId,
+    );
+    if (!rows.length) {
+      throw AppError.notFound(
+        'Discharge summary not found',
+        'DISCHARGE_SUMMARY_NOT_FOUND',
+      );
+    }
+    return rows[0];
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, admission_id, patient_uid, status, signed_at, delivered_at
+       FROM discharge_summaries
+      WHERE admission_id = $1::int AND tenant_id = $2::uuid
+      ORDER BY
+        CASE WHEN status = 'delivered' THEN 0
+             WHEN status = 'signed' THEN 1
+             ELSE 2 END,
+        COALESCE(delivered_at, signed_at, updated_at, created_at) DESC,
+        id DESC
+      LIMIT 1`,
+    admissionId,
+    tenantId,
+  );
+  if (!rows.length) {
+    throw AppError.notFound(
+      'Discharge summary not found for admission',
+      'DISCHARGE_SUMMARY_NOT_FOUND',
+    );
+  }
+  return rows[0];
+}
+
+export async function generateSignedDischargeSummaryPdfBuffer({
+  tenantId, id = null, admissionId = null, actorUid = null, requestId = null,
+}) {
+  const summaryId = id != null ? positiveInt(id, 'Discharge summary id') : null;
+  const targetAdmissionId = admissionId != null
+    ? positiveInt(admissionId, 'Admission id')
+    : null;
+  if (summaryId == null && targetAdmissionId == null) {
+    throw AppError.badRequest(
+      'Discharge summary id or admission id is required',
+      'DISCHARGE_SUMMARY_PDF_TARGET_REQUIRED',
+    );
+  }
+
+  const summary = await findDischargeSummaryForPdf({
+    tenantId,
+    id: summaryId,
+    admissionId: targetAdmissionId,
+  });
+  const status = String(summary.status || '').toLowerCase();
+  if (!PRINTABLE_DISCHARGE_SUMMARY_STATUSES.has(status)) {
+    throw AppError.conflict(
+      'Discharge summary must be signed before the PDF can be printed',
+      'DISCHARGE_SUMMARY_NOT_SIGNED',
+      { status },
+    );
+  }
+
+  const linkedAdmissionId = Number.parseInt(summary.admission_id, 10);
+  if (!Number.isInteger(linkedAdmissionId) || linkedAdmissionId <= 0) {
+    throw AppError.conflict(
+      'Discharge summary is not linked to an admission and cannot be printed',
+      'DISCHARGE_SUMMARY_ADMISSION_MISSING',
+      { discharge_summary_id: Number(summary.id) },
+    );
+  }
+
+  const { generateDischargeSummaryPDF } = await import('../documents/clinicalPdfGenerator.js');
+  const buffer = await generateDischargeSummaryPDF(linkedAdmissionId, { tenantId });
+  await appendDischargeAudit({
+    tenantId,
+    id: summary.id,
+    action: 'DISCHARGE_SUMMARY_PDF_PRINTED',
+    actorUid,
+    metadata: {
+      admission_id: linkedAdmissionId,
+      patient_uid: summary.patient_uid || null,
+      status,
+      request_id: requestId || null,
+    },
+  });
+  return {
+    buffer,
+    summary: { ...summary, admission_id: linkedAdmissionId, status },
+  };
+}
+
 export async function updateSection({
   tenantId, id, section_key, body, edited_by,
 }) {

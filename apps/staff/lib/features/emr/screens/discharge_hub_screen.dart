@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/services/clinical_ai_api_service.dart';
+import '../../../core/services/clinical_print_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/logout_action.dart';
 
 class DischargeHubScreen extends StatefulWidget {
@@ -269,6 +271,27 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     context.push('/emr/discharge/${widget.admissionId}?name=$name');
   }
 
+  Future<void> _printDischargeSummaryPdf() async {
+    setState(() => _busyKey = 'summary-print');
+    try {
+      await ClinicalPrintService.printDischargeSummary(
+        admissionId: widget.admissionId,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open discharge PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busyKey = null);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -438,12 +461,24 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _openSummary,
-              icon: const Icon(Icons.summarize),
-              label: Text(
-                signed ? 'View signed summary' : 'Open summary editor',
-              ),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _openSummary,
+                  icon: const Icon(Icons.summarize),
+                  label: Text(
+                    signed ? 'View signed summary' : 'Open summary editor',
+                  ),
+                ),
+                ClinicalPrintPdfAction(
+                  key: const Key('discharge-summary-print-share-pdf'),
+                  visible: signed,
+                  busy: _busyKey == 'summary-print',
+                  onPressed: _printDischargeSummaryPdf,
+                ),
+              ],
             ),
           ],
         ),

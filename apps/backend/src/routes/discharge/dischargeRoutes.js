@@ -23,10 +23,22 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
+      if (err.statusCode) return error(res, err.message, err.statusCode, errorDetails(err));
       logger.error('discharge route error:', err);
       return error(res, err.message || 'Discharge summary error', 500);
     }
+  };
+}
+
+function errorDetails(err) {
+  if (!err?.code && !err?.details) return null;
+  return {
+    ...(err.code ? { code: err.code } : {}),
+    ...(err.details && typeof err.details === 'object'
+      ? err.details
+      : err.details != null
+        ? { details: err.details }
+        : {}),
   };
 }
 
@@ -42,6 +54,20 @@ function requireDoctorOrAdmin(req, res, next) {
     return error(res, 'Doctor or admin role required for sign-off', 403);
   }
   next();
+}
+
+async function sendDischargeSummaryPdf(req, res, target) {
+  const result = await discharge.generateSignedDischargeSummaryPdfBuffer({
+    tenantId: tenantOf(req),
+    actorUid: req.user?.uid,
+    requestId: req.id,
+    ...target,
+  });
+  const filename = `discharge-summary-${result.summary.id}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', String(result.buffer.length));
+  return res.send(result.buffer);
 }
 
 // ── Templates ────────────────────────────────────────────────────────
@@ -74,6 +100,14 @@ router.get('/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
     patient_uid: req.params.patientUid,
     limit: req.query.limit,
   }),
+));
+
+router.get('/admission/:admissionId/pdf', requireStaffOrAdmin, wrap(async (req, res) =>
+  sendDischargeSummaryPdf(req, res, { admissionId: req.params.admissionId }),
+));
+
+router.get('/:id/pdf', requireStaffOrAdmin, wrap(async (req, res) =>
+  sendDischargeSummaryPdf(req, res, { id: req.params.id }),
 ));
 
 router.get('/:id', requireStaffOrAdmin, wrap(async (req) =>

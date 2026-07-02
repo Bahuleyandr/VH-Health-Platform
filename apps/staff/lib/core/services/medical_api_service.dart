@@ -1,5 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
 import '../models/composition_alternatives.dart';
 import 'api_client.dart';
 import 'clinical_platform_api_service.dart';
@@ -624,6 +628,16 @@ class MedicalApiService {
     return data['url']?.toString();
   }
 
+  static Future<Uint8List> downloadPrescriptionPrintPdf(
+    int prescriptionId,
+  ) async {
+    final response = await ApiClient.getBytes(
+      '/prescriptions/$prescriptionId/print-pdf',
+      timeout: const Duration(seconds: 30),
+    );
+    return _pdfBytesFrom(response, 'Prescription PDF download failed');
+  }
+
   // ─── Ward Referrals ─────────────────────────────────────────────────────
 
   static Future<List<Map<String, dynamic>>> searchReferralConsultants({
@@ -1023,6 +1037,16 @@ class MedicalApiService {
   /// POST /emr/:id/discharge-summary/sign — doctor signs discharge summary
   static Future<Map<String, dynamic>> signDischargeSummary(int id) async {
     return _post('/emr/$id/discharge-summary/sign', {});
+  }
+
+  static Future<Uint8List> downloadDischargeSummaryPdfForAdmission(
+    int admissionId,
+  ) async {
+    final response = await ApiClient.getBytes(
+      '/discharge-summaries/admission/$admissionId/pdf',
+      timeout: const Duration(seconds: 30),
+    );
+    return _pdfBytesFrom(response, 'Discharge summary PDF download failed');
   }
 
   /// GET /admissions — list active admissions through the ADT surface
@@ -1473,5 +1497,13 @@ class MedicalApiService {
       'order_type': orderType,
       'order_id': orderId,
     });
+  }
+
+  static Uint8List _pdfBytesFrom(http.Response response, String fallback) {
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+    final parsed = ApiResponse.parse(response.statusCode, response.body);
+    throw Exception(parsed.message ?? '$fallback (${response.statusCode})');
   }
 }

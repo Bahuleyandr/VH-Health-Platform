@@ -13,9 +13,11 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/platform_info.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/clinical_print_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/prescription_payloads.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -342,6 +344,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   String? _lastCreatedPrescriptionPdfUrl;
   String? _lastPharmacyOrderMessage;
   bool _signingLastPrescription = false;
+  bool _printingLastPrescription = false;
   bool _lastCreatedPrescriptionSigned = false;
   int? _appointmentPrescriptionId;
   bool _appointmentPrescriptionLocked = false;
@@ -908,6 +911,23 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     }
   }
 
+  Future<void> _printLastPrescriptionPdf() async {
+    final id = _lastCreatedPrescriptionId;
+    if (id == null || _printingLastPrescription) return;
+    setState(() => _printingLastPrescription = true);
+    try {
+      await ClinicalPrintService.printPrescription(prescriptionId: id);
+    } catch (e) {
+      if (!mounted) return;
+      ErrorToast.show(
+        context,
+        'Could not open prescription PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _printingLastPrescription = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_patientId == null || _doctorId == null) {
@@ -1465,6 +1485,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _appointmentPrescriptionId = null;
       _appointmentPrescriptionLocked = false;
       _signingLastPrescription = false;
+      _printingLastPrescription = false;
     }
   }
 
@@ -3043,6 +3064,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                           : 'Sign & lock Rx',
                     ),
                   ),
+                ClinicalPrintPdfAction(
+                  key: const Key('last-prescription-print-share-pdf'),
+                  visible:
+                      _lastCreatedPrescriptionId != null &&
+                      _lastCreatedPrescriptionSigned,
+                  busy: _printingLastPrescription,
+                  onPressed: _printLastPrescriptionPdf,
+                ),
                 submitButton,
               ],
             ),
@@ -3639,6 +3668,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
   bool _loading = true;
   String? _error;
   final Set<int> _signing = {};
+  final Set<int> _printing = {};
 
   @override
   void initState() {
@@ -3794,6 +3824,24 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
       }
     } finally {
       if (mounted) setState(() => _signing.remove(id));
+    }
+  }
+
+  Future<void> _printPrescription(Map<String, dynamic> rx) async {
+    final id = _rxId(rx);
+    if (id == null || _printing.contains(id)) return;
+    setState(() => _printing.add(id));
+    try {
+      await ClinicalPrintService.printPrescription(prescriptionId: id);
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(
+          context,
+          'Could not open prescription PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _printing.remove(id));
     }
   }
 
@@ -3974,6 +4022,17 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                     label: const Text('Open PDF'),
                   ),
+                ClinicalPrintPdfAction(
+                  key: const Key('recent-prescription-print-share-pdf'),
+                  visible: signed && id != null,
+                  busy: id != null && _printing.contains(id),
+                  onPressed: id == null
+                      ? null
+                      : () async {
+                          Navigator.of(ctx).pop();
+                          await _printPrescription(rx);
+                        },
+                ),
               ],
             ),
           ],

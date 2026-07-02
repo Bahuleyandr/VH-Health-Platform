@@ -71,6 +71,12 @@ wrapAutoRBAC(router, 'ePrescriptionPdfRoutes', {
   ]
 });
 
+wrapAutoRBAC(router, 'ePrescriptionStaffPdfRoutes', {
+  get: [
+    ['/:id/print-pdf', [], ePrescriptionController.printPrescriptionPDF]
+  ]
+});
+
 // Dynamic /:id routes last. Idempotency on the two write paths that
 // create downstream pharmacy orders (order-pharmacy + refill).
 wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {

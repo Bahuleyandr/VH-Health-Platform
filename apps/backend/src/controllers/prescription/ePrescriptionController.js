@@ -18,10 +18,14 @@ import { maybePropagateAncSupplements } from '../../services/maternity/maternity
 import { createPrescriptionReminders } from '../../services/patient/medicationReminderService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
-import { formatTemperatureForDisplay } from '../../services/prescription/prescriptionPdfHelper.js';
+import {
+  formatTemperatureForDisplay,
+  generatePrescriptionPDFBuffer,
+} from '../../services/prescription/prescriptionPdfHelper.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { requireTenantId } from '../../services/tenant/tenantService.js';
+import { AppError } from '../../utils/AppError.js';
 
 // ─── Frequency label map ─────────────────────────────────────────────────────
 const FREQ_LABELS = {
@@ -2566,6 +2570,46 @@ function callerMayAccessPrescription(req, patientId) {
   return !!callerId && String(patientId) === String(callerId);
 }
 
+function prescriptionPrintErrorDetails(err) {
+  if (!err?.code && !err?.details) return null;
+  return {
+    ...(err.code ? { code: err.code } : {}),
+    ...(err.details && typeof err.details === 'object'
+      ? err.details
+      : err.details != null
+        ? { details: err.details }
+        : {}),
+  };
+}
+
+function prescriptionIsSignedForPrint(rx) {
+  return Boolean(
+    rx?.signed_at ||
+      rx?.locked_at ||
+      String(rx?.lifecycle_status || '').toLowerCase() === 'signed',
+  );
+}
+
+async function loadPrescriptionPdfContext({ id, tenantId }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ep.*,
+            p.name AS patient_name, p.phone AS patient_phone,
+            p.gender AS patient_gender, p.birthday AS patient_birthday,
+            d.name AS doctor_name,
+            doc.specialty AS doctor_specialization,
+            NULL::text AS doctor_qualification
+       FROM e_prescriptions ep
+       LEFT JOIN users p ON p.id = ep.patient_id
+       LEFT JOIN users d ON d.id = ep.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
+      WHERE ep.id = $1::int AND ep.tenant_id = $2::uuid
+      LIMIT 1`,
+    id,
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GET /prescriptions/pdf/:id — download prescription PDF (signed URL redirect)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2595,5 +2639,83 @@ export const downloadPrescriptionPDF = async (req, res) => {
   } catch (err) {
     logger.error('Download prescription PDF error:', err);
     error(res, 'Failed to get PDF', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GET /prescriptions/:id/print-pdf — staff print/share PDF byte stream
+// ═══════════════════════════════════════════════════════════════════════════════
+export const printPrescriptionPDF = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw AppError.badRequest('Invalid prescription id', 'INVALID_PRESCRIPTION_ID');
+    }
+    const role = String(req.user?.role || '').toUpperCase();
+    if (role === 'PATIENT') {
+      throw AppError.forbidden(
+        'Staff role required to print prescription PDF',
+        'PRESCRIPTION_PRINT_STAFF_REQUIRED',
+      );
+    }
+
+    const tenantId = requireTenantId(req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId);
+    const rx = await loadPrescriptionPdfContext({ id, tenantId });
+    if (!rx) {
+      throw AppError.notFound('Prescription not found', 'PRESCRIPTION_NOT_FOUND');
+    }
+    if (!prescriptionIsSignedForPrint(rx)) {
+      throw AppError.conflict(
+        'Prescription must be signed before the PDF can be printed',
+        'PRESCRIPTION_NOT_SIGNED',
+        { lifecycle_status: rx.lifecycle_status || null },
+      );
+    }
+
+    const patient = {
+      id: rx.patient_id,
+      name: rx.patient_name,
+      phone: rx.patient_phone,
+      gender: rx.patient_gender,
+      birthday: rx.patient_birthday,
+    };
+    const doctor = {
+      id: rx.doctor_id,
+      name: rx.doctor_name,
+      specialization: rx.doctor_specialization,
+      qualification: rx.doctor_qualification,
+    };
+    const pdfBuffer = await generatePrescriptionPDFBuffer(rx, patient, doctor);
+
+    await logAudit(
+      req,
+      'OP_PRESCRIPTION_PDF_PRINTED',
+      {
+        prescription_id: id,
+        prescription_number: rx.prescription_number || null,
+        patient_uid: rx.patient_uid || null,
+        doctor_uid: rx.doctor_uid || null,
+      },
+      { resource: 'e_prescriptions', resourceId: id },
+    ).catch((auditErr) => {
+      logger.warn(`Prescription PDF audit failed for ${id}: ${auditErr?.message || auditErr}`);
+    });
+
+    const filename = `prescription-${rx.prescription_number || id}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(pdfBuffer.length));
+    return res.send(pdfBuffer);
+  } catch (err) {
+    if (err.statusCode) {
+      return error(
+        res,
+        err.message,
+        err.statusCode,
+        prescriptionPrintErrorDetails(err),
+      );
+    }
+    logger.error('Print prescription PDF error:', err);
+    return error(res, 'Failed to print prescription PDF', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
