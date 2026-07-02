@@ -17,6 +17,7 @@ metadata:
   name: vhhealth-platform-prod
 resources:
   - ../../base
+  - resource-governance.yaml
 
 # NOTE (audit finding H11): the app-tier Deployments (backend / admin /
 # staff-web) are NOT part of this overlay — ArgoCD syncs them from
