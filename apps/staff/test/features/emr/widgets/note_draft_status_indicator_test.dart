@@ -4,7 +4,6 @@
 // flagged by review: the transient "Unsaved changes…" (dirty) state and the
 // RELATIVE saved-time label ("Saved 2m ago") instead of a static clock time.
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/emr/note_draft_autosave.dart';

@@ -1053,10 +1053,17 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> getActiveAdmissions({
     int page = 1,
     int limit = 50,
+    String? ward,
+    String? status,
   }) async {
     final resp = await ApiClient.get(
       '/admissions',
-      queryParameters: {'page': '$page', 'limit': '$limit'},
+      queryParameters: {
+        'page': '$page',
+        'limit': '$limit',
+        if (ward != null && ward.trim().isNotEmpty) 'ward': ward.trim(),
+        if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+      },
     );
     if (resp.isSuccess && resp.raw is Map<String, dynamic>) {
       final raw = resp.raw as Map<String, dynamic>;

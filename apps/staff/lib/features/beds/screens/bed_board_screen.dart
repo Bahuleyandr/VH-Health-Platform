@@ -17,6 +17,7 @@ import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
+import '../../../core/widgets/ward_list_filter_bar.dart';
 import '../../../l10n/app_strings.dart';
 
 String _compactString(dynamic value) {
@@ -68,6 +69,91 @@ String _cleaningAssigneeText(Map<String, dynamic> bed) {
   return _compactString(bed['housekeeping_assigned_to_name']);
 }
 
+const String bedBoardAllStatuses = 'all';
+const String bedBoardCleaningStatus = 'cleaning';
+
+List<WardListFilterOption> bedBoardWardFilterOptions(
+  List<Map<String, dynamic>> wards,
+) {
+  final options = <WardListFilterOption>[];
+  final seen = <String>{};
+  for (var index = 0; index < wards.length; index += 1) {
+    final ward = wards[index];
+    final value = (ward['id'] ?? ward['_id'] ?? ward['wardId'] ?? '')
+        .toString()
+        .trim();
+    if (value.isEmpty || !seen.add(value)) continue;
+    final name = (ward['name'] ?? ward['wardName'] ?? 'Ward ${index + 1}')
+        .toString()
+        .trim();
+    options.add(WardListFilterOption(value: value, label: name));
+  }
+  options.sort(
+    (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+  );
+  return options;
+}
+
+List<WardListFilterOption> bedBoardStatusFilterOptions({
+  required bool housekeepingOnly,
+}) {
+  if (housekeepingOnly) {
+    return const [
+      WardListFilterOption(value: bedBoardCleaningStatus, label: 'Cleaning'),
+    ];
+  }
+  return const [
+    WardListFilterOption(value: bedBoardAllStatuses, label: 'All statuses'),
+    WardListFilterOption(value: 'available', label: 'Available'),
+    WardListFilterOption(value: 'occupied', label: 'Occupied'),
+    WardListFilterOption(value: 'maintenance', label: 'Maintenance'),
+    WardListFilterOption(value: bedBoardCleaningStatus, label: 'Cleaning'),
+  ];
+}
+
+List<Map<String, dynamic>> filterBedBoardBeds(
+  List<Map<String, dynamic>> beds, {
+  String statusValue = bedBoardAllStatuses,
+  String query = '',
+  bool housekeepingOnly = false,
+}) {
+  Iterable<Map<String, dynamic>> rows = beds;
+  if (housekeepingOnly) {
+    rows = rows.where(
+      (b) => (b['status'] ?? '').toString().toLowerCase() == 'cleaning',
+    );
+  }
+  final status = statusValue.trim().toLowerCase();
+  if (status.isNotEmpty && status != bedBoardAllStatuses) {
+    rows = rows.where(
+      (b) => (b['status'] ?? '').toString().toLowerCase() == status,
+    );
+  }
+  final q = query.trim().toLowerCase();
+  if (q.isNotEmpty) {
+    rows = rows.where((b) {
+      final num = (b['bedNumber'] ?? b['bed_number'] ?? b['number'] ?? '')
+          .toString()
+          .toLowerCase();
+      final patient =
+          (b['patient_full_name'] ??
+                  b['patientName'] ??
+                  b['patient_name'] ??
+                  '')
+              .toString()
+              .toLowerCase();
+      final hospitalNumber =
+          (b['patient_hospital_number'] ?? b['hospital_number'] ?? '')
+              .toString()
+              .toLowerCase();
+      return num.contains(q) ||
+          patient.contains(q) ||
+          hospitalNumber.contains(q);
+    });
+  }
+  return rows.toList();
+}
+
 class BedBoardScreen extends StatefulWidget {
   const BedBoardScreen({super.key});
 
@@ -92,46 +178,18 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   // Bed-grid filters. `_bedQuery` matches against bed_number; `_bedStatusFilter`
   // is one of "all" / "available" / "occupied" / "maintenance" / "cleaning".
   String _bedQuery = '';
-  String _bedStatusFilter = 'all';
+  String _bedStatusFilter = bedBoardAllStatuses;
   bool get _isHousekeepingRole =>
       _role == StaffRole.housekeeping ||
       _role == StaffRole.housekeepingIncharge;
 
   List<Map<String, dynamic>> get _filteredBeds {
-    Iterable<Map<String, dynamic>> rows = _beds;
-    if (_isHousekeepingRole) {
-      rows = rows.where(
-        (b) => (b['status'] ?? '').toString().toLowerCase() == 'cleaning',
-      );
-    }
-    if (_bedStatusFilter != 'all') {
-      rows = rows.where(
-        (b) => (b['status'] ?? '').toString().toLowerCase() == _bedStatusFilter,
-      );
-    }
-    if (_bedQuery.isNotEmpty) {
-      final q = _bedQuery.toLowerCase();
-      rows = rows.where((b) {
-        final num = (b['bedNumber'] ?? b['bed_number'] ?? b['number'] ?? '')
-            .toString()
-            .toLowerCase();
-        final patient =
-            (b['patient_full_name'] ??
-                    b['patientName'] ??
-                    b['patient_name'] ??
-                    '')
-                .toString()
-                .toLowerCase();
-        final hospitalNumber =
-            (b['patient_hospital_number'] ?? b['hospital_number'] ?? '')
-                .toString()
-                .toLowerCase();
-        return num.contains(q) ||
-            patient.contains(q) ||
-            hospitalNumber.contains(q);
-      });
-    }
-    return rows.toList();
+    return filterBedBoardBeds(
+      _beds,
+      statusValue: _bedStatusFilter,
+      query: _bedQuery,
+      housekeepingOnly: _isHousekeepingRole,
+    );
   }
 
   @override
@@ -150,7 +208,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       _role = role;
       if (role == StaffRole.housekeeping ||
           role == StaffRole.housekeepingIncharge) {
-        _bedStatusFilter = 'cleaning';
+        _bedStatusFilter = bedBoardCleaningStatus;
       }
     });
   }
@@ -555,13 +613,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                             ),
                           ),
                           trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            setState(() {
-                              _selectedWardId = wardId;
-                              _selectedWardName = name.toString();
-                            });
-                            _fetchBeds(wardId);
-                          },
+                          onTap: () => _selectWard(wardId, name.toString()),
                         ),
                       );
                     },
@@ -576,21 +628,6 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     final available = _beds
         .where(
           (b) => (b['status'] ?? '').toString().toLowerCase() == 'available',
-        )
-        .length;
-    final occupied = _beds
-        .where(
-          (b) => (b['status'] ?? '').toString().toLowerCase() == 'occupied',
-        )
-        .length;
-    final maintenance = _beds
-        .where(
-          (b) => (b['status'] ?? '').toString().toLowerCase() == 'maintenance',
-        )
-        .length;
-    final cleaning = _beds
-        .where(
-          (b) => (b['status'] ?? '').toString().toLowerCase() == 'cleaning',
         )
         .length;
 
@@ -616,7 +653,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                     _selectedWardName = null;
                     _beds = [];
                     _bedQuery = '';
-                    _bedStatusFilter = 'all';
+                    _bedStatusFilter = _defaultBedStatusFilter;
                   }),
                 ),
               if (forceHideBack) const SizedBox(width: 12),
@@ -659,53 +696,34 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           ),
         ),
 
-        // Status filter pills (counts double as guidance — "you have 4
-        // available beds in this ward right now"). Tap a pill to restrict
-        // the grid to that status; tap "All" to clear.
-        SizedBox(
-          height: 40,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              if (!_isHousekeepingRole) ...[
-                _statusPill(
-                  'all',
-                  s.bedBoardFilterAll,
-                  _beds.length,
-                  Colors.grey.shade700,
-                ),
-                const SizedBox(width: 8),
-                _statusPill(
-                  'available',
-                  s.bedBoardLegendAvailable,
-                  available,
-                  AppTheme.successGreen,
-                ),
-                const SizedBox(width: 8),
-                _statusPill(
-                  'occupied',
-                  s.bedBoardLegendOccupied,
-                  occupied,
-                  AppTheme.errorRed,
-                ),
-                const SizedBox(width: 8),
-                _statusPill(
-                  'maintenance',
-                  s.bedBoardLegendMaintenance,
-                  maintenance,
-                  const Color(0xFFF9A825),
-                ),
-                const SizedBox(width: 8),
-              ],
-              _statusPill(
-                'cleaning',
-                'Cleaning',
-                cleaning,
-                const Color(0xFF007A64),
-              ),
-            ],
+        WardListFilterBar(
+          keyPrefix: 'bed-board',
+          wardOptions: _bedBoardWardOptions,
+          selectedWardValue: _selectedWardId ?? '',
+          onWardChanged: (wardId) {
+            final wardName = _wards
+                .map(
+                  (ward) => {
+                    'id': (ward['id'] ?? ward['_id'] ?? ward['wardId'] ?? '')
+                        .toString(),
+                    'name': (ward['name'] ?? ward['wardName'] ?? '').toString(),
+                  },
+                )
+                .firstWhere(
+                  (ward) => ward['id'] == wardId,
+                  orElse: () => {'id': wardId, 'name': 'Ward $wardId'},
+                )['name']!;
+            _selectWard(wardId, wardName);
+          },
+          filterLabel: 'Bed status',
+          filterOptions: bedBoardStatusFilterOptions(
+            housekeepingOnly: _isHousekeepingRole,
           ),
+          selectedFilterValue: _bedStatusFilter,
+          onFilterChanged: (value) => setState(() => _bedStatusFilter = value),
+          hasActiveFilters: _bedStatusFilter != _defaultBedStatusFilter,
+          onClear: () =>
+              setState(() => _bedStatusFilter = _defaultBedStatusFilter),
         ),
         const SizedBox(height: 8),
 
@@ -1076,53 +1094,30 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     }
   }
 
-  Widget _statusPill(String key, String label, int count, Color color) {
-    final active = _bedStatusFilter == key;
-    return InkWell(
-      onTap: () => setState(() => _bedStatusFilter = key),
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? color : color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.6)),
-        ),
-        // Pills inherit the body-small font size from the theme so
-        // users with `MediaQuery.textScaleFactor` cranked up to 200%
-        // get readable pills instead of clipped labels. The hard-coded
-        // 11–12pt sizes were squeezing accessibility text scaling.
-        child: DefaultTextStyle.merge(
-          style: TextStyle(
-            color: active ? Colors.white : color,
-            fontWeight: FontWeight.w600,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: active
-                      ? Colors.white.withValues(alpha: 0.2)
-                      : color.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$count',
-                  style: TextStyle(
-                    color: active ? Colors.white : color,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+  String get _defaultBedStatusFilter =>
+      _isHousekeepingRole ? bedBoardCleaningStatus : bedBoardAllStatuses;
+
+  List<WardListFilterOption> get _bedBoardWardOptions {
+    final options = bedBoardWardFilterOptions(_wards);
+    final selectedId = _selectedWardId;
+    if (selectedId == null || selectedId.isEmpty) return options;
+    if (options.any((option) => option.value == selectedId)) return options;
+    return [
+      WardListFilterOption(
+        value: selectedId,
+        label: _selectedWardName ?? 'Ward $selectedId',
       ),
-    );
+      ...options,
+    ];
+  }
+
+  void _selectWard(String wardId, String wardName) {
+    setState(() {
+      _selectedWardId = wardId;
+      _selectedWardName = wardName;
+      _bedStatusFilter = _defaultBedStatusFilter;
+    });
+    _fetchBeds(wardId);
   }
 
   Widget _legendDot(Color color, String label) {
