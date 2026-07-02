@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import '../models/composition_alternatives.dart';
 import 'api_client.dart';
 import 'clinical_platform_api_service.dart';
 import 'order_payloads.dart';
@@ -571,6 +572,16 @@ class MedicalApiService {
         .whereType<Map>()
         .map((row) => row.cast<String, dynamic>())
         .toList();
+  }
+
+  /// GET /pharmacy-orders/catalog/:id/alternatives — same-composition sibling
+  /// brands for a selected pharmacy catalog row. A flag-off tenant returns a
+  /// valid empty result (`selected: null, groups: []`).
+  static Future<CompositionAlternativesResult> getCatalogAlternatives(
+    int catalogId,
+  ) async {
+    final data = await _get('/pharmacy-orders/catalog/$catalogId/alternatives');
+    return CompositionAlternativesResult.fromJson(data);
   }
 
   static Future<Map<String, dynamic>> orderPrescriptionToPharmacy(
