@@ -6,6 +6,8 @@
 import React from "react";
 import Link from "next/link";
 import { Activity, CalendarCheck, ShieldCheck, Users } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { useRealtimeData } from "@/hooks/useRealtimeData";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { StatCards, AppointmentQueueCards } from "./components/DashboardStats";
@@ -15,6 +17,7 @@ import {
   InfrastructureMonitor,
 } from "./components/SystemHealthPanel";
 import LiveBedOccupancyTile from "./components/LiveBedOccupancyTile";
+import type { AppointmentQueue, Quick } from "./hooks/useDashboardData.types";
 
 const adminQuickLinks = [
   { label: "Staff Roster", href: "/dashboard/staff-roster", icon: Users },
@@ -30,6 +33,21 @@ const adminQuickLinks = [
   },
   { label: "System Audit", href: "/dashboard/system-audit", icon: ShieldCheck },
 ];
+
+const ADMIN_KPI_QUERY_KEY = ["dashboard", "admin-kpi"] as const;
+
+type AdminKpiEnvelope = {
+  tile: string;
+  value?: Record<string, number>;
+  at?: string;
+};
+
+function numericTileValue(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return Number.isFinite(value) ? Number(value) : fallback;
+}
 
 export default function Dashboard() {
   const {
@@ -47,6 +65,60 @@ export default function Dashboard() {
     infraHealth,
     refreshCache,
   } = useDashboardData();
+  const {
+    connected: kpiConnected,
+    subscribed: kpiSubscribed,
+    lastEventAt: kpiLastEventAt,
+  } = useRealtimeData<AdminKpiEnvelope>("admin:kpi", ADMIN_KPI_QUERY_KEY);
+  const { data: latestKpi } = useQuery<AdminKpiEnvelope | null>({
+    queryKey: ADMIN_KPI_QUERY_KEY,
+    queryFn: async () => null,
+    enabled: false,
+    initialData: null,
+  });
+  const [kpiTiles, setKpiTiles] = React.useState<Record<string, AdminKpiEnvelope>>({});
+
+  React.useEffect(() => {
+    if (!latestKpi?.tile) return;
+    setKpiTiles((prev) => ({ ...prev, [latestKpi.tile]: latestKpi }));
+  }, [latestKpi]);
+
+  const mergedKpiTiles = React.useMemo(
+    () =>
+      latestKpi?.tile
+        ? { ...kpiTiles, [latestKpi.tile]: latestKpi }
+        : kpiTiles,
+    [kpiTiles, latestKpi],
+  );
+  const waitingQueueTile = mergedKpiTiles["waiting-queue"]?.value;
+  const liveQueue = React.useMemo<AppointmentQueue>(() => {
+    if (!waitingQueueTile) return queue;
+    return {
+      waiting: numericTileValue(waitingQueueTile.waiting, queue.waiting),
+      inProgress: numericTileValue(
+        waitingQueueTile.inProgress,
+        queue.inProgress,
+      ),
+      completed: queue.completed,
+    };
+  }, [queue, waitingQueueTile]);
+  const liveQuick = React.useMemo<Quick>(() => {
+    if (!waitingQueueTile) return quick;
+    return {
+      ...quick,
+      appointmentsToday:
+        liveQueue.waiting + liveQueue.inProgress + liveQueue.completed,
+    };
+  }, [liveQueue, quick, waitingQueueTile]);
+
+  const kpiLiveLabel = kpiSubscribed ? "● Live" : "○ Polling";
+  const kpiLiveTitle = kpiSubscribed
+    ? kpiLastEventAt
+      ? `Real-time via admin:kpi - last update ${new Date(kpiLastEventAt).toLocaleTimeString()}`
+      : "Real-time via admin:kpi"
+    : kpiConnected
+      ? "Connecting..."
+      : "Polling every 30s (real-time unavailable)";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/40 text-foreground">
@@ -74,8 +146,27 @@ export default function Dashboard() {
             );
           })}
         </section>
-        <StatCards quick={quick} prevQuick={prevQuick} />
-        <AppointmentQueueCards queue={queue} prevQueue={prevQueue} />
+        <div className="flex items-center justify-end">
+          <span
+            data-testid="dashboard-kpi-realtime-indicator"
+            role="status"
+            aria-label={
+              kpiSubscribed
+                ? "Live - real-time dashboard KPI updates active"
+                : "Polling - real-time dashboard KPI updates unavailable"
+            }
+            title={kpiLiveTitle}
+            className={
+              kpiSubscribed
+                ? "text-xs font-medium text-green-600"
+                : "text-xs font-medium text-gray-400"
+            }
+          >
+            {kpiLiveLabel}
+          </span>
+        </div>
+        <StatCards quick={liveQuick} prevQuick={prevQuick} />
+        <AppointmentQueueCards queue={liveQueue} prevQueue={prevQueue} />
         <LiveBedOccupancyTile />
         <AnalyticsAndActivity charts={charts} activity={activity} />
         <SystemHealthSection health={health} lastUpdated={lastUpdated} />
