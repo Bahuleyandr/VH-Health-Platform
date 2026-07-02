@@ -8,7 +8,7 @@
 //   event_outbox.status      pending|processing|delivered|failed  (failed = dead-letter @ MAX_ATTEMPTS=7)
 //   webhook_deliveries.status pending|failed|dead                 (dead = terminal undelivered)
 //   notification_outbox.status PENDING|SENT|FAILED                (UPPERCASE)
-import prisma, { circuitBreakerStatus } from '../lib/prisma.js';
+import prisma, { circuitBreakerStatus, prismaReadOnly } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { Gauge, Counter } from './metricPrimitives.js';
 
@@ -21,6 +21,7 @@ const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_del
 const webhookFailed = new Gauge('webhook_deliveries_failed_rows', 'webhook_deliveries rows in failed status (retrying)');
 const webhookDead = new Gauge('webhook_deliveries_dead_rows', 'webhook_deliveries rows in the terminal dead status (undelivered)');
 const dbBreakerOpen = new Gauge('db_circuit_breaker_open', 'Whether any Prisma client circuit breaker is open (1=open, 0=closed)');
+const dbReadReplicaLagSeconds = new Gauge('db_read_replica_lag_seconds', 'Approximate read-replica replay lag observed through prismaReadOnly (seconds); emitted only when DATABASE_READ_URL is configured');
 
 // ---- Counters (incremented inline at the event site) ----------------------
 const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable WS broadcast/sendToUser drops (per-socket backpressure or cross-process fan-out fallback). NOTE: the at-most-once Redis-failover drop is invisible to the app — see ws_fanout_subscriber_errors_total for the failover-window proxy.', ['reason']);
@@ -55,10 +56,31 @@ export function recordNoteDraftSaveError() {
   noteDraftSaveErrors.inc({});
 }
 
+function hasReadReplicaDsn() {
+  return Boolean(process.env.DATABASE_READ_URL?.trim());
+}
+
+async function collectReadReplicaLagMetric() {
+  if (!hasReadReplicaDsn()) return;
+  try {
+    const [row] = await prismaReadOnly.$queryRawUnsafe(`
+      SELECT
+        CASE
+          WHEN pg_is_in_recovery()
+            THEN COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::double precision, 0)
+          ELSE 0
+        END AS lag_seconds
+    `);
+    dbReadReplicaLagSeconds.set({}, Number(row?.lag_seconds ?? 0));
+  } catch (err) {
+    logger.warn(`collectReliabilityMetrics: read-replica lag skipped — ${err?.message || err}`);
+  }
+}
+
 /**
- * Refresh the DB-derived gauges. ONE batched read per tick. Tolerant of a DB
- * error: logs + leaves the prior snapshot (a metrics collector must never throw
- * into the caller / crash the process).
+ * Refresh the DB-derived gauges. Tolerant of DB errors: logs + leaves the prior
+ * snapshot (a metrics collector must never throw into the caller / crash the
+ * process).
  */
 export async function collectReliabilityMetrics() {
   try {
@@ -93,10 +115,11 @@ export async function collectReliabilityMetrics() {
   } catch (err) {
     logger.warn(`collectReliabilityMetrics: refresh skipped — ${err?.message || err}`);
   }
+  await collectReadReplicaLagMetric();
 }
 
 export function serializeReliabilityMetrics() {
-  return [
+  const metrics = [
     eventOutboxPending, eventOutboxOldestAge, eventOutboxDeadLetter,
     notificationOutboxPending,
     webhookPending, webhookFailed, webhookDead,
@@ -104,5 +127,7 @@ export function serializeReliabilityMetrics() {
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
     ledgerReconciliationDrift,
     noteDraftJanitorDeletions, noteDraftSaveErrors,
-  ].map((m) => m.serialize()).filter(Boolean).join('\n\n') + '\n';
+  ];
+  if (hasReadReplicaDsn()) metrics.splice(8, 0, dbReadReplicaLagSeconds);
+  return metrics.map((m) => m.serialize()).filter(Boolean).join('\n\n') + '\n';
 }

@@ -101,6 +101,17 @@
           "legendFormat": "failed (retrying)"
         }
       ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "DB read-replica lag (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "max(db_read_replica_lag_seconds)"
+        }
+      ]
     }
   ]
 }
