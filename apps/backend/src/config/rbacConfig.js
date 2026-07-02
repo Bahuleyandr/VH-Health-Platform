@@ -192,6 +192,22 @@ export default {
     PHARMACY_INCHARGE,
     ADMIN
   ],
+  ePrescriptionStaffPdfRoutes: [
+    DOCTOR,
+    DUTY_DOCTOR,
+    'CONSULTANT',
+    'JUNIOR_DOCTOR',
+    'RESIDENT',
+    NURSING_STAFF,
+    NURSING_INCHARGE,
+    IP_STAFF_NURSE,
+    IP_INCHARGE,
+    OP_STAFF_NURSE,
+    OP_INCHARGE,
+    CMO,
+    MEDICAL_SUPERINTENDENT,
+    ADMIN
+  ],
   ePrescriptionDetailRoutes: [
     PATIENT,
     DOCTOR,

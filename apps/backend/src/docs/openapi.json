@@ -59804,6 +59804,33 @@
         }
       }
     },
+    "/api/v1/discharge-summaries/admission/{admissionId}/pdf": {
+      "get": {
+        "operationId": "get_api_v1_discharge_summaries_admission_by_admissionId_pdf",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "admissionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/discharge-summaries/patient/{patientUid}": {
       "get": {
         "operationId": "get_api_v1_discharge_summaries_patient_by_patientUid",
@@ -59927,6 +59954,33 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/discharge-summaries/{id}/pdf": {
+      "get": {
+        "operationId": "get_api_v1_discharge_summaries_by_id_pdf",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/discharge-summaries/{id}/ready": {
@@ -78145,6 +78199,33 @@
     "/api/v1/prescriptions/{id}/order-pharmacy": {
       "post": {
         "operationId": "post_api_v1_prescriptions_by_id_order_pharmacy",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/prescriptions/{id}/print-pdf": {
+      "get": {
+        "operationId": "get_api_v1_prescriptions_by_id_print_pdf",
         "responses": {
           "200": {
             "description": "Successful response",
