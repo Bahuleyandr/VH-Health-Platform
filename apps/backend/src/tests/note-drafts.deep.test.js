@@ -427,12 +427,18 @@ async function ftSeedUser(uid, phone, role, name) {
 
 // doctor_id is intentionally NULL so the assigned-clinician guard is a no-op —
 // the note author (the doctor) may still create/revise the unsigned OP note.
+// appointment_date is seeded as TODAY IN THE RESOLVER TZ (Asia/Kolkata, the
+// service's HOSPITAL_TIME_ZONE) — NOT CURRENT_DATE. CI Postgres runs in UTC,
+// so between 18:30 and 24:00 UTC the IST date is +1 and a CURRENT_DATE seed
+// trips assertOpenOpAppointmentSession's "notes only on the appointment date"
+// gate (the drugChartSlaTenantIsolation tz-window class).
 async function ftSeedAppointment(patientId, status) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO appointments
        (uid, phone, patient_id, doctor_id, appointment_date, appointment_time,
         status, department, tenant_id, updated_at)
-     VALUES (gen_random_uuid(), $1, $2::int, NULL, CURRENT_DATE, '10:00',
+     VALUES (gen_random_uuid(), $1, $2::int, NULL,
+             (NOW() AT TIME ZONE 'Asia/Kolkata')::date, '10:00',
              $3, 'General Medicine', $4::uuid, NOW())
      RETURNING id`,
     FT_PATIENT_PHONE, patientId, status, FT_TENANT,
