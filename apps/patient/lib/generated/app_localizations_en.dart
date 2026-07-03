@@ -799,6 +799,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get yourHealthTabConsultations => 'Consultations';
 
   @override
+  String get yourHealthTabConsultationNotes => 'Consultation notes';
+
+  @override
   String get yourHealthTabSummary => 'Summary';
 
   @override
@@ -815,6 +818,64 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get consultationsEmpty => 'No consultations found';
+
+  @override
+  String get consultationNotesEmptyTitle => 'No consultation notes yet';
+
+  @override
+  String get consultationNotesEmptySubtitle =>
+      'Signed appointment notes from your doctor will appear here after your visit.';
+
+  @override
+  String get consultationNotesLoadFailed =>
+      'Unable to load consultation notes.';
+
+  @override
+  String get consultationNotesDetailLoadFailed =>
+      'Unable to load this consultation note.';
+
+  @override
+  String get consultationNotesUntitled => 'Consultation note';
+
+  @override
+  String get consultationNotesUnknownRole => 'Care team';
+
+  @override
+  String get consultationNotesDoctorRole => 'Doctor role';
+
+  @override
+  String get consultationNotesType => 'Type';
+
+  @override
+  String get consultationNotesSignedAt => 'Signed';
+
+  @override
+  String get consultationNotesUpdatedAt => 'Updated';
+
+  @override
+  String get consultationNotesDetails => 'Note details';
+
+  @override
+  String get consultationNotesNoDetails =>
+      'No details were documented for this note.';
+
+  @override
+  String get consultationNoteTypeOpConsultation => 'OP consultation';
+
+  @override
+  String get consultationNoteTypeConsultation => 'Consultation';
+
+  @override
+  String get consultationNoteTypeConsultationNote => 'Consultation note';
+
+  @override
+  String get consultationNoteTypeFollowUp => 'Follow-up';
+
+  @override
+  String get consultationNoteTypeProgress => 'Progress note';
+
+  @override
+  String get consultationNoteTypeSoap => 'SOAP note';
 
   @override
   String get summaryAllergies => 'Allergies';

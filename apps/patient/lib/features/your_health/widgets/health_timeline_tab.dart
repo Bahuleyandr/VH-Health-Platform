@@ -58,7 +58,7 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
       final results = await Future.wait([
         safeGet('/appointments/patient/records/all'),
         safeGet('/prescriptions/patient/my'),
-        safeGet('/records/consultations/my'),
+        safeGet('/portal/clinical-notes'),
       ]);
       if (!mounted) return;
 
@@ -97,12 +97,9 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
 
       final consultationsResponse = results[2];
       if (consultationsResponse != null && consultationsResponse.isSuccess) {
-        final data = consultationsResponse.dataAsMap();
-        final rows =
-            (data['records'] as List?) ??
-            (consultationsResponse.data is List
-                ? consultationsResponse.data as List
-                : const []);
+        final rows = consultationsResponse.data is List
+            ? consultationsResponse.data as List
+            : const [];
         nextItems.addAll(
           rows.whereType<Map>().map(
             (visit) => _fromConsultation(Map<String, dynamic>.from(visit)),
@@ -202,25 +199,27 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
   }
 
   _TimelineItem _fromConsultation(Map<String, dynamic> visit) {
-    final doctor =
-        _nonEmpty(visit['doctor_name']?.toString()) ??
-        _nonEmpty(visit['doctor']?.toString());
-    final diagnosis = _nonEmpty(visit['diagnosis']?.toString());
-    final notes = _nonEmpty(
-      (visit['notes'] ?? visit['description'] ?? visit['title'])?.toString(),
+    final title = _nonEmpty(visit['title']?.toString());
+    final role = _nonEmpty(visit['author_role']?.toString());
+    final noteType = _nonEmpty(visit['note_type']?.toString());
+    final content = _asMap(visit['content']);
+    final diagnosis = _nonEmpty(
+      (content['diagnosis'] ?? content['assessment'])?.toString(),
     );
+    final plan = _nonEmpty(content['plan']?.toString());
+    final subtitle = [
+      ?(noteType == null ? null : _compactType(noteType)),
+      ?(role == null ? null : _compactType(role)),
+      ?diagnosis,
+      ?plan,
+    ].join(' - ');
     return _TimelineItem(
       kind: _TimelineKind.visit,
-      title: doctor == null ? 'Consultation' : 'Consultation with Dr. $doctor',
-      subtitle: diagnosis ?? notes ?? 'Clinical visit',
+      title: title ?? 'Consultation note',
+      subtitle: subtitle.isEmpty ? 'Appointment consultation note' : subtitle,
       sourceLabel: 'Visit',
-      trustLabel: 'Clinical note',
-      date: _dateFrom(visit, [
-        'consultation_date',
-        'appointment_date',
-        'date',
-        'created_at',
-      ]),
+      trustLabel: 'Consultation note',
+      date: _dateFrom(visit, ['signed_at', 'created_at', 'updated_at']),
       icon: Icons.medical_services_outlined,
       color: Colors.teal,
       record: visit,

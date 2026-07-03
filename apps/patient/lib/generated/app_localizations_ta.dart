@@ -818,6 +818,9 @@ class AppLocalizationsTa extends AppLocalizations {
   String get yourHealthTabConsultations => 'ஆலோசனைகள்';
 
   @override
+  String get yourHealthTabConsultationNotes => 'ஆலோசனை குறிப்புகள்';
+
+  @override
   String get yourHealthTabSummary => 'சுருக்கம்';
 
   @override
@@ -834,6 +837,64 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get consultationsEmpty => 'ஆலோசனைகள் எதுவும் இல்லை';
+
+  @override
+  String get consultationNotesEmptyTitle => 'இன்னும் ஆலோசனை குறிப்புகள் இல்லை';
+
+  @override
+  String get consultationNotesEmptySubtitle =>
+      'உங்கள் வருகைக்கு பிறகு மருத்துவர் கையொப்பமிட்ட அபாயின்மென்ட் குறிப்புகள் இங்கே தோன்றும்.';
+
+  @override
+  String get consultationNotesLoadFailed =>
+      'ஆலோசனை குறிப்புகளை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get consultationNotesDetailLoadFailed =>
+      'இந்த ஆலோசனை குறிப்பை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get consultationNotesUntitled => 'ஆலோசனை குறிப்பு';
+
+  @override
+  String get consultationNotesUnknownRole => 'சிகிச்சை குழு';
+
+  @override
+  String get consultationNotesDoctorRole => 'மருத்துவர் பங்கு';
+
+  @override
+  String get consultationNotesType => 'வகை';
+
+  @override
+  String get consultationNotesSignedAt => 'கையொப்பமிட்டது';
+
+  @override
+  String get consultationNotesUpdatedAt => 'புதுப்பிக்கப்பட்டது';
+
+  @override
+  String get consultationNotesDetails => 'குறிப்பு விவரங்கள்';
+
+  @override
+  String get consultationNotesNoDetails =>
+      'இந்த குறிப்பில் விவரங்கள் பதிவு செய்யப்படவில்லை.';
+
+  @override
+  String get consultationNoteTypeOpConsultation => 'OP ஆலோசனை';
+
+  @override
+  String get consultationNoteTypeConsultation => 'ஆலோசனை';
+
+  @override
+  String get consultationNoteTypeConsultationNote => 'ஆலோசனை குறிப்பு';
+
+  @override
+  String get consultationNoteTypeFollowUp => 'பின்தொடர்பு';
+
+  @override
+  String get consultationNoteTypeProgress => 'முன்னேற்ற குறிப்பு';
+
+  @override
+  String get consultationNoteTypeSoap => 'SOAP குறிப்பு';
 
   @override
   String get summaryAllergies => 'ஒவ்வாமை';

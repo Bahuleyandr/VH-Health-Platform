@@ -811,6 +811,9 @@ class AppLocalizationsTe extends AppLocalizations {
   String get yourHealthTabConsultations => 'సంప్రదింపులు';
 
   @override
+  String get yourHealthTabConsultationNotes => 'సంప్రదింపు గమనికలు';
+
+  @override
   String get yourHealthTabSummary => 'సారాంశం';
 
   @override
@@ -827,6 +830,63 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get consultationsEmpty => 'సంప్రదింపులు ఏవీ కనుగొనబడలేదు';
+
+  @override
+  String get consultationNotesEmptyTitle => 'ఇంకా సంప్రదింపు గమనికలు లేవు';
+
+  @override
+  String get consultationNotesEmptySubtitle =>
+      'మీ సందర్శన తర్వాత డాక్టర్ సంతకం చేసిన అపాయింట్‌మెంట్ గమనికలు ఇక్కడ కనిపిస్తాయి.';
+
+  @override
+  String get consultationNotesLoadFailed =>
+      'సంప్రదింపు గమనికలను లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get consultationNotesDetailLoadFailed =>
+      'ఈ సంప్రదింపు గమనికను లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get consultationNotesUntitled => 'సంప్రదింపు గమనిక';
+
+  @override
+  String get consultationNotesUnknownRole => 'సంరక్షణ బృందం';
+
+  @override
+  String get consultationNotesDoctorRole => 'డాక్టర్ పాత్ర';
+
+  @override
+  String get consultationNotesType => 'రకం';
+
+  @override
+  String get consultationNotesSignedAt => 'సంతకం చేయబడింది';
+
+  @override
+  String get consultationNotesUpdatedAt => 'నవీకరించబడింది';
+
+  @override
+  String get consultationNotesDetails => 'గమనిక వివరాలు';
+
+  @override
+  String get consultationNotesNoDetails => 'ఈ గమనికలో వివరాలు నమోదు చేయబడలేదు.';
+
+  @override
+  String get consultationNoteTypeOpConsultation => 'OP సంప్రదింపు';
+
+  @override
+  String get consultationNoteTypeConsultation => 'సంప్రదింపు';
+
+  @override
+  String get consultationNoteTypeConsultationNote => 'సంప్రదింపు గమనిక';
+
+  @override
+  String get consultationNoteTypeFollowUp => 'ఫాలో-అప్';
+
+  @override
+  String get consultationNoteTypeProgress => 'ప్రోగ్రెస్ గమనిక';
+
+  @override
+  String get consultationNoteTypeSoap => 'SOAP గమనిక';
 
   @override
   String get summaryAllergies => 'అలర్జీలు';

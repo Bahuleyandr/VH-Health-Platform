@@ -801,6 +801,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get yourHealthTabConsultations => 'परामर्श';
 
   @override
+  String get yourHealthTabConsultationNotes => 'परामर्श नोट्स';
+
+  @override
   String get yourHealthTabSummary => 'सारांश';
 
   @override
@@ -817,6 +820,63 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get consultationsEmpty => 'कोई परामर्श नहीं मिला';
+
+  @override
+  String get consultationNotesEmptyTitle => 'अभी कोई परामर्श नोट्स नहीं';
+
+  @override
+  String get consultationNotesEmptySubtitle =>
+      'आपकी मुलाकात के बाद डॉक्टर के हस्ताक्षरित अपॉइंटमेंट नोट्स यहां दिखेंगे।';
+
+  @override
+  String get consultationNotesLoadFailed => 'परामर्श नोट्स लोड नहीं हो सके।';
+
+  @override
+  String get consultationNotesDetailLoadFailed =>
+      'यह परामर्श नोट लोड नहीं हो सका।';
+
+  @override
+  String get consultationNotesUntitled => 'परामर्श नोट';
+
+  @override
+  String get consultationNotesUnknownRole => 'देखभाल टीम';
+
+  @override
+  String get consultationNotesDoctorRole => 'डॉक्टर की भूमिका';
+
+  @override
+  String get consultationNotesType => 'प्रकार';
+
+  @override
+  String get consultationNotesSignedAt => 'हस्ताक्षरित';
+
+  @override
+  String get consultationNotesUpdatedAt => 'अपडेट किया गया';
+
+  @override
+  String get consultationNotesDetails => 'नोट विवरण';
+
+  @override
+  String get consultationNotesNoDetails =>
+      'इस नोट में कोई विवरण दर्ज नहीं किया गया।';
+
+  @override
+  String get consultationNoteTypeOpConsultation => 'ओपी परामर्श';
+
+  @override
+  String get consultationNoteTypeConsultation => 'परामर्श';
+
+  @override
+  String get consultationNoteTypeConsultationNote => 'परामर्श नोट';
+
+  @override
+  String get consultationNoteTypeFollowUp => 'फॉलो-अप';
+
+  @override
+  String get consultationNoteTypeProgress => 'प्रगति नोट';
+
+  @override
+  String get consultationNoteTypeSoap => 'SOAP नोट';
 
   @override
   String get summaryAllergies => 'एलर्जी';
