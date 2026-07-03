@@ -51,6 +51,9 @@ function buildOperation(method, openApiPath, opId, ov) {
       },
     },
   };
+  if (ov && ov.summary) op.summary = ov.summary;
+  if (ov && ov.description) op.description = ov.description;
+  if (ov && ov.responseDescription) op.responses[200].description = ov.responseDescription;
   const params = pathParamNames(openApiPath).map((name) => ({
     name, in: 'path', required: true, schema: { type: 'string' },
   }));

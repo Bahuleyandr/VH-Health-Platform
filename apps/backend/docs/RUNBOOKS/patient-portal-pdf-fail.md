@@ -37,10 +37,11 @@ Routes (`apps/backend/src/routes/portal/patientPortalRoutes.js`):
   PHI-logged
 - `GET /api/v1/portal/prescriptions/:id/pdf` — JSON with signed R2
   URL; lazily regenerates if `pdf_key` is null
-- `GET /api/v1/portal/clinical-notes` — list signed notes (progress /
-  SOAP / discharge / procedure / consultation / follow-up)
+- `GET /api/v1/portal/clinical-notes` — list signed outpatient
+  appointment-bound consultation notes only
 - `GET /api/v1/portal/clinical-notes/appointment/:appointmentId` —
-  notes for one visit
+  signed outpatient notes whose first-class `appointment_id` matches
+  the visit
 
 Service layer at `apps/backend/src/services/portal/patientPortalService.js`.
 
@@ -162,10 +163,12 @@ the read tolerate NULL `patient_uid` by falling back to a join on
 
 ### 5. Clinical notes not visible to patient
 
-Wave 3.4 commit `a5f7c0ba` opened the read with two filters: signed
-notes only, and an appointment-aware JOIN (case-insensitive status,
-primary join on `content->>'appointment_id'`, falls back to a wider
-24h-then-7d time window if no JSON match).
+The patient portal read is deliberately narrow: it shows signed
+outpatient notes only when `clinical_notes.appointment_id` is present
+and matches the appointment being viewed. In-hospital, ward, procedure,
+case-sheet, discharge-source, and legacy JSON/time-window-linked notes
+must stay out of the patient portal; discharge content is served through
+`/api/v1/portal/discharge-summaries`.
 
 If a patient says the note "exists but isn't visible":
 
@@ -174,7 +177,7 @@ kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
   psql -U vhhealth -d vhhealth -c "
     SELECT cn.id, cn.patient_uid, cn.note_type, cn.status,
            cn.signed_at, cn.signed_by, cn.created_at,
-           cn.content->>'appointment_id' AS embedded_appointment_id
+           cn.appointment_id
     FROM clinical_notes cn
     WHERE cn.patient_uid = '<PATIENT_UID>'::uuid
       AND cn.created_at > NOW() - INTERVAL '7 days'
@@ -185,14 +188,12 @@ kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
 Three shapes:
 
 - `signed_at IS NULL` — doctor hasn't signed; not surfaced by design.
-- `signed_at NOT NULL` + `status = 'superseded'` — replaced by a
-  later note; also not surfaced by design. The patient sees the
-  successor (or no note if the successor isn't signed yet).
+- `signed_at NOT NULL` + `appointment_id IS NULL` — in-hospital or
+  legacy unlinked note; not surfaced by design.
 - `signed_at NOT NULL` + `status = 'current'` but still hidden — the
-  appointment-aware JOIN may be missing it. Check the
-  `embedded_appointment_id`; if it doesn't match the appointment the
-  patient is viewing AND the note's `created_at` is outside the
-  fallback window, that's the bug.
+  first-class `appointment_id` or `note_type` is outside the portal
+  vocabulary; fix the OP writer linkage instead of adding a date-window
+  fallback.
 
 ## Action
 
@@ -203,8 +204,8 @@ Three shapes:
   should fail-loud not hang — file the finding.
 - Prescription NULL `patient_uid` → re-run migration 205 backfill OR
   hotfix the read.
-- Note visibility → confirm `signed_at NOT NULL` + `status='current'`;
-  if hidden anyway, log the appointment_id mismatch.
+- Note visibility → confirm `signed_at NOT NULL`, `appointment_id`
+  matches the OP appointment, and `note_type` is portal-visible.
 
 ## Post-incident
 
