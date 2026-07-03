@@ -6,7 +6,7 @@ class StaffPhoneApiService {
   static Future<Map<String, dynamic>> getHome() async {
     final response = await ApiClient.get('/staff/phone/home');
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Could not load phone home');
+      throw Exception(response.failureMessage('Could not load phone home'));
     }
     return response.dataAsMap();
   }
@@ -19,7 +19,7 @@ class StaffPhoneApiService {
       queryParameters: {'limit': '$limit'},
     );
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Could not load queries');
+      throw Exception(response.failureMessage('Could not load queries'));
     }
     final data = response.dataAsMap();
     final queries = data['queries'];
@@ -48,7 +48,7 @@ class StaffPhoneApiService {
       },
     );
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Could not submit query');
+      throw Exception(response.failureMessage('Could not submit query'));
     }
     return response.dataAsMap();
   }

@@ -89,7 +89,9 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
         setState(() => _step = _SpecimenScanStep.done);
       } else {
         setState(
-          () => _errorMessage = response.message ?? 'Sample collection failed.',
+          () => _errorMessage = response.failureMessage(
+            'Sample collection failed.',
+          ),
         );
       }
     } catch (_) {

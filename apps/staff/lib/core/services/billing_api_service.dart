@@ -9,7 +9,7 @@ class BillingApiService {
 
   static Map<String, dynamic> _dataFrom(ApiResponse response) {
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Billing request failed');
+      throw Exception(response.failureMessage('Billing request failed'));
     }
     final raw = response.raw;
     if (raw is Map<String, dynamic>) {

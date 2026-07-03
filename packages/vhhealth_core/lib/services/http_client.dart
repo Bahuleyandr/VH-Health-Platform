@@ -331,7 +331,7 @@ class VHHttpClient {
           .send(req)
           .timeout(timeout ?? _uploadTimeout);
       final body = await streamed.stream.bytesToString();
-      return ApiResponse.parse(streamed.statusCode, body);
+      return ApiResponse.fromStreamed(streamed, body);
     }
 
     final parsed = await send();
