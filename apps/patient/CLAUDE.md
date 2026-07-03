@@ -307,6 +307,8 @@ Builders are param-free unless noted.
 | Mark thread read | `/portal/messages/:id/read` | POST |
 | **Maternity** | | |
 | ANC timeline | `/portal/maternity/timeline` | GET |
+| ANC advice | `/portal/maternity/anc-advice?language=&trimester=` | GET |
+| ANC supplement reminder | `/portal/maternity/supplements/:id/reminder` | PATCH |
 | **Gamification** | | |
 | Health-points summary | `/gamification/summary` | GET |
 | Health-points milestones | `/gamification/milestones` | GET |

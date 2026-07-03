@@ -1946,4 +1946,204 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'Due';
+
+  @override
+  String get ancTimelineTitle => 'ANC Timeline';
+
+  @override
+  String get ancLoadFailed => 'Could not load ANC timeline';
+
+  @override
+  String get ancNoActivePregnancyTitle => 'No active pregnancy on record';
+
+  @override
+  String get ancNoActivePregnancySubtitle =>
+      'If you have started antenatal care, your doctor will register your pregnancy at your next visit.';
+
+  @override
+  String get ancDuePrefix => 'Due';
+
+  @override
+  String get ancGestationalAgeFallback => 'Gestational age unavailable';
+
+  @override
+  String get ancHighRiskPregnancy => 'High-risk pregnancy';
+
+  @override
+  String get ancHighRiskPrefix => 'High-risk';
+
+  @override
+  String get ancDangerSignsTitle => 'Danger signs';
+
+  @override
+  String get ancSafetyGuidanceTitle => 'ANC self-care';
+
+  @override
+  String get ancSafetyGuidanceSubtitle =>
+      'Call the hospital or seek urgent care if any of these appear.';
+
+  @override
+  String get ancTrimesterPrefix => 'Trimester';
+
+  @override
+  String get ancClinicalContentPending => 'Clinical content pending review';
+
+  @override
+  String get ancContentPendingReview =>
+      'Reviewed local-language guidance is pending clinical sign-off.';
+
+  @override
+  String get ancAdviceLoadFailed =>
+      'ANC safety guidance could not be loaded right now.';
+
+  @override
+  String get ancFetalKickCounter => 'Fetal kick counter';
+
+  @override
+  String get ancLastSavedPrefix => 'Last saved';
+
+  @override
+  String get ancKicksUnit => 'kicks';
+
+  @override
+  String get ancOnDatePrefix => 'on';
+
+  @override
+  String get ancKickCountLabel => 'Kick count';
+
+  @override
+  String get ancObservationWindowLabel => 'Observation window (minutes)';
+
+  @override
+  String get ancNotesLabel => 'Notes';
+
+  @override
+  String get ancKickCountValidation => 'Enter a kick count between 0 and 999';
+
+  @override
+  String get ancWindowValidation => 'Observation window must be 1-1440 minutes';
+
+  @override
+  String get ancKickCountSaved => 'Kick count saved';
+
+  @override
+  String get ancCouldNotSaveKickCount => 'Could not save kick count';
+
+  @override
+  String get ancSaveKickCount => 'Save kick count';
+
+  @override
+  String get ancSaving => 'Saving...';
+
+  @override
+  String get ancMaternityPackages => 'Maternity packages';
+
+  @override
+  String get ancPackageFallback => 'Maternity package';
+
+  @override
+  String get ancPricingUnderReview => 'Pricing under review';
+
+  @override
+  String get ancDaysSuffix => 'days';
+
+  @override
+  String get ancNextVisit => 'Next visit';
+
+  @override
+  String get ancToBeScheduled => 'To be scheduled';
+
+  @override
+  String get ancVisitsSoFar => 'Visits so far';
+
+  @override
+  String get ancVisit => 'Visit';
+
+  @override
+  String get ancVisitNumberPrefix => 'Visit #';
+
+  @override
+  String get ancGaWeeksSuffix => 'weeks';
+
+  @override
+  String get ancBpLabel => 'BP';
+
+  @override
+  String get ancWeightLabel => 'Weight';
+
+  @override
+  String get ancFhrLabel => 'FHR';
+
+  @override
+  String get ancFundalHeightLabel => 'Fundal ht.';
+
+  @override
+  String get ancHbLabel => 'Hb';
+
+  @override
+  String get ancUrineAlbuminLabel => 'Urine albumin';
+
+  @override
+  String get ancSupplements => 'Supplements';
+
+  @override
+  String get ancDosePrefix => 'Dose';
+
+  @override
+  String get ancFrequencyPrefix => 'Frequency';
+
+  @override
+  String get ancSincePrefix => 'since';
+
+  @override
+  String get ancReminderTimesPrefix => 'Reminder times';
+
+  @override
+  String get ancNoFixedReminderTime => 'No fixed reminder time';
+
+  @override
+  String get ancReminderEnabledLabel => 'On';
+
+  @override
+  String get ancReminderDisabledLabel => 'Off';
+
+  @override
+  String get ancReminderOn => 'Supplement reminder turned on';
+
+  @override
+  String get ancReminderOff => 'Supplement reminder turned off';
+
+  @override
+  String get ancReminderToggleFailed => 'Could not update supplement reminder';
+
+  @override
+  String get ancReminderScheduleFailed =>
+      'Reminder saved, but no fixed local notification could be scheduled.';
+
+  @override
+  String get ancAdviceCategoryDangerSigns => 'Danger signs';
+
+  @override
+  String get ancAdviceCategoryFetalMovement => 'Baby movements';
+
+  @override
+  String get ancAdviceCategoryFoodsToAvoid => 'Foods to avoid';
+
+  @override
+  String get ancAdviceCategoryWhenToContact => 'When to contact us';
+
+  @override
+  String get ancFrequencyOnceDaily => 'Once daily';
+
+  @override
+  String get ancFrequencyTwiceDaily => 'Twice daily';
+
+  @override
+  String get ancFrequencyThriceDaily => 'Three times daily';
+
+  @override
+  String get ancFrequencyWeekly => 'Weekly';
+
+  @override
+  String get ancFrequencyAsNeeded => 'As needed';
 }

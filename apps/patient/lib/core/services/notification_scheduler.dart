@@ -16,6 +16,13 @@ typedef NotificationPayloadHandler = void Function(String payload);
 class NotificationScheduler {
   NotificationScheduler._();
 
+  // Must match the backend medicationReminderService ANC projection offset.
+  // Android notification IDs are int32; use a safe local namespace when the
+  // backend sends projected ANC supplement IDs such as 1,000,000,042.
+  static const int ancSupplementReminderIdOffset = 1000000000;
+  static const int _ancSupplementLocalIdOffset = 7000000;
+  static const int _ancSupplementLocalIdModulo = 10000000;
+
   static const _patientPushChannelId = 'patient_push';
   static const _patientPushChannelName = 'Patient Updates';
   static const _patientPushChannelDescription =
@@ -173,7 +180,7 @@ class NotificationScheduler {
       final minute = int.tryParse(parts[1]);
       if (hour == null || minute == null) continue;
 
-      final notificationId = id * 100 + i;
+      final notificationId = notificationIdForReminderSlot(id, i);
       final scheduledTime = _nextInstanceOfTime(hour, minute);
 
       try {
@@ -200,7 +207,7 @@ class NotificationScheduler {
   static Future<void> cancelReminder(int reminderId) async {
     await initialize();
     for (var i = 0; i < 100; i++) {
-      await _plugin.cancel(id: reminderId * 100 + i);
+      await _plugin.cancel(id: notificationIdForReminderSlot(reminderId, i));
     }
   }
 
@@ -246,5 +253,15 @@ class NotificationScheduler {
       scheduled = scheduled.add(const Duration(days: 1));
     }
     return scheduled;
+  }
+
+  @visibleForTesting
+  static int notificationIdForReminderSlot(int reminderId, int slot) {
+    final base = reminderId >= ancSupplementReminderIdOffset
+        ? _ancSupplementLocalIdOffset +
+              ((reminderId - ancSupplementReminderIdOffset) %
+                  _ancSupplementLocalIdModulo)
+        : reminderId;
+    return base * 100 + slot;
   }
 }

@@ -1989,4 +1989,205 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'അവസാന തീയതി';
+
+  @override
+  String get ancTimelineTitle => 'ANC ടൈംലൈൻ';
+
+  @override
+  String get ancLoadFailed => 'ANC ടൈംലൈൻ ലോഡ് ചെയ്യാനായില്ല';
+
+  @override
+  String get ancNoActivePregnancyTitle => 'സജീവ ഗർഭധാരണ രേഖയില്ല';
+
+  @override
+  String get ancNoActivePregnancySubtitle =>
+      'നിങ്ങൾ ആന്റിനേറ്റൽ കെയർ ആരംഭിച്ചിട്ടുണ്ടെങ്കിൽ, അടുത്ത സന്ദർശനത്തിൽ ഡോക്ടർ ഗർഭധാരണം രേഖപ്പെടുത്തും.';
+
+  @override
+  String get ancDuePrefix => 'പ്രതീക്ഷിക്കുന്ന തീയതി';
+
+  @override
+  String get ancGestationalAgeFallback => 'ഗർഭകാല പ്രായം ലഭ്യമല്ല';
+
+  @override
+  String get ancHighRiskPregnancy => 'ഉയർന്ന അപകടസാധ്യതയുള്ള ഗർഭധാരണം';
+
+  @override
+  String get ancHighRiskPrefix => 'ഉയർന്ന അപകടസാധ്യത';
+
+  @override
+  String get ancDangerSignsTitle => 'അപായ സൂചനകൾ';
+
+  @override
+  String get ancSafetyGuidanceTitle => 'ANC സ്വയംപരിചരണം';
+
+  @override
+  String get ancSafetyGuidanceSubtitle =>
+      'ഇവയിൽ ഏതെങ്കിലും കണ്ടാൽ ആശുപത്രിയിലേക്ക് വിളിക്കുകയോ അടിയന്തിര പരിചരണം തേടുകയോ ചെയ്യുക.';
+
+  @override
+  String get ancTrimesterPrefix => 'ത്രൈമാസം';
+
+  @override
+  String get ancClinicalContentPending => 'ക്ലിനിക്കൽ ഉള്ളടക്കം അവലോകനത്തിലാണ്';
+
+  @override
+  String get ancContentPendingReview =>
+      'അവലോകനം ചെയ്ത പ്രാദേശിക ഭാഷാ മാർഗ്ഗനിർദ്ദേശം ക്ലിനിക്കൽ സൈൻ-ഓഫിനായി കാത്തിരിക്കുന്നു.';
+
+  @override
+  String get ancAdviceLoadFailed =>
+      'ANC സുരക്ഷാ മാർഗ്ഗനിർദ്ദേശം ഇപ്പോൾ ലോഡ് ചെയ്യാനായില്ല.';
+
+  @override
+  String get ancFetalKickCounter => 'കുഞ്ഞിന്റെ ചലന കൗണ്ടർ';
+
+  @override
+  String get ancLastSavedPrefix => 'അവസാനം സേവ് ചെയ്തത്';
+
+  @override
+  String get ancKicksUnit => 'ചലനങ്ങൾ';
+
+  @override
+  String get ancOnDatePrefix => 'തീയതി';
+
+  @override
+  String get ancKickCountLabel => 'ചലന എണ്ണം';
+
+  @override
+  String get ancObservationWindowLabel => 'നിരീക്ഷണ സമയം (മിനിറ്റ്)';
+
+  @override
+  String get ancNotesLabel => 'കുറിപ്പുകൾ';
+
+  @override
+  String get ancKickCountValidation => '0 മുതൽ 999 വരെ ചലന എണ്ണം നൽകുക';
+
+  @override
+  String get ancWindowValidation => 'നിരീക്ഷണ സമയം 1-1440 മിനിറ്റ് ആയിരിക്കണം';
+
+  @override
+  String get ancKickCountSaved => 'ചലന എണ്ണം സേവ് ചെയ്തു';
+
+  @override
+  String get ancCouldNotSaveKickCount => 'ചലന എണ്ണം സേവ് ചെയ്യാനായില്ല';
+
+  @override
+  String get ancSaveKickCount => 'ചലന എണ്ണം സേവ് ചെയ്യുക';
+
+  @override
+  String get ancSaving => 'സേവ് ചെയ്യുന്നു...';
+
+  @override
+  String get ancMaternityPackages => 'മാറ്റേണിറ്റി പാക്കേജുകൾ';
+
+  @override
+  String get ancPackageFallback => 'മാറ്റേണിറ്റി പാക്കേജ്';
+
+  @override
+  String get ancPricingUnderReview => 'വില അവലോകനത്തിലാണ്';
+
+  @override
+  String get ancDaysSuffix => 'ദിവസങ്ങൾ';
+
+  @override
+  String get ancNextVisit => 'അടുത്ത സന്ദർശനം';
+
+  @override
+  String get ancToBeScheduled => 'ഷെഡ്യൂൾ ചെയ്യാനുണ്ട്';
+
+  @override
+  String get ancVisitsSoFar => 'ഇതുവരെ സന്ദർശനങ്ങൾ';
+
+  @override
+  String get ancVisit => 'സന്ദർശനം';
+
+  @override
+  String get ancVisitNumberPrefix => 'സന്ദർശനം #';
+
+  @override
+  String get ancGaWeeksSuffix => 'ആഴ്ചകൾ';
+
+  @override
+  String get ancBpLabel => 'BP';
+
+  @override
+  String get ancWeightLabel => 'ഭാരം';
+
+  @override
+  String get ancFhrLabel => 'FHR';
+
+  @override
+  String get ancFundalHeightLabel => 'ഫണ്ടൽ ഉയരം';
+
+  @override
+  String get ancHbLabel => 'Hb';
+
+  @override
+  String get ancUrineAlbuminLabel => 'മൂത്ര ആൽബ്യൂമിൻ';
+
+  @override
+  String get ancSupplements => 'സപ്ലിമെന്റുകൾ';
+
+  @override
+  String get ancDosePrefix => 'ഡോസ്';
+
+  @override
+  String get ancFrequencyPrefix => 'ആവൃത്തി';
+
+  @override
+  String get ancSincePrefix => 'മുതൽ';
+
+  @override
+  String get ancReminderTimesPrefix => 'റിമൈൻഡർ സമയങ്ങൾ';
+
+  @override
+  String get ancNoFixedReminderTime => 'നിശ്ചിത റിമൈൻഡർ സമയം ഇല്ല';
+
+  @override
+  String get ancReminderEnabledLabel => 'ഓൺ';
+
+  @override
+  String get ancReminderDisabledLabel => 'ഓഫ്';
+
+  @override
+  String get ancReminderOn => 'സപ്ലിമെന്റ് റിമൈൻഡർ ഓൺ ചെയ്തു';
+
+  @override
+  String get ancReminderOff => 'സപ്ലിമെന്റ് റിമൈൻഡർ ഓഫ് ചെയ്തു';
+
+  @override
+  String get ancReminderToggleFailed =>
+      'സപ്ലിമെന്റ് റിമൈൻഡർ അപ്ഡേറ്റ് ചെയ്യാനായില്ല';
+
+  @override
+  String get ancReminderScheduleFailed =>
+      'റിമൈൻഡർ സേവ് ചെയ്തു, പക്ഷേ പ്രാദേശിക നോട്ടിഫിക്കേഷൻ ഷെഡ്യൂൾ ചെയ്യാനായില്ല.';
+
+  @override
+  String get ancAdviceCategoryDangerSigns => 'അപായ സൂചനകൾ';
+
+  @override
+  String get ancAdviceCategoryFetalMovement => 'കുഞ്ഞിന്റെ ചലനങ്ങൾ';
+
+  @override
+  String get ancAdviceCategoryFoodsToAvoid => 'ഒഴിവാക്കേണ്ട ഭക്ഷണങ്ങൾ';
+
+  @override
+  String get ancAdviceCategoryWhenToContact => 'എപ്പോൾ ബന്ധപ്പെടണം';
+
+  @override
+  String get ancFrequencyOnceDaily => 'ദിവസത്തിൽ ഒരിക്കൽ';
+
+  @override
+  String get ancFrequencyTwiceDaily => 'ദിവസത്തിൽ രണ്ടുതവണ';
+
+  @override
+  String get ancFrequencyThriceDaily => 'ദിവസത്തിൽ മൂന്നു തവണ';
+
+  @override
+  String get ancFrequencyWeekly => 'ആഴ്ചയിൽ ഒരിക്കൽ';
+
+  @override
+  String get ancFrequencyAsNeeded => 'ആവശ്യമായപ്പോൾ';
 }
