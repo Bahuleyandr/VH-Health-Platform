@@ -3,12 +3,17 @@ import { jest } from '@jest/globals';
 const mockAdminLogin = jest.fn();
 const mockRequestOtp = jest.fn();
 const mockVerifyOtpAndAuthenticate = jest.fn();
+const mockValidationResult = jest.fn(() => ({
+  array: () => [],
+  isEmpty: () => true,
+}));
 
 const mockAuthenticateStaff = jest.fn();
 const mockAuthenticateStaffWithPin = jest.fn();
 const mockRefreshStaffSession = jest.fn();
 
 const mockAuthenticateWithFirebase = jest.fn();
+const mockVerifyTokenStatus = jest.fn();
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -31,10 +36,7 @@ jest.unstable_mockModule('bcrypt', () => ({
 }));
 
 jest.unstable_mockModule('express-validator', () => ({
-  validationResult: jest.fn(() => ({
-    array: () => [],
-    isEmpty: () => true,
-  })),
+  validationResult: mockValidationResult,
 }));
 
 jest.unstable_mockModule('../../config/securityConfig.js', () => ({
@@ -67,7 +69,7 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
   linkFirebaseAccount: jest.fn(),
   revokeFirebaseSession: jest.fn(),
   updateFcmToken: jest.fn(),
-  verifyTokenStatus: jest.fn(),
+  verifyTokenStatus: mockVerifyTokenStatus,
 }));
 
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
@@ -127,10 +129,35 @@ function makeHttp({ body = {}, headers = {}, originalUrl = '/contract/auth' } = 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockValidationResult.mockReturnValue({
+    array: () => [],
+    isEmpty: () => true,
+  });
 });
 
 describe('auth response contracts', () => {
   describe('admin login', () => {
+    it('returns the current admin validation error envelope with top-level errors', async () => {
+      const validationErrors = [{ msg: 'Password is required', path: 'password' }];
+      mockValidationResult.mockReturnValueOnce({
+        array: () => validationErrors,
+        isEmpty: () => false,
+      });
+      const { req, res } = makeHttp({
+        body: { username: 'root-admin' },
+      });
+
+      await adminAuthController.login(req, res);
+
+      expect(mockAdminLogin).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toEqual({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors,
+      });
+    });
+
     it('returns the current admin login success envelope', async () => {
       const data = {
         token: 'admin-access-token',
@@ -476,6 +503,24 @@ describe('auth response contracts', () => {
       expect(res.body).toEqual({
         success: false,
         message: 'Invalid Firebase ID token',
+      });
+    });
+
+    it('returns the current Firebase verify-token failure envelope with top-level valid flag', async () => {
+      mockVerifyTokenStatus.mockRejectedValue(new Error('bad token'));
+      const { req, res } = makeHttp({
+        originalUrl: '/auth/firebase/verify-token',
+      });
+      req.query = { idToken: 'bad-token' };
+
+      await firebaseAuthController.verifyToken(req, res);
+
+      expect(mockVerifyTokenStatus).toHaveBeenCalledWith('bad-token');
+      expect(res.statusCode).toBe(401);
+      expect(res.body).toEqual({
+        success: false,
+        message: 'Invalid or expired Firebase token',
+        valid: false,
       });
     });
   });

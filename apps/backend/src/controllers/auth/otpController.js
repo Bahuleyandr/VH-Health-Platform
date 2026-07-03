@@ -35,10 +35,11 @@ export const verifyOtp = async (req, res) => {
     const result = await otpService.verifyOtp(phone, otp, purpose, req);
     
     if (!result.valid) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        success: false,
-        error: result.reason,
-        attemptsLeft: result.attemptsLeft
+      return error(res, result.reason || 'OTP verification failed', HTTP_STATUS.BAD_REQUEST, {
+        topLevel: {
+          error: result.reason,
+          attemptsLeft: result.attemptsLeft
+        }
       });
     }
     

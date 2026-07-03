@@ -154,9 +154,15 @@ export function success(res, data, message = 'Success', status = 200, meta = {})
 export function error(res, message = 'Internal server error', statusCode = 500, details = null) {
   let safeFlag = false;
   let outDetails = details;
+  let topLevel = null;
   if (details && typeof details === 'object' && details.safe === true) {
     safeFlag = true;
     const { safe: _safe, ...rest } = details;
+    outDetails = Object.keys(rest).length > 0 ? rest : null;
+  }
+  if (outDetails && typeof outDetails === 'object' && outDetails.topLevel && typeof outDetails.topLevel === 'object') {
+    const { topLevel: requestedTopLevel, ...rest } = outDetails;
+    topLevel = requestedTopLevel;
     outDetails = Object.keys(rest).length > 0 ? rest : null;
   }
 
@@ -172,6 +178,10 @@ export function error(res, message = 'Internal server error', statusCode = 500, 
 
   if (res.req?.id) {
     response.requestId = res.req.id;
+  }
+
+  if (topLevel) {
+    Object.assign(response, topLevel);
   }
 
   if (outDetails) {

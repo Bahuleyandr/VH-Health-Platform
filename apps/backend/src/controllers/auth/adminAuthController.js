@@ -21,15 +21,19 @@ import { parseListQuery } from '../../utils/listQuery.js';
 /* util: pick username OR email from body */
 const pickIdentity = (body) => (body?.username?.trim() || body?.email?.trim() || null);
 
+const validationError = (res, errors) => error(
+  res,
+  RESPONSE_MESSAGES.VALIDATION_FAILED,
+  HTTP_STATUS.BAD_REQUEST,
+  { topLevel: { errors: errors.array() } },
+);
+
 /* ----------------------------- LOGIN ------------------------------ */
 // Admin login (username OR email + password)
 export const login = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -61,10 +65,7 @@ export const login = async (req, res) => {
 export const forgotPassword = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -81,10 +82,7 @@ export const forgotPassword = async (req, res) => {
 export const resetPassword = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -103,10 +101,7 @@ export const resetPassword = async (req, res) => {
 export const changePassword = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -176,10 +171,7 @@ export const getAdminActivityLogs = async (req, res) => {
 export const updatePermissions = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -199,10 +191,7 @@ export const updatePermissions = async (req, res) => {
 export const createAdmin = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -234,10 +223,7 @@ export const listAdmins = async (req, res) => {
 export const deactivateAdmin = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
@@ -264,10 +250,7 @@ export const deactivateAdmin = async (req, res) => {
 export const reactivateAdmin = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-    });
+    return validationError(res, errors);
   }
 
   try {
