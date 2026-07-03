@@ -473,7 +473,7 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Calculation failed';
+          _error = response.failureMessage('Calculation failed');
           _computing = false;
         });
       }

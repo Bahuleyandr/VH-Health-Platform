@@ -41,7 +41,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
           ),
         );
       } else {
-        _error = response.message ?? 'Failed to load dietary orders';
+        _error = response.failureMessage('Failed to load dietary orders');
       }
     } catch (e) {
       _error = 'Could not connect to server';
@@ -69,7 +69,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.message ?? s.errorSomethingWentWrong),
+              content: Text(response.failureMessage(s.errorSomethingWentWrong)),
               backgroundColor: AppTheme.errorRed,
             ),
           );
@@ -237,8 +237,9 @@ class _DietaryScreenState extends State<DietaryScreen> {
                             ScaffoldMessenger.of(ctx).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  response.message ??
-                                      ds.errorSomethingWentWrong,
+                                  response.failureMessage(
+                                    ds.errorSomethingWentWrong,
+                                  ),
                                 ),
                                 backgroundColor: AppTheme.errorRed,
                               ),

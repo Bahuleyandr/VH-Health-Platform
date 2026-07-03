@@ -398,6 +398,35 @@ void main() {
     });
   });
 
+  group('VHHttpClient - multipart', () {
+    test('captures request id from streamed response headers', () async {
+      await AuthService.setJwt('access');
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.method, 'POST');
+          expect(req.url.toString(), '${ApiConfig.baseUrl}/upload');
+          return http.Response(
+            jsonEncode({'success': false, 'message': 'Upload failed'}),
+            500,
+            headers: {
+              'content-type': 'application/json',
+              'x-request-id': 'upload-ref-123456',
+            },
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.multipart(
+        '/upload',
+        fields: {'kind': 'photo'},
+      );
+
+      expect(resp.requestId, 'upload-ref-123456');
+      expect(resp.failureMessage(), 'Upload failed · ref upload-r');
+    });
+  });
+
   group('VHHttpClient - device type header', () {
     test(
       'adds a normalized X-Device-Type hint to authenticated requests',

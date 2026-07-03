@@ -13,7 +13,7 @@ class PatientApiService {
 
   static Map<String, dynamic> _patientFromResponse(ApiResponse response) {
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Patient request failed');
+      throw Exception(response.failureMessage('Patient request failed'));
     }
     final raw = response.raw;
     if (raw is Map<String, dynamic>) {
@@ -46,7 +46,7 @@ class PatientApiService {
       queryParameters: {'q': query, 'limit': '$limit'},
     );
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Patient search failed');
+      throw Exception(response.failureMessage('Patient search failed'));
     }
     final raw = response.raw;
     if (raw is Map<String, dynamic>) {

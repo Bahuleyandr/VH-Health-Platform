@@ -147,7 +147,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
       } else {
         setState(() {
           _saving = false;
-          _error = response.message ?? 'Save failed';
+          _error = response.failureMessage('Save failed');
         });
       }
     } catch (e) {

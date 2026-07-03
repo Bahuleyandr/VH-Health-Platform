@@ -92,7 +92,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           ),
         );
       } else {
-        _inventoryError = response.message ?? 'Failed to load inventory';
+        _inventoryError = response.failureMessage('Failed to load inventory');
       }
     } catch (e) {
       _inventoryError = 'Could not connect to server';
@@ -120,8 +120,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           ),
         );
       } else {
-        _issuedUnitsError =
-            response.message ?? 'Failed to load issued blood units';
+        _issuedUnitsError = response.failureMessage(
+          'Failed to load issued blood units',
+        );
       }
     } catch (_) {
       _issuedUnitsError = 'Could not connect to server';
@@ -165,7 +166,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.message ?? s.errorSomethingWentWrong),
+              content: Text(response.failureMessage(s.errorSomethingWentWrong)),
               backgroundColor: AppTheme.errorRed,
             ),
           );

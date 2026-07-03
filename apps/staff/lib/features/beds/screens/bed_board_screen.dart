@@ -258,7 +258,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         );
       } else {
         if (showLoading) {
-          _error = response.message ?? 'Failed to load wards';
+          _error = response.failureMessage('Failed to load wards');
         }
       }
     } catch (e) {
@@ -1045,7 +1045,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                           if (ctx.mounted) Navigator.of(ctx).pop(true);
                         } else {
                           setLocal(() {
-                            errorMsg = response.message ?? 'Failed to save';
+                            errorMsg = response.failureMessage(
+                              'Failed to save',
+                            );
                             saving = false;
                           });
                         }
@@ -1240,7 +1242,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
         SuccessToast.show(context, s.bedSheetNotesSaved);
       } else {
         setState(() {
-          _saveError = response.message ?? 'Failed to save notes';
+          _saveError = response.failureMessage('Failed to save notes');
         });
       }
     } catch (e) {
@@ -2088,7 +2090,10 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         SuccessToast.show(context, s.bedSheetMarkedAs(newStatus));
         widget.onChanged();
       } else {
-        ErrorToast.show(context, response.message ?? 'Status change failed');
+        ErrorToast.show(
+          context,
+          response.failureMessage('Status change failed'),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -2120,7 +2125,10 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         SuccessToast.show(context, 'Bed marked available');
         widget.onChanged();
       } else {
-        ErrorToast.show(context, response.message ?? 'Could not mark ready');
+        ErrorToast.show(
+          context,
+          response.failureMessage('Could not mark ready'),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -2158,7 +2166,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         );
         widget.onChanged();
       } else {
-        ErrorToast.show(context, response.message ?? 'Discharge failed');
+        ErrorToast.show(context, response.failureMessage('Discharge failed'));
       }
     } catch (e) {
       if (mounted) {
@@ -2241,7 +2249,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         SuccessToast.show(context, s.bedSheetTransferSucceeded);
         widget.onChanged();
       } else {
-        ErrorToast.show(context, response.message ?? 'Transfer failed');
+        ErrorToast.show(context, response.failureMessage('Transfer failed'));
       }
     } catch (e) {
       if (mounted) {
@@ -2304,7 +2312,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         );
         widget.onChanged();
       } else {
-        ErrorToast.show(context, response.message ?? 'Admit failed');
+        ErrorToast.show(context, response.failureMessage('Admit failed'));
       }
     } catch (e) {
       if (mounted) {
@@ -2470,7 +2478,7 @@ class _TransferBedPickerState extends State<_TransferBedPicker> {
         setState(() => _loading = false);
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load available beds';
+          _error = response.failureMessage('Failed to load available beds');
           _loading = false;
         });
       }
@@ -2752,7 +2760,7 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
         setState(() => _loading = false);
       } else {
         setState(() {
-          _error = response.message ?? 'Search failed';
+          _error = response.failureMessage('Search failed');
           _loading = false;
         });
       }

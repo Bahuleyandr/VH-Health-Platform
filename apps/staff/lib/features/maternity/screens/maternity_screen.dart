@@ -89,7 +89,7 @@ class _MaternityScreenState extends State<MaternityScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load labour board';
+          _error = response.failureMessage('Failed to load labour board');
           _loading = false;
         });
       }

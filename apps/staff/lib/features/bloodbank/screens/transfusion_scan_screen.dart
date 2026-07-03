@@ -95,8 +95,9 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
         setState(() => _step = _TransfusionScanStep.done);
       } else {
         setState(
-          () => _errorMessage =
-              response.message ?? 'Bedside verification failed.',
+          () => _errorMessage = response.failureMessage(
+            'Bedside verification failed.',
+          ),
         );
       }
     } catch (_) {

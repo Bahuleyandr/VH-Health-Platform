@@ -140,7 +140,7 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load order sets';
+          _error = response.failureMessage('Failed to load order sets');
           _loading = false;
         });
       }
@@ -351,7 +351,7 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load';
+          _error = response.failureMessage('Failed to load');
           _loading = false;
         });
       }
@@ -427,7 +427,7 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
         }
         setState(() {
           _applying = false;
-          _error = response.message ?? s.orderSetsApplyFailed;
+          _error = response.failureMessage(s.orderSetsApplyFailed);
         });
         return;
       }

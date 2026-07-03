@@ -50,7 +50,7 @@ class StaffEvidenceUploadService {
     );
 
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Photo upload failed');
+      throw Exception(response.failureMessage('Photo upload failed'));
     }
 
     final payload = _extractPayload(response);

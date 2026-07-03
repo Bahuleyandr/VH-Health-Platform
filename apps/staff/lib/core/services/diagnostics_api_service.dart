@@ -119,7 +119,9 @@ class DiagnosticsApiService {
         path: path,
         ok: response.isSuccess,
         statusCode: response.statusCode,
-        message: response.message ?? (response.isSuccess ? 'OK' : 'Failed'),
+        message: response.isSuccess
+            ? (response.message ?? 'OK')
+            : response.failureMessage('Failed'),
         data: data,
       );
     } catch (e) {

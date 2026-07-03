@@ -94,7 +94,7 @@ class AuthService {
         return data.isNotEmpty ? data : raw;
       }
     }
-    throw Exception(response.message ?? 'Login failed');
+    throw Exception(response.failureMessage('Login failed'));
   }
 
   /// Staff PIN login.
@@ -131,7 +131,7 @@ class AuthService {
         return data.isNotEmpty ? data : raw;
       }
     }
-    throw Exception(response.message ?? 'PIN login failed');
+    throw Exception(response.failureMessage('PIN login failed'));
   }
 
   /// Logout — clears all local credentials
@@ -197,7 +197,7 @@ class AuthService {
         return data.isNotEmpty ? data : raw;
       }
     }
-    throw Exception(response.message ?? 'Quick login failed');
+    throw Exception(response.failureMessage('Quick login failed'));
   }
 
   /// Check if device is registered for quick login

@@ -31,6 +31,17 @@ class ApiResponse {
     );
   }
 
+  factory ApiResponse.fromStreamed(
+    http.StreamedResponse response,
+    String body,
+  ) {
+    return ApiResponse.parse(
+      response.statusCode,
+      body,
+      requestId: _requestIdFromHeaders(response.headers),
+    );
+  }
+
   static ApiResponse parse(int statusCode, String body, {String? requestId}) {
     final isSuccess = statusCode >= 200 && statusCode < 300;
     dynamic decoded;
