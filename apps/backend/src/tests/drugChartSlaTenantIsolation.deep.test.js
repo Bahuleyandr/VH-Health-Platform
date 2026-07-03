@@ -27,6 +27,7 @@
 // fixtures and does not depend on RLS being force-enabled for the test role.
 
 import prisma, { setTenant } from '../lib/prisma.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import {
   resolveDrugChartAlertRecipients,
   processMissingDrugChartAdmission,
@@ -157,11 +158,12 @@ async function cleanup() {
       [created.userIds],
     ).catch(() => {});
   }
-  await exec(
+  await deleteWithAuditBypass(
+    prisma,
     `DELETE FROM audit_logs
       WHERE action = $1 AND resource = 'admission'
         AND resource_id IN ('970900', '970901')`,
-    [DRUG_CHART_MISSING_AUDIT_ACTION],
+    DRUG_CHART_MISSING_AUDIT_ACTION,
   ).catch(() => {});
   if (created.rosterBoardIds.length) {
     // assignments cascade on board delete (FK onDelete: Cascade).

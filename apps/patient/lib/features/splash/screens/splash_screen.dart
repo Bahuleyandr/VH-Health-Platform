@@ -7,7 +7,9 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/services/minimum_version_gate_service.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth_core/config/api_config.dart';
 
 import 'package:flutter/foundation.dart';
@@ -15,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/device_integrity_service.dart';
 
@@ -39,6 +42,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   Timer? _autoAdvanceTimer;
   bool _navigating = false;
+  MinimumVersionGateResult? _minimumVersionBlock;
 
   @override
   void initState() {
@@ -235,7 +239,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _handleSplashTap() async {
-    if (_navigating) return;
+    if (_navigating || _minimumVersionBlock != null) return;
     _navigating = true;
     _autoAdvanceTimer?.cancel();
 
@@ -246,6 +250,15 @@ class _SplashScreenState extends State<SplashScreen>
       await _showIntegrityBlocker(integrity);
       // User is stuck on splash with the blocker dismissed — release the
       // navigation guard so a subsequent tap can re-trigger the check.
+      _navigating = false;
+      return;
+    }
+
+    final versionGate = await MinimumVersionGateService.check();
+    if (versionGate.updateRequired) {
+      if (mounted) {
+        setState(() => _minimumVersionBlock = versionGate);
+      }
       _navigating = false;
       return;
     }
@@ -340,8 +353,22 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
+  Future<void> _openStoreForUpdate() async {
+    final block = _minimumVersionBlock;
+    if (block == null) return;
+    await SafeUrlLauncher.launch(
+      block.storeUrl,
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final minimumVersionBlock = _minimumVersionBlock;
+    if (minimumVersionBlock != null) {
+      return _UpdateRequiredScreen(onUpdate: _openStoreForUpdate);
+    }
+
     return Scaffold(
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -397,6 +424,89 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UpdateRequiredScreen extends StatelessWidget {
+  const _UpdateRequiredScreen({required this.onUpdate});
+
+  final VoidCallback onUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColorFiltered(
+              colorFilter: ColorFilter.mode(
+                Colors.black.withValues(alpha: 0.55),
+                BlendMode.darken,
+              ),
+              child: Image.asset(
+                'assets/images/hospital_bg.jpg',
+                fit: BoxFit.cover,
+              ),
+            ),
+            SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Image.asset(
+                          'assets/images/logo.png',
+                          width: 96,
+                          height: 96,
+                        ),
+                        const SizedBox(height: 28),
+                        const Text(
+                          'Update required',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'This version of VH Health is no longer supported. '
+                          'Please install the latest version to continue.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.86),
+                            fontSize: 16,
+                            height: 1.42,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: onUpdate,
+                            icon: const Icon(Icons.system_update_alt),
+                            label: const Text('Update VH Health'),
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(52),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

@@ -18732,6 +18732,40 @@
           }
         }
       },
+      "PatientAppConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "min_patient_version_code"
+        ],
+        "properties": {
+          "min_patient_version_code": {
+            "type": "integer",
+            "minimum": 0,
+            "example": 0,
+            "description": "Minimum accepted patient app build number. 0 disables the hard upgrade gate."
+          }
+        }
+      },
+      "PatientAppConfigResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientAppConfig"
+          }
+        }
+      },
       "PatientAppointmentsResponse": {
         "type": "object",
         "required": [
@@ -57377,6 +57411,23 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/config": {
+      "get": {
+        "operationId": "get_api_v1_config",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatientAppConfigResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/config/campus-locations": {
