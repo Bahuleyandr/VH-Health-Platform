@@ -54,6 +54,28 @@ async function purgeActingAsAuditRows(uids) {
   });
 }
 
+async function findActingAsHipaaRow(actorUid, subjectUid, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  let rows = [];
+
+  do {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT actor_uid, subject_uid, acting_as_dependent, record_type
+         FROM hipaa_access_log
+        WHERE acting_as_dependent = true
+          AND actor_uid = $1::uuid
+          AND subject_uid = $2::uuid
+        ORDER BY accessed_at DESC
+        LIMIT 1`,
+      actorUid, subjectUid,
+    );
+    if (rows.length > 0) return rows;
+    await new Promise((r) => setTimeout(r, 50));
+  } while (Date.now() < deadline);
+
+  return rows;
+}
+
 describe('Acting-as delegation — deep integration', () => {
   let guardianId;
   let otherGuardianId;
@@ -217,18 +239,9 @@ describe('Acting-as delegation — deep integration', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.dependents).toEqual([]);
 
-    // Fire-and-forget setImmediate inside logPhiAccess — give it a beat.
-    await new Promise((r) => setTimeout(r, 250));
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT actor_uid, subject_uid, acting_as_dependent, record_type
-         FROM hipaa_access_log
-        WHERE acting_as_dependent = true
-          AND actor_uid = $1::uuid
-          AND subject_uid = $2::uuid
-        ORDER BY accessed_at DESC
-        LIMIT 1`,
-      GUARDIAN_UID, MINOR_LINKED_UID,
-    );
+    // logPhiAccess writes fire-and-forget; poll so loaded chunk runs do not
+    // fail just because the async insert lands after a fixed sleep.
+    const rows = await findActingAsHipaaRow(GUARDIAN_UID, MINOR_LINKED_UID);
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows[0].actor_uid).toBe(GUARDIAN_UID);
     expect(rows[0].subject_uid).toBe(MINOR_LINKED_UID);
