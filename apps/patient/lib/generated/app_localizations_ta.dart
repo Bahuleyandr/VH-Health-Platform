@@ -897,6 +897,76 @@ class AppLocalizationsTa extends AppLocalizations {
   String get consultationNoteTypeSoap => 'SOAP குறிப்பு';
 
   @override
+  String get yourHealthHospitalRecordsTab => 'மருத்துவமனை பதிவுகள்';
+
+  @override
+  String get dischargeSummariesTab => 'டிஸ்சார்ஜ் சுருக்கங்கள்';
+
+  @override
+  String get dischargeSummariesTitle => 'டிஸ்சார்ஜ் சுருக்கங்கள்';
+
+  @override
+  String get dischargeSummariesEmptyTitle =>
+      'இன்னும் டிஸ்சார்ஜ் சுருக்கங்கள் இல்லை';
+
+  @override
+  String get dischargeSummariesEmptySubtitle =>
+      'மருத்துவமனை அனுமதிகளுக்கான கையொப்பமிட்ட டிஸ்சார்ஜ் சுருக்கங்கள் இங்கே தோன்றும்.';
+
+  @override
+  String get dischargeSummariesLoadFailed =>
+      'டிஸ்சார்ஜ் சுருக்கங்களை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get dischargeSummaryDetailLoadFailed =>
+      'இந்த டிஸ்சார்ஜ் சுருக்கத்தை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get dischargeSummaryUntitled => 'டிஸ்சார்ஜ் சுருக்கம்';
+
+  @override
+  String get dischargeSummaryPrimaryDiagnosis => 'நோய் கண்டறிதல்';
+
+  @override
+  String get dischargeSummaryHospitalNumber => 'மருத்துவமனை எண்';
+
+  @override
+  String get dischargeSummaryAdmitted => 'அனுமதி';
+
+  @override
+  String get dischargeSummaryDischarged => 'டிஸ்சார்ஜ்';
+
+  @override
+  String get dischargeSummaryWard => 'வார்டு';
+
+  @override
+  String get dischargeSummarySignedBy => 'கையொப்பமிட்டவர்';
+
+  @override
+  String get dischargeSummarySignedAt => 'கையொப்பமிட்டது';
+
+  @override
+  String get dischargeSummarySectionsTitle => 'சுருக்க பிரிவுகள்';
+
+  @override
+  String get dischargeSummaryNoSections =>
+      'டிஸ்சார்ஜ் சுருக்க பிரிவுகள் கிடைக்கவில்லை.';
+
+  @override
+  String get dischargeSummaryOpenPdf => 'PDF திறக்கவும்';
+
+  @override
+  String get dischargeSummaryOpeningPdf => 'PDF திறக்கிறது…';
+
+  @override
+  String get dischargeSummaryPdfOpenFailed =>
+      'டிஸ்சார்ஜ் சுருக்க PDF திறக்க முடியவில்லை.';
+
+  @override
+  String get dischargeSummariesOfficialHint =>
+      'உங்கள் மருத்துவமனை தங்கியிருந்த காலத்தின் அதிகாரப்பூர்வ கையொப்பமிட்ட சுருக்கங்கள் தனியாக பெறப்படுகின்றன.';
+
+  @override
   String get summaryAllergies => 'ஒவ்வாமை';
 
   @override
@@ -1362,6 +1432,10 @@ class AppLocalizationsTa extends AppLocalizations {
   @override
   String get recordsHospitalEmpty =>
       'உங்கள் மருந்துச்சீட்டுகள் மற்றும் வருகைகளின் அறிக்கைகள் இங்கே தோன்றும்';
+
+  @override
+  String get recordsHospitalEmptySubtitle =>
+      'உங்கள் வருகைக்கு பிறகு மருத்துவமனை வழங்கிய ஆவணங்கள் இங்கே தோன்றும்.';
 
   @override
   String get recordsUploadEmptyHint =>

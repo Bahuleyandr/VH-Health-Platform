@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -246,8 +247,9 @@ class _RecordsScreenState extends State<RecordsScreen>
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
+          final lInner = AppLocalizations.of(ctx)!;
+
           Future<void> upload() async {
-            final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 const SnackBar(content: Text('Please pick a file')),
@@ -347,6 +349,21 @@ class _RecordsScreenState extends State<RecordsScreen>
                         .toList(),
                     onChanged: (v) => setSheet(() => docType = v ?? docType),
                   ),
+                  if (docType == 'discharge_summary') ...[
+                    const SizedBox(height: 10),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.assignment_returned_outlined),
+                        title: Text(lInner.dischargeSummariesTitle),
+                        subtitle: Text(lInner.dischargeSummariesOfficialHint),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          context.push('/portal/discharge-summaries');
+                        },
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextField(
                     controller: hospitalCtrl,

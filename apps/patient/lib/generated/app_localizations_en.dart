@@ -878,6 +878,75 @@ class AppLocalizationsEn extends AppLocalizations {
   String get consultationNoteTypeSoap => 'SOAP note';
 
   @override
+  String get yourHealthHospitalRecordsTab => 'Hospital records';
+
+  @override
+  String get dischargeSummariesTab => 'Discharge summaries';
+
+  @override
+  String get dischargeSummariesTitle => 'Discharge summaries';
+
+  @override
+  String get dischargeSummariesEmptyTitle => 'No discharge summaries yet';
+
+  @override
+  String get dischargeSummariesEmptySubtitle =>
+      'Signed discharge summaries from hospital admissions will appear here.';
+
+  @override
+  String get dischargeSummariesLoadFailed =>
+      'Unable to load discharge summaries.';
+
+  @override
+  String get dischargeSummaryDetailLoadFailed =>
+      'Unable to load this discharge summary.';
+
+  @override
+  String get dischargeSummaryUntitled => 'Discharge summary';
+
+  @override
+  String get dischargeSummaryPrimaryDiagnosis => 'Diagnosis';
+
+  @override
+  String get dischargeSummaryHospitalNumber => 'Hospital no.';
+
+  @override
+  String get dischargeSummaryAdmitted => 'Admitted';
+
+  @override
+  String get dischargeSummaryDischarged => 'Discharged';
+
+  @override
+  String get dischargeSummaryWard => 'Ward';
+
+  @override
+  String get dischargeSummarySignedBy => 'Signed by';
+
+  @override
+  String get dischargeSummarySignedAt => 'Signed';
+
+  @override
+  String get dischargeSummarySectionsTitle => 'Summary sections';
+
+  @override
+  String get dischargeSummaryNoSections =>
+      'No discharge summary sections are available.';
+
+  @override
+  String get dischargeSummaryOpenPdf => 'Open PDF';
+
+  @override
+  String get dischargeSummaryOpeningPdf => 'Opening PDF...';
+
+  @override
+  String get dischargeSummaryPdfOpenFailed =>
+      'Could not open the discharge summary PDF.';
+
+  @override
+  String get dischargeSummariesOfficialHint =>
+      'Official signed summaries from your hospital stay are fetched separately.';
+
+  @override
   String get summaryAllergies => 'Allergies';
 
   @override
@@ -1331,6 +1400,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get recordsHospitalEmpty =>
       'Your prescriptions and reports from visits will appear here';
+
+  @override
+  String get recordsHospitalEmptySubtitle =>
+      'Hospital-issued documents will appear here after your visit.';
 
   @override
   String get recordsUploadEmptyHint =>

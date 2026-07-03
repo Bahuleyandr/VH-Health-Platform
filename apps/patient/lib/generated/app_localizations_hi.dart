@@ -879,6 +879,75 @@ class AppLocalizationsHi extends AppLocalizations {
   String get consultationNoteTypeSoap => 'SOAP नोट';
 
   @override
+  String get yourHealthHospitalRecordsTab => 'अस्पताल रिकॉर्ड';
+
+  @override
+  String get dischargeSummariesTab => 'डिस्चार्ज सारांश';
+
+  @override
+  String get dischargeSummariesTitle => 'डिस्चार्ज सारांश';
+
+  @override
+  String get dischargeSummariesEmptyTitle => 'अभी कोई डिस्चार्ज सारांश नहीं';
+
+  @override
+  String get dischargeSummariesEmptySubtitle =>
+      'अस्पताल भर्ती के हस्ताक्षरित डिस्चार्ज सारांश यहां दिखेंगे।';
+
+  @override
+  String get dischargeSummariesLoadFailed =>
+      'डिस्चार्ज सारांश लोड नहीं हो सके।';
+
+  @override
+  String get dischargeSummaryDetailLoadFailed =>
+      'यह डिस्चार्ज सारांश लोड नहीं हो सका।';
+
+  @override
+  String get dischargeSummaryUntitled => 'डिस्चार्ज सारांश';
+
+  @override
+  String get dischargeSummaryPrimaryDiagnosis => 'निदान';
+
+  @override
+  String get dischargeSummaryHospitalNumber => 'अस्पताल नं.';
+
+  @override
+  String get dischargeSummaryAdmitted => 'भर्ती';
+
+  @override
+  String get dischargeSummaryDischarged => 'डिस्चार्ज';
+
+  @override
+  String get dischargeSummaryWard => 'वार्ड';
+
+  @override
+  String get dischargeSummarySignedBy => 'हस्ताक्षरकर्ता';
+
+  @override
+  String get dischargeSummarySignedAt => 'हस्ताक्षरित';
+
+  @override
+  String get dischargeSummarySectionsTitle => 'सारांश अनुभाग';
+
+  @override
+  String get dischargeSummaryNoSections =>
+      'डिस्चार्ज सारांश अनुभाग उपलब्ध नहीं हैं।';
+
+  @override
+  String get dischargeSummaryOpenPdf => 'PDF खोलें';
+
+  @override
+  String get dischargeSummaryOpeningPdf => 'PDF खुल रहा है…';
+
+  @override
+  String get dischargeSummaryPdfOpenFailed =>
+      'डिस्चार्ज सारांश PDF नहीं खुल सका।';
+
+  @override
+  String get dischargeSummariesOfficialHint =>
+      'आपके अस्पताल प्रवास के आधिकारिक हस्ताक्षरित सारांश अलग से प्राप्त किए जाते हैं।';
+
+  @override
   String get summaryAllergies => 'एलर्जी';
 
   @override
@@ -1338,6 +1407,10 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get recordsHospitalEmpty =>
       'विज़िट से आपके प्रिस्क्रिप्शन और रिपोर्ट यहाँ दिखाई देंगे';
+
+  @override
+  String get recordsHospitalEmptySubtitle =>
+      'आपकी विज़िट के बाद अस्पताल द्वारा जारी दस्तावेज़ यहां दिखेंगे।';
 
   @override
   String get recordsUploadEmptyHint =>
