@@ -289,26 +289,49 @@ List<Widget> buildSettingsSections(SettingsController c) {
 
     _sectionTitle(c.loc.settingsSecurity.toUpperCase(), c.context),
     _card(
-      SwitchListTile(
-        value: c.biometricEnabled,
-        onChanged: c.biometricSupported ? c.toggleBiometric : null,
-        title: Text(
-          c.loc.settingsBiometricLogin,
-          style: txt.titleMedium?.copyWith(
-            color: c.biometricSupported ? null : cs.onSurface.withAlpha(128),
+      Column(
+        children: [
+          SwitchListTile(
+            value: c.biometricEnabled,
+            onChanged: c.biometricSupported ? c.toggleBiometric : null,
+            title: Text(
+              c.loc.settingsBiometricLogin,
+              style: txt.titleMedium?.copyWith(
+                color: c.biometricSupported
+                    ? null
+                    : cs.onSurface.withAlpha(128),
+              ),
+            ),
+            subtitle: !c.biometricSupported
+                ? Text(
+                    c.loc.settingsBiometricNotSupported,
+                    style: txt.bodySmall?.copyWith(color: cs.error),
+                  )
+                : null,
+            secondary: Icon(
+              Icons.fingerprint_outlined,
+              color: c.biometricSupported
+                  ? cs.primary
+                  : cs.onSurface.withAlpha(76),
+            ),
+            activeThumbColor: cs.primary,
           ),
-        ),
-        subtitle: !c.biometricSupported
-            ? Text(
-                c.loc.settingsBiometricNotSupported,
-                style: txt.bodySmall?.copyWith(color: cs.error),
-              )
-            : null,
-        secondary: Icon(
-          Icons.fingerprint_outlined,
-          color: c.biometricSupported ? cs.primary : cs.onSurface.withAlpha(76),
-        ),
-        activeThumbColor: cs.primary,
+          const Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.delete_forever_outlined, color: cs.error),
+            title: Text(
+              'Delete account',
+              style: txt.titleMedium?.copyWith(color: cs.error),
+            ),
+            subtitle: const Text('Re-authenticate with OTP before deletion'),
+            trailing: Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: cs.onSurfaceVariant,
+            ),
+            onTap: c.deleteAccount,
+          ),
+        ],
       ),
     ),
     const SizedBox(height: 16),

@@ -6,17 +6,26 @@
 import express from 'express';
 import { UserController } from '../../controllers/user/userController.js';
 import { sanitizeProfileFields } from '../../middleware/sanitizeMiddleware.js';
-import { userValidation } from '../../validators/user/userValidator.js';
+import { accountDeletionValidation, userValidation } from '../../validators/user/userValidator.js';
 
 const router = express.Router();
 
 // Create/Update the caller's OWN profile. Identity is bound from the verified
 // token in the controller (see CAN-001/CAN-002); the body cannot retarget
 // another user or set a privileged role.
-router.post('/profile', userValidation, sanitizeProfileFields, UserController.createOrUpdateProfile);
+router.post(
+  '/profile',
+  userValidation,
+  sanitizeProfileFields,
+  UserController.createOrUpdateProfile
+);
 
 // The authenticated user's own profile. Distinct from `getUserById('me')`
 // which would slam 'me' into a UUID cast and 500.
 router.get('/me', UserController.getMe);
+
+// Self-service patient account deletion. The controller binds identity from the
+// verified JWT and requires a fresh Firebase OTP re-auth token in the body.
+router.delete('/me/account', accountDeletionValidation, UserController.deleteOwnAccount);
 
 export default router;

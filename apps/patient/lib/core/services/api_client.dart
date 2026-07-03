@@ -75,8 +75,17 @@ class ApiClient {
     idempotencyKey: idempotencyKey,
   );
 
-  static Future<ApiResponse> delete(String path, {Duration? timeout}) =>
-      VHHttpClient.delete(path, timeout: timeout);
+  static Future<ApiResponse> delete(
+    String path, {
+    Map<String, dynamic>? body,
+    Duration? timeout,
+    String? idempotencyKey,
+  }) => VHHttpClient.delete(
+    path,
+    body: body,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> multipart(
     String path, {

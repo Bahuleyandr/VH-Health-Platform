@@ -71,6 +71,19 @@ export const userValidation = [phoneValidation, ...profileFieldValidation];
 
 export const userUpdateValidation = [optionalPhoneValidation, ...profileFieldValidation];
 
+export const accountDeletionValidation = [
+  body('firebaseIdToken')
+    .isString()
+    .trim()
+    .isLength({ min: 10, max: 4096 })
+    .withMessage('Fresh OTP re-authentication token is required'),
+  body('reason')
+    .optional({ values: 'falsy' })
+    .isLength({ max: 500 })
+    .withMessage('Reason must be less than 500 characters')
+    .trim()
+];
+
 // Search validation
 export const searchValidation = [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
@@ -100,7 +113,10 @@ export const searchValidation = [
     .optional()
     .isIn(['name', 'registered_at', 'last_login', 'role', 'phone', 'email', 'department', 'status'])
     .withMessage('Invalid sort field'),
-  query('sortOrder').optional().isIn(['ASC', 'DESC', 'asc', 'desc']).withMessage('Sort order must be ASC or DESC')
+  query('sortOrder')
+    .optional()
+    .isIn(['ASC', 'DESC', 'asc', 'desc'])
+    .withMessage('Sort order must be ASC or DESC')
 ];
 
 // User ID validation

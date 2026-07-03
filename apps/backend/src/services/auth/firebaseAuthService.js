@@ -12,7 +12,6 @@ import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
 import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
 
-
 // Local pg-shape shim: returns the raw `rows` array directly for any
 // query that produces rows (SELECT / WITH / `… RETURNING …`), so call
 // sites can use array semantics (`result.length`, `result[0]`).
@@ -27,10 +26,7 @@ const query = async (sql, params = []) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
   const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
-  const isReadQuery =
-    upperSql.startsWith('SELECT') ||
-    upperSql.startsWith('WITH') ||
-    usesReturning;
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
 
   if (isReadQuery) {
     const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
@@ -46,7 +42,7 @@ async function attachHospitalNumber(user) {
   const hospitalNumber = await ensureHospitalNumber({
     tenantId: user.tenant_id || null,
     patientUid: user.uid,
-    createdBy: user.uid,
+    createdBy: user.uid
   });
   return { ...user, hospital_number: hospitalNumber };
 }
@@ -55,14 +51,14 @@ async function attachHospitalNumber(user) {
 export const authenticateWithFirebase = async (idToken, deviceInfo, req, { deviceType } = {}) => {
   // Verify Firebase ID token
   const decodedToken = await admin.auth().verifyIdToken(idToken);
-  
+
   const firebasePhone = decodedToken.phone_number;
   if (!firebasePhone) {
     const error = new Error('Phone number not found in Firebase token');
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
-  
+
   const phone = normalizePhone(firebasePhone);
   const firebaseUid = decodedToken.uid;
 
@@ -77,7 +73,9 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   // Check if user exists in our database — scoped to the resolved tenant.
   const userResult = await query(
     `SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid,
-            gender, email_verified, is_active, last_sign_in_at AS last_login
+            gender, email_verified, is_active, status,
+            COALESCE(is_deleted, false) AS is_deleted,
+            deleted_at, last_sign_in_at AS last_login
        FROM users
       WHERE tenant_id = $1::uuid
         AND (phone = $2 OR firebase_uid = $3)`,
@@ -96,7 +94,9 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
         name, email, email_verified
       ) VALUES ($1::uuid, $2, $3, $4, NOW(), NOW(), NOW(), $5, $6, $7)
       RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid,
-                gender, email_verified, is_active, last_sign_in_at AS last_login`,
+                gender, email_verified, is_active, status,
+                COALESCE(is_deleted, false) AS is_deleted,
+                deleted_at, last_sign_in_at AS last_login`,
       [
         tenantId,
         phone,
@@ -112,7 +112,14 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     logger.info(`🔥 New Firebase user created: ${maskPhoneForLog(phone)} (${firebaseUid})`);
   } else {
     user = userResult[0];
-    
+
+    if (user.is_deleted || String(user.status || '').toLowerCase() === 'deleted') {
+      const error = new Error('This account has been deleted');
+      error.statusCode = HTTP_STATUS.FORBIDDEN;
+      error.code = 'ACCOUNT_DELETED';
+      throw error;
+    }
+
     // Update Firebase UID if missing
     if (!user.firebase_uid) {
       await query(
@@ -120,16 +127,15 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
         [firebaseUid, user.uid]
       );
     } else {
-      await query(
-        'UPDATE users SET last_sign_in_at = NOW(), updated_at = NOW() WHERE uid = $1',
-        [user.uid]
-      );
+      await query('UPDATE users SET last_sign_in_at = NOW(), updated_at = NOW() WHERE uid = $1', [
+        user.uid
+      ]);
     }
-    
+
     logger.info(`🔥 Existing Firebase user logged in: ${maskPhoneForLog(phone)}`);
   }
   user = await attachHospitalNumber(user);
-  
+
   // Generate our JWT token + register it as this user's single active session.
   // Any previously-active patient access token for this user is blacklisted
   // and a `session:revoked` event is pushed to that user_uid's WS sockets.
@@ -140,10 +146,10 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       id: user.id,
       phone: user.phone,
       role: user.role,
-      firebaseUid: firebaseUid,
+      firebaseUid: firebaseUid
     },
     deviceType,
-    req,
+    req
   });
 
   // C-9 companion (audit 2026-06-18): mint a SEPARATE type:'refresh' token for
@@ -154,7 +160,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     uid: user.uid,
     id: user.id,
     phone: user.phone,
-    role: user.role,
+    role: user.role
   });
 
   // Store device info if provided
@@ -163,7 +169,13 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   }
 
   // Log authentication
-  await logFirebaseAuth(phone, isNewUser ? AUTH_ACTIONS.FIREBASE_REGISTER : AUTH_ACTIONS.FIREBASE_LOGIN, true, null, req);
+  await logFirebaseAuth(
+    phone,
+    isNewUser ? AUTH_ACTIONS.FIREBASE_REGISTER : AUTH_ACTIONS.FIREBASE_LOGIN,
+    true,
+    null,
+    req
+  );
 
   return {
     accessToken,
@@ -186,7 +198,8 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
 
 // Complete user profile
 export const completeUserProfile = async (profileData, req = null) => {
-  const { phone, name, gender, email, birthday, anniversary, address, emergency_contact } = profileData;
+  const { phone, name, gender, email, birthday, anniversary, address, emergency_contact } =
+    profileData;
   const normalizedPhone = normalizePhone(phone);
 
   // SEC-5: scope the profile update to the request's tenant so a phone
@@ -205,22 +218,28 @@ export const completeUserProfile = async (profileData, req = null) => {
     WHERE tenant_id = $8::uuid AND phone = $9
     RETURNING id, uid, tenant_id, name, phone, email, role, gender, is_active`,
     [
-      name, gender, email, birthday || null,
-      anniversary || null, address || null, emergency_contact || null,
-      tenantId, normalizedPhone
+      name,
+      gender,
+      email,
+      birthday || null,
+      anniversary || null,
+      address || null,
+      emergency_contact || null,
+      tenantId,
+      normalizedPhone
     ]
   );
-  
+
   if (result.length === 0) {
     const error = new Error('User not found');
     error.statusCode = HTTP_STATUS.NOT_FOUND;
     throw error;
   }
-  
+
   const user = await attachHospitalNumber(result[0]);
-  
+
   logger.info(`👤 Profile completed for user: ${maskPhoneForLog(normalizedPhone)}`);
-  
+
   return {
     user: {
       uid: user.uid,
@@ -243,7 +262,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
-  
+
   // Verify Firebase ID token
   const decodedToken = await admin.auth().verifyIdToken(idToken);
   const firebaseUid = decodedToken.uid;
@@ -267,21 +286,21 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
       WHERE tenant_id = $1::uuid AND phone = $2`,
     [tenantId, normalizedPhone]
   );
-  
+
   if (userResult.length === 0) {
     const error = new Error('User not found');
     error.statusCode = HTTP_STATUS.NOT_FOUND;
     throw error;
   }
-  
+
   const user = await attachHospitalNumber(userResult[0]);
-  
+
   // Link Firebase UID to existing user
-  await query(
-    'UPDATE users SET firebase_uid = $1, updated_at = NOW() WHERE uid = $2',
-    [firebaseUid, user.uid]
-  );
-  
+  await query('UPDATE users SET firebase_uid = $1, updated_at = NOW() WHERE uid = $2', [
+    firebaseUid,
+    user.uid
+  ]);
+
   // Generate new token with Firebase UID + register as the single active session.
   const { accessToken } = await issueAccessTokenAndClaimSession({
     userUid: user.uid,
@@ -290,10 +309,10 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
       id: user.id,
       phone: user.phone,
       role: user.role,
-      firebaseUid: firebaseUid,
+      firebaseUid: firebaseUid
     },
     deviceType,
-    req,
+    req
   });
 
   // C-9 companion (audit 2026-06-18): a separate type:'refresh' token, so an
@@ -302,7 +321,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     uid: user.uid,
     id: user.id,
     phone: user.phone,
-    role: user.role,
+    role: user.role
   });
 
   logger.info(`🔗 Firebase account linked to existing user: ${maskPhoneForLog(normalizedPhone)}`);
@@ -329,9 +348,9 @@ export const updateFcmToken = async (phone, fcmToken, deviceId) => {
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
-  
+
   const normalizedPhone = normalizePhone(phone);
-  
+
   // Update or insert FCM token
   await query(
     `INSERT INTO user_devices (user_uid, device_id, fcm_token, last_active, created_at)
@@ -340,9 +359,9 @@ export const updateFcmToken = async (phone, fcmToken, deviceId) => {
      DO UPDATE SET fcm_token = EXCLUDED.fcm_token, last_active = NOW()`,
     [normalizedPhone, deviceId || 'default', fcmToken]
   );
-  
+
   logger.info(`📱 FCM token updated for user: ${maskPhoneForLog(normalizedPhone)}`);
-  
+
   return {
     phone: normalizedPhone,
     fcmToken: fcmToken.substring(0, 10) + '...[REDACTED]',
@@ -351,25 +370,25 @@ export const updateFcmToken = async (phone, fcmToken, deviceId) => {
 };
 
 // Revoke Firebase session
-export const revokeFirebaseSession = async (firebaseUid) => {
+export const revokeFirebaseSession = async firebaseUid => {
   if (!firebaseUid) {
     const error = new Error('Firebase UID is required');
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
-  
+
   // Revoke Firebase tokens
   await admin.auth().revokeRefreshTokens(firebaseUid);
-  
+
   // Log the revocation
   await query(
     `UPDATE users SET firebase_tokens_revoked_at = NOW() 
      WHERE firebase_uid = $1`,
     [firebaseUid]
   );
-  
+
   logger.info(`🔐 Firebase session revoked for UID: ${firebaseUid}`);
-  
+
   return {
     firebaseUid,
     revokedAt: new Date().toISOString()
@@ -377,17 +396,17 @@ export const revokeFirebaseSession = async (firebaseUid) => {
 };
 
 // Verify token status
-export const verifyTokenStatus = async (idToken) => {
+export const verifyTokenStatus = async idToken => {
   const decodedToken = await admin.auth().verifyIdToken(idToken, true);
-  
+
   // Check if user exists in our system
   const userResult = await query(
     'SELECT uid, phone, name, role FROM users WHERE firebase_uid = $1',
     [decodedToken.uid]
   );
-  
+
   const userExists = userResult.length > 0;
-  
+
   return {
     valid: true,
     userExists,
@@ -407,7 +426,7 @@ export const verifyTokenStatus = async (idToken) => {
 export const getHealthStatus = async () => {
   // Test Firebase Admin connection
   await admin.auth().listUsers(1);
-  
+
   // Get Firebase auth statistics
   const stats = await query(`
     SELECT 
@@ -417,7 +436,7 @@ export const getHealthStatus = async () => {
       COUNT(*) as total_users
     FROM users
   `);
-  
+
   const deviceStats = await query(`
     SELECT 
       platform,
@@ -426,7 +445,7 @@ export const getHealthStatus = async () => {
     FROM user_devices
     GROUP BY platform
   `);
-  
+
   return {
     status: 'healthy',
     firebaseConnection: 'connected',
@@ -514,12 +533,9 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
       role, registered_at, updated_at
     ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
     RETURNING id, uid, name, phone, email, role, is_active`,
-    [
-      tenantId, normalizedPhone, name, gender, email, birthday,
-      anniversary, address, 'PATIENT'
-    ]
+    [tenantId, normalizedPhone, name, gender, email, birthday, anniversary, address, 'PATIENT']
   );
-  
+
   const user = insertResult[0];
 
   // Generate token + register as the user's single active session.
@@ -529,10 +545,10 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
       uid: user.uid,
       phone: user.phone,
       role: user.role,
-      id: user.id,
+      id: user.id
     },
     deviceType,
-    req,
+    req
   });
 
   // C-9 companion (audit 2026-06-18): a separate type:'refresh' token so the
@@ -541,7 +557,7 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
     uid: user.uid,
     id: user.id,
     phone: user.phone,
-    role: user.role,
+    role: user.role
   });
 
   return {
