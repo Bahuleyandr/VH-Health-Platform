@@ -2198,4 +2198,156 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get ancFrequencyAsNeeded => 'தேவையானபோது';
+
+  @override
+  String get recordAccessTitle => 'பதிவு அணுகல்';
+
+  @override
+  String get recordAccessSettingsSubtitle =>
+      'உங்கள் வெளியிடப்பட்ட பதிவுகளை யார் பார்க்கலாம் என்பதை கட்டுப்படுத்தவும்';
+
+  @override
+  String get recordAccessLoadFailed => 'பதிவு அணுகலை ஏற்ற முடியவில்லை';
+
+  @override
+  String get recordAccessGrantButton => 'அணுகல் வழங்கு';
+
+  @override
+  String get recordAccessGrantConfirmTitle => 'பதிவு அணுகலை வழங்கவா?';
+
+  @override
+  String get recordAccessGrantConfirmBody =>
+      'நீங்கள் அணுகலை ரத்து செய்யும் வரை அல்லது அனுமதி காலாவதியாகும் வரை, இந்த நபர் தேர்ந்தெடுக்கப்பட்ட வெளியிடப்பட்ட போர்டல் பதிவுகளைப் பார்க்க முடியும்.';
+
+  @override
+  String get recordAccessGrantSuccess => 'பதிவு அணுகல் வழங்கப்பட்டது';
+
+  @override
+  String get recordAccessGrantFailed => 'பதிவு அணுகலை வழங்க முடியவில்லை';
+
+  @override
+  String get recordAccessRevokeConfirmTitle => 'அணுகலை ரத்து செய்யவா?';
+
+  @override
+  String get recordAccessRevokeConfirmBody =>
+      'இது எதிர்கால proxy அணுகலை நிறுத்தும். மருத்துவமனை வைத்திருக்கும் மருத்துவ அல்லது தணிக்கை பதிவுகளை நீக்காது.';
+
+  @override
+  String get recordAccessRevokeButton => 'ரத்து செய்';
+
+  @override
+  String get recordAccessRevokedByPatient => 'ஆப்பில் நோயாளி ரத்து செய்தார்';
+
+  @override
+  String get recordAccessRevokeSuccess => 'பதிவு அணுகல் ரத்து செய்யப்பட்டது';
+
+  @override
+  String get recordAccessRevokeFailed => 'பதிவு அணுகலை ரத்து செய்ய முடியவில்லை';
+
+  @override
+  String get recordAccessEmptyTitle => 'பதிவு அணுகல் அனுமதிகள் இல்லை';
+
+  @override
+  String get recordAccessEmptySubtitle =>
+      'உங்கள் வெளியிடப்பட்ட பதிவுகளைப் பார்க்க அனுமதிக்கும் நபர்கள் இங்கே தோன்றுவர்.';
+
+  @override
+  String get recordAccessConsentTitle => 'கட்டுப்பாடு உங்களிடம்';
+
+  @override
+  String get recordAccessConsentBody =>
+      'நம்பகமான ஒருவருக்கு மட்டுமே அணுகல் வழங்கவும். அவர்கள் தேர்ந்தெடுத்த வரம்பில் வெளியிடப்பட்ட போர்டல் பதிவுகளைப் பார்க்கலாம்; மருத்துவமனை உள்ளக குறிப்புகள் நோயாளர் போர்டல் மூலம் ஒருபோதும் பகிரப்படாது.';
+
+  @override
+  String get recordAccessGrantedByMeTitle =>
+      'என் பதிவுகளை பார்க்கக்கூடியவர்கள்';
+
+  @override
+  String get recordAccessHeldByMeTitle => 'என்னுடன் பகிரப்பட்ட பதிவுகள்';
+
+  @override
+  String get recordAccessStatus => 'நிலை';
+
+  @override
+  String get recordAccessScope => 'வரம்பு';
+
+  @override
+  String get recordAccessGranted => 'வழங்கப்பட்டது';
+
+  @override
+  String get recordAccessExpires => 'காலாவதி';
+
+  @override
+  String get recordAccessRevoked => 'ரத்து செய்யப்பட்டது';
+
+  @override
+  String get recordAccessGrantSheetTitle => 'பதிவு அணுகல் வழங்கு';
+
+  @override
+  String get recordAccessGrantSheetBody =>
+      'மருத்துவமனை வழங்கிய proxy நோயாளர் UID-ஐ அப்படியே உள்ளிடவும். தெரியாவிட்டால் வரவேற்பில் கேளுங்கள்.';
+
+  @override
+  String get recordAccessProxyUidLabel => 'Proxy நோயாளர் UID';
+
+  @override
+  String get recordAccessProxyUidHelper =>
+      'அணுகல் பெறும் நபருக்கான மருத்துவமனை UUID';
+
+  @override
+  String get recordAccessProxyUidRequired => 'Proxy நோயாளர் UID ஐ உள்ளிடவும்';
+
+  @override
+  String get recordAccessProxyUidInvalid => 'சரியான UUID ஐ உள்ளிடவும்';
+
+  @override
+  String get recordAccessRelationshipLabel => 'உறவு';
+
+  @override
+  String get recordAccessRelationshipHelper =>
+      'எடுத்துக்காட்டு: துணை, பெற்றோர், பராமரிப்பாளர்';
+
+  @override
+  String get recordAccessRelationshipRequired => 'உறவை உள்ளிடவும்';
+
+  @override
+  String get recordAccessScopeResults => 'வெளியிடப்பட்ட முடிவுகள்';
+
+  @override
+  String get recordAccessScopeResultsSubtitle =>
+      'ஆய்வக முடிவுகள் மற்றும் வெளியிடப்பட்ட போர்டல் முடிவு பதிவுகள்';
+
+  @override
+  String get recordAccessScopeClaimDocuments => 'கோரிக்கை ஆவணங்கள்';
+
+  @override
+  String get recordAccessScopeClaimDocumentsSubtitle =>
+      'வெளியிடப்பட்ட காப்பீடு அல்லது கோரிக்கை ஆதரவு ஆவணங்கள்';
+
+  @override
+  String get recordAccessConsentMethodLabel => 'ஒப்புதல் முறை';
+
+  @override
+  String get recordAccessConsentMethodOtp => 'OTP / ஆப் உறுதிப்பாடு';
+
+  @override
+  String get recordAccessConsentMethodWritten => 'எழுத்து ஒப்புதல்';
+
+  @override
+  String get recordAccessConsentMethodVerbal => 'வாய்மொழி ஒப்புதல் பதிவு';
+
+  @override
+  String get recordAccessConsentMethodGuardian => 'சிறாருக்கான பாதுகாவலர்';
+
+  @override
+  String get recordAccessContinueButton => 'தொடரவும்';
+
+  @override
+  String get recordAccessProxyFallback => 'Proxy';
+
+  @override
+  String get recordAccessStatusActive => 'செயலில்';
+
+  @override
+  String get recordAccessStatusRevoked => 'ரத்து செய்யப்பட்டது';
 }

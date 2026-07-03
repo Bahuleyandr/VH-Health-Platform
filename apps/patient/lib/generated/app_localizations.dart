@@ -4177,6 +4177,288 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'As needed'**
   String get ancFrequencyAsNeeded;
+
+  /// No description provided for @recordAccessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Record access'**
+  String get recordAccessTitle;
+
+  /// No description provided for @recordAccessSettingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Control who can see your released records'**
+  String get recordAccessSettingsSubtitle;
+
+  /// No description provided for @recordAccessLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load record access'**
+  String get recordAccessLoadFailed;
+
+  /// No description provided for @recordAccessGrantButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Grant access'**
+  String get recordAccessGrantButton;
+
+  /// No description provided for @recordAccessGrantConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Grant record access?'**
+  String get recordAccessGrantConfirmTitle;
+
+  /// No description provided for @recordAccessGrantConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This person will be able to view the selected released portal records until you revoke access or the grant expires.'**
+  String get recordAccessGrantConfirmBody;
+
+  /// No description provided for @recordAccessGrantSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Record access granted'**
+  String get recordAccessGrantSuccess;
+
+  /// No description provided for @recordAccessGrantFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not grant record access'**
+  String get recordAccessGrantFailed;
+
+  /// No description provided for @recordAccessRevokeConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke access?'**
+  String get recordAccessRevokeConfirmTitle;
+
+  /// No description provided for @recordAccessRevokeConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This stops future proxy access. It does not remove clinical or audit records already retained by the hospital.'**
+  String get recordAccessRevokeConfirmBody;
+
+  /// No description provided for @recordAccessRevokeButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke'**
+  String get recordAccessRevokeButton;
+
+  /// No description provided for @recordAccessRevokedByPatient.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked by patient in app'**
+  String get recordAccessRevokedByPatient;
+
+  /// No description provided for @recordAccessRevokeSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Record access revoked'**
+  String get recordAccessRevokeSuccess;
+
+  /// No description provided for @recordAccessRevokeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not revoke record access'**
+  String get recordAccessRevokeFailed;
+
+  /// No description provided for @recordAccessEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No record access grants'**
+  String get recordAccessEmptyTitle;
+
+  /// No description provided for @recordAccessEmptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'People you allow to view your released records will appear here.'**
+  String get recordAccessEmptySubtitle;
+
+  /// No description provided for @recordAccessConsentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You are in control'**
+  String get recordAccessConsentTitle;
+
+  /// No description provided for @recordAccessConsentBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Grant access only to someone you trust. They can view released portal records for the selected scope; in-hospital notes are never shared through the patient portal.'**
+  String get recordAccessConsentBody;
+
+  /// No description provided for @recordAccessGrantedByMeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'People who can see my records'**
+  String get recordAccessGrantedByMeTitle;
+
+  /// No description provided for @recordAccessHeldByMeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Records shared with me'**
+  String get recordAccessHeldByMeTitle;
+
+  /// No description provided for @recordAccessStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get recordAccessStatus;
+
+  /// No description provided for @recordAccessScope.
+  ///
+  /// In en, this message translates to:
+  /// **'Scope'**
+  String get recordAccessScope;
+
+  /// No description provided for @recordAccessGranted.
+  ///
+  /// In en, this message translates to:
+  /// **'Granted'**
+  String get recordAccessGranted;
+
+  /// No description provided for @recordAccessExpires.
+  ///
+  /// In en, this message translates to:
+  /// **'Expires'**
+  String get recordAccessExpires;
+
+  /// No description provided for @recordAccessRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get recordAccessRevoked;
+
+  /// No description provided for @recordAccessGrantSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Grant record access'**
+  String get recordAccessGrantSheetTitle;
+
+  /// No description provided for @recordAccessGrantSheetBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the proxy\'s patient UID exactly as issued by the hospital. Ask reception if you do not know it.'**
+  String get recordAccessGrantSheetBody;
+
+  /// No description provided for @recordAccessProxyUidLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy patient UID'**
+  String get recordAccessProxyUidLabel;
+
+  /// No description provided for @recordAccessProxyUidHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital-issued UUID for the person receiving access'**
+  String get recordAccessProxyUidHelper;
+
+  /// No description provided for @recordAccessProxyUidRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the proxy patient UID'**
+  String get recordAccessProxyUidRequired;
+
+  /// No description provided for @recordAccessProxyUidInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid UUID'**
+  String get recordAccessProxyUidInvalid;
+
+  /// No description provided for @recordAccessRelationshipLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Relationship'**
+  String get recordAccessRelationshipLabel;
+
+  /// No description provided for @recordAccessRelationshipHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Example: spouse, parent, caregiver'**
+  String get recordAccessRelationshipHelper;
+
+  /// No description provided for @recordAccessRelationshipRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the relationship'**
+  String get recordAccessRelationshipRequired;
+
+  /// No description provided for @recordAccessScopeResults.
+  ///
+  /// In en, this message translates to:
+  /// **'Released results'**
+  String get recordAccessScopeResults;
+
+  /// No description provided for @recordAccessScopeResultsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lab results and released portal result records'**
+  String get recordAccessScopeResultsSubtitle;
+
+  /// No description provided for @recordAccessScopeClaimDocuments.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim documents'**
+  String get recordAccessScopeClaimDocuments;
+
+  /// No description provided for @recordAccessScopeClaimDocumentsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Released insurance or claim-support documents'**
+  String get recordAccessScopeClaimDocumentsSubtitle;
+
+  /// No description provided for @recordAccessConsentMethodLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent method'**
+  String get recordAccessConsentMethodLabel;
+
+  /// No description provided for @recordAccessConsentMethodOtp.
+  ///
+  /// In en, this message translates to:
+  /// **'OTP / app confirmation'**
+  String get recordAccessConsentMethodOtp;
+
+  /// No description provided for @recordAccessConsentMethodWritten.
+  ///
+  /// In en, this message translates to:
+  /// **'Written consent'**
+  String get recordAccessConsentMethodWritten;
+
+  /// No description provided for @recordAccessConsentMethodVerbal.
+  ///
+  /// In en, this message translates to:
+  /// **'Verbal consent documented'**
+  String get recordAccessConsentMethodVerbal;
+
+  /// No description provided for @recordAccessConsentMethodGuardian.
+  ///
+  /// In en, this message translates to:
+  /// **'Guardian for minor'**
+  String get recordAccessConsentMethodGuardian;
+
+  /// No description provided for @recordAccessContinueButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get recordAccessContinueButton;
+
+  /// No description provided for @recordAccessProxyFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy'**
+  String get recordAccessProxyFallback;
+
+  /// No description provided for @recordAccessStatusActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get recordAccessStatusActive;
+
+  /// No description provided for @recordAccessStatusRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get recordAccessStatusRevoked;
 }
 
 class _AppLocalizationsDelegate

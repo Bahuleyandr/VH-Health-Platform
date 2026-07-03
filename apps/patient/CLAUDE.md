@@ -291,6 +291,10 @@ Builders are param-free unless noted.
 | Create reminder | `/reminders/medication` | POST |
 | Update reminder | `/reminders/medication/:id` | PUT |
 | Delete reminder | `/reminders/medication/:id` | DELETE |
+| **Record access** | | |
+| List proxy grants | `/portal/proxy/grants` | GET |
+| Grant record access | `/portal/proxy/grants` | POST |
+| Revoke record access | `/portal/proxy/grants/:id/revoke` | POST |
 | **Devices** | | |
 | Register device | `/devices/register` | POST |
 | My devices | `/devices/my-devices` | GET |

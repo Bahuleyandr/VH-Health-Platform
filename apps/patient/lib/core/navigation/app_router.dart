@@ -20,6 +20,7 @@ import 'package:vhhealth/features/dashboard/screens/dashboard_screen.dart';
 import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/notifications/screens/notifications_screen.dart';
 import 'package:vhhealth/features/settings/screens/settings_screen.dart';
+import 'package:vhhealth/features/settings/screens/record_access_screen.dart';
 import 'package:vhhealth/features/appointments/screens/appointments_screen.dart';
 import 'package:vhhealth/features/pharmacy/screens/pharmacy_screen.dart';
 import 'package:vhhealth/features/investigations/screens/investigations_screen.dart';
@@ -260,6 +261,10 @@ class AppRouter {
       GoRoute(
         path: '/profile-edit',
         builder: (context, state) => const ProfileEditScreen(),
+      ),
+      GoRoute(
+        path: '/settings/record-access',
+        builder: (context, state) => const RecordAccessScreen(),
       ),
 
       // Main app with bottom navigation
