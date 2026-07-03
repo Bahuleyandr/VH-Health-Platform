@@ -3,7 +3,10 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:markdown_widget/markdown_widget.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'package:vhhealth/core/config/legal_urls.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/generated/app_localizations_en.dart';
@@ -80,9 +83,36 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
           const H1Config(),
           const H2Config(),
           const H3Config(),
-          LinkConfig(onTap: (url) => debugPrint('Link tapped: $url')),
+          LinkConfig(onTap: _openExternalUrl),
           const BlockquoteConfig(),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openExternalUrl(String url) async {
+    final launched = await SafeUrlLauncher.launch(
+      url,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not open the link')));
+    }
+  }
+
+  Widget _externalLegalLink({
+    required IconData icon,
+    required String label,
+    required String url,
+  }) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        icon: Icon(icon),
+        label: Text(label),
+        onPressed: () => _openExternalUrl(url),
       ),
     );
   }
@@ -153,10 +183,20 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
                     _sectionHeader(l10n.commonTermsOfUse, key: _termsKey),
+                    _externalLegalLink(
+                      icon: Icons.open_in_new,
+                      label: 'Open terms in browser',
+                      url: LegalUrls.termsUrl,
+                    ),
                     _buildMarkdownSection(_legalBody('terms', l10n)),
                     _sectionHeader(l10n.commonConditions, key: _conditionsKey),
                     _buildMarkdownSection(_legalBody('conditions', l10n)),
                     _sectionHeader(l10n.commonPrivacyPolicy, key: _privacyKey),
+                    _externalLegalLink(
+                      icon: Icons.open_in_new,
+                      label: 'Open privacy policy in browser',
+                      url: LegalUrls.privacyPolicyUrl,
+                    ),
                     _buildMarkdownSection(_legalBody('privacy', l10n)),
                     const SizedBox(height: 40),
                     Center(

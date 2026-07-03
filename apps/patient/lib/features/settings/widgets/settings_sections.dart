@@ -3,8 +3,11 @@ import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'package:vhhealth/core/config/legal_urls.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/features/settings/controllers/settings_controller.dart';
@@ -310,6 +313,30 @@ List<Widget> buildSettingsSections(SettingsController c) {
     ),
     const SizedBox(height: 16),
 
+    _sectionTitle('LEGAL', c.context),
+    _card(
+      Column(
+        children: [
+          _legalLinkTile(
+            icon: Icons.description_outlined,
+            title: c.loc.commonTermsOfUse,
+            subtitle: 'Open the current terms in your browser',
+            url: LegalUrls.termsUrl,
+            c: c,
+          ),
+          const Divider(height: 1),
+          _legalLinkTile(
+            icon: Icons.privacy_tip_outlined,
+            title: c.loc.commonPrivacyPolicy,
+            subtitle: 'Open the current privacy policy in your browser',
+            url: LegalUrls.privacyPolicyUrl,
+            c: c,
+          ),
+        ],
+      ),
+    ),
+    const SizedBox(height: 16),
+
     _sectionTitle(c.loc.settingsPermissionsTitle.toUpperCase(), c.context),
     _card(
       Column(
@@ -375,6 +402,34 @@ Widget _card(Widget child) => Card(
   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
   child: child,
 );
+
+Widget _legalLinkTile({
+  required IconData icon,
+  required String title,
+  required String subtitle,
+  required String url,
+  required SettingsController c,
+}) {
+  final cs = Theme.of(c.context).colorScheme;
+  return ListTile(
+    leading: Icon(icon, color: cs.primary),
+    title: Text(title),
+    subtitle: Text(subtitle),
+    trailing: Icon(Icons.open_in_new, size: 18, color: cs.onSurfaceVariant),
+    onTap: () async {
+      final messenger = ScaffoldMessenger.of(c.context);
+      final launched = await SafeUrlLauncher.launch(
+        url,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not open the link')),
+        );
+      }
+    },
+  );
+}
 
 Widget _permissionTile(
   IconData icon,
