@@ -15,6 +15,7 @@ import '../../features/leave/screens/leave_screen.dart';
 import '../../features/appointments/screens/appointments_screen.dart';
 import '../../features/investigations/screens/investigations_screen.dart';
 import '../../features/investigations/screens/lab_bookings_screen.dart';
+import '../../features/investigations/screens/specimen_scan_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
@@ -85,6 +86,7 @@ import '../../features/beds/screens/bed_board_screen.dart';
 
 // Blood Bank
 import '../../features/bloodbank/screens/blood_bank_screen.dart';
+import '../../features/bloodbank/screens/transfusion_scan_screen.dart';
 
 // Dietary
 import '../../features/dietary/screens/dietary_screen.dart';
@@ -275,6 +277,21 @@ final GoRouter appRouter = GoRouter(
           name: 'lab-bookings',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: LabBookingsScreen()),
+        ),
+        GoRoute(
+          path: '/lab/specimen-scan/:investigationId',
+          name: 'lab-specimen-scan',
+          pageBuilder: (context, state) {
+            final investigationId =
+                int.tryParse(state.pathParameters['investigationId'] ?? '') ??
+                0;
+            return NoTransitionPage(
+              child: SpecimenScanScreen(
+                investigationId: investigationId,
+                expectedPatientUid: state.uri.queryParameters['patient_uid'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/pharmacy',
@@ -807,6 +824,23 @@ final GoRouter appRouter = GoRouter(
           name: 'blood-bank',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: BloodBankScreen()),
+        ),
+        GoRoute(
+          path: '/blood-bank/scan/:requestId',
+          name: 'blood-bank-transfusion-scan',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            final requestId =
+                int.tryParse(state.pathParameters['requestId'] ?? '') ?? 0;
+            return NoTransitionPage(
+              child: TransfusionScanScreen(
+                requestId: requestId,
+                verifierRole: q['role'] ?? 'first',
+                expectedPatientUid: q['patient_uid'],
+                expectedUnitNumber: q['unit_number'],
+              ),
+            );
+          },
         ),
 
         // Dietary

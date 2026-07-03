@@ -270,13 +270,15 @@ export const markInvestigationCollected = async (req, res) => {
       return error(res, 'Access denied: lab technician or doctor privileges required', HTTP_STATUS.FORBIDDEN);
     }
     const { id } = req.params;
-    const { collected_notes, sample_barcode } = req.body || {};
+    const { collected_notes, sample_barcode, scanned_patient_uid } = req.body || {};
 
     const row = await investigationService.markSampleCollected({
       id,
       collected_by: req.user?.uid,
       collected_notes,
       sample_barcode,
+      scanned_patient_uid,
+      tenantId: req.tenantId || null,
     });
 
     await logAudit(req, 'investigation-sample-collected', {

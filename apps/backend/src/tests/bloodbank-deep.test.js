@@ -12,6 +12,7 @@ import app from '../app.js';
 const DOCTOR_UID = 'a9999999-9999-4999-8999-999999999a01';
 const BLOOD_BANK_UID = 'a9999999-9999-4999-8999-999999999a02';
 const PATIENT_UID = 'a9999999-9999-4999-8999-999999999a03';
+const SECOND_BLOOD_BANK_UID = 'a9999999-9999-4999-8999-999999999a04';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
 function mkClient(role, uid, intId) {
@@ -26,13 +27,28 @@ function mkClient(role, uid, intId) {
 describe('Bloodbank lifecycle — deep integration', () => {
   let doctor;
   let bloodStaff;
-  let doctorIntId, staffIntId, patientIntId;
+  let secondBloodStaff;
+  let doctorIntId, staffIntId, secondStaffIntId, patientIntId;
+  let futureExpiryDate;
 
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM transfusion_verifications
+        WHERE request_id IN (SELECT id FROM blood_requests WHERE patient_uid = $1::uuid)`,
+      PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM transfusion_reactions
+        WHERE request_id IN (SELECT id FROM blood_requests WHERE patient_uid = $1::uuid)`,
+      PATIENT_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM blood_units WHERE unit_number LIKE 'B4SCAN-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM blood_requests WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      DOCTOR_UID, BLOOD_BANK_UID, PATIENT_UID);
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      DOCTOR_UID, BLOOD_BANK_UID, PATIENT_UID, SECOND_BLOOD_BANK_UID);
+
+    const dateRows = await prisma.$queryRawUnsafe(
+      `SELECT ((NOW() AT TIME ZONE 'Asia/Kolkata')::date + INTERVAL '14 days')::date::text AS expiry_date`);
+    futureExpiryDate = dateRows[0].expiry_date;
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -52,17 +68,66 @@ describe('Bloodbank lifecycle — deep integration', () => {
        RETURNING id`, BLOOD_BANK_UID);
     staffIntId = s[0].id;
 
+    const s2 = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9000090004', 'Second Blood Bank Tech', 'ADMIN', true, NOW())
+       RETURNING id`, SECOND_BLOOD_BANK_UID);
+    secondStaffIntId = s2[0].id;
+
     doctor = mkClient('DOCTOR', DOCTOR_UID, doctorIntId);
     bloodStaff = mkClient('ADMIN', BLOOD_BANK_UID, staffIntId);
+    secondBloodStaff = mkClient('ADMIN', SECOND_BLOOD_BANK_UID, secondStaffIntId);
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM transfusion_verifications
+        WHERE request_id IN (SELECT id FROM blood_requests WHERE patient_uid = $1::uuid)`,
+      PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM transfusion_reactions
+        WHERE request_id IN (SELECT id FROM blood_requests WHERE patient_uid = $1::uuid)`,
+      PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM blood_units WHERE unit_number LIKE 'B4SCAN-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM blood_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      DOCTOR_UID, BLOOD_BANK_UID, PATIENT_UID).catch(() => {});
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      DOCTOR_UID, BLOOD_BANK_UID, PATIENT_UID, SECOND_BLOOD_BANK_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
+
+  async function createIssuedRequestWithUnit(unitNumber) {
+    const requestRes = await doctor.post('/api/v1/blood-bank/request').send({
+      patient_uid: PATIENT_UID,
+      blood_group: 'O+',
+      component: 'prbc',
+      units: 1,
+      urgency: 'urgent',
+      clinical_indication: 'Batch 4 bedside scan fixture',
+    });
+    expect(requestRes.statusCode).toBe(201);
+    const requestId = requestRes.body.data.id;
+
+    const unitRes = await bloodStaff.post('/api/v1/blood-bank/units').send({
+      unit_number: unitNumber,
+      blood_group: 'O+',
+      component: 'prbc',
+      expiry_date: futureExpiryDate,
+    });
+    expect(unitRes.statusCode).toBe(201);
+    const unitId = unitRes.body.data.id;
+
+    const crossmatch = await bloodStaff.post(`/api/v1/blood-bank/${requestId}/crossmatch-unit`).send({
+      unit_id: unitId,
+      result: 'compatible',
+    });
+    expect(crossmatch.statusCode).toBe(200);
+
+    const issue = await bloodStaff.put(`/api/v1/blood-bank/${requestId}/issue`);
+    expect(issue.statusCode).toBe(200);
+
+    return { requestId, unitId };
+  }
 
   describe('validation', () => {
     it('rejects request without required fields', async () => {
@@ -249,6 +314,62 @@ describe('Bloodbank lifecycle — deep integration', () => {
       expect(row[0].transfused_at).toBeTruthy();
       expect(row[0].notes).toMatch(/Transfusion reaction:/);
       expect(row[0].notes).toMatch(/Mild fever/);
+    });
+  });
+
+  describe('closed-loop transfusion bedside scanning', () => {
+    it('wrong unit barcode is a non-overridable hard-stop even with a reason', async () => {
+      const { requestId } = await createIssuedRequestWithUnit('B4SCAN-UNIT-409');
+
+      const mismatch = await bloodStaff.post(`/api/v1/blood-bank/${requestId}/verify-bedside`).send({
+        verifier_role: 'first',
+        scanned_unit_number: 'B4SCAN-OTHER-UNIT',
+        scanned_patient_uid: PATIENT_UID,
+        override_reason: 'Bag label damaged; attempted manual override at bedside',
+      });
+
+      expect(mismatch.statusCode).toBe(409);
+      expect(mismatch.body.details).toMatchObject({
+        code: 'TRANSFUSION_UNIT_MISMATCH',
+        hardStop: true,
+        failedRight: 'unit',
+      });
+    });
+
+    it('records both verifier wristband + unit barcodes before transfusion start', async () => {
+      const { requestId } = await createIssuedRequestWithUnit('B4SCAN-UNIT-OK');
+
+      const first = await bloodStaff.post(`/api/v1/blood-bank/${requestId}/verify-bedside`).send({
+        verifier_role: 'first',
+        scanned_unit_number: 'B4SCAN-UNIT-OK',
+        scanned_patient_uid: PATIENT_UID,
+      });
+      expect(first.statusCode).toBe(200);
+      expect(first.body.data.scanned_unit_number).toBe('B4SCAN-UNIT-OK');
+      expect(first.body.data.scanned_patient_uid).toBe(PATIENT_UID);
+
+      const second = await secondBloodStaff.post(`/api/v1/blood-bank/${requestId}/verify-bedside`).send({
+        verifier_role: 'second',
+        scanned_unit_number: 'B4SCAN-UNIT-OK',
+        scanned_patient_uid: PATIENT_UID,
+      });
+      expect(second.statusCode).toBe(200);
+
+      const start = await bloodStaff.post(`/api/v1/blood-bank/${requestId}/start-transfusion`).send({});
+      expect(start.statusCode).toBe(200);
+      expect(start.body.data.transfusion_started_at).toBeTruthy();
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT verifier_role, scanned_unit_number, scanned_patient_uid, unit_match, patient_match, all_checks_passed
+           FROM transfusion_verifications
+          WHERE request_id = $1
+          ORDER BY verifier_role`,
+        requestId,
+      );
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.scanned_unit_number)).toEqual(['B4SCAN-UNIT-OK', 'B4SCAN-UNIT-OK']);
+      expect(rows.map((row) => String(row.scanned_patient_uid))).toEqual([PATIENT_UID, PATIENT_UID]);
+      expect(rows.every((row) => row.unit_match && row.patient_match && row.all_checks_passed)).toBe(true);
     });
   });
 

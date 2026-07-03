@@ -5966,6 +5966,10 @@ model investigations {
   sample_rejected_by                       String?                             @db.Uuid
   sample_rejection_reason                  String?
   appointment_id                           Int?
+  collection_scanned_patient_uid           String?                             @db.Uuid
+  collection_patient_match                 Boolean?
+  patient_scanned_at                       DateTime?                           @db.Timestamptz(6)
+  tube_scanned_at                          DateTime?                           @db.Timestamptz(6)
   clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
   investigation_bookings                   investigation_bookings[]
   tenants                                  tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigations_tenant")
@@ -5989,6 +5993,7 @@ model investigations {
   @@index([collected_at], map: "idx_investigations_collected_pending_upload", where: raw("((collected_at IS NOT NULL) AND (result_uploaded_at IS NULL))"))
   @@index([sample_rejected_at], map: "idx_investigations_sample_rejected_at", where: raw("(sample_rejected_at IS NOT NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_investigations_tenant_patient")
+  @@index([collection_scanned_patient_uid, patient_scanned_at(sort: Desc)], map: "idx_investigations_specimen_patient_scan", where: raw("(collection_scanned_patient_uid IS NOT NULL)"))
 }
 
 model investment_declarations {

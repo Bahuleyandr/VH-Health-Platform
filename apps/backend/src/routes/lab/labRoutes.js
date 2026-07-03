@@ -28,7 +28,10 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
-      if (err.statusCode) return error(res, err.message, err.statusCode);
+      if (err.statusCode) {
+        const details = err.details ?? (err.code ? { code: err.code } : null);
+        return error(res, err.message, err.statusCode, details);
+      }
       logger.error('lab route error:', err);
       return error(res, err.message || 'Lab error', 500);
     }
@@ -140,6 +143,7 @@ router.post('/samples/:investigationId/collect', requireStaffOrAdmin, wrap(async
     collected_by: req.user?.uid,
     collected_notes: req.body?.collected_notes ?? req.body?.notes,
     sample_barcode: req.body?.sample_barcode,
+    scanned_patient_uid: req.body?.scanned_patient_uid,
     tenantId: tenantOf(req),
   }),
 ));

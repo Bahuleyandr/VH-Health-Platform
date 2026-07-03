@@ -282,8 +282,50 @@ export async function recordBedsideVerification(requestId, {
   const allPassed = unitMatch && patientMatch && compat.compatible && expiryOk;
   const trimmedOverride = (overrideReason || '').trim() || null;
 
+  // Batch 4 bedside-scan hard stops: an active wristband or unit-barcode
+  // mismatch is the transfusion equivalent of wrong-patient/wrong-drug MAR.
+  // The no-scan break-glass path is separate; this scanned path cannot be
+  // justified into proceeding against a different patient or bag.
+  if (!patientMatch) {
+    throw AppError.conflict(
+      'Patient identity mismatch: the scanned wristband does not match this transfusion request. Re-scan the correct patient — this cannot be overridden.',
+      'TRANSFUSION_PATIENT_MISMATCH',
+      {
+        code: 'TRANSFUSION_PATIENT_MISMATCH',
+        hardStop: true,
+        failedRight: 'patient',
+        checks: {
+          unit_match: unitMatch,
+          patient_match: patientMatch,
+          group_compatible: compat.compatible,
+          expiry_ok: expiryOk,
+        },
+        matrix_verdict: compat,
+      },
+    );
+  }
+  if (!unitMatch) {
+    throw AppError.conflict(
+      'Blood unit mismatch: the scanned unit barcode does not match the cross-matched unit. Re-scan the correct bag — this cannot be overridden.',
+      'TRANSFUSION_UNIT_MISMATCH',
+      {
+        code: 'TRANSFUSION_UNIT_MISMATCH',
+        hardStop: true,
+        failedRight: 'unit',
+        checks: {
+          unit_match: unitMatch,
+          patient_match: patientMatch,
+          group_compatible: compat.compatible,
+          expiry_ok: expiryOk,
+        },
+        matrix_verdict: compat,
+      },
+    );
+  }
+
   if (!allPassed && !trimmedOverride) {
     throw AppError.conflict('Bedside verification failed', 'TRANSFUSION_VERIFICATION_FAILED', {
+      code: 'TRANSFUSION_VERIFICATION_FAILED',
       checks: { unit_match: unitMatch, patient_match: patientMatch, group_compatible: compat.compatible, expiry_ok: expiryOk },
       matrix_verdict: compat,
     });
