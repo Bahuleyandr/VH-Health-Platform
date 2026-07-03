@@ -12,8 +12,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/phone_input_field.dart';
 import 'package:vhhealth/core/widgets/terms_agreement_notice.dart';
@@ -203,6 +205,11 @@ class _LoginFormState extends State<LoginForm> {
         hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
       );
       if (!mounted) return;
+      await PushNotificationService.syncForSignedInUser(
+        phone: phone,
+        notificationProvider: context.read<NotificationProvider>(),
+      );
+      if (!mounted) return;
       // /profile-setup needs the phone via state.extra so the form's
       // submit can pass it to /complete-profile.
       if (isNewUser) {
@@ -328,6 +335,11 @@ class _LoginFormState extends State<LoginForm> {
           phoneNumber,
           storedName,
           hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+        );
+        if (!mounted) return;
+        await PushNotificationService.syncForSignedInUser(
+          phone: phoneNumber,
+          notificationProvider: context.read<NotificationProvider>(),
         );
         if (!mounted) return;
 

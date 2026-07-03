@@ -39,5 +39,24 @@ void main() {
       // Just verify it exists and doesn't throw
       expect(() => provider.markAllAsRead(''), returnsNormally);
     });
+
+    test('refreshBadgeAfterPush fetches unread badge count', () async {
+      provider = NotificationProvider(
+        feedFetcher: () async => {
+          'notifications': [
+            {'is_read': false},
+            {'is_read': true},
+            {'is_read': false},
+          ],
+        },
+      );
+      var notifyCount = 0;
+      provider.addListener(() => notifyCount++);
+
+      await provider.refreshBadgeAfterPush('+919876543210');
+
+      expect(provider.unreadCount, 2);
+      expect(notifyCount, 1);
+    });
   });
 }

@@ -99,11 +99,25 @@ class DeepLinkService {
         return '/pharmacy';
       case 'INVESTIGATION':
       case 'INVESTIGATION_RESULT':
+      case 'INVESTIGATION_RESULT_READY':
       case 'INVESTIGATION_BOOKING':
+      case 'COLLECTOR_DISPATCHED':
         return '/investigations';
+      case 'LAB_RESULT_READY':
+      case 'RESULTS_READY':
+        return '/portal/lab-results';
       case 'PRESCRIPTION':
       case 'PRESCRIPTION_READY':
+      case 'DOCUMENT_UPLOADED':
         return '/health';
+      case 'BILLING':
+      case 'BILL_READY':
+      case 'PAYMENT_LINK':
+        return '/portal/bills';
+      case 'SECURE_MESSAGE':
+      case 'MESSAGE':
+      case 'PORTAL_MESSAGE':
+        return '/portal/messages';
       case 'SOS':
       case 'SOS_ALERT':
         return '/home';

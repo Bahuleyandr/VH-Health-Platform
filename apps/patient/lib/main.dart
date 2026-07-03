@@ -11,6 +11,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show ApiConfig, SecurityConfig;
 
@@ -36,6 +37,7 @@ import 'package:vhhealth/core/services/firebase_crash_reporter.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
@@ -44,6 +46,12 @@ import 'package:vhhealth/core/offline/mutation_queue.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await PushNotificationService.handleBackgroundMessage(message);
+}
 
 Future<void> main() async {
   var crashlyticsEnabled = false;
@@ -58,6 +66,7 @@ Future<void> main() async {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       // PAT-1: Activate Firebase App Check to attest that API calls originate
       // from a genuine, unmodified build of this app.
@@ -157,6 +166,7 @@ Future<void> main() async {
       unawaited(() async {
         try {
           await NotificationScheduler.initialize();
+          await PushNotificationService.configureHandlers();
           final jwt = await VHSecureStorage.instance.read(key: 'jwt');
           if (jwt == null || jwt.isEmpty) return;
           final remindersResp = await ApiClient.get('/reminders/medication');

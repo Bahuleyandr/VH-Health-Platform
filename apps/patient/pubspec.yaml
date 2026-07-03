@@ -70,6 +70,7 @@ dependencies:
   firebase_app_check: ^0.4.4+2
   firebase_crashlytics: ^5.2.3
   firebase_analytics: ^12.4.2
+  firebase_messaging: ^16.4.1
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Dev Dependencies

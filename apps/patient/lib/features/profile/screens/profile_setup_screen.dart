@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/services/backend_api_service.dart';
+import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -124,11 +126,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       await storage.write(key: 'isNewUser', value: 'false');
       final hospitalNumber = await storage.read(key: 'hospital_number') ?? '';
       if (mounted) {
-        context.read<UserProvider>().setUser(
+        await context.read<UserProvider>().setUser(
           widget.phone,
           _nameController.text.trim(),
           hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
         );
+        if (!mounted) return;
+        await PushNotificationService.syncForSignedInUser(
+          phone: widget.phone,
+          notificationProvider: context.read<NotificationProvider>(),
+        );
+        if (!mounted) return;
         context.go('/home');
       }
     }
@@ -139,11 +147,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final storage = VHSecureStorage.instance;
     final hospitalNumber = await storage.read(key: 'hospital_number') ?? '';
     if (!mounted) return;
-    context.read<UserProvider>().setUser(
+    await context.read<UserProvider>().setUser(
       widget.phone,
       'User',
       hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
     );
+    if (!mounted) return;
+    await PushNotificationService.syncForSignedInUser(
+      phone: widget.phone,
+      notificationProvider: context.read<NotificationProvider>(),
+    );
+    if (!mounted) return;
     context.go('/home');
   }
 
