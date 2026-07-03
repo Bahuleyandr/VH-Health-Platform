@@ -237,6 +237,26 @@ export const operations = {
   },
   // GET /mar/due → the nurse due-meds list (MAR row + patient/bed/ward join).
   'GET /api/v1/clinical/mar/due': {
+    parameters: [
+      {
+        name: 'ward_id',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer' },
+      },
+      {
+        name: 'past_minutes',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, maximum: 1440, default: 120 },
+      },
+      {
+        name: 'future_minutes',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, maximum: 1440, default: 60 },
+      },
+    ],
     response: 'MarDueListResponse',
   },
 };

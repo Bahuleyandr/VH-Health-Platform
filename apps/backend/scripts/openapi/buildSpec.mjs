@@ -55,6 +55,9 @@ function buildOperation(method, openApiPath, opId, ov) {
     name, in: 'path', required: true, schema: { type: 'string' },
   }));
   if (params.length) op.parameters = params;
+  if (ov && Array.isArray(ov.parameters) && ov.parameters.length) {
+    op.parameters = [...params, ...ov.parameters];
+  }
   if (ov && ov.response) {
     op.responses[200].content['application/json'].schema = { $ref: `#/components/schemas/${ov.response}` };
   }

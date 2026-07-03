@@ -2324,6 +2324,33 @@ export const schemas = {
 // (the route is mounted twice; both path keys survive the spec collapse). Each
 // entry below is a [suffix, overlay] pair; aliasOps() fans it out to both.
 // ---------------------------------------------------------------------------
+const ADMISSION_LIST_QUERY_PARAMS = [
+  {
+    name: 'page',
+    in: 'query',
+    required: false,
+    schema: { type: 'integer', minimum: 1, default: 1 },
+  },
+  {
+    name: 'limit',
+    in: 'query',
+    required: false,
+    schema: { type: 'integer', minimum: 1, maximum: 500, default: 50 },
+  },
+  {
+    name: 'ward',
+    in: 'query',
+    required: false,
+    schema: { type: 'string' },
+  },
+  {
+    name: 'status',
+    in: 'query',
+    required: false,
+    schema: { type: 'string', enum: ADMISSION_STATUS },
+  },
+];
+
 const OPS = [
   // GET /admission/{id}
   ['GET /admission/{id}', { response: 'EmrAdmissionDetailResponse' }],
@@ -2375,7 +2402,7 @@ const OPS = [
   // translations/downtime). All wrap via success(res,data,…).
   // -------------------------------------------------------------------------
   // GET /admissions → bare AdmissionListItem[] (pagination+scope in meta).
-  ['GET /admissions', { response: 'EmrAdmissionListResponse' }],
+  ['GET /admissions', { parameters: ADMISSION_LIST_QUERY_PARAMS, response: 'EmrAdmissionListResponse' }],
   // POST /admissions/advise → bare appointment row (UPPERCASE appt status). STRICT.
   ['POST /admissions/advise', { request: 'EmrAdviseAdmissionRequest', response: 'EmrAdviseAdmissionResponse' }],
   // GET /admissions/patient/{uid} → { admissions, count }.
