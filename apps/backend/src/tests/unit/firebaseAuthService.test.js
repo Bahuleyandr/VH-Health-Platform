@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
-  $executeRawUnsafe: jest.fn(),
+  $executeRawUnsafe: jest.fn()
 };
 
 const verifyIdTokenMock = jest.fn();
@@ -15,7 +15,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx: async (_tenantId, fn) => fn(prismaMock),
   setTenant: async (_tenantId, fn) => fn(prismaMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
-  pickTenantClient: () => prismaMock,
+  pickTenantClient: () => prismaMock
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -23,37 +23,35 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
-    debug: jest.fn(),
-  },
+    debug: jest.fn()
+  }
 }));
 
 jest.unstable_mockModule('../../utils/firebaseAdmin.js', () => ({
   default: {
     auth: () => ({
-      verifyIdToken: verifyIdTokenMock,
-    }),
-  },
+      verifyIdToken: verifyIdTokenMock
+    })
+  }
 }));
 
 jest.unstable_mockModule('../../utils/phoneUtils.js', () => ({
-  normalizePhone: (phone) => {
+  normalizePhone: phone => {
     const digits = String(phone || '').replace(/\D/g, '');
     return digits.length === 10 ? `+91${digits}` : `+${digits}`;
-  },
+  }
 }));
 
 jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', () => ({
-  ensureHospitalNumber: ensureHospitalNumberMock,
+  ensureHospitalNumber: ensureHospitalNumberMock
 }));
 
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: issueAccessTokenAndClaimSessionMock,
-  generateRefreshToken: generateRefreshTokenMock,
+  generateRefreshToken: generateRefreshTokenMock
 }));
 
-const { authenticateWithFirebase } = await import(
-  '../../services/auth/firebaseAuthService.js'
-);
+const { authenticateWithFirebase } = await import('../../services/auth/firebaseAuthService.js');
 
 describe('firebaseAuthService.authenticateWithFirebase', () => {
   beforeEach(() => {
@@ -62,10 +60,10 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       uid: 'firebase-uid-123',
       phone_number: '+91 98765 43210',
       email: 'patient@example.com',
-      email_verified: true,
+      email_verified: true
     });
     issueAccessTokenAndClaimSessionMock.mockResolvedValue({
-      accessToken: 'vh-jwt-token',
+      accessToken: 'vh-jwt-token'
     });
     generateRefreshTokenMock.mockReturnValue('vh-refresh-token');
     ensureHospitalNumberMock.mockResolvedValue('VH-000123');
@@ -85,21 +83,19 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       gender: null,
       email_verified: true,
       is_active: true,
-      last_login: new Date('2026-06-08T00:00:00.000Z'),
+      last_login: new Date('2026-06-08T00:00:00.000Z')
     };
 
-    prismaMock.$queryRawUnsafe
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([insertedUser]);
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([insertedUser]);
 
     const result = await authenticateWithFirebase(
       'firebase-id-token',
       null,
       {
         headers: { 'user-agent': 'jest' },
-        connection: { remoteAddress: '127.0.0.1' },
+        connection: { remoteAddress: '127.0.0.1' }
       },
-      { deviceType: 'mobile' },
+      { deviceType: 'mobile' }
     );
 
     expect(verifyIdTokenMock).toHaveBeenCalledWith('firebase-id-token');
@@ -112,9 +108,9 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
           id: insertedUser.id,
           phone: insertedUser.phone,
           role: 'PATIENT',
-          firebaseUid: 'firebase-uid-123',
-        }),
-      }),
+          firebaseUid: 'firebase-uid-123'
+        })
+      })
     );
     // C-9 companion (audit 2026-06-18): the PRIMARY patient login path must
     // mint a SEPARATE type:'refresh' token, else the access token is the only
@@ -125,8 +121,8 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
         uid: insertedUser.uid,
         id: insertedUser.id,
         phone: insertedUser.phone,
-        role: 'PATIENT',
-      }),
+        role: 'PATIENT'
+      })
     );
     expect(result).toMatchObject({
       accessToken: 'vh-jwt-token',
@@ -138,8 +134,8 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
         phone: '+919876543210',
         hospital_number: 'VH-000123',
         isNewUser: true,
-        profileComplete: false,
-      },
+        profileComplete: false
+      }
     });
   });
 
@@ -159,7 +155,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       gender: 'OTHER',
       email_verified: true,
       is_active: true,
-      last_login: new Date('2026-06-08T00:00:00.000Z'),
+      last_login: new Date('2026-06-08T00:00:00.000Z')
     };
     prismaMock.$queryRawUnsafe.mockResolvedValueOnce([existingUser]);
 
@@ -167,7 +163,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       'firebase-id-token',
       null,
       { headers: { 'user-agent': 'jest' }, connection: { remoteAddress: '127.0.0.1' } },
-      { deviceType: 'mobile' },
+      { deviceType: 'mobile' }
     );
 
     // First $queryRawUnsafe call is the SELECT — it must be tenant-scoped and
@@ -191,7 +187,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       gender: null,
       email_verified: false,
       is_active: true,
-      last_login: new Date('2026-06-08T00:00:00.000Z'),
+      last_login: new Date('2026-06-08T00:00:00.000Z')
     };
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([]) // SELECT → no existing user
@@ -201,12 +197,48 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       'firebase-id-token',
       null,
       { headers: { 'user-agent': 'jest' }, connection: { remoteAddress: '127.0.0.1' } },
-      { deviceType: 'mobile' },
+      { deviceType: 'mobile' }
     );
 
     const [insertSql, ...insertParams] = prismaMock.$queryRawUnsafe.mock.calls[1];
     expect(insertSql).toMatch(/INSERT INTO users\s*\(\s*tenant_id\b/i);
     expect(insertParams[0]).toBe(DEFAULT_TENANT);
+  });
+
+  it('rejects a tombstoned user and does not mint a VH session', async () => {
+    const deletedUser = {
+      id: 77,
+      uid: '77777777-7777-4777-8777-777777777777',
+      tenant_id: DEFAULT_TENANT,
+      name: null,
+      phone: null,
+      email: null,
+      role: 'PATIENT',
+      firebase_uid: 'firebase-uid-123',
+      gender: null,
+      email_verified: false,
+      is_active: false,
+      status: 'deleted',
+      is_deleted: true,
+      deleted_at: new Date('2026-07-03T00:00:00.000Z'),
+      last_login: null
+    };
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([deletedUser]);
+
+    await expect(
+      authenticateWithFirebase(
+        'firebase-id-token',
+        null,
+        { headers: { 'user-agent': 'jest' }, connection: { remoteAddress: '127.0.0.1' } },
+        { deviceType: 'mobile' }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ACCOUNT_DELETED'
+    });
+
+    expect(issueAccessTokenAndClaimSessionMock).not.toHaveBeenCalled();
+    expect(generateRefreshTokenMock).not.toHaveBeenCalled();
   });
 
   it('SEC-5/W4: honours the per-tenant subdomain (SaaS path)', async () => {
@@ -215,7 +247,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       // W4: the tenant comes from the Host subdomain (flat <slug>-api), not a header.
       hostname: 'saas-api.localhost',
       headers: { 'user-agent': 'jest' },
-      connection: { remoteAddress: '127.0.0.1' },
+      connection: { remoteAddress: '127.0.0.1' }
     };
 
     // resolveTenantForRequest → tenantFromHost resolves the 'saas' subdomain via
@@ -224,16 +256,24 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: SAAS_TENANT, status: 'active' }]) // getTenantBySlug
       .mockResolvedValueOnce([]) // user SELECT (scoped)
-      .mockResolvedValueOnce([{
-        id: 1, uid: '66666666-6666-4666-8666-666666666666', tenant_id: SAAS_TENANT,
-        name: null, phone: '+919876543210', email: null, role: 'PATIENT',
-        firebase_uid: 'firebase-uid-123', gender: null, email_verified: false,
-        is_active: true, last_login: new Date(),
-      }]);
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          uid: '66666666-6666-4666-8666-666666666666',
+          tenant_id: SAAS_TENANT,
+          name: null,
+          phone: '+919876543210',
+          email: null,
+          role: 'PATIENT',
+          firebase_uid: 'firebase-uid-123',
+          gender: null,
+          email_verified: false,
+          is_active: true,
+          last_login: new Date()
+        }
+      ]);
 
-    await authenticateWithFirebase(
-      'firebase-id-token', null, req, { deviceType: 'mobile' },
-    );
+    await authenticateWithFirebase('firebase-id-token', null, req, { deviceType: 'mobile' });
 
     // The user-lookup SELECT (2nd call) must bind the SaaS tenant, not default.
     const selectParams = prismaMock.$queryRawUnsafe.mock.calls[1];

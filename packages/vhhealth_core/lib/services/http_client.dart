@@ -280,23 +280,36 @@ class VHHttpClient {
   /// Authenticated DELETE request.
   static Future<ApiResponse> delete(
     String path, {
+    Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(path);
-    final headers = await _headers(auth: auth);
+    final encoded = body != null ? jsonEncode(body) : null;
+    final effectiveKey =
+        idempotencyKey ?? (body != null ? IdempotencyKey.generate() : null);
+    final headers = await _headers(
+      auth: auth,
+      json: body != null,
+      idempotencyKey: effectiveKey,
+    );
     final response = await _sendWithRetry(
       () => _client
-          .delete(uri, headers: headers)
+          .delete(uri, headers: headers, body: encoded)
           .timeout(timeout ?? _defaultTimeout),
     );
     final parsed = ApiResponse.fromHttp(response);
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
-      final retryHeaders = await _headers(auth: true);
+      final retryHeaders = await _headers(
+        auth: true,
+        json: body != null,
+        idempotencyKey: effectiveKey,
+      );
       final retry = await _sendWithRetry(
         () => _client
-            .delete(uri, headers: retryHeaders)
+            .delete(uri, headers: retryHeaders, body: encoded)
             .timeout(timeout ?? _defaultTimeout),
       );
       return _processResponse(retry);

@@ -10,24 +10,31 @@ export const firebaseLogin = async (req, res) => {
   try {
     const { idToken, deviceInfo, deviceType } = req.body;
 
-    const result = await firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req, { deviceType });
-    
+    const result = await firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req, {
+      deviceType
+    });
+
     success(res, result, result.isNewUser ? 'User registered successfully' : 'Login successful');
   } catch (err) {
     logger.error('Firebase Login Error:', err);
-    
+
     if (err.code === 'auth/id-token-expired') {
       return error(res, 'Firebase token has expired', HTTP_STATUS.UNAUTHORIZED);
     }
-    
+
     if (err.code === 'auth/id-token-revoked') {
       return error(res, 'Firebase token has been revoked', HTTP_STATUS.UNAUTHORIZED);
     }
 
     if (err.statusCode) {
-      return error(res, err.message || 'Firebase authentication failed', err.statusCode);
+      return error(
+        res,
+        err.message || 'Firebase authentication failed',
+        err.statusCode,
+        err.code ? { code: err.code } : null
+      );
     }
-    
+
     error(res, 'Invalid Firebase ID token', HTTP_STATUS.UNAUTHORIZED);
   }
 };
@@ -38,7 +45,7 @@ export const completeProfile = async (req, res) => {
     const profileData = req.body;
 
     const result = await firebaseAuthService.completeUserProfile(profileData, req);
-    
+
     success(res, result, 'Profile completed successfully');
   } catch (err) {
     logger.error('Profile Completion Error:', err);
@@ -51,7 +58,9 @@ export const linkAccount = async (req, res) => {
   try {
     const { phone, idToken, otp, deviceType } = req.body;
 
-    const result = await firebaseAuthService.linkFirebaseAccount(phone, idToken, otp, req, { deviceType });
+    const result = await firebaseAuthService.linkFirebaseAccount(phone, idToken, otp, req, {
+      deviceType
+    });
 
     success(res, result, 'Account linked successfully');
   } catch (err) {
@@ -64,9 +73,9 @@ export const linkAccount = async (req, res) => {
 export const updateFcmToken = async (req, res) => {
   try {
     const { phone, fcmToken, deviceId } = req.body;
-    
+
     const result = await firebaseAuthService.updateFcmToken(phone, fcmToken, deviceId);
-    
+
     success(res, result, 'FCM token updated successfully');
   } catch (err) {
     logger.error('FCM Token Update Error:', err);
@@ -78,9 +87,9 @@ export const updateFcmToken = async (req, res) => {
 export const revokeSession = async (req, res) => {
   try {
     const { firebaseUid } = req.body;
-    
+
     const result = await firebaseAuthService.revokeFirebaseSession(firebaseUid);
-    
+
     success(res, result, 'Firebase session revoked successfully');
   } catch (err) {
     logger.error('Session Revocation Error:', err);
@@ -92,17 +101,17 @@ export const revokeSession = async (req, res) => {
 export const verifyToken = async (req, res) => {
   try {
     const { idToken } = req.query;
-    
+
     if (!idToken) {
       return error(res, 'Firebase ID token is required', HTTP_STATUS.BAD_REQUEST);
     }
-    
+
     const result = await firebaseAuthService.verifyTokenStatus(idToken);
-    
+
     success(res, result, 'Token verified successfully');
   } catch (err) {
     logger.error('Token Verification Error:', err);
-    
+
     return res.status(HTTP_STATUS.UNAUTHORIZED).json({
       success: false,
       valid: false,
@@ -118,31 +127,39 @@ export const getHealthStatus = async (req, res) => {
     success(res, healthData, 'Firebase authentication service healthy');
   } catch (err) {
     logger.error('Firebase Health Check Error:', err);
-    
+
     // Fallback response
-    success(res, {
-      status: 'degraded',
-      firebaseConnection: 'unavailable',
-      statistics: {
-        firebase_users: 0,
-        active_firebase_users_24h: 0,
-        completed_profiles: 0,
-        total_users: 0
+    success(
+      res,
+      {
+        status: 'degraded',
+        firebaseConnection: 'unavailable',
+        statistics: {
+          firebase_users: 0,
+          active_firebase_users_24h: 0,
+          completed_profiles: 0,
+          total_users: 0
+        },
+        deviceStatistics: [],
+        note: 'Firebase connection failed or database tables may not exist',
+        timestamp: new Date().toISOString()
       },
-      deviceStatistics: [],
-      note: 'Firebase connection failed or database tables may not exist',
-      timestamp: new Date().toISOString()
-    }, 'Firebase service status retrieved (degraded)');
+      'Firebase service status retrieved (degraded)'
+    );
   }
 };
 
 // Test route
 export const testRoute = async (req, res) => {
-  success(res, { 
-    message: 'Firebase auth routes working!',
-    timestamp: new Date().toISOString(),
-    version: '2.0.0'
-  }, 'Firebase auth routes operational');
+  success(
+    res,
+    {
+      message: 'Firebase auth routes working!',
+      timestamp: new Date().toISOString(),
+      version: '2.0.0'
+    },
+    'Firebase auth routes operational'
+  );
 };
 
 // Legacy register user (maintained for backward compatibility)

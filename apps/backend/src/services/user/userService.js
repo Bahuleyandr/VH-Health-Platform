@@ -5,6 +5,9 @@ import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import admin from '../../utils/firebaseAdmin.js';
+import { AppError } from '../../utils/AppError.js';
+import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { encryptColumn, searchableHash } from '../../services/security/phiColumnEncryption.js';
 
 const USER_SELECT = {
@@ -43,6 +46,7 @@ const PROFILE_FIELDS_IN_SCHEMA = [
 ];
 const PROFILE_DATE_FIELDS = new Set(['birthday', 'anniversary']);
 const PROFILE_JSON_FIELDS = new Set(['emergency_contact']);
+const FRESH_REAUTH_MAX_AGE_SECONDS = 5 * 60;
 
 function coerceProfileField(field, value) {
   if (PROFILE_DATE_FIELDS.has(field)) {
@@ -92,6 +96,91 @@ function buildProfileUpdateData(data, includeRole = false) {
   }
 
   return updateData;
+}
+
+function normalizeRoleForDeletion(role) {
+  return String(role || '')
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeClientIp(value) {
+  const first = String(value || '')
+    .split(',')[0]
+    .trim();
+  return /^[0-9a-f:.]+$/i.test(first) ? first : null;
+}
+
+function hasIdentityValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+async function verifyFreshFirebaseReauthToken(firebaseIdToken, user, { now = new Date() } = {}) {
+  if (!firebaseIdToken || typeof firebaseIdToken !== 'string') {
+    throw AppError.badRequest(
+      'Fresh OTP re-authentication token is required',
+      'FRESH_REAUTH_REQUIRED'
+    );
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = await admin.auth().verifyIdToken(firebaseIdToken, true);
+  } catch {
+    throw AppError.unauthorized('Fresh OTP re-authentication failed', 'FRESH_REAUTH_INVALID');
+  }
+
+  const tokenFirebaseUid = decodedToken?.uid || null;
+  const tokenPhone = decodedToken?.phone_number ? normalizePhone(decodedToken.phone_number) : null;
+  const userPhone = user?.phone ? normalizePhone(user.phone) : null;
+  const firebaseUidMatches =
+    hasIdentityValue(user?.firebase_uid) && tokenFirebaseUid === user.firebase_uid;
+  const phoneMatches = hasIdentityValue(userPhone) && tokenPhone === userPhone;
+
+  if (hasIdentityValue(user?.firebase_uid) ? !firebaseUidMatches : !phoneMatches) {
+    throw AppError.forbidden(
+      'Fresh OTP token does not match this account',
+      'FRESH_REAUTH_ACCOUNT_MISMATCH'
+    );
+  }
+
+  const authTime = Number(decodedToken?.auth_time);
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+  if (
+    !Number.isFinite(authTime) ||
+    authTime > nowSeconds + 60 ||
+    nowSeconds - authTime > FRESH_REAUTH_MAX_AGE_SECONDS
+  ) {
+    throw AppError.unauthorized('Fresh OTP re-authentication has expired', 'FRESH_REAUTH_EXPIRED');
+  }
+
+  return decodedToken;
+}
+
+async function persistRevokeAllUserTokens(userUid, tx = prisma) {
+  if (!userUid) return;
+  await tx.$executeRawUnsafe(
+    `INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+     VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
+     ON CONFLICT (jti) DO UPDATE SET
+       expires_at = EXCLUDED.expires_at,
+       reason = EXCLUDED.reason,
+       created_at = EXCLUDED.created_at`,
+    `user:${userUid}`,
+    'account_deleted'
+  );
+}
+
+async function revokeFirebaseRefreshTokens(firebaseUid) {
+  if (!firebaseUid) return;
+  try {
+    await admin.auth().revokeRefreshTokens(firebaseUid);
+  } catch (err) {
+    logger.warn('Firebase refresh-token revocation failed during account deletion', {
+      firebaseUid,
+      error: err?.message
+    });
+  }
 }
 
 /**
@@ -224,7 +313,9 @@ export class UserService {
           // CAN-001: role is NEVER taken from the request body for self-service.
           // Only a privileged actor (admin/super-admin) may set a non-default
           // role here; every other caller is forced to PATIENT.
-          role: isPrivilegedActor ? (data.role || USER_CONFIG.ROLES.PATIENT) : USER_CONFIG.ROLES.PATIENT,
+          role: isPrivilegedActor
+            ? data.role || USER_CONFIG.ROLES.PATIENT
+            : USER_CONFIG.ROLES.PATIENT,
           registered_at: new Date(),
           updated_at: new Date()
         },
@@ -259,18 +350,13 @@ export class UserService {
       END`
     };
 
-    const {
-      role,
-      status,
-      department,
-      phone,
-    } = filters;
+    const { role, status, department, phone } = filters;
     const { page, limit, offset, search, sortBy, sortOrder } = parseListQuery(filters, {
       defaultLimit: USER_CONFIG.DEFAULT_PAGE_SIZE,
       maxLimit: USER_CONFIG.MAX_PAGE_SIZE,
       defaultSortBy: USER_CONFIG.SEARCH.DEFAULT_SORT_BY,
       defaultSortOrder: USER_CONFIG.SEARCH.DEFAULT_SORT_ORDER,
-      allowedSortFields: Object.keys(allowedSortFields),
+      allowedSortFields: Object.keys(allowedSortFields)
     });
 
     const conditions = [];
@@ -284,7 +370,9 @@ export class UserService {
       // active roster, breaking paediatric/ANC handoff. Finding:
       // 2026-05-09-pediatric-opd-receptionist-no-paediatric-doctor-in-users-api.
       if (upper === 'DOCTOR') {
-        conditions.push(Prisma.sql`(u.role = 'DOCTOR' OR (d.id IS NOT NULL AND d.is_active = true))`);
+        conditions.push(
+          Prisma.sql`(u.role = 'DOCTOR' OR (d.id IS NOT NULL AND d.is_active = true))`
+        );
       } else {
         conditions.push(Prisma.sql`u.role = ${upper}`);
       }
@@ -340,7 +428,8 @@ export class UserService {
       ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
       : Prisma.empty;
 
-    const sortField = allowedSortFields[sortBy] || allowedSortFields[USER_CONFIG.SEARCH.DEFAULT_SORT_BY];
+    const sortField =
+      allowedSortFields[sortBy] || allowedSortFields[USER_CONFIG.SEARCH.DEFAULT_SORT_BY];
 
     const [users, countRows] = await Promise.all([
       prisma.$queryRaw`
@@ -379,13 +468,13 @@ export class UserService {
       // address/emergency_contact for everyone non-admin) — same policy the
       // single-user reads use, applied here so the directory list cannot leak
       // unmasked PII to broad staff roles.
-      users: users.map((u) => applyPrivacyFilters(u, userRole)),
+      users: users.map(u => applyPrivacyFilters(u, userRole)),
       pagination: buildPagination(totalCount, page, limit),
       filters: {
         ...filters,
         search: search || null,
         sortBy,
-        sortOrder,
+        sortOrder
       }
     };
   }
@@ -572,6 +661,206 @@ export class UserService {
     );
   }
 
+  static async deleteOwnAccount({
+    user: requestUser,
+    firebaseIdToken,
+    requestId = null,
+    ipAddress = null,
+    userAgent = null,
+    reason = 'patient_self_service',
+    now = new Date(),
+    verifyFreshReauth = verifyFreshFirebaseReauthToken
+  } = {}) {
+    const callerUid = requestUser?.uid;
+    if (!callerUid) {
+      throw AppError.unauthorized(
+        'Authenticated patient is required',
+        'AUTHENTICATED_PATIENT_REQUIRED'
+      );
+    }
+
+    const role = normalizeRoleForDeletion(requestUser?.role);
+    if (role !== USER_CONFIG.ROLES.PATIENT) {
+      throw AppError.forbidden(
+        'Only patients can delete their own account through self-service',
+        'ACCOUNT_DELETE_PATIENT_ONLY'
+      );
+    }
+
+    if (requestUser?.acting || requestUser?.actingAsUid) {
+      throw AppError.forbidden(
+        'Dependent acting-as sessions cannot delete accounts',
+        'ACCOUNT_DELETE_ACTING_AS_NOT_ALLOWED'
+      );
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, uid, tenant_id, phone, name, email, address, role, is_active,
+              status, firebase_uid, COALESCE(is_deleted, false) AS is_deleted,
+              deleted_at, phone_search_hash
+         FROM users
+        WHERE uid = $1::uuid
+        LIMIT 1`,
+      callerUid
+    );
+    const user = rows[0];
+    if (!user) {
+      throw AppError.notFound('User account not found', 'ACCOUNT_NOT_FOUND');
+    }
+    if (user.is_deleted || String(user.status || '').toLowerCase() === 'deleted') {
+      throw AppError.conflict('Account is already deleted', 'ACCOUNT_ALREADY_DELETED');
+    }
+
+    const decodedReauth = await verifyFreshReauth(firebaseIdToken, user, { now });
+    const tombstoneFirebaseUid = user.firebase_uid || decodedReauth?.uid || null;
+
+    const admissionRows = await prisma.$queryRawUnsafe(
+      `SELECT id, status
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND discharged_at IS NULL
+          AND LOWER(COALESCE(status, 'admitted')) IN (
+            'active',
+            'admitted',
+            'bed_assigned',
+            'discharge_initiated',
+            'discharge_pending',
+            'pending_discharge',
+            'transferred'
+          )
+        LIMIT 1`,
+      user.tenant_id,
+      user.uid
+    );
+    if (admissionRows.length > 0) {
+      throw AppError.conflict(
+        'Cannot delete account while an active admission is open',
+        'ACTIVE_ADMISSION_BLOCKS_ACCOUNT_DELETION',
+        {
+          admissionId: admissionRows[0].id,
+          status: admissionRows[0].status || 'admitted'
+        }
+      );
+    }
+
+    const beforeState = {
+      hadPhone: hasIdentityValue(user.phone),
+      hadName: hasIdentityValue(user.name),
+      hadEmail: hasIdentityValue(user.email),
+      hadAddress: hasIdentityValue(user.address),
+      hadPhoneSearchHash: hasIdentityValue(user.phone_search_hash),
+      activeAdmissionChecked: true
+    };
+    const afterState = {
+      is_deleted: true,
+      status: 'deleted',
+      direct_identity_fields_cleared: true,
+      clinical_records_retained: true
+    };
+    const metadata = {
+      reason,
+      retention_basis:
+        'DPDP data minimization plus medical-record, audit, safety, and billing retention',
+      firebase_refresh_revoke_attempted: Boolean(tombstoneFirebaseUid),
+      local_sessions_revoked: true
+    };
+    const sanitizedIp = normalizeClientIp(ipAddress);
+    const idempotencyKey = `patient-account-deletion:${user.uid}`;
+
+    await prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe(
+        `UPDATE user_devices
+            SET fcm_token = NULL,
+                updated_at = NOW(),
+                last_active = NOW()
+          WHERE user_uid = $1::uuid`,
+        user.uid
+      );
+
+      await tx.$executeRawUnsafe(
+        `UPDATE users
+            SET phone = NULL,
+                name = NULL,
+                address = NULL,
+                email = NULL,
+                phone_search_hash = NULL,
+                phone_encrypted = NULL,
+                name_encrypted = NULL,
+                address_encrypted = NULL,
+                device_token = NULL,
+                profile_picture = NULL,
+                emergency_contact = NULL,
+                guardian_name = NULL,
+                guardian_phone = NULL,
+                guardian_relationship = NULL,
+                guardian_id_type = NULL,
+                guardian_id_reference = NULL,
+                pan_number = NULL,
+                abha_address = NULL,
+                abha_number = NULL,
+                is_active = FALSE,
+                is_deleted = TRUE,
+                deleted_at = NOW(),
+                deleted_reason = $2,
+                status = 'deleted',
+                status_reason = $2,
+                status_updated_at = NOW(),
+                status_updated_by = $1::uuid,
+                firebase_tokens_revoked_at = NOW(),
+                firebase_uid = COALESCE(firebase_uid, $3),
+                updated_at = NOW()
+          WHERE uid = $1::uuid
+            AND COALESCE(is_deleted, FALSE) = FALSE`,
+        user.uid,
+        reason,
+        tombstoneFirebaseUid
+      );
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO clinical_audit_events (
+           tenant_id, patient_uid, action, action_status, actor_uid, actor_role,
+           resource_type, resource_table, resource_id, request_id, ip_address,
+           user_agent, before_state, after_state, metadata, idempotency_key,
+           occurred_at, created_at
+         )
+         VALUES (
+           $1::uuid, $2::uuid, 'PATIENT_ACCOUNT_DELETED', 'success',
+           $2::uuid, 'PATIENT', 'USER_ACCOUNT', 'users', $2::text,
+           $3, $4::inet, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9,
+           NOW(), NOW()
+         )
+         ON CONFLICT (idempotency_key) WHERE (idempotency_key IS NOT NULL) DO NOTHING`,
+        user.tenant_id,
+        user.uid,
+        requestId,
+        sanitizedIp,
+        userAgent,
+        JSON.stringify(beforeState),
+        JSON.stringify(afterState),
+        JSON.stringify(metadata),
+        idempotencyKey
+      );
+
+      await persistRevokeAllUserTokens(user.uid, tx);
+    });
+
+    await revokeAllUserTokens(user.uid);
+    await revokeFirebaseRefreshTokens(tombstoneFirebaseUid);
+
+    logger.info('Patient account deleted via self-service', {
+      uid: user.uid,
+      tenantId: user.tenant_id,
+      requestId
+    });
+
+    return {
+      uid: user.uid,
+      deleted: true,
+      clinicalRecordsRetained: true
+    };
+  }
+
   // Get users by role
   static async getUsersByRole(role, filters = {}, callerRole = USER_CONFIG.ROLES.ADMIN) {
     const normalizedRole = role.toUpperCase();
@@ -586,7 +875,11 @@ export class UserService {
   }
 
   // Get users by department
-  static async getUsersByDepartment(department, filters = {}, callerRole = USER_CONFIG.ROLES.ADMIN) {
+  static async getUsersByDepartment(
+    department,
+    filters = {},
+    callerRole = USER_CONFIG.ROLES.ADMIN
+  ) {
     return this.listUsers({ ...filters, department }, callerRole);
   }
 

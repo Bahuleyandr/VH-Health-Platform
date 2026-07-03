@@ -18621,6 +18621,68 @@
           }
         }
       },
+      "PatientAccountDeletionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "firebaseIdToken"
+        ],
+        "properties": {
+          "firebaseIdToken": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 4096,
+            "description": "Fresh Firebase ID token from an OTP re-authentication challenge."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 160,
+            "description": "Optional operator-facing deletion reason; defaults to patient_self_service."
+          }
+        }
+      },
+      "PatientAccountDeletionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PatientAccountDeletionResult"
+          }
+        }
+      },
+      "PatientAccountDeletionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uid",
+          "deleted",
+          "clinicalRecordsRetained"
+        ],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deleted": {
+            "type": "boolean",
+            "example": true
+          },
+          "clinicalRecordsRetained": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
       "PatientAllRecordsResponse": {
         "type": "object",
         "required": [
@@ -88436,6 +88498,33 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/me/account": {
+      "delete": {
+        "operationId": "delete_api_v1_users_me_account",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatientAccountDeletionResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatientAccountDeletionRequest"
               }
             }
           }

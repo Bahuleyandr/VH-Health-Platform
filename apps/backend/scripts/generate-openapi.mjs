@@ -7,7 +7,11 @@ import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { composeRoutes, buildOpenApiDocument, findEquivalentPathCollisions } from './openapi/buildSpec.mjs';
+import {
+  composeRoutes,
+  buildOpenApiDocument,
+  findEquivalentPathCollisions
+} from './openapi/buildSpec.mjs';
 import { OPENAPI_BASE } from './openapi/base.mjs';
 import * as money from './openapi/schemas/money.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
@@ -17,8 +21,19 @@ import * as emr from './openapi/schemas/emr.mjs';
 import * as clinicalAi from './openapi/schemas/clinicalAi.mjs';
 import * as clinicalMar from './openapi/schemas/clinicalMar.mjs';
 import * as pharmacy from './openapi/schemas/pharmacy.mjs';
+import * as users from './openapi/schemas/users.mjs';
 
-const SCHEMA_MODULES = [money, appointments, discharge, payroll, emr, clinicalAi, clinicalMar, pharmacy];
+const SCHEMA_MODULES = [
+  money,
+  appointments,
+  discharge,
+  payroll,
+  emr,
+  clinicalAi,
+  clinicalMar,
+  pharmacy,
+  users
+];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the
  * union of module schemas sorted by name. Errors on duplicate names so two modules
@@ -28,7 +43,8 @@ function mergeSchemaModules(baseSchemas) {
   const overlay = {};
   for (const mod of SCHEMA_MODULES) {
     for (const [name, schema] of Object.entries(mod.schemas || {})) {
-      if (baseSchemas[name] || added[name]) throw new Error(`openapi: duplicate schema name "${name}"`);
+      if (baseSchemas[name] || added[name])
+        throw new Error(`openapi: duplicate schema name "${name}"`);
       added[name] = schema;
     }
     for (const [key, ov] of Object.entries(mod.operations || {})) {
@@ -36,7 +52,11 @@ function mergeSchemaModules(baseSchemas) {
       overlay[key] = ov;
     }
   }
-  const sortedAdded = Object.fromEntries(Object.keys(added).sort().map((k) => [k, added[k]]));
+  const sortedAdded = Object.fromEntries(
+    Object.keys(added)
+      .sort()
+      .map(k => [k, added[k]])
+  );
   const merged = { ...baseSchemas, ...sortedAdded };
   // swagger_dart_code_generator (the Flutter codegen) cannot emit a class for a
   // top-level schema whose entire body is a bare `$ref` alias — it references the
@@ -46,7 +66,12 @@ function mergeSchemaModules(baseSchemas) {
   // makes the generator emit a proper class. Normalize here so the `<Name>Data`
   // envelope-payload aliases — and any future bare-$ref schema — stay codegen-safe.
   for (const [name, schema] of Object.entries(merged)) {
-    if (schema && typeof schema === 'object' && Object.keys(schema).length === 1 && '$ref' in schema) {
+    if (
+      schema &&
+      typeof schema === 'object' &&
+      Object.keys(schema).length === 1 &&
+      '$ref' in schema
+    ) {
       merged[name] = { allOf: [{ $ref: schema.$ref }] };
     }
   }
@@ -75,14 +100,14 @@ const skipPrefixes = new Map();
 // A router is either a function with its own .stack, OR a wrapAsync wrapper that
 // tagged the underlying router on __wrappedFn (routeWrapper.js) — the latter
 // happens for sub-routers mounted via wrapAutoRBAC/wrapRoutes `use:` maps.
-const asRouter = (h) => {
+const asRouter = h => {
   if (typeof h !== 'function' || !h) return null;
   if (Array.isArray(h.stack)) return h;
   if (h.__wrappedFn && Array.isArray(h.__wrappedFn.stack)) return h.__wrappedFn;
   return null;
 };
-const normPrefix = (p) =>
-  typeof p === 'string' ? p : Array.isArray(p) ? p.find((x) => typeof x === 'string') ?? '/' : '/';
+const normPrefix = p =>
+  typeof p === 'string' ? p : Array.isArray(p) ? (p.find(x => typeof x === 'string') ?? '/') : '/';
 
 const origRoute = proto.route;
 proto.route = function patchedRoute(path) {
@@ -106,7 +131,7 @@ proto.use = function patchedUse(first, ...rest) {
   // differ from mount+route, so walking them would emit unreachable artifact
   // paths (/api/v1/emr/mar/mar/*). The marker handler (__openapiSkipMount) and
   // the child router arrive in separate per-handler calls at the same prefix.
-  if (handlers.some((h) => typeof h === 'function' && h.__openapiSkipMount)) {
+  if (handlers.some(h => typeof h === 'function' && h.__openapiSkipMount)) {
     if (!skipPrefixes.has(this)) skipPrefixes.set(this, new Set());
     skipPrefixes.get(this).add(prefix);
   }
@@ -135,19 +160,26 @@ const routes = composeRoutes({ routerRoutes, edges, root });
 // (they're a real follow-up finding) before collapsing.
 const collisions = findEquivalentPathCollisions(routes);
 if (collisions.length) {
-  console.log(`openapi: ${collisions.length} param-equivalent path collision(s) collapsed (URL-shadowing routes):`);
-  for (const c of collisions.slice(0, 20)) console.log(`  ${c.signature}  <-  ${c.paths.join(' , ')}`);
+  console.log(
+    `openapi: ${collisions.length} param-equivalent path collision(s) collapsed (URL-shadowing routes):`
+  );
+  for (const c of collisions.slice(0, 20))
+    console.log(`  ${c.signature}  <-  ${c.paths.join(' , ')}`);
 }
 
 const { schemas: mergedSchemas, overlay } = mergeSchemaModules(OPENAPI_BASE.components.schemas);
 const augmentedBase = {
   ...OPENAPI_BASE,
-  components: { ...OPENAPI_BASE.components, schemas: mergedSchemas },
+  components: { ...OPENAPI_BASE.components, schemas: mergedSchemas }
 };
 const doc = buildOpenApiDocument(routes, augmentedBase, overlay);
 
-const outArg = process.argv.find((a) => a.startsWith('--out='));
-const outPath = outArg ? resolve(outArg.slice('--out='.length)) : resolve(__dirname, '../src/docs/openapi.json');
+const outArg = process.argv.find(a => a.startsWith('--out='));
+const outPath = outArg
+  ? resolve(outArg.slice('--out='.length))
+  : resolve(__dirname, '../src/docs/openapi.json');
 writeFileSync(outPath, `${JSON.stringify(doc, null, 2)}\n`);
-console.log(`openapi: wrote ${routes.length} operations / ${Object.keys(doc.paths).length} paths -> ${outPath}`);
+console.log(
+  `openapi: wrote ${routes.length} operations / ${Object.keys(doc.paths).length} paths -> ${outPath}`
+);
 process.exit(0);
