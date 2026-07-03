@@ -1718,4 +1718,35 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get yourHealthUploadRecord => 'रिकॉर्ड अपलोड करें';
+
+  @override
+  String get yourHealthWhatsNextTitle => 'आगे क्या';
+
+  @override
+  String get yourHealthWhatsNextSubtitle =>
+      'आपकी देखभाल टीम ने आपके लिए जो लक्ष्य और फॉलो-अप चिह्नित किए हैं।';
+
+  @override
+  String get yourHealthWhatsNextGoals => 'लक्ष्य';
+
+  @override
+  String get yourHealthWhatsNextFollowUps => 'फॉलो-अप';
+
+  @override
+  String get yourHealthWhatsNextLoadFailed => 'आपके अगले कदम लोड नहीं हो सके।';
+
+  @override
+  String get yourHealthWhatsNextRetry => 'फिर कोशिश करें';
+
+  @override
+  String get yourHealthWhatsNextPlan => 'प्लान';
+
+  @override
+  String get yourHealthWhatsNextTarget => 'लक्ष्य';
+
+  @override
+  String get yourHealthWhatsNextCurrent => 'वर्तमान';
+
+  @override
+  String get yourHealthWhatsNextDue => 'देय';
 }

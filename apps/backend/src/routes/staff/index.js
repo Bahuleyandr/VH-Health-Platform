@@ -7,6 +7,7 @@ import hrRoutes from './hrRoutes.js';
 import pharmacyRoutes from './pharmacyRoutes.js';
 import phoneRoutes from './phoneRoutes.js';
 import rosterBoardRoutes from './rosterBoardRoutes.js';
+import staffCarePlanRoutes from './staffCarePlanRoutes.js';
 import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
@@ -95,6 +96,7 @@ router.use('/attendance', attendanceRoutes);  // Attendance operations
 router.use('/hr', hrRoutes);            // HR management
 router.use('/pharmacy', pharmacyRoutes); // Pharmacy order updates
 router.use('/roster-board', rosterBoardRoutes); // Central shift roster board
+router.use('/', staffCarePlanRoutes); // Staff-scoped care-plan patient surface
 router.use('/admin', staffAdminRoutes);  // Staff admin operations
 
 // ─── /staff/replacements/* aliases ────────────────────────────────────────

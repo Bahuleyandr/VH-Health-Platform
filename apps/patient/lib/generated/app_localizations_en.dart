@@ -1712,4 +1712,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get yourHealthUploadRecord => 'Upload Record';
+
+  @override
+  String get yourHealthWhatsNextTitle => 'What\'s next';
+
+  @override
+  String get yourHealthWhatsNextSubtitle =>
+      'Goals and follow-ups your care team marked for you.';
+
+  @override
+  String get yourHealthWhatsNextGoals => 'Goals';
+
+  @override
+  String get yourHealthWhatsNextFollowUps => 'Follow-ups';
+
+  @override
+  String get yourHealthWhatsNextLoadFailed => 'Could not load your next steps.';
+
+  @override
+  String get yourHealthWhatsNextRetry => 'Retry';
+
+  @override
+  String get yourHealthWhatsNextPlan => 'Plan';
+
+  @override
+  String get yourHealthWhatsNextTarget => 'Target';
+
+  @override
+  String get yourHealthWhatsNextCurrent => 'Current';
+
+  @override
+  String get yourHealthWhatsNextDue => 'Due';
 }

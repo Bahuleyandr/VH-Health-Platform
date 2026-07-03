@@ -911,5 +911,16 @@
   "deliveryYourLocation": "आपका स्थान",
   "authDevLoginSkipOtp": "डेव लॉगिन (OTP छोड़ें)",
   "permissionGateSettingUp": "सेट किया जा रहा है...",
-  "yourHealthUploadRecord": "रिकॉर्ड अपलोड करें"
+  "yourHealthUploadRecord": "रिकॉर्ड अपलोड करें",
+
+  "yourHealthWhatsNextTitle": "आगे क्या",
+  "yourHealthWhatsNextSubtitle": "आपकी देखभाल टीम ने आपके लिए जो लक्ष्य और फॉलो-अप चिह्नित किए हैं।",
+  "yourHealthWhatsNextGoals": "लक्ष्य",
+  "yourHealthWhatsNextFollowUps": "फॉलो-अप",
+  "yourHealthWhatsNextLoadFailed": "आपके अगले कदम लोड नहीं हो सके।",
+  "yourHealthWhatsNextRetry": "फिर कोशिश करें",
+  "yourHealthWhatsNextPlan": "प्लान",
+  "yourHealthWhatsNextTarget": "लक्ष्य",
+  "yourHealthWhatsNextCurrent": "वर्तमान",
+  "yourHealthWhatsNextDue": "देय"
 }

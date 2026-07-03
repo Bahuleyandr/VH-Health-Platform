@@ -386,6 +386,44 @@ export async function listCarePlans({
   }
 }
 
+export async function getCarePlanBundle({ tenantId = null, id } = {}) {
+  const plan = await getCarePlan({ tenantId, id });
+  const [goals, activities, reviewLog] = await Promise.all([
+    listGoals({ tenantId, carePlanId: plan.id }),
+    listActivities({ tenantId, carePlanId: plan.id }),
+    listReviewLog({ tenantId, carePlanId: plan.id, limit: 20 }),
+  ]);
+  return {
+    care_plan: plan,
+    goals: goals.goals,
+    activities: activities.activities,
+    review_log: reviewLog.entries,
+  };
+}
+
+export async function listCarePlanBundlesForPatient({
+  tenantId = null,
+  patientUid,
+  status = null,
+  limit = DEFAULT_LIST_LIMIT,
+} = {}) {
+  const result = await listCarePlans({ tenantId, patientUid, status, limit });
+  const carePlans = await Promise.all(
+    result.care_plans.map(async (plan) => {
+      const [goals, activities] = await Promise.all([
+        listGoals({ tenantId, carePlanId: plan.id }),
+        listActivities({ tenantId, carePlanId: plan.id }),
+      ]);
+      return {
+        ...plan,
+        goals: goals.goals,
+        activities: activities.activities,
+      };
+    }),
+  );
+  return { care_plans: carePlans, count: carePlans.length };
+}
+
 export async function getCarePlan({ tenantId = null, id } = {}) {
   const tid = resolveTenantId({ tenantId });
   const planId = normalizeId(id, 'care_plan id');
@@ -690,8 +728,8 @@ export async function recordActivityCompletion({
   const flagInc = normalizeBoolean(incrementCount, true);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE care_plan_activities
-     SET status = $1,
-         completion_count = completion_count + (CASE WHEN $2 AND $1 = 'completed' THEN 1 ELSE 0 END),
+     SET status = $1::text,
+         completion_count = completion_count + (CASE WHEN $2 AND $1::text = 'completed' THEN 1 ELSE 0 END),
          updated_at = NOW()
      WHERE id = $3 AND tenant_id = $4::uuid
      RETURNING ${ACTIVITY_RETURNING}`,
@@ -983,6 +1021,92 @@ export async function listReviewLog({
   }
 }
 
+export async function getPatientWhatsNext({
+  tenantId = null,
+  patientUid,
+  limit = 20,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const cleanUid = maybeUuid(patientUid, 'patient_uid', { required: true });
+  const safeLimit = normalizeLimit(limit, 20, 50);
+  try {
+    const [goalRows, followUpRows] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT
+           g.id,
+           g.care_plan_id,
+           cp.display_name AS care_plan_name,
+           cp.plan_kind,
+           g.goal_kind,
+           g.description,
+           g.measurement_label,
+           g.measurement_unit,
+           g.target_value,
+           g.current_value,
+           g.target_due_date,
+           g.priority,
+           g.status,
+           g.updated_at
+         FROM care_plan_goals g
+         JOIN care_plans cp
+           ON cp.id = g.care_plan_id
+          AND cp.tenant_id = g.tenant_id
+        WHERE g.tenant_id = $1::uuid
+          AND COALESCE(g.patient_uid, cp.patient_uid) = $2::uuid
+          AND cp.status = 'active'
+          AND cp.is_patient_visible = TRUE
+          AND g.status IN ('planned', 'in_progress', 'on_hold')
+        ORDER BY
+          CASE g.priority
+            WHEN 'critical' THEN 0
+            WHEN 'high' THEN 1
+            WHEN 'normal' THEN 2
+            ELSE 3
+          END,
+          g.target_due_date NULLS LAST,
+          g.updated_at DESC
+        LIMIT $3::int`,
+        tid,
+        cleanUid,
+        safeLimit,
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT
+           f.id,
+           f.care_plan_id,
+           cp.display_name AS care_plan_name,
+           f.origin_kind,
+           f.due_at,
+           f.appointment_id,
+           f.appointment_status,
+           f.reason,
+           f.status,
+           f.updated_at
+         FROM follow_up_plans f
+         LEFT JOIN care_plans cp
+           ON cp.id = f.care_plan_id
+          AND cp.tenant_id = f.tenant_id
+        WHERE f.tenant_id = $1::uuid
+          AND f.patient_uid = $2::uuid
+          AND f.status IN ('open', 'scheduled', 'overdue')
+        ORDER BY f.due_at NULLS LAST, f.updated_at DESC
+        LIMIT $3::int`,
+        tid,
+        cleanUid,
+        safeLimit,
+      ),
+    ]);
+    return {
+      goals: goalRows,
+      follow_ups: followUpRows,
+      count: goalRows.length + followUpRows.length,
+    };
+  } catch (err) {
+    if (isMissingSchemaError(err)) return { goals: [], follow_ups: [], count: 0 };
+    throw err;
+  }
+}
+
 export const __testing__ = {
   PLAN_TRANSITIONS,
   PLAN_KINDS,
@@ -995,6 +1119,8 @@ export const __testing__ = {
 export default {
   createCarePlan,
   listCarePlans,
+  getCarePlanBundle,
+  listCarePlanBundlesForPatient,
   getCarePlan,
   transitionCarePlan,
   setCarePlanVisibility,
@@ -1007,6 +1133,7 @@ export default {
   createFollowUp,
   transitionFollowUp,
   listFollowUps,
+  getPatientWhatsNext,
   appendReviewLog,
   listReviewLog,
 };

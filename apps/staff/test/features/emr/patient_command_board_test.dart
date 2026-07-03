@@ -211,5 +211,16 @@ void main() {
         expect(uri.queryParameters['admission_id'], '44');
       },
     );
+
+    test('summarises care plans for the staff row action sheet', () {
+      expect(
+        patientCommandBoardCarePlanSummary({
+          'status': 'active',
+          'goals': [{}, {}],
+          'activities': [{}],
+        }),
+        '2 goals - 1 activity - active',
+      );
+    });
   });
 }

@@ -374,6 +374,45 @@ class MedicalApiService {
     return _get('/records/health-records/$phone');
   }
 
+  // ─── Care Plans ─────────────────────────────────────────────────────────
+
+  /// GET /staff/patients/:patientUid/care-plans — staff-scoped care-plan view.
+  static Future<Map<String, dynamic>> getPatientCarePlans(
+    String patientUid, {
+    String? status,
+  }) async {
+    final query = <String, String>{};
+    if (status != null && status.trim().isNotEmpty) {
+      query['status'] = status.trim();
+    }
+    return _get('/staff/patients/$patientUid/care-plans', query: query);
+  }
+
+  /// PATCH /staff/care-plans/goals/:goalId/progress.
+  static Future<Map<String, dynamic>> updateCarePlanGoalProgress(
+    int goalId, {
+    String? status,
+    String? currentValue,
+  }) async {
+    final body = <String, dynamic>{};
+    if (status != null && status.trim().isNotEmpty) {
+      body['status'] = status.trim();
+    }
+    if (currentValue != null && currentValue.trim().isNotEmpty) {
+      body['current_value'] = currentValue.trim();
+    }
+    return _patch('/staff/care-plans/goals/$goalId/progress', body);
+  }
+
+  /// PATCH /staff/care-plans/activities/:activityId/complete.
+  static Future<Map<String, dynamic>> completeCarePlanActivity(
+    int activityId,
+  ) async {
+    return _patch('/staff/care-plans/activities/$activityId/complete', {
+      'status': 'completed',
+    });
+  }
+
   // ─── E-Prescriptions ──────────────────────────────────────────────────────
 
   /// POST /prescriptions/create — create structured e-prescription

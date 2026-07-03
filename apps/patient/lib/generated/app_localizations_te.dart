@@ -1743,4 +1743,36 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get yourHealthUploadRecord => 'రికార్డును అప్‌లోడ్ చేయండి';
+
+  @override
+  String get yourHealthWhatsNextTitle => 'తర్వాత ఏమిటి';
+
+  @override
+  String get yourHealthWhatsNextSubtitle =>
+      'మీ కేర్ టీమ్ మీ కోసం గుర్తించిన లక్ష్యాలు మరియు ఫాలో-అప్స్.';
+
+  @override
+  String get yourHealthWhatsNextGoals => 'లక్ష్యాలు';
+
+  @override
+  String get yourHealthWhatsNextFollowUps => 'ఫాలో-అప్స్';
+
+  @override
+  String get yourHealthWhatsNextLoadFailed =>
+      'మీ తదుపరి దశలను లోడ్ చేయడం సాధ్యపడలేదు.';
+
+  @override
+  String get yourHealthWhatsNextRetry => 'మళ్లీ ప్రయత్నించండి';
+
+  @override
+  String get yourHealthWhatsNextPlan => 'ప్లాన్';
+
+  @override
+  String get yourHealthWhatsNextTarget => 'లక్ష్యం';
+
+  @override
+  String get yourHealthWhatsNextCurrent => 'ప్రస్తుత';
+
+  @override
+  String get yourHealthWhatsNextDue => 'గడువు';
 }

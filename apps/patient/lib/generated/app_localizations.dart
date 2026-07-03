@@ -3349,6 +3349,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Upload Record'**
   String get yourHealthUploadRecord;
+
+  /// Heading for the care-plan next steps section in Your Health
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s next'**
+  String get yourHealthWhatsNextTitle;
+
+  /// Subtitle for the care-plan next steps section
+  ///
+  /// In en, this message translates to:
+  /// **'Goals and follow-ups your care team marked for you.'**
+  String get yourHealthWhatsNextSubtitle;
+
+  /// Heading for active care-plan goals
+  ///
+  /// In en, this message translates to:
+  /// **'Goals'**
+  String get yourHealthWhatsNextGoals;
+
+  /// Heading for care-plan follow-up plans
+  ///
+  /// In en, this message translates to:
+  /// **'Follow-ups'**
+  String get yourHealthWhatsNextFollowUps;
+
+  /// Error text when care-plan next steps loading fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load your next steps.'**
+  String get yourHealthWhatsNextLoadFailed;
+
+  /// Retry button for the care-plan next steps section
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get yourHealthWhatsNextRetry;
+
+  /// Label before a care-plan name
+  ///
+  /// In en, this message translates to:
+  /// **'Plan'**
+  String get yourHealthWhatsNextPlan;
+
+  /// Label before a care-plan goal target value
+  ///
+  /// In en, this message translates to:
+  /// **'Target'**
+  String get yourHealthWhatsNextTarget;
+
+  /// Label before a care-plan goal current value
+  ///
+  /// In en, this message translates to:
+  /// **'Current'**
+  String get yourHealthWhatsNextCurrent;
+
+  /// Label before a care-plan due date
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get yourHealthWhatsNextDue;
 }
 
 class _AppLocalizationsDelegate

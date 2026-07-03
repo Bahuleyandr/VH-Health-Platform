@@ -22,6 +22,25 @@ const TENANT = '00000000-0000-4000-8000-0000000003a1';
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const cleanup = { invoiceIds: [], claimIds: [], preauthIds: [], policyIds: [], patientUids: [] };
 
+// This suite owns TENANT entirely. Ledger entries are append-only, so use the
+// authorized audit-bypass teardown hatch to clear this tenant's deterministic
+// idempotency keys before/after the suite. This keeps reruns from turning
+// claim-shift/payment postings into stale LEDGER_DUPLICATE no-ops.
+async function purgeLedgerForTailTenant() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    const entryRows = await tx.$queryRawUnsafe(
+      `SELECT id FROM ledger_entries WHERE tenant_id = $1::uuid`,
+      TENANT,
+    );
+    const entryIds = entryRows.map((r) => Number(r.id));
+    if (entryIds.length) {
+      await tx.$executeRawUnsafe(`DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds);
+      await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
+    }
+  });
+}
+
 beforeAll(async () => {
   await prisma.$executeRawUnsafe(
     `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, 'ledger-tail-tenant', 'Ledger Tail Test') ON CONFLICT (id) DO NOTHING`,
@@ -36,6 +55,7 @@ beforeAll(async () => {
     TENANT,
     DEFAULT_TENANT,
   );
+  await purgeLedgerForTailTenant();
 });
 
 async function makePatient() {
@@ -75,6 +95,7 @@ const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(t
 
 afterAll(async () => {
   try {
+    await purgeLedgerForTailTenant();
     if (cleanup.claimIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM tpa_claim_correspondence WHERE claim_id = ANY($1::int[])`, cleanup.claimIds).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM tpa_claims WHERE id = ANY($1::int[])`, cleanup.claimIds);

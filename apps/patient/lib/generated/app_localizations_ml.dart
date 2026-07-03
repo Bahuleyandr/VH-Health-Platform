@@ -1754,4 +1754,36 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get yourHealthUploadRecord => 'റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക';
+
+  @override
+  String get yourHealthWhatsNextTitle => 'അടുത്തത് എന്ത്';
+
+  @override
+  String get yourHealthWhatsNextSubtitle =>
+      'നിങ്ങളുടെ കെയർ ടീം നിങ്ങൾക്കായി അടയാളപ്പെടുത്തിയ ലക്ഷ്യങ്ങളും ഫോളോ-അപ്പുകളും.';
+
+  @override
+  String get yourHealthWhatsNextGoals => 'ലക്ഷ്യങ്ങൾ';
+
+  @override
+  String get yourHealthWhatsNextFollowUps => 'ഫോളോ-അപ്പുകൾ';
+
+  @override
+  String get yourHealthWhatsNextLoadFailed =>
+      'നിങ്ങളുടെ അടുത്ത ഘട്ടങ്ങൾ ലോഡ് ചെയ്യാനായില്ല.';
+
+  @override
+  String get yourHealthWhatsNextRetry => 'വീണ്ടും ശ്രമിക്കുക';
+
+  @override
+  String get yourHealthWhatsNextPlan => 'പ്ലാൻ';
+
+  @override
+  String get yourHealthWhatsNextTarget => 'ലക്ഷ്യം';
+
+  @override
+  String get yourHealthWhatsNextCurrent => 'നിലവിൽ';
+
+  @override
+  String get yourHealthWhatsNextDue => 'അവസാന തീയതി';
 }

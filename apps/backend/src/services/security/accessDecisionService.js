@@ -384,6 +384,53 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'care_plan':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM care_plans cp
+           JOIN users p ON p.uid = cp.patient_uid
+          WHERE cp.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND cp.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'care_plan_goal':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM care_plan_goals cpg
+           JOIN care_plans cp
+             ON cp.id = cpg.care_plan_id
+            AND cp.tenant_id = cpg.tenant_id
+           JOIN users p
+             ON p.uid = COALESCE(cpg.patient_uid, cp.patient_uid)
+          WHERE cpg.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND cpg.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'care_plan_activity':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM care_plan_activities cpa
+           JOIN care_plans cp
+             ON cp.id = cpa.care_plan_id
+            AND cp.tenant_id = cpa.tenant_id
+           JOIN users p
+             ON p.uid = COALESCE(cpa.patient_uid, cp.patient_uid)
+          WHERE cpa.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND cpa.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'clinical_note':
       return patientFromResourceQuery(
         req,

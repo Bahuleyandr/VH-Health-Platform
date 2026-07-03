@@ -135,6 +135,22 @@ String patientCommandBoardActionDestination({
   });
 }
 
+@visibleForTesting
+String patientCommandBoardCarePlanSummary(Map<String, dynamic> plan) {
+  final goals = _patientCommandBoardListCount(plan['goals']);
+  final activities = _patientCommandBoardListCount(plan['activities']);
+  final pieces = <String>[
+    '$goals goal${goals == 1 ? '' : 's'}',
+    '$activities activit${activities == 1 ? 'y' : 'ies'}',
+  ];
+  final status = _patientCommandBoardText(plan['status']);
+  if (status.isNotEmpty) pieces.add(status.replaceAll('_', ' '));
+  return pieces.join(' - ');
+}
+
+int _patientCommandBoardListCount(dynamic value) =>
+    value is List ? value.length : 0;
+
 String _appendPatientContext(String route, Map<String, String> context) {
   final uri = Uri.parse(route);
   final query = Map<String, String>.from(uri.queryParameters);
@@ -487,6 +503,21 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
           ].where((part) => part.isNotEmpty).join(' - '),
         ),
       ),
+    );
+  }
+
+  Future<void> _openCarePlans(Map<String, dynamic> row) async {
+    final patient = _asMap(row['patient']);
+    final patientUid = _text(patient['uid']);
+    if (patientUid.isEmpty) return;
+    final patientName = _text(patient['name'], 'Patient');
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (_) =>
+          _CarePlanSheet(patientUid: patientUid, patientName: patientName),
     );
   }
 
@@ -989,6 +1020,14 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                           label: Text('${_int(tasks['open_count'])} tasks'),
                           onPressed: () => _openTasks(row),
                         ),
+                        ActionChip(
+                          avatar: const Icon(
+                            Icons.fact_check_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('Care plans'),
+                          onPressed: () => _openCarePlans(row),
+                        ),
                         if (discharge['initiated'] == true)
                           _statusBadge(
                             _text(
@@ -1063,6 +1102,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'referral' => Icons.medical_services_outlined,
       'case_sheet' => Icons.assignment,
       'discharge' => Icons.rule_folder,
+      'care_plan' || 'care_plans' => Icons.fact_check_outlined,
       'vitals' => Icons.monitor_heart,
       'handover' => Icons.swap_horiz,
       _ => Icons.open_in_new,
@@ -1100,6 +1140,380 @@ class _ErrorView extends StatelessWidget {
     );
   }
 }
+
+class _CarePlanSheet extends StatefulWidget {
+  const _CarePlanSheet({required this.patientUid, required this.patientName});
+
+  final String patientUid;
+  final String patientName;
+
+  @override
+  State<_CarePlanSheet> createState() => _CarePlanSheetState();
+}
+
+class _CarePlanSheetState extends State<_CarePlanSheet> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _carePlans = const [];
+  final Set<String> _busy = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await MedicalApiService.getPatientCarePlans(
+        widget.patientUid,
+      );
+      if (!mounted) return;
+      setState(() {
+        _carePlans = _carePlanList(data['care_plans']);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _withBusy(String key, Future<void> Function() action) async {
+    if (_busy.contains(key)) return;
+    setState(() => _busy.add(key));
+    try {
+      await action();
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Care plan updated')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy.remove(key));
+    }
+  }
+
+  Future<void> _markGoalAchieved(Map<String, dynamic> goal) async {
+    final id = _carePlanInt(goal['id']);
+    if (id <= 0) return;
+    await _withBusy('goal-$id', () async {
+      await MedicalApiService.updateCarePlanGoalProgress(
+        id,
+        status: 'achieved',
+        currentValue: _carePlanText(goal['target_value']).isEmpty
+            ? null
+            : _carePlanText(goal['target_value']),
+      );
+    });
+  }
+
+  Future<void> _completeActivity(Map<String, dynamic> activity) async {
+    final id = _carePlanInt(activity['id']);
+    if (id <= 0) return;
+    await _withBusy('activity-$id', () async {
+      await MedicalApiService.completeCarePlanActivity(id);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.82,
+        minChildSize: 0.45,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.fact_check_outlined,
+                  color: AppTheme.primaryBlue,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Care plans',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        widget.patientName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Refresh',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 48),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null)
+              _CarePlanMessage(
+                icon: Icons.cloud_off_outlined,
+                title: 'Could not load care plans',
+                body: _error!,
+                action: FilledButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              )
+            else if (_carePlans.isEmpty)
+              const _CarePlanMessage(
+                icon: Icons.assignment_outlined,
+                title: 'No care plans',
+                body: 'No active care plan has been recorded for this patient.',
+              )
+            else
+              ..._carePlans.map(_buildCarePlanCard),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCarePlanCard(Map<String, dynamic> plan) {
+    final theme = Theme.of(context);
+    final goals = _carePlanList(plan['goals']);
+    final activities = _carePlanList(plan['activities']);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _carePlanText(plan['display_name'], 'Care plan'),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              patientCommandBoardCarePlanSummary(plan),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (_carePlanText(plan['description']).isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(_carePlanText(plan['description'])),
+            ],
+            const SizedBox(height: 12),
+            _CarePlanSubheading(
+              icon: Icons.flag_outlined,
+              title: 'Goals',
+              count: goals.length,
+            ),
+            const SizedBox(height: 6),
+            if (goals.isEmpty)
+              const Text('No goals recorded.')
+            else
+              ...goals.map(_buildGoalTile),
+            const SizedBox(height: 12),
+            _CarePlanSubheading(
+              icon: Icons.playlist_add_check_circle_outlined,
+              title: 'Activities',
+              count: activities.length,
+            ),
+            const SizedBox(height: 6),
+            if (activities.isEmpty)
+              const Text('No activities recorded.')
+            else
+              ...activities.map(_buildActivityTile),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGoalTile(Map<String, dynamic> goal) {
+    final id = _carePlanInt(goal['id']);
+    final status = _carePlanText(goal['status']);
+    final achieved = status == 'achieved' || status == 'cancelled';
+    final busy = _busy.contains('goal-$id');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.flag_outlined),
+      title: Text(_carePlanText(goal['description'], 'Goal')),
+      subtitle: Text(
+        [
+          _carePlanText(goal['priority']),
+          status.replaceAll('_', ' '),
+          if (_carePlanText(goal['target_value']).isNotEmpty)
+            'Target ${_carePlanText(goal['target_value'])}',
+          if (_carePlanText(goal['current_value']).isNotEmpty)
+            'Current ${_carePlanText(goal['current_value'])}',
+        ].where((part) => part.isNotEmpty).join(' - '),
+      ),
+      trailing: achieved
+          ? null
+          : TextButton.icon(
+              onPressed: busy ? null : () => _markGoalAchieved(goal),
+              icon: busy
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_circle_outline, size: 18),
+              label: const Text('Achieve'),
+            ),
+    );
+  }
+
+  Widget _buildActivityTile(Map<String, dynamic> activity) {
+    final id = _carePlanInt(activity['id']);
+    final status = _carePlanText(activity['status']);
+    final done = status == 'completed' || status == 'cancelled';
+    final busy = _busy.contains('activity-$id');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.playlist_add_check_outlined),
+      title: Text(_carePlanText(activity['title'], 'Activity')),
+      subtitle: Text(
+        [
+          _carePlanText(activity['activity_kind']).replaceAll('_', ' '),
+          status.replaceAll('_', ' '),
+          if (_carePlanDate(activity['next_due_at']).isNotEmpty)
+            'Due ${_carePlanDate(activity['next_due_at'])}',
+        ].where((part) => part.isNotEmpty).join(' - '),
+      ),
+      trailing: done
+          ? null
+          : TextButton.icon(
+              onPressed: busy ? null : () => _completeActivity(activity),
+              icon: busy
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.done_all_outlined, size: 18),
+              label: const Text('Complete'),
+            ),
+    );
+  }
+}
+
+class _CarePlanSubheading extends StatelessWidget {
+  const _CarePlanSubheading({
+    required this.icon,
+    required this.title,
+    required this.count,
+  });
+
+  final IconData icon;
+  final String title;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppTheme.primaryTeal),
+        const SizedBox(width: 6),
+        Text(
+          '$title ($count)',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    );
+  }
+}
+
+class _CarePlanMessage extends StatelessWidget {
+  const _CarePlanMessage({
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 36),
+      child: Column(
+        children: [
+          Icon(icon, size: 44, color: theme.colorScheme.outline),
+          const SizedBox(height: 10),
+          Text(title, style: theme.textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (action != null) ...[const SizedBox(height: 14), action!],
+        ],
+      ),
+    );
+  }
+}
+
+List<Map<String, dynamic>> _carePlanList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
+}
+
+String _carePlanText(dynamic value, [String fallback = '']) {
+  final text = (value ?? '').toString().trim();
+  return text.isEmpty ? fallback : text;
+}
+
+String _carePlanDate(dynamic value) {
+  final text = _carePlanText(value);
+  if (text.isEmpty) return '';
+  return text.length >= 10 ? text.substring(0, 10) : text;
+}
+
+int _carePlanInt(dynamic value) => int.tryParse('${value ?? 0}') ?? 0;
 
 class _FocusedPatientBanner extends StatelessWidget {
   final String patientLabel;

@@ -1512,5 +1512,26 @@
   "permissionGateSettingUp": "Setting up...",
   "@permissionGateSettingUp": { "description": "Status text while permission gate runs" },
   "yourHealthUploadRecord": "Upload Record",
-  "@yourHealthUploadRecord": { "description": "Action button on Your Health screen to open upload sheet" }
+  "@yourHealthUploadRecord": { "description": "Action button on Your Health screen to open upload sheet" },
+
+  "yourHealthWhatsNextTitle": "What's next",
+  "@yourHealthWhatsNextTitle": { "description": "Heading for the care-plan next steps section in Your Health" },
+  "yourHealthWhatsNextSubtitle": "Goals and follow-ups your care team marked for you.",
+  "@yourHealthWhatsNextSubtitle": { "description": "Subtitle for the care-plan next steps section" },
+  "yourHealthWhatsNextGoals": "Goals",
+  "@yourHealthWhatsNextGoals": { "description": "Heading for active care-plan goals" },
+  "yourHealthWhatsNextFollowUps": "Follow-ups",
+  "@yourHealthWhatsNextFollowUps": { "description": "Heading for care-plan follow-up plans" },
+  "yourHealthWhatsNextLoadFailed": "Could not load your next steps.",
+  "@yourHealthWhatsNextLoadFailed": { "description": "Error text when care-plan next steps loading fails" },
+  "yourHealthWhatsNextRetry": "Retry",
+  "@yourHealthWhatsNextRetry": { "description": "Retry button for the care-plan next steps section" },
+  "yourHealthWhatsNextPlan": "Plan",
+  "@yourHealthWhatsNextPlan": { "description": "Label before a care-plan name" },
+  "yourHealthWhatsNextTarget": "Target",
+  "@yourHealthWhatsNextTarget": { "description": "Label before a care-plan goal target value" },
+  "yourHealthWhatsNextCurrent": "Current",
+  "@yourHealthWhatsNextCurrent": { "description": "Label before a care-plan goal current value" },
+  "yourHealthWhatsNextDue": "Due",
+  "@yourHealthWhatsNextDue": { "description": "Label before a care-plan due date" }
 }
