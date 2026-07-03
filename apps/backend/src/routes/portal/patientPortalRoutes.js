@@ -267,10 +267,11 @@ router.get('/discharge-summaries/:id', requirePatient, wrap(async (req) =>
 
 // ── Clinical notes (patient self-read) ──────────────────────────────
 // /api/v1/emr/notes is staff-only by RBAC (CLINICAL_STAFF_ROLES). The
-// patient-scoped equivalent lives here, returning only signed notes
-// owned by the authenticated patient_uid and filtered to types the
-// patient should see (progress / SOAP / discharge / procedure /
-// consultation / follow-up). PHI access is logged per read.
+// patient-scoped equivalent lives here, returning only signed OP
+// appointment-bound notes owned by the authenticated patient_uid and
+// filtered to patient-visible consultation/follow-up/progress/SOAP
+// types. IP/ward/procedure/discharge source notes stay off the portal.
+// PHI access is logged per read.
 // Finding 2026-05-09-follow-up-opd-patient-progress-note-not-visible.
 
 function logClinicalNoteAccess(req) {

@@ -168,6 +168,7 @@ describe('recordService.getConsultationsByUid', () => {
           patient_uid: patientUid,
           note_type: { in: ['op_consultation', 'consultation_note', 'soap'] },
           is_signed: true,
+          appointment_id: { not: null },
           status: { not: 'deleted' },
         },
         take: 5,

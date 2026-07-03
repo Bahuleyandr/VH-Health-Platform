@@ -1111,34 +1111,37 @@ export async function createSelfPaymentLink({
 // ── Clinical notes read surface for patients ─────────────────────────
 //
 // /api/v1/emr/notes is gated by CLINICAL_STAFF_ROLES, so PATIENT
-// requests come back 403. Patients still need to read their own
-// progress notes — the "completed follow-up with no new Rx" case
-// is the most common: the doctor's plan is in clinical_notes and
+// requests come back 403. Patients still need to read their own OP
+// appointment-bound notes — the "completed follow-up with no new Rx"
+// case is the most common: the doctor's plan is in clinical_notes and
 // the patient app has nowhere to surface it. These exports add a
-// patient-scoped read surface that mirrors what the staff timeline
-// would show, filtered to the authenticated patient_uid and
-// restricted to note types the patient should see.
+// patient-scoped read surface filtered to the authenticated patient_uid,
+// appointment-linked OP notes, and note types the patient should see.
 //
-// We hide nursing assessments (those are internal handover artifacts)
-// and unsigned drafts (patients should never see un-finalised notes).
-// Doctor-authored progress / discharge / SOAP / procedure notes pass.
+// We hide nursing assessments, ward/IP notes, procedure/OT notes,
+// discharge-summary source notes, and unsigned drafts. Patients receive
+// discharge content through /portal/discharge-summaries.
 
 const PATIENT_VISIBLE_NOTE_TYPES = [
-  'progress',
-  'soap',
   'op_consultation',
-  'discharge',
-  'procedure',
   'consultation',
+  'consultation_note',
   'follow_up',
   'follow-up',
+  'progress',
+  'soap',
 ];
+
+function patientVisibleTypesForFilter(noteType) {
+  if (!noteType) return PATIENT_VISIBLE_NOTE_TYPES;
+  const requested = String(noteType).toLowerCase();
+  return PATIENT_VISIBLE_NOTE_TYPES.includes(requested) ? [requested] : [];
+}
 
 export async function listMyClinicalNotes({ patient_uid, limit = 100, note_type = null }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
-  const types = note_type
-    ? [String(note_type).toLowerCase()]
-    : PATIENT_VISIBLE_NOTE_TYPES;
+  const types = patientVisibleTypesForFilter(note_type);
+  if (types.length === 0) return [];
   return prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, author_uid, author_role,
             note_type, title, content, version, is_addendum,
@@ -1147,6 +1150,7 @@ export async function listMyClinicalNotes({ patient_uid, limit = 100, note_type 
        FROM clinical_notes
       WHERE patient_uid = $1::uuid
         AND is_signed = TRUE
+        AND appointment_id IS NOT NULL
         AND lower(note_type) = ANY($2::text[])
       ORDER BY created_at DESC, id DESC
       LIMIT $3::int`,
@@ -1168,6 +1172,7 @@ export async function getMyClinicalNote({ patient_uid, id }) {
       WHERE id = $1::int
         AND patient_uid = $2::uuid
         AND is_signed = TRUE
+        AND appointment_id IS NOT NULL
         AND lower(note_type) = ANY($3::text[])`,
     noteId, String(patient_uid), PATIENT_VISIBLE_NOTE_TYPES,
   );
@@ -1181,12 +1186,8 @@ export async function listMyClinicalNotesForAppointment({ patient_uid, appointme
   if (!Number.isInteger(apptId) || apptId <= 0) {
     throw AppError.badRequest('appointment_id must be a positive integer');
   }
-  // clinical_notes has no direct appointment_id FK — the link lives
-  // in content->>'appointment_id' when the doctor's note-writer
-  // attaches it. Fall back to a 24h time window around the
-  // appointment for legacy notes that don't carry the attribute.
   const apptRows = await prisma.$queryRawUnsafe(
-    `SELECT a.id, a.created_at, a.appointment_date, a.appointment_time,
+    `SELECT a.id, a.appointment_date, a.appointment_time,
             COALESCE(u.uid, a.uid) AS patient_uid
        FROM appointments a
        LEFT JOIN users u ON u.id = a.patient_id
@@ -1207,19 +1208,11 @@ export async function listMyClinicalNotesForAppointment({ patient_uid, appointme
       WHERE patient_uid = $1::uuid
         AND is_signed = TRUE
         AND lower(note_type) = ANY($2::text[])
-        AND (
-          (content ? 'appointment_id'
-           AND (content->>'appointment_id')::int = $3::int)
-          OR
-          (NOT (content ? 'appointment_id')
-           AND created_at >= $4::timestamptz - INTERVAL '24 hours'
-           AND created_at <= $4::timestamptz + INTERVAL '7 days')
-        )
+        AND appointment_id = $3::int
       ORDER BY created_at ASC, id ASC`,
     String(patient_uid),
     PATIENT_VISIBLE_NOTE_TYPES,
     apptId,
-    appt.created_at,
   );
 }
 
