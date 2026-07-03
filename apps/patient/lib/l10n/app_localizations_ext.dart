@@ -17,3 +17,33 @@ extension RecordTypeLocalizations on AppLocalizations {
     }
   }
 }
+
+/// Adds localized labels for patient-visible consultation note types.
+extension ConsultationNoteTypeLocalizations on AppLocalizations {
+  String consultationNoteTypeLabel(String raw) {
+    switch (raw.toLowerCase()) {
+      case 'op_consultation':
+        return consultationNoteTypeOpConsultation;
+      case 'consultation':
+        return consultationNoteTypeConsultation;
+      case 'consultation_note':
+        return consultationNoteTypeConsultationNote;
+      case 'follow_up':
+      case 'follow-up':
+        return consultationNoteTypeFollowUp;
+      case 'progress':
+        return consultationNoteTypeProgress;
+      case 'soap':
+        return consultationNoteTypeSoap;
+      default:
+        return raw
+            .replaceAll('_', ' ')
+            .replaceAll('-', ' ')
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((part) => part.isNotEmpty)
+            .map((part) => part[0].toUpperCase() + part.substring(1))
+            .join(' ');
+    }
+  }
+}

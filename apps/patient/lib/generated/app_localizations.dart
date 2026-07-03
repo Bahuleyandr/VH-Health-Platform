@@ -1592,6 +1592,12 @@ abstract class AppLocalizations {
   /// **'Consultations'**
   String get yourHealthTabConsultations;
 
+  /// No description provided for @yourHealthTabConsultationNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation notes'**
+  String get yourHealthTabConsultationNotes;
+
   /// No description provided for @yourHealthTabSummary.
   ///
   /// In en, this message translates to:
@@ -1627,6 +1633,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No consultations found'**
   String get consultationsEmpty;
+
+  /// No description provided for @consultationNotesEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No consultation notes yet'**
+  String get consultationNotesEmptyTitle;
+
+  /// No description provided for @consultationNotesEmptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed appointment notes from your doctor will appear here after your visit.'**
+  String get consultationNotesEmptySubtitle;
+
+  /// No description provided for @consultationNotesLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load consultation notes.'**
+  String get consultationNotesLoadFailed;
+
+  /// No description provided for @consultationNotesDetailLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load this consultation note.'**
+  String get consultationNotesDetailLoadFailed;
+
+  /// No description provided for @consultationNotesUntitled.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation note'**
+  String get consultationNotesUntitled;
+
+  /// No description provided for @consultationNotesUnknownRole.
+  ///
+  /// In en, this message translates to:
+  /// **'Care team'**
+  String get consultationNotesUnknownRole;
+
+  /// No description provided for @consultationNotesDoctorRole.
+  ///
+  /// In en, this message translates to:
+  /// **'Doctor role'**
+  String get consultationNotesDoctorRole;
+
+  /// No description provided for @consultationNotesType.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get consultationNotesType;
+
+  /// No description provided for @consultationNotesSignedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed'**
+  String get consultationNotesSignedAt;
+
+  /// No description provided for @consultationNotesUpdatedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Updated'**
+  String get consultationNotesUpdatedAt;
+
+  /// No description provided for @consultationNotesDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Note details'**
+  String get consultationNotesDetails;
+
+  /// No description provided for @consultationNotesNoDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'No details were documented for this note.'**
+  String get consultationNotesNoDetails;
+
+  /// No description provided for @consultationNoteTypeOpConsultation.
+  ///
+  /// In en, this message translates to:
+  /// **'OP consultation'**
+  String get consultationNoteTypeOpConsultation;
+
+  /// No description provided for @consultationNoteTypeConsultation.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation'**
+  String get consultationNoteTypeConsultation;
+
+  /// No description provided for @consultationNoteTypeConsultationNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation note'**
+  String get consultationNoteTypeConsultationNote;
+
+  /// No description provided for @consultationNoteTypeFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow-up'**
+  String get consultationNoteTypeFollowUp;
+
+  /// No description provided for @consultationNoteTypeProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Progress note'**
+  String get consultationNoteTypeProgress;
+
+  /// No description provided for @consultationNoteTypeSoap.
+  ///
+  /// In en, this message translates to:
+  /// **'SOAP note'**
+  String get consultationNoteTypeSoap;
 
   /// No description provided for @summaryAllergies.
   ///

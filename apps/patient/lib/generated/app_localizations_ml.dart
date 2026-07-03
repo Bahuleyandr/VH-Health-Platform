@@ -816,6 +816,9 @@ class AppLocalizationsMl extends AppLocalizations {
   String get yourHealthTabConsultations => 'കൂടിയാലോചനകൾ';
 
   @override
+  String get yourHealthTabConsultationNotes => 'കൺസൾട്ടേഷൻ കുറിപ്പുകൾ';
+
+  @override
   String get yourHealthTabSummary => 'സംഗ്രഹം';
 
   @override
@@ -832,6 +835,64 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get consultationsEmpty => 'കൂടിയാലോചനകളൊന്നും കണ്ടെത്തിയില്ല';
+
+  @override
+  String get consultationNotesEmptyTitle => 'ഇനിയും കൺസൾട്ടേഷൻ കുറിപ്പുകളില്ല';
+
+  @override
+  String get consultationNotesEmptySubtitle =>
+      'നിങ്ങളുടെ സന്ദർശനത്തിന് ശേഷം ഡോക്ടർ ഒപ്പിട്ട അപോയ്ൻ്റ്മെൻ്റ് കുറിപ്പുകൾ ഇവിടെ കാണിക്കും.';
+
+  @override
+  String get consultationNotesLoadFailed =>
+      'കൺസൾട്ടേഷൻ കുറിപ്പുകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.';
+
+  @override
+  String get consultationNotesDetailLoadFailed =>
+      'ഈ കൺസൾട്ടേഷൻ കുറിപ്പ് ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.';
+
+  @override
+  String get consultationNotesUntitled => 'കൺസൾട്ടേഷൻ കുറിപ്പ്';
+
+  @override
+  String get consultationNotesUnknownRole => 'കെയർ ടീം';
+
+  @override
+  String get consultationNotesDoctorRole => 'ഡോക്ടറുടെ പങ്ക്';
+
+  @override
+  String get consultationNotesType => 'തരം';
+
+  @override
+  String get consultationNotesSignedAt => 'ഒപ്പിട്ടത്';
+
+  @override
+  String get consultationNotesUpdatedAt => 'അപ്ഡേറ്റ് ചെയ്തത്';
+
+  @override
+  String get consultationNotesDetails => 'കുറിപ്പ് വിവരങ്ങൾ';
+
+  @override
+  String get consultationNotesNoDetails =>
+      'ഈ കുറിപ്പിൽ വിശദാംശങ്ങൾ രേഖപ്പെടുത്തിയിട്ടില്ല.';
+
+  @override
+  String get consultationNoteTypeOpConsultation => 'OP കൺസൾട്ടേഷൻ';
+
+  @override
+  String get consultationNoteTypeConsultation => 'കൺസൾട്ടേഷൻ';
+
+  @override
+  String get consultationNoteTypeConsultationNote => 'കൺസൾട്ടേഷൻ കുറിപ്പ്';
+
+  @override
+  String get consultationNoteTypeFollowUp => 'ഫോളോ-അപ്പ്';
+
+  @override
+  String get consultationNoteTypeProgress => 'പുരോഗതി കുറിപ്പ്';
+
+  @override
+  String get consultationNoteTypeSoap => 'SOAP കുറിപ്പ്';
 
   @override
   String get summaryAllergies => 'അലർജികൾ';

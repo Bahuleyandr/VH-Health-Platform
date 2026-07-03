@@ -22,7 +22,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/l10n/app_localizations_ext.dart';
 
 import 'package:vhhealth/features/your_health/widgets/prescriptions_tab.dart';
-import 'package:vhhealth/features/your_health/widgets/consultations_tab.dart';
+import 'package:vhhealth/features/your_health/widgets/consultation_notes_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/explanations_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/health_summary_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/health_timeline_tab.dart';
@@ -423,7 +423,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                   const HospitalDocumentsTab(),
                   MyUploadsTab(key: _myUploadsKey),
                   PrescriptionsTab(phone: _phone),
-                  const ConsultationsTab(),
+                  const ConsultationNotesTab(),
                   const HealthSummaryTab(),
                   if (_hasExplanationsTab)
                     ExplanationsTab(
@@ -605,7 +605,7 @@ List<Tab> buildYourHealthTabs(
     const Tab(text: 'Hospital Docs'),
     const Tab(text: 'My Uploads'),
     const Tab(text: 'Prescriptions'),
-    Tab(text: l10n.yourHealthTabConsultations),
+    Tab(text: l10n.yourHealthTabConsultationNotes),
     Tab(text: l10n.yourHealthTabSummary),
     if (includeExplanations) Tab(text: l10n.yourHealthTabExplanations),
   ];
