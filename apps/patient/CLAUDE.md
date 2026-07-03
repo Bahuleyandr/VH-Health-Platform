@@ -185,6 +185,8 @@ Builders are param-free unless noted.
 | `/health-points` | HealthPointsScreen | No |
 | `/portal/bills` | BillsScreen | No |
 | `/portal/bills/:id` | BillDetailScreen | No |
+| `/portal/discharge-summaries` | DischargeSummariesScreen | No |
+| `/portal/discharge-summaries/:id` | DischargeSummaryDetailRouteScreen | No |
 | `/portal/lab-orders` | LabOrdersScreen | No |
 | `/portal/lab-results` | LabResultsScreen | No |
 | `/portal/maternity/timeline` | AncTimelineScreen | No |
@@ -247,6 +249,10 @@ Builders are param-free unless noted.
 | **File upload/download** | | |
 | Upload file | `/upload` | POST |
 | Download by key | `/upload/by-key/:storageKey` | GET |
+| **Discharge summaries** | | |
+| My discharge summaries | `/portal/discharge-summaries` | GET |
+| Discharge summary detail | `/portal/discharge-summaries/:id` | GET |
+| Discharge summary PDF | `/portal/discharge-summaries/:id/pdf` | GET |
 | **Notifications** | | |
 | List | `/notifications/my` | GET |
 | Mark read | `/notifications/:id/read` | PATCH |

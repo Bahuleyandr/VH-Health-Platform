@@ -889,6 +889,75 @@ class AppLocalizationsTe extends AppLocalizations {
   String get consultationNoteTypeSoap => 'SOAP గమనిక';
 
   @override
+  String get yourHealthHospitalRecordsTab => 'ఆసుపత్రి రికార్డులు';
+
+  @override
+  String get dischargeSummariesTab => 'డిశ్చార్జ్ సారాంశాలు';
+
+  @override
+  String get dischargeSummariesTitle => 'డిశ్చార్జ్ సారాంశాలు';
+
+  @override
+  String get dischargeSummariesEmptyTitle => 'ఇంకా డిశ్చార్జ్ సారాంశాలు లేవు';
+
+  @override
+  String get dischargeSummariesEmptySubtitle =>
+      'ఆసుపత్రి అడ్మిషన్‌ల నుంచి సంతకం చేసిన డిశ్చార్జ్ సారాంశాలు ఇక్కడ కనిపిస్తాయి.';
+
+  @override
+  String get dischargeSummariesLoadFailed =>
+      'డిశ్చార్జ్ సారాంశాలను లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get dischargeSummaryDetailLoadFailed =>
+      'ఈ డిశ్చార్జ్ సారాంశాన్ని లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get dischargeSummaryUntitled => 'డిశ్చార్జ్ సారాంశం';
+
+  @override
+  String get dischargeSummaryPrimaryDiagnosis => 'వ్యాధి నిర్ధారణ';
+
+  @override
+  String get dischargeSummaryHospitalNumber => 'ఆసుపత్రి నం.';
+
+  @override
+  String get dischargeSummaryAdmitted => 'చేర్చారు';
+
+  @override
+  String get dischargeSummaryDischarged => 'డిశ్చార్జ్';
+
+  @override
+  String get dischargeSummaryWard => 'వార్డు';
+
+  @override
+  String get dischargeSummarySignedBy => 'సంతకం చేసినవారు';
+
+  @override
+  String get dischargeSummarySignedAt => 'సంతకం చేయబడింది';
+
+  @override
+  String get dischargeSummarySectionsTitle => 'సారాంశ విభాగాలు';
+
+  @override
+  String get dischargeSummaryNoSections =>
+      'డిశ్చార్జ్ సారాంశ విభాగాలు అందుబాటులో లేవు.';
+
+  @override
+  String get dischargeSummaryOpenPdf => 'PDF తెరవండి';
+
+  @override
+  String get dischargeSummaryOpeningPdf => 'PDF తెరుస్తోంది…';
+
+  @override
+  String get dischargeSummaryPdfOpenFailed =>
+      'డిశ్చార్జ్ సారాంశ PDF తెరవలేకపోయింది.';
+
+  @override
+  String get dischargeSummariesOfficialHint =>
+      'మీ ఆసుపత్రి నివాసానికి సంబంధించిన అధికారిక సంతకం చేసిన సారాంశాలు వేరుగా పొందబడతాయి.';
+
+  @override
   String get summaryAllergies => 'అలర్జీలు';
 
   @override
@@ -1354,6 +1423,10 @@ class AppLocalizationsTe extends AppLocalizations {
   @override
   String get recordsHospitalEmpty =>
       'మీ ప్రిస్క్రిప్షన్‌లు మరియు సందర్శనల నివేదికలు ఇక్కడ కనిపిస్తాయి';
+
+  @override
+  String get recordsHospitalEmptySubtitle =>
+      'మీ సందర్శన తర్వాత ఆసుపత్రి జారీ చేసిన పత్రాలు ఇక్కడ కనిపిస్తాయి.';
 
   @override
   String get recordsUploadEmptyHint =>

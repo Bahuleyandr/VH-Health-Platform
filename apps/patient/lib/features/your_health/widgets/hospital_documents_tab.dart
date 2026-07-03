@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -60,66 +62,69 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
-    if (_isLoading) {
-      return Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation(cs.primary),
-        ),
-      );
-    }
-
-    if (_error != null && _hospitalRecords.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _error!,
-              style: TextStyle(color: cs.error),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _fetchRecords,
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_hospitalRecords.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.local_hospital_outlined,
-                size: 64,
-                color: Colors.grey,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                AppLocalizations.of(context)!.recordsHospitalEmpty,
-                style: const TextStyle(color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          TabBar(
+            tabs: [
+              Tab(text: l10n.yourHealthHospitalRecordsTab),
+              Tab(text: l10n.dischargeSummariesTab),
             ],
           ),
-        ),
-      );
-    }
+          Expanded(
+            child: TabBarView(
+              children: [
+                _HospitalRecordsPane(
+                  isLoading: _isLoading,
+                  error: _error,
+                  records: _hospitalRecords,
+                  onRetry: _fetchRecords,
+                ),
+                const DischargeSummariesList(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
+class _HospitalRecordsPane extends StatelessWidget {
+  const _HospitalRecordsPane({
+    required this.isLoading,
+    required this.error,
+    required this.records,
+    required this.onRetry,
+  });
+
+  final bool isLoading;
+  final String? error;
+  final List<Map<String, dynamic>> records;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: _fetchRecords,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: _hospitalRecords.length,
-        itemBuilder: (_, i) => RecordCard(record: _hospitalRecords[i]),
+      onRefresh: onRetry,
+      child: DataStateBuilder<Map<String, dynamic>>(
+        isLoading: isLoading,
+        error: error,
+        data: records,
+        onRetry: onRetry,
+        emptyIcon: Icons.local_hospital_outlined,
+        emptyTitle: AppLocalizations.of(context)!.recordsHospitalEmpty,
+        emptySubtitle: AppLocalizations.of(
+          context,
+        )!.recordsHospitalEmptySubtitle,
+        builder: (context, records) => ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: records.length,
+          itemBuilder: (_, i) => RecordCard(record: records[i]),
+        ),
       ),
     );
   }

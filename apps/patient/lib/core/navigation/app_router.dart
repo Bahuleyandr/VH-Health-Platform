@@ -41,6 +41,7 @@ import 'package:vhhealth/features/period_tracker/screens/period_tracker_screen.d
 import 'package:vhhealth/features/maternity/screens/anc_timeline_screen.dart';
 import 'package:vhhealth/features/portal/screens/bills_screen.dart';
 import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
+import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_orders_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/messages_screen.dart';
@@ -325,6 +326,20 @@ class AppRouter {
       GoRoute(
         path: '/portal/lab-orders',
         builder: (context, state) => const LabOrdersScreen(),
+      ),
+      GoRoute(
+        path: '/portal/discharge-summaries',
+        builder: (context, state) => const DischargeSummariesScreen(),
+      ),
+      GoRoute(
+        path: '/portal/discharge-summaries/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/portal/discharge-summaries' : null;
+        },
+        builder: (context, state) => DischargeSummaryDetailRouteScreen(
+          summaryId: int.tryParse(state.pathParameters['id']!)!,
+        ),
       ),
       GoRoute(
         path: '/portal/maternity/timeline',

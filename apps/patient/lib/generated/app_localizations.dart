@@ -1742,6 +1742,132 @@ abstract class AppLocalizations {
   /// **'SOAP note'**
   String get consultationNoteTypeSoap;
 
+  /// No description provided for @yourHealthHospitalRecordsTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital records'**
+  String get yourHealthHospitalRecordsTab;
+
+  /// No description provided for @dischargeSummariesTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Discharge summaries'**
+  String get dischargeSummariesTab;
+
+  /// No description provided for @dischargeSummariesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discharge summaries'**
+  String get dischargeSummariesTitle;
+
+  /// No description provided for @dischargeSummariesEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No discharge summaries yet'**
+  String get dischargeSummariesEmptyTitle;
+
+  /// No description provided for @dischargeSummariesEmptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed discharge summaries from hospital admissions will appear here.'**
+  String get dischargeSummariesEmptySubtitle;
+
+  /// No description provided for @dischargeSummariesLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load discharge summaries.'**
+  String get dischargeSummariesLoadFailed;
+
+  /// No description provided for @dischargeSummaryDetailLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load this discharge summary.'**
+  String get dischargeSummaryDetailLoadFailed;
+
+  /// No description provided for @dischargeSummaryUntitled.
+  ///
+  /// In en, this message translates to:
+  /// **'Discharge summary'**
+  String get dischargeSummaryUntitled;
+
+  /// No description provided for @dischargeSummaryPrimaryDiagnosis.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnosis'**
+  String get dischargeSummaryPrimaryDiagnosis;
+
+  /// No description provided for @dischargeSummaryHospitalNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital no.'**
+  String get dischargeSummaryHospitalNumber;
+
+  /// No description provided for @dischargeSummaryAdmitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Admitted'**
+  String get dischargeSummaryAdmitted;
+
+  /// No description provided for @dischargeSummaryDischarged.
+  ///
+  /// In en, this message translates to:
+  /// **'Discharged'**
+  String get dischargeSummaryDischarged;
+
+  /// No description provided for @dischargeSummaryWard.
+  ///
+  /// In en, this message translates to:
+  /// **'Ward'**
+  String get dischargeSummaryWard;
+
+  /// No description provided for @dischargeSummarySignedBy.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed by'**
+  String get dischargeSummarySignedBy;
+
+  /// No description provided for @dischargeSummarySignedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed'**
+  String get dischargeSummarySignedAt;
+
+  /// No description provided for @dischargeSummarySectionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Summary sections'**
+  String get dischargeSummarySectionsTitle;
+
+  /// No description provided for @dischargeSummaryNoSections.
+  ///
+  /// In en, this message translates to:
+  /// **'No discharge summary sections are available.'**
+  String get dischargeSummaryNoSections;
+
+  /// No description provided for @dischargeSummaryOpenPdf.
+  ///
+  /// In en, this message translates to:
+  /// **'Open PDF'**
+  String get dischargeSummaryOpenPdf;
+
+  /// No description provided for @dischargeSummaryOpeningPdf.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening PDF...'**
+  String get dischargeSummaryOpeningPdf;
+
+  /// No description provided for @dischargeSummaryPdfOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the discharge summary PDF.'**
+  String get dischargeSummaryPdfOpenFailed;
+
+  /// No description provided for @dischargeSummariesOfficialHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Official signed summaries from your hospital stay are fetched separately.'**
+  String get dischargeSummariesOfficialHint;
+
   /// No description provided for @summaryAllergies.
   ///
   /// In en, this message translates to:
@@ -2617,6 +2743,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your prescriptions and reports from visits will appear here'**
   String get recordsHospitalEmpty;
+
+  /// Empty-state subtitle for hospital documents tab
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital-issued documents will appear here after your visit.'**
+  String get recordsHospitalEmptySubtitle;
 
   /// Empty-state hint for my uploads tab
   ///
