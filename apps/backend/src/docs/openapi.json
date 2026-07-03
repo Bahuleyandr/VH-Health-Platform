@@ -35912,6 +35912,23 @@
         ]
       }
     },
+    "/api/v1/admin/clinical-governance/patient-access/shadow-denials": {
+      "get": {
+        "operationId": "get_api_v1_admin_clinical_governance_patient_access_shadow_denials",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/dashboard": {
       "get": {
         "operationId": "get_api_v1_admin_dashboard",

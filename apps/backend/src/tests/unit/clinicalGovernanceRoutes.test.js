@@ -34,6 +34,7 @@ describe('admin clinical governance routes', () => {
     expect(routeFile).toMatch(/router\.patch\('\/care-teams\/:id\/members\/:memberId\/transition'/);
     expect(routeFile).toMatch(/router\.post\('\/patient-access\/break-glass'/);
     expect(routeFile).toMatch(/router\.get\('\/patient-access\/audit'/);
+    expect(routeFile).toMatch(/router\.get\('\/patient-access\/shadow-denials'/);
   });
 
   it('declares lab specimen, analyzer, and QC endpoints', () => {

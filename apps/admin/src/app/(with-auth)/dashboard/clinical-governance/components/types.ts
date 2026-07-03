@@ -1,1 +1,1 @@
-export type ClinicalGovernanceTab = "access" | "lab" | "audit";
+export type ClinicalGovernanceTab = "access" | "lab" | "audit" | "shadow";

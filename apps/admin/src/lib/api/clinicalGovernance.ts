@@ -1,4 +1,5 @@
-import { fetchAdminAPI, getJSON, postJSON, putJSON } from "./core";
+import { apiFetch } from "../api-fetch";
+import { fetchAdminAPI, getJSON, postJSON, putJSON, type QueryParams } from "./core";
 
 export type CareTeamKind =
   | "op"
@@ -70,6 +71,25 @@ export interface PatientAccessAuditEvent {
   resource_type: string | null;
   policy_code: string | null;
   created_at: string;
+}
+
+export interface PatientAccessShadowDenialRow {
+  day: string;
+  actor_role: string;
+  resource_family: string;
+  denial_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+export interface PatientAccessShadowDenialsReport {
+  range: {
+    date_from: string | null;
+    date_to: string | null;
+  };
+  shadow_denials: PatientAccessShadowDenialRow[];
+  count: number;
+  total_denials: number;
 }
 
 export interface PatientBreakGlassSession {
@@ -215,6 +235,43 @@ export function listPatientAccessAudit(params: {
     "/admin/clinical-governance/patient-access/audit",
     params,
   );
+}
+
+function buildQueryString(params: QueryParams): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    }
+  }
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+export function listPatientAccessShadowDenials(params: {
+  date_from?: string;
+  date_to?: string;
+} = {}) {
+  return getJSON<PatientAccessShadowDenialsReport>(
+    "/admin/clinical-governance/patient-access/shadow-denials",
+    params,
+  );
+}
+
+export async function downloadPatientAccessShadowDenialsCsv(params: {
+  date_from?: string;
+  date_to?: string;
+} = {}) {
+  const res = await apiFetch(
+    `/api/v1/admin/clinical-governance/patient-access/shadow-denials${buildQueryString({
+      ...params,
+      format: "csv",
+    })}`,
+    { method: "GET", headers: { Accept: "text/csv" } },
+  );
+  if (!res.ok) {
+    throw new Error(`CSV export failed with HTTP ${res.status}`);
+  }
+  return res.blob();
 }
 
 export function startPatientBreakGlass(payload: {
