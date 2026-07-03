@@ -967,6 +967,75 @@ class AppLocalizationsTa extends AppLocalizations {
       'உங்கள் மருத்துவமனை தங்கியிருந்த காலத்தின் அதிகாரப்பூர்வ கையொப்பமிட்ட சுருக்கங்கள் தனியாக பெறப்படுகின்றன.';
 
   @override
+  String get labResultsTitle => 'ஆய்வக முடிவுகள்';
+
+  @override
+  String get labResultsEmptyTitle => 'இன்னும் ஆய்வக முடிவுகள் இல்லை';
+
+  @override
+  String get labResultsEmptySubtitle =>
+      'வெளியிடப்பட்ட ஆய்வக முடிவுகள் இங்கே தோன்றும். புதுப்பிக்க இழுக்கவும்.';
+
+  @override
+  String get labResultsLoadFailed => 'ஆய்வக முடிவுகளை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get labResultDetailsTitle => 'ஆய்வக முடிவு';
+
+  @override
+  String get labResultDetailLoadFailed => 'இந்த ஆய்வக முடிவை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get labResultValue => 'மதிப்பு';
+
+  @override
+  String get labResultReference => 'குறிப்பு';
+
+  @override
+  String get labResultObserved => 'பதிவு நேரம்';
+
+  @override
+  String get labResultCode => 'சோதனை குறியீடு';
+
+  @override
+  String get labResultLoincCode => 'LOINC குறியீடு';
+
+  @override
+  String get labResultTrendTitle => 'போக்கு';
+
+  @override
+  String get labResultTrendLast => 'கடைசி';
+
+  @override
+  String get labResultTrendMonths => 'மாதங்கள்';
+
+  @override
+  String get labResultTrendLatest => 'சமீபத்தியது';
+
+  @override
+  String get labResultTrendRange => 'வரம்பு';
+
+  @override
+  String get labResultTrendPoints => 'புள்ளிகள்';
+
+  @override
+  String get labResultTrendResultsLabel => 'முடிவுகள்';
+
+  @override
+  String get labResultTrendLoadFailed => 'இந்த போக்கை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get labResultTrendEmptyTitle => 'போக்கிற்கு போதுமான தரவு இல்லை';
+
+  @override
+  String get labResultTrendEmptySubtitle =>
+      'போக்கை வரைய குறைந்தது இரண்டு வெளியிடப்பட்ட எண் முடிவுகள் தேவை.';
+
+  @override
+  String get labResultTrendUnavailable =>
+      'சோதனை குறியீடு இணைக்கப்படாததால் இந்த முடிவிற்கு போக்கு கிடைக்கவில்லை.';
+
+  @override
   String get summaryAllergies => 'ஒவ்வாமை';
 
   @override

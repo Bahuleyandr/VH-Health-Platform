@@ -948,6 +948,75 @@ class AppLocalizationsHi extends AppLocalizations {
       'आपके अस्पताल प्रवास के आधिकारिक हस्ताक्षरित सारांश अलग से प्राप्त किए जाते हैं।';
 
   @override
+  String get labResultsTitle => 'लैब परिणाम';
+
+  @override
+  String get labResultsEmptyTitle => 'अभी कोई लैब परिणाम नहीं';
+
+  @override
+  String get labResultsEmptySubtitle =>
+      'जारी किए गए लैब परिणाम यहां दिखेंगे। रिफ्रेश करने के लिए नीचे खींचें।';
+
+  @override
+  String get labResultsLoadFailed => 'लैब परिणाम लोड नहीं हो सके।';
+
+  @override
+  String get labResultDetailsTitle => 'लैब परिणाम';
+
+  @override
+  String get labResultDetailLoadFailed => 'यह लैब परिणाम लोड नहीं हो सका।';
+
+  @override
+  String get labResultValue => 'मान';
+
+  @override
+  String get labResultReference => 'संदर्भ';
+
+  @override
+  String get labResultObserved => 'देखा गया';
+
+  @override
+  String get labResultCode => 'टेस्ट कोड';
+
+  @override
+  String get labResultLoincCode => 'LOINC कोड';
+
+  @override
+  String get labResultTrendTitle => 'रुझान';
+
+  @override
+  String get labResultTrendLast => 'पिछले';
+
+  @override
+  String get labResultTrendMonths => 'महीने';
+
+  @override
+  String get labResultTrendLatest => 'नवीनतम';
+
+  @override
+  String get labResultTrendRange => 'सीमा';
+
+  @override
+  String get labResultTrendPoints => 'बिंदु';
+
+  @override
+  String get labResultTrendResultsLabel => 'परिणाम';
+
+  @override
+  String get labResultTrendLoadFailed => 'यह रुझान लोड नहीं हो सका।';
+
+  @override
+  String get labResultTrendEmptyTitle => 'रुझान के लिए पर्याप्त डेटा नहीं';
+
+  @override
+  String get labResultTrendEmptySubtitle =>
+      'रुझान दिखाने के लिए कम से कम दो जारी किए गए संख्यात्मक परिणाम चाहिए।';
+
+  @override
+  String get labResultTrendUnavailable =>
+      'इस परिणाम के लिए रुझान उपलब्ध नहीं है क्योंकि कोई टेस्ट कोड जुड़ा नहीं है।';
+
+  @override
   String get summaryAllergies => 'एलर्जी';
 
   @override

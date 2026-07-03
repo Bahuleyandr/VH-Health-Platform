@@ -958,6 +958,76 @@ class AppLocalizationsTe extends AppLocalizations {
       'మీ ఆసుపత్రి నివాసానికి సంబంధించిన అధికారిక సంతకం చేసిన సారాంశాలు వేరుగా పొందబడతాయి.';
 
   @override
+  String get labResultsTitle => 'ల్యాబ్ ఫలితాలు';
+
+  @override
+  String get labResultsEmptyTitle => 'ఇంకా ల్యాబ్ ఫలితాలు లేవు';
+
+  @override
+  String get labResultsEmptySubtitle =>
+      'విడుదలైన ల్యాబ్ ఫలితాలు ఇక్కడ కనిపిస్తాయి. రిఫ్రెష్ చేయడానికి లాగండి.';
+
+  @override
+  String get labResultsLoadFailed => 'ల్యాబ్ ఫలితాలను లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get labResultDetailsTitle => 'ల్యాబ్ ఫలితం';
+
+  @override
+  String get labResultDetailLoadFailed =>
+      'ఈ ల్యాబ్ ఫలితాన్ని లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get labResultValue => 'విలువ';
+
+  @override
+  String get labResultReference => 'సూచన';
+
+  @override
+  String get labResultObserved => 'గమనించిన సమయం';
+
+  @override
+  String get labResultCode => 'పరీక్ష కోడ్';
+
+  @override
+  String get labResultLoincCode => 'LOINC కోడ్';
+
+  @override
+  String get labResultTrendTitle => 'ట్రెండ్';
+
+  @override
+  String get labResultTrendLast => 'గత';
+
+  @override
+  String get labResultTrendMonths => 'నెలలు';
+
+  @override
+  String get labResultTrendLatest => 'తాజా';
+
+  @override
+  String get labResultTrendRange => 'పరిధి';
+
+  @override
+  String get labResultTrendPoints => 'పాయింట్లు';
+
+  @override
+  String get labResultTrendResultsLabel => 'ఫలితాలు';
+
+  @override
+  String get labResultTrendLoadFailed => 'ఈ ట్రెండ్‌ను లోడ్ చేయలేకపోయింది.';
+
+  @override
+  String get labResultTrendEmptyTitle => 'ట్రెండ్‌కు సరిపడా డేటా లేదు';
+
+  @override
+  String get labResultTrendEmptySubtitle =>
+      'ట్రెండ్‌ను చూపడానికి కనీసం రెండు విడుదలైన సంఖ్యాత్మక ఫలితాలు అవసరం.';
+
+  @override
+  String get labResultTrendUnavailable =>
+      'పరీక్ష కోడ్ లింక్ చేయబడనందున ఈ ఫలితానికి ట్రెండ్ అందుబాటులో లేదు.';
+
+  @override
   String get summaryAllergies => 'అలర్జీలు';
 
   @override

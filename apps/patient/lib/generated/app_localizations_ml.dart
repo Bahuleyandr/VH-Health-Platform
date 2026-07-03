@@ -964,6 +964,75 @@ class AppLocalizationsMl extends AppLocalizations {
       'നിങ്ങളുടെ ആശുപത്രി താമസത്തിന്റെ ഔദ്യോഗിക ഒപ്പിട്ട സംഗ്രഹങ്ങൾ വേർതിരിച്ച് ലഭ്യമാക്കുന്നു.';
 
   @override
+  String get labResultsTitle => 'ലാബ് ഫലങ്ങൾ';
+
+  @override
+  String get labResultsEmptyTitle => 'ഇനിയും ലാബ് ഫലങ്ങളില്ല';
+
+  @override
+  String get labResultsEmptySubtitle =>
+      'റിലീസ് ചെയ്ത ലാബ് ഫലങ്ങൾ ഇവിടെ കാണിക്കും. പുതുക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get labResultsLoadFailed => 'ലാബ് ഫലങ്ങൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.';
+
+  @override
+  String get labResultDetailsTitle => 'ലാബ് ഫലം';
+
+  @override
+  String get labResultDetailLoadFailed => 'ഈ ലാബ് ഫലം ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.';
+
+  @override
+  String get labResultValue => 'മൂല്യം';
+
+  @override
+  String get labResultReference => 'റഫറൻസ്';
+
+  @override
+  String get labResultObserved => 'രേഖപ്പെടുത്തിയ സമയം';
+
+  @override
+  String get labResultCode => 'ടെസ്റ്റ് കോഡ്';
+
+  @override
+  String get labResultLoincCode => 'LOINC കോഡ്';
+
+  @override
+  String get labResultTrendTitle => 'ട്രെൻഡ്';
+
+  @override
+  String get labResultTrendLast => 'കഴിഞ്ഞ';
+
+  @override
+  String get labResultTrendMonths => 'മാസങ്ങൾ';
+
+  @override
+  String get labResultTrendLatest => 'ഏറ്റവും പുതിയത്';
+
+  @override
+  String get labResultTrendRange => 'പരിധി';
+
+  @override
+  String get labResultTrendPoints => 'പോയിന്റുകൾ';
+
+  @override
+  String get labResultTrendResultsLabel => 'ഫലങ്ങൾ';
+
+  @override
+  String get labResultTrendLoadFailed => 'ഈ ട്രെൻഡ് ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.';
+
+  @override
+  String get labResultTrendEmptyTitle => 'ട്രെൻഡിന് മതിയായ ഡാറ്റയില്ല';
+
+  @override
+  String get labResultTrendEmptySubtitle =>
+      'ട്രെൻഡ് വരയ്ക്കാൻ കുറഞ്ഞത് രണ്ട് റിലീസ് ചെയ്ത സംഖ്യാത്മക ഫലങ്ങൾ വേണം.';
+
+  @override
+  String get labResultTrendUnavailable =>
+      'ടെസ്റ്റ് കോഡ് ബന്ധിപ്പിച്ചിട്ടില്ലാത്തതിനാൽ ഈ ഫലത്തിന് ട്രെൻഡ് ലഭ്യമല്ല.';
+
+  @override
   String get summaryAllergies => 'അലർജികൾ';
 
   @override
