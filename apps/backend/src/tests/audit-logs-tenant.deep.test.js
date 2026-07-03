@@ -6,6 +6,7 @@
 // the real al.tenant_id (was NULL, which bypassed the tenant filter). RLS is OFF
 // in the test env, so this explicit predicate is what scopes the feed.
 import { generateTestToken, API_KEY } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -22,7 +23,7 @@ function admin(tenantId) {
 }
 
 async function clean() {
-  await prisma.$executeRawUnsafe(`DELETE FROM audit_log WHERE action = $1`, MARKER).catch(() => {});
+  await deleteWithAuditBypass(prisma, `DELETE FROM audit_log WHERE action = $1`, MARKER).catch(() => {});
 }
 
 async function seedAudit(tenantId, userName) {

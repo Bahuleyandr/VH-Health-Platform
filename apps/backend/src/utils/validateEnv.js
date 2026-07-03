@@ -33,6 +33,15 @@ export const envSchema = Joi.object({
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
 
+  // Patient hard-upgrade gate served by public GET /api/v1/config.
+  // 0 disables the gate; otherwise set this to the minimum accepted mobile
+  // build number. Semver advisory checks remain on /health/client-requirements.
+  MIN_PATIENT_VERSION_CODE: Joi.number()
+    .integer()
+    .min(0)
+    .default(0)
+    .label('MIN_PATIENT_VERSION_CODE'),
+
   // HTTP server timeouts (REL-4 / B2.4). Defaults: requestTimeout=60s,
   // keepAliveTimeout=61s, headersTimeout=65s. keepAlive < headers is required
   // to avoid the Node.js race where headersTimeout fires before keepAlive on

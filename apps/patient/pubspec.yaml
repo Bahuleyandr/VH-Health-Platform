@@ -1,7 +1,7 @@
 name: vhhealth
 description: A new Flutter project for VH Health (with working Firebase OTP)
 publish_to: 'none'
-version: 1.0.0+1  # Added build number
+version: 1.1.0+2  # Added build number
 resolution: workspace
 
 environment:
@@ -61,6 +61,7 @@ dependencies:
   flutter_local_notifications: ^21.0.0
   timezone: ^0.11.0
   url_launcher: ^6.3.1            # Updated from 6.2.5
+  package_info_plus: ^9.0.1
   vector_math: ^2.2.0
   uuid: ^4.5.1
   

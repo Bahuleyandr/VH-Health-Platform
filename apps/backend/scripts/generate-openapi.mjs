@@ -22,6 +22,7 @@ import * as clinicalAi from './openapi/schemas/clinicalAi.mjs';
 import * as clinicalMar from './openapi/schemas/clinicalMar.mjs';
 import * as pharmacy from './openapi/schemas/pharmacy.mjs';
 import * as users from './openapi/schemas/users.mjs';
+import * as config from './openapi/schemas/config.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -32,7 +33,8 @@ const SCHEMA_MODULES = [
   clinicalAi,
   clinicalMar,
   pharmacy,
-  users
+  users,
+  config
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

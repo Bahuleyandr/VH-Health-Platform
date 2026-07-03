@@ -10,15 +10,29 @@ import * as payroll from '../../../scripts/openapi/schemas/payroll.mjs';
 import * as emr from '../../../scripts/openapi/schemas/emr.mjs';
 import * as clinicalAi from '../../../scripts/openapi/schemas/clinicalAi.mjs';
 import * as clinicalMar from '../../../scripts/openapi/schemas/clinicalMar.mjs';
+import * as pharmacy from '../../../scripts/openapi/schemas/pharmacy.mjs';
+import * as users from '../../../scripts/openapi/schemas/users.mjs';
+import * as config from '../../../scripts/openapi/schemas/config.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
-const MODULES = [money, appointments, discharge, payroll, emr, clinicalAi, clinicalMar];
+const MODULES = [
+  money,
+  appointments,
+  discharge,
+  payroll,
+  emr,
+  clinicalAi,
+  clinicalMar,
+  pharmacy,
+  users,
+  config
+];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const spec = JSON.parse(readFileSync(resolve(__dirname, '../../docs/openapi.json'), 'utf8'));
 
-const allOperations = Object.assign({}, ...MODULES.map((m) => m.operations || {}));
+const allOperations = Object.assign({}, ...MODULES.map(m => m.operations || {}));
 
 describe('OpenAPI contract overlays (static gate)', () => {
   it('every overlay key matches a real (METHOD, path) in the generated spec', () => {
@@ -26,7 +40,7 @@ describe('OpenAPI contract overlays (static gate)', () => {
     for (const [p, ops] of Object.entries(spec.paths)) {
       for (const m of Object.keys(ops)) real.add(`${m.toUpperCase()} ${p}`);
     }
-    const missing = Object.keys(allOperations).filter((k) => !real.has(k));
+    const missing = Object.keys(allOperations).filter(k => !real.has(k));
     expect(missing).toEqual([]);
   });
 
@@ -37,7 +51,7 @@ describe('OpenAPI contract overlays (static gate)', () => {
       if (ov.request) refs.push(ov.request);
       if (ov.response) refs.push(ov.response);
     }
-    const dangling = refs.filter((n) => !names.has(n));
+    const dangling = refs.filter(n => !names.has(n));
     expect(dangling).toEqual([]);
   });
 
