@@ -11,10 +11,18 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+typedef NotificationPayloadHandler = void Function(String payload);
+
 class NotificationScheduler {
   NotificationScheduler._();
 
+  static const _patientPushChannelId = 'patient_push';
+  static const _patientPushChannelName = 'Patient Updates';
+  static const _patientPushChannelDescription =
+      'Appointment, result, pharmacy, portal, and hospital updates';
+
   static final _plugin = FlutterLocalNotificationsPlugin();
+  static NotificationPayloadHandler? _payloadHandler;
 
   /// Shared one-shot init future. The first caller kicks off [_doInitialize];
   /// every later caller — and every public method below, via [initialize] —
@@ -25,6 +33,13 @@ class NotificationScheduler {
 
   /// Idempotent and concurrency-safe; cheap to await once initialised.
   static Future<void> initialize() => _initFuture ??= _doInitialize();
+
+  /// Register a callback for notification payload taps. Safe to call before or
+  /// after [initialize]; the initialized plugin callback reads this latest
+  /// handler when a user taps a local notification.
+  static void setPayloadHandler(NotificationPayloadHandler handler) {
+    _payloadHandler = handler;
+  }
 
   static Future<void> _doInitialize() async {
     tz.initializeTimeZones();
@@ -42,7 +57,14 @@ class NotificationScheduler {
       iOS: iosSettings,
     );
 
-    await _plugin.initialize(settings: initSettings);
+    await _plugin.initialize(
+      settings: initSettings,
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload == null || payload.isEmpty) return;
+        _payloadHandler?.call(payload);
+      },
+    );
 
     await _plugin
         .resolvePlatformSpecificImplementation<
@@ -62,6 +84,53 @@ class NotificationScheduler {
             importance: Importance.high,
           ),
         );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _patientPushChannelId,
+            _patientPushChannelName,
+            description: _patientPushChannelDescription,
+            importance: Importance.high,
+          ),
+        );
+  }
+
+  static Future<void> showPushNotification({
+    required String title,
+    required String body,
+    required Map<String, dynamic> payload,
+  }) async {
+    await initialize();
+
+    if (title.trim().isEmpty && body.trim().isEmpty) return;
+
+    final safePayload = <String, String>{};
+    for (final entry in payload.entries) {
+      final value = entry.value;
+      if (value == null) continue;
+      safePayload[entry.key] = value.toString();
+    }
+
+    await _plugin.show(
+      id: DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
+      title: title.trim().isEmpty ? 'VH Health' : title.trim(),
+      body: body.trim(),
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _patientPushChannelId,
+          _patientPushChannelName,
+          channelDescription: _patientPushChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      payload: jsonEncode(safePayload),
+    );
   }
 
   /// Schedule daily notifications for a medication reminder.

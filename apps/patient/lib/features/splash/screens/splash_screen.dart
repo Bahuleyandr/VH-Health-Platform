@@ -5,7 +5,9 @@ import 'dart:developer' as developer;
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth_core/config/api_config.dart';
 
 import 'package:flutter/foundation.dart';
@@ -173,6 +175,10 @@ class _SplashScreenState extends State<SplashScreen>
           name,
           hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
         );
+        await PushNotificationService.syncForSignedInUser(
+          phone: phone,
+          notificationProvider: context.read<NotificationProvider>(),
+        );
       } catch (e) {
         developer.log(
           'Auto dev-login: UserProvider sync failed: $e',
@@ -278,6 +284,11 @@ class _SplashScreenState extends State<SplashScreen>
           return;
         }
         if (!mounted) return;
+        await PushNotificationService.syncForSignedInUser(
+          phone: phone ?? '',
+          notificationProvider: context.read<NotificationProvider>(),
+        );
+        if (!mounted) return;
         context.go('/home');
         return;
       }
@@ -303,6 +314,11 @@ class _SplashScreenState extends State<SplashScreen>
                 context.go('/profile-setup', extra: phone);
                 return;
               }
+              if (!mounted) return;
+              await PushNotificationService.syncForSignedInUser(
+                phone: phone,
+                notificationProvider: context.read<NotificationProvider>(),
+              );
               if (!mounted) return;
               context.go('/home');
               return;

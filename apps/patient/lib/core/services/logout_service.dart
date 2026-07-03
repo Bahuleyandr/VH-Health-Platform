@@ -4,6 +4,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
@@ -38,6 +39,7 @@ class LogoutService {
 
     // 2. Cancel all local notifications
     try {
+      PushNotificationService.clearSignedInUser();
       await NotificationScheduler.cancelAll();
     } catch (e) {
       debugPrint('LogoutService: notification cancel failed: $e');

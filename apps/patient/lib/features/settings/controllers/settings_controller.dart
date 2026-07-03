@@ -1,7 +1,6 @@
 // settings_controller.dart
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:provider/provider.dart';
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
@@ -10,9 +9,9 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
-import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
+import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -189,10 +188,9 @@ class SettingsController {
       } catch (e) {
         debugPrint('Settings logout cleanup failed: $e');
       }
-      await _secureStorage.deleteAll();
       await FirebaseAuth.instance.signOut();
+      await LogoutService.logout();
       if (context.mounted) {
-        context.read<UserProvider>().clear();
         context.go('/login');
       }
     }

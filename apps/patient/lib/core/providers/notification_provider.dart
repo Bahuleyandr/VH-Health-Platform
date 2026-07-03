@@ -4,7 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 
+typedef NotificationFeedFetcher = Future<dynamic> Function();
+
 class NotificationProvider extends ChangeNotifier {
+  NotificationProvider({NotificationFeedFetcher? feedFetcher})
+    : _feedFetcher = feedFetcher;
+
+  final NotificationFeedFetcher? _feedFetcher;
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
 
@@ -29,26 +35,26 @@ class NotificationProvider extends ChangeNotifier {
     }
 
     try {
+      if (_feedFetcher != null) {
+        final notifications = _normalizeNotifications(await _feedFetcher());
+        _unreadCount = notifications.where((n) => n['is_read'] == false).length;
+        notifyListeners();
+        return;
+      }
+
       final response = await ApiClient.get(
         '/notifications/my',
         timeout: const Duration(seconds: 10),
       );
 
       if (response.isSuccess) {
-        final data = response.data;
-        final List<dynamic> notifications;
-        if (data is List) {
-          notifications = data;
-        } else if (data is Map) {
-          notifications = (data['notifications'] as List?) ?? [];
-        } else {
-          notifications = [];
-        }
+        final notifications = _normalizeNotifications(response.data);
         _unreadCount = notifications.where((n) => n['is_read'] == false).length;
         notifyListeners();
-      } else {
-        debugPrint('❌ Failed to fetch notifications: ${response.statusCode}');
+        return;
       }
+
+      debugPrint('❌ Failed to fetch notifications: ${response.statusCode}');
     } catch (e) {
       debugPrint('❌ Error fetching unread notifications: $e');
       _unreadCount = 0;
@@ -82,5 +88,24 @@ class NotificationProvider extends ChangeNotifier {
   /// Convenience alias for `markAllRead`
   void markAllAsRead(String phone) {
     markAllRead(phone);
+  }
+
+  Future<void> refreshBadgeAfterPush(String phone) => fetchUnreadCount(phone);
+
+  List<Map<String, dynamic>> _normalizeNotifications(dynamic data) {
+    final List<dynamic> notifications;
+    if (data is List) {
+      notifications = data;
+    } else if (data is Map) {
+      notifications = (data['notifications'] as List?) ?? [];
+    } else {
+      notifications = [];
+    }
+    return notifications
+        .whereType<Map>()
+        .map(
+          (item) => item.map((key, value) => MapEntry(key.toString(), value)),
+        )
+        .toList();
   }
 }
