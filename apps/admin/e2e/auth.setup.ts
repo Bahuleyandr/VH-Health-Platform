@@ -101,6 +101,8 @@ async function reuseExistingAuth(page: Page): Promise<boolean> {
     await page.waitForTimeout(500);
 
     if (/\/login/.test(page.url())) return false;
+    const dashboardProbe = await page.request.get('/api/proxy/api/v1/admin/dashboard');
+    if (!dashboardProbe.ok()) return false;
     return true;
   } catch {
     return false;

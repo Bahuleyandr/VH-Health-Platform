@@ -11,6 +11,7 @@ import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { error } from '../../utils/responseHelper.js';
 import {
   firebaseLoginValidator,
   userProfileValidator,
@@ -24,10 +25,8 @@ const router = express.Router();
 const handleValidation = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      success: false,
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, {
+      topLevel: { errors: errors.array() },
     });
   }
   next();
@@ -38,10 +37,12 @@ const requireAuthenticatedPhoneBinding = (req, res, next) => {
   const requestedPhone = normalizePhone(req.body?.phone);
 
   if (!tokenPhone || !requestedPhone || tokenPhone !== requestedPhone) {
-    return res.status(HTTP_STATUS.FORBIDDEN).json({
-      success: false,
-      error: 'Authenticated user does not match requested phone',
-      code: 'FIREBASE_PHONE_MISMATCH'
+    const message = 'Authenticated user does not match requested phone';
+    return error(res, message, HTTP_STATUS.FORBIDDEN, {
+      topLevel: {
+        error: message,
+        code: 'FIREBASE_PHONE_MISMATCH'
+      }
     });
   }
 
@@ -60,10 +61,12 @@ const requireLegacyFirebaseRegisterAllowed = (_req, res, next) => {
   const explicitlyEnabled = String(process.env.ENABLE_LEGACY_FIREBASE_REGISTER || '').toLowerCase() === 'true';
 
   if (isProduction || !explicitlyEnabled) {
-    return res.status(HTTP_STATUS.FORBIDDEN).json({
-      success: false,
-      error: 'Legacy Firebase registration is disabled. Use Firebase ID-token login.',
-      code: 'FIREBASE_LEGACY_REGISTER_DISABLED'
+    const message = 'Legacy Firebase registration is disabled. Use Firebase ID-token login.';
+    return error(res, message, HTTP_STATUS.FORBIDDEN, {
+      topLevel: {
+        error: message,
+        code: 'FIREBASE_LEGACY_REGISTER_DISABLED'
+      }
     });
   }
 

@@ -9,6 +9,7 @@ import * as staffAuthController from '../../controllers/auth/staffAuthController
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireDeviceType } from '../../middleware/requireDeviceTypeMiddleware.js';
+import { error } from '../../utils/responseHelper.js';
 import { passwordComplexityMiddleware } from '../../validators/passwordValidator.js';
 import { staffPinLoginValidator } from '../../validators/auth/adminAuthValidator.js';
 import {
@@ -42,10 +43,8 @@ const staffPasswordChangeValidator = [
 const handleValidation = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      success: false,
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, {
+      topLevel: { errors: errors.array() },
     });
   }
   next();

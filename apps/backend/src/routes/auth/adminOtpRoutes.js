@@ -6,6 +6,7 @@ import { validationResult, body, query } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminOtpController from '../../controllers/auth/adminOtpController.js';
+import { error } from '../../utils/responseHelper.js';
 import {
   analyticsValidator,
   otpLogsValidator,
@@ -21,10 +22,8 @@ const router = express.Router();
 const handleValidation = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      success: false,
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, {
+      topLevel: { errors: errors.array() },
     });
   }
   next();

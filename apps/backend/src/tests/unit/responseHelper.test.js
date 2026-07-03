@@ -115,3 +115,53 @@ describe('responseHelper.sanitizeErrorMessage', () => {
     });
   });
 });
+
+describe('responseHelper.error', () => {
+  let error;
+
+  beforeEach(async () => {
+    process.env.NODE_ENV = 'test';
+    jest.resetModules();
+    ({ error } = await import('../../utils/responseHelper.js'));
+  });
+
+  afterAll(() => {
+    process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  });
+
+  function makeRes() {
+    const res = {
+      req: { originalUrl: '/unit/error' },
+      statusCode: null,
+      body: null,
+      status: jest.fn((statusCode) => {
+        res.statusCode = statusCode;
+        return res;
+      }),
+      json: jest.fn((payload) => {
+        res.body = payload;
+        return res;
+      }),
+    };
+    return res;
+  }
+
+  it('can preserve additive top-level fields while emitting the standard error envelope', () => {
+    const res = makeRes();
+
+    error(res, 'Validation failed', 400, {
+      topLevel: {
+        errors: [{ msg: 'Phone is required', path: 'phone' }],
+        code: 'VALIDATION_FAILED',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      success: false,
+      message: 'Validation failed',
+      errors: [{ msg: 'Phone is required', path: 'phone' }],
+      code: 'VALIDATION_FAILED',
+    });
+  });
+});

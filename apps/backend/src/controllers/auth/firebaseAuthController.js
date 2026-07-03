@@ -112,10 +112,8 @@ export const verifyToken = async (req, res) => {
   } catch (err) {
     logger.error('Token Verification Error:', err);
 
-    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-      success: false,
-      valid: false,
-      message: 'Invalid or expired Firebase token'
+    return error(res, 'Invalid or expired Firebase token', HTTP_STATUS.UNAUTHORIZED, {
+      topLevel: { valid: false },
     });
   }
 };

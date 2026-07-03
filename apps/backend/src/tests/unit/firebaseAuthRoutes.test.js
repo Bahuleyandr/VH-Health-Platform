@@ -93,6 +93,9 @@ describe('firebase auth route protections', () => {
       });
 
     expect(res.statusCode).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
+    expect(res.body.error).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
     expect(res.body.code).toBe('FIREBASE_LEGACY_REGISTER_DISABLED');
     expect(controllerMock.registerUser).not.toHaveBeenCalled();
   });
@@ -109,6 +112,9 @@ describe('firebase auth route protections', () => {
       });
 
     expect(res.statusCode).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
+    expect(res.body.error).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
     expect(res.body.code).toBe('FIREBASE_LEGACY_REGISTER_DISABLED');
     expect(controllerMock.registerUser).not.toHaveBeenCalled();
   });
@@ -152,6 +158,9 @@ describe('firebase auth route protections', () => {
       });
 
     expect(res.statusCode).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Authenticated user does not match requested phone');
+    expect(res.body.error).toBe('Authenticated user does not match requested phone');
     expect(res.body.code).toBe('FIREBASE_PHONE_MISMATCH');
     expect(controllerMock.updateFcmToken).not.toHaveBeenCalled();
   });
