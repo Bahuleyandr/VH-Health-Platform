@@ -115,6 +115,28 @@ function optionalDate(value, label) {
   return parsed.toISOString();
 }
 
+function dateOnly(value, label) {
+  if (value === null || value === undefined || value === '') return null;
+  const normalized = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw AppError.badRequest(`${label} must be YYYY-MM-DD`, 'INVALID_DATE');
+  }
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw AppError.badRequest(`${label} must be a real calendar date`, 'INVALID_DATE');
+  }
+  return normalized;
+}
+
+function dateRange(dateFrom, dateTo) {
+  const from = dateOnly(dateFrom, 'date_from');
+  const to = dateOnly(dateTo, 'date_to');
+  if (from && to && from > to) {
+    throw AppError.badRequest('date_from must be on or before date_to', 'INVALID_DATE_RANGE');
+  }
+  return { from, to };
+}
+
 function statusFilters({ status, tableAlias = '' } = {}) {
   const prefix = tableAlias ? `${tableAlias}.` : '';
   return status ? [`${prefix}status = $STATUS`] : [];
@@ -561,6 +583,75 @@ export async function listPatientAccessAudit({
     return { access_events: rows, count: rows.length };
   } catch (err) {
     if (missingSchema(err)) return { access_events: [], count: 0 };
+    throw err;
+  }
+}
+
+export async function listPatientAccessShadowDenials({
+  tenantId: tid = null,
+  dateFrom = null,
+  dateTo = null,
+} = {}) {
+  const range = dateRange(dateFrom, dateTo);
+  const params = [tenantId(tid)];
+  const filters = [
+    'tenant_id = $1::uuid',
+    "LOWER(access_decision) = 'deny'",
+    "metadata->>'shadow_mode' = 'true'",
+  ];
+  if (range.from) {
+    params.push(range.from);
+    filters.push(`(created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`);
+  }
+  if (range.to) {
+    params.push(range.to);
+    filters.push(`(created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`);
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT
+         (created_at AT TIME ZONE 'Asia/Kolkata')::date::text AS day,
+         COALESCE(NULLIF(actor_role, ''), 'UNKNOWN') AS actor_role,
+         COALESCE(
+           NULLIF(metadata->>'record_type', ''),
+           NULLIF(metadata->>'resource_type', ''),
+           NULLIF(metadata->>'policy_code', ''),
+           NULLIF(split_part(regexp_replace(COALESCE(route, ''), '^/api/v1/', ''), '/', 1), ''),
+           'UNKNOWN'
+         ) AS resource_family,
+         COUNT(*)::int AS denial_count,
+         MIN(created_at) AS first_seen_at,
+         MAX(created_at) AS last_seen_at
+       FROM patient_access_audit_log
+       WHERE ${filters.join(' AND ')}
+       GROUP BY day, actor_role, resource_family
+       ORDER BY day DESC, actor_role ASC, resource_family ASC`,
+      ...params,
+    );
+    const shadowDenials = rows.map((row) => ({
+      day: row.day,
+      actor_role: row.actor_role,
+      resource_family: row.resource_family,
+      denial_count: Number(row.denial_count || 0),
+      first_seen_at: row.first_seen_at instanceof Date ? row.first_seen_at.toISOString() : row.first_seen_at,
+      last_seen_at: row.last_seen_at instanceof Date ? row.last_seen_at.toISOString() : row.last_seen_at,
+    }));
+    return {
+      range: { date_from: range.from, date_to: range.to },
+      shadow_denials: shadowDenials,
+      count: shadowDenials.length,
+      total_denials: shadowDenials.reduce((sum, row) => sum + row.denial_count, 0),
+    };
+  } catch (err) {
+    if (missingSchema(err)) {
+      return {
+        range: { date_from: range.from, date_to: range.to },
+        shadow_denials: [],
+        count: 0,
+        total_denials: 0,
+      };
+    }
     throw err;
   }
 }

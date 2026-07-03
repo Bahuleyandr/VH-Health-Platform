@@ -6,6 +6,7 @@
 
 import express from 'express';
 
+import { rowsToCsv } from '../../utils/csv.js';
 import { success } from '../../utils/responseHelper.js';
 import {
   addCareTeamMember,
@@ -18,6 +19,7 @@ import {
   listLabQcRuns,
   listLabSpecimens,
   listPatientAccessAudit,
+  listPatientAccessShadowDenials,
   recordLabQcRun,
   startPatientBreakGlass,
   transitionCareTeam,
@@ -176,6 +178,33 @@ router.get('/patient-access/audit', async (req, res, next) => {
       take: req.query.limit,
     });
     return success(res, result, 'Patient access audit retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.get('/patient-access/shadow-denials', async (req, res, next) => {
+  try {
+    const result = await listPatientAccessShadowDenials({
+      tenantId: req.tenantId,
+      dateFrom: req.query.date_from || null,
+      dateTo: req.query.date_to || null,
+    });
+    if (String(req.query.format || '').toLowerCase() === 'csv') {
+      const headers = ['day', 'actor_role', 'resource_family', 'denial_count', 'first_seen_at', 'last_seen_at'];
+      const rows = result.shadow_denials.map((row) => [
+        row.day,
+        row.actor_role,
+        row.resource_family,
+        row.denial_count,
+        row.first_seen_at,
+        row.last_seen_at,
+      ]);
+      const from = result.range.date_from || 'all';
+      const to = result.range.date_to || 'all';
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="shadow-denials-${from}-to-${to}.csv"`);
+      return res.send(rowsToCsv(headers, rows));
+    }
+    return success(res, result, 'Care-team shadow denials retrieved');
   } catch (err) { return next(err); }
 });
 

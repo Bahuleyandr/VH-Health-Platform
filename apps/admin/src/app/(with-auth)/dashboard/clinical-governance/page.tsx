@@ -4,17 +4,19 @@
 // Refactored 2026-07-02 from a 1594-LOC god page into tab components.
 
 import { useState } from "react";
-import { Activity, FlaskConical, ShieldCheck, Users } from "lucide-react";
+import { Activity, FlaskConical, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 
 import { AccessAuditTab } from "./components/AccessAuditTab";
 import { LabGovernanceTab } from "./components/LabGovernanceTab";
 import { PatientAccessTab } from "./components/PatientAccessTab";
+import { ShadowDenialsTab } from "./components/ShadowDenialsTab";
 import type { ClinicalGovernanceTab } from "./components/types";
 
 const TABS: { key: ClinicalGovernanceTab; label: string; icon: typeof Users }[] = [
   { key: "access", label: "Patient access", icon: Users },
   { key: "lab", label: "Lab governance", icon: FlaskConical },
   { key: "audit", label: "Access audit", icon: Activity },
+  { key: "shadow", label: "Shadow denials", icon: ShieldAlert },
 ];
 
 export default function ClinicalGovernancePage() {
@@ -58,6 +60,7 @@ export default function ClinicalGovernancePage() {
       {tab === "access" ? <PatientAccessTab /> : null}
       {tab === "lab" ? <LabGovernanceTab /> : null}
       {tab === "audit" ? <AccessAuditTab /> : null}
+      {tab === "shadow" ? <ShadowDenialsTab /> : null}
     </div>
   );
 }
