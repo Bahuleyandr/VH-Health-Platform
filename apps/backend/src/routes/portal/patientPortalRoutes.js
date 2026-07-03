@@ -15,6 +15,7 @@ import logger from '../../logging/logger.js';
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
 import * as portalAccess from '../../services/portal/portalAccessService.js';
+import { getPatientWhatsNext } from '../../services/carePlan/carePlanService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
@@ -104,6 +105,16 @@ router.get('/appointments', requirePatient, useAuthenticatedPatientId, getPatien
 router.get('/records', requirePatient, useAuthenticatedPatientPhone, getHealthRecordsByPhone);
 
 router.get('/prescriptions', requirePatient, getMyPrescriptions);
+
+// Patient-facing care-plan projection: read-only "what's next" cards from
+// patient-visible active goals plus open/scheduled follow-up plans.
+router.get('/care-plans/whats-next', requirePatient, wrap(async (req) =>
+  getPatientWhatsNext({
+    tenantId: tenantOf(req),
+    patientUid: patientUidOf(req),
+    limit: req.query.limit,
+  }),
+));
 
 // Patient-facing Rx PDF — returns a JSON envelope with a signed R2
 // URL. Lazily regenerates the PDF if pdf_key is null (R2 outage at

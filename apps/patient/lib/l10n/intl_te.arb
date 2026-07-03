@@ -1871,5 +1871,45 @@
   "yourHealthUploadRecord": "రికార్డును అప్‌లోడ్ చేయండి",
   "@yourHealthUploadRecord": {
     "description": "Action button on Your Health screen to open upload sheet"
+  },
+  "yourHealthWhatsNextTitle": "తర్వాత ఏమిటి",
+  "@yourHealthWhatsNextTitle": {
+    "description": "Heading for the care-plan next steps section in Your Health"
+  },
+  "yourHealthWhatsNextSubtitle": "మీ కేర్ టీమ్ మీ కోసం గుర్తించిన లక్ష్యాలు మరియు ఫాలో-అప్స్.",
+  "@yourHealthWhatsNextSubtitle": {
+    "description": "Subtitle for the care-plan next steps section"
+  },
+  "yourHealthWhatsNextGoals": "లక్ష్యాలు",
+  "@yourHealthWhatsNextGoals": {
+    "description": "Heading for active care-plan goals"
+  },
+  "yourHealthWhatsNextFollowUps": "ఫాలో-అప్స్",
+  "@yourHealthWhatsNextFollowUps": {
+    "description": "Heading for care-plan follow-up plans"
+  },
+  "yourHealthWhatsNextLoadFailed": "మీ తదుపరి దశలను లోడ్ చేయడం సాధ్యపడలేదు.",
+  "@yourHealthWhatsNextLoadFailed": {
+    "description": "Error text when care-plan next steps loading fails"
+  },
+  "yourHealthWhatsNextRetry": "మళ్లీ ప్రయత్నించండి",
+  "@yourHealthWhatsNextRetry": {
+    "description": "Retry button for the care-plan next steps section"
+  },
+  "yourHealthWhatsNextPlan": "ప్లాన్",
+  "@yourHealthWhatsNextPlan": {
+    "description": "Label before a care-plan name"
+  },
+  "yourHealthWhatsNextTarget": "లక్ష్యం",
+  "@yourHealthWhatsNextTarget": {
+    "description": "Label before a care-plan goal target value"
+  },
+  "yourHealthWhatsNextCurrent": "ప్రస్తుత",
+  "@yourHealthWhatsNextCurrent": {
+    "description": "Label before a care-plan goal current value"
+  },
+  "yourHealthWhatsNextDue": "గడువు",
+  "@yourHealthWhatsNextDue": {
+    "description": "Label before a care-plan due date"
   }
 }

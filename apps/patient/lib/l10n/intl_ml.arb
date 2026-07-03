@@ -1871,5 +1871,45 @@
   "yourHealthUploadRecord": "റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക",
   "@yourHealthUploadRecord": {
     "description": "Action button on Your Health screen to open upload sheet"
+  },
+  "yourHealthWhatsNextTitle": "അടുത്തത് എന്ത്",
+  "@yourHealthWhatsNextTitle": {
+    "description": "Heading for the care-plan next steps section in Your Health"
+  },
+  "yourHealthWhatsNextSubtitle": "നിങ്ങളുടെ കെയർ ടീം നിങ്ങൾക്കായി അടയാളപ്പെടുത്തിയ ലക്ഷ്യങ്ങളും ഫോളോ-അപ്പുകളും.",
+  "@yourHealthWhatsNextSubtitle": {
+    "description": "Subtitle for the care-plan next steps section"
+  },
+  "yourHealthWhatsNextGoals": "ലക്ഷ്യങ്ങൾ",
+  "@yourHealthWhatsNextGoals": {
+    "description": "Heading for active care-plan goals"
+  },
+  "yourHealthWhatsNextFollowUps": "ഫോളോ-അപ്പുകൾ",
+  "@yourHealthWhatsNextFollowUps": {
+    "description": "Heading for care-plan follow-up plans"
+  },
+  "yourHealthWhatsNextLoadFailed": "നിങ്ങളുടെ അടുത്ത ഘട്ടങ്ങൾ ലോഡ് ചെയ്യാനായില്ല.",
+  "@yourHealthWhatsNextLoadFailed": {
+    "description": "Error text when care-plan next steps loading fails"
+  },
+  "yourHealthWhatsNextRetry": "വീണ്ടും ശ്രമിക്കുക",
+  "@yourHealthWhatsNextRetry": {
+    "description": "Retry button for the care-plan next steps section"
+  },
+  "yourHealthWhatsNextPlan": "പ്ലാൻ",
+  "@yourHealthWhatsNextPlan": {
+    "description": "Label before a care-plan name"
+  },
+  "yourHealthWhatsNextTarget": "ലക്ഷ്യം",
+  "@yourHealthWhatsNextTarget": {
+    "description": "Label before a care-plan goal target value"
+  },
+  "yourHealthWhatsNextCurrent": "നിലവിൽ",
+  "@yourHealthWhatsNextCurrent": {
+    "description": "Label before a care-plan goal current value"
+  },
+  "yourHealthWhatsNextDue": "അവസാന തീയതി",
+  "@yourHealthWhatsNextDue": {
+    "description": "Label before a care-plan due date"
   }
 }

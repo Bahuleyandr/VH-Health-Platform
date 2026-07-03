@@ -1871,5 +1871,45 @@
   "yourHealthUploadRecord": "பதிவைப் பதிவேற்றவும்",
   "@yourHealthUploadRecord": {
     "description": "Action button on Your Health screen to open upload sheet"
+  },
+  "yourHealthWhatsNextTitle": "அடுத்து என்ன",
+  "@yourHealthWhatsNextTitle": {
+    "description": "Heading for the care-plan next steps section in Your Health"
+  },
+  "yourHealthWhatsNextSubtitle": "உங்கள் பராமரிப்பு குழு உங்களுக்காக குறித்த இலக்குகள் மற்றும் பின்தொடர்வுகள்.",
+  "@yourHealthWhatsNextSubtitle": {
+    "description": "Subtitle for the care-plan next steps section"
+  },
+  "yourHealthWhatsNextGoals": "இலக்குகள்",
+  "@yourHealthWhatsNextGoals": {
+    "description": "Heading for active care-plan goals"
+  },
+  "yourHealthWhatsNextFollowUps": "பின்தொடர்வுகள்",
+  "@yourHealthWhatsNextFollowUps": {
+    "description": "Heading for care-plan follow-up plans"
+  },
+  "yourHealthWhatsNextLoadFailed": "உங்கள் அடுத்த படிகளை ஏற்ற முடியவில்லை.",
+  "@yourHealthWhatsNextLoadFailed": {
+    "description": "Error text when care-plan next steps loading fails"
+  },
+  "yourHealthWhatsNextRetry": "மீண்டும் முயற்சி",
+  "@yourHealthWhatsNextRetry": {
+    "description": "Retry button for the care-plan next steps section"
+  },
+  "yourHealthWhatsNextPlan": "திட்டம்",
+  "@yourHealthWhatsNextPlan": {
+    "description": "Label before a care-plan name"
+  },
+  "yourHealthWhatsNextTarget": "இலக்கு",
+  "@yourHealthWhatsNextTarget": {
+    "description": "Label before a care-plan goal target value"
+  },
+  "yourHealthWhatsNextCurrent": "தற்போது",
+  "@yourHealthWhatsNextCurrent": {
+    "description": "Label before a care-plan goal current value"
+  },
+  "yourHealthWhatsNextDue": "நிலுவை",
+  "@yourHealthWhatsNextDue": {
+    "description": "Label before a care-plan due date"
   }
 }

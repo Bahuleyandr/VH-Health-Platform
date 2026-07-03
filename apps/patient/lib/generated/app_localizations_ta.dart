@@ -1757,4 +1757,36 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get yourHealthUploadRecord => 'பதிவைப் பதிவேற்றவும்';
+
+  @override
+  String get yourHealthWhatsNextTitle => 'அடுத்து என்ன';
+
+  @override
+  String get yourHealthWhatsNextSubtitle =>
+      'உங்கள் பராமரிப்பு குழு உங்களுக்காக குறித்த இலக்குகள் மற்றும் பின்தொடர்வுகள்.';
+
+  @override
+  String get yourHealthWhatsNextGoals => 'இலக்குகள்';
+
+  @override
+  String get yourHealthWhatsNextFollowUps => 'பின்தொடர்வுகள்';
+
+  @override
+  String get yourHealthWhatsNextLoadFailed =>
+      'உங்கள் அடுத்த படிகளை ஏற்ற முடியவில்லை.';
+
+  @override
+  String get yourHealthWhatsNextRetry => 'மீண்டும் முயற்சி';
+
+  @override
+  String get yourHealthWhatsNextPlan => 'திட்டம்';
+
+  @override
+  String get yourHealthWhatsNextTarget => 'இலக்கு';
+
+  @override
+  String get yourHealthWhatsNextCurrent => 'தற்போது';
+
+  @override
+  String get yourHealthWhatsNextDue => 'நிலுவை';
 }

@@ -17,6 +17,7 @@ import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
 import 'package:vhhealth/features/your_health/services/patient_explainers_repository.dart';
+import 'package:vhhealth/features/your_health/services/whats_next_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/l10n/app_localizations_ext.dart';
 
@@ -27,15 +28,18 @@ import 'package:vhhealth/features/your_health/widgets/health_summary_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/health_timeline_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/hospital_documents_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/my_uploads_tab.dart';
+import 'package:vhhealth/features/your_health/widgets/whats_next_section.dart';
 
 class YourHealthScreen extends StatefulWidget {
   final int initialTab;
   final PatientExplainersRepository explainersRepository;
+  final WhatsNextRepository whatsNextRepository;
 
   const YourHealthScreen({
     super.key,
     this.initialTab = 0,
     this.explainersRepository = const ApiPatientExplainersRepository(),
+    this.whatsNextRepository = const ApiWhatsNextRepository(),
   });
 
   @override
@@ -386,6 +390,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                 ],
               ),
             ),
+            WhatsNextSection(repository: widget.whatsNextRepository),
             TabBar(
               controller: _tabController,
               labelColor: cs.primary,

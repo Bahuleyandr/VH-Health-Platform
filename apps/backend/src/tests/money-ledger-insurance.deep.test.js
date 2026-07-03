@@ -5,8 +5,43 @@ import * as billing from '../services/billing/billingV2Service.js';
 import * as claims from '../services/insurance/claimsService.js';
 import { getAccountBalancePaise } from '../services/billing/ledger/ledgerService.js';
 
-const TENANT = '00000000-0000-4000-8000-000000000001';
+const TENANT = '00000000-0000-4000-8000-0000000003c1';
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 const cleanup = { invoiceIds: [], claimIds: [], preauthIds: [], policyIds: [], patientUids: [] };
+
+async function purgeLedgerForTenant() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    const entryRows = await tx.$queryRawUnsafe(
+      `SELECT id FROM ledger_entries WHERE tenant_id = $1::uuid`,
+      TENANT,
+    );
+    const entryIds = entryRows.map((r) => Number(r.id));
+    if (entryIds.length) {
+      await tx.$executeRawUnsafe(`DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds);
+      await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
+    }
+  });
+}
+
+beforeAll(async () => {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO tenants (id, slug, name)
+     VALUES ($1::uuid, 'ledger-insurance-tenant', 'Ledger Insurance Test')
+     ON CONFLICT (id) DO NOTHING`,
+    TENANT,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO ledger_accounts (tenant_id, code, type, description)
+       SELECT $1::uuid, code, type, description
+         FROM ledger_accounts
+        WHERE tenant_id = $2::uuid
+      ON CONFLICT (tenant_id, code) DO NOTHING`,
+    TENANT,
+    DEFAULT_TENANT,
+  );
+  await purgeLedgerForTenant();
+});
 
 async function makePatient() {
   const uid = randomUUID();
@@ -89,6 +124,7 @@ async function purgeLedgerForTest() {
 
 afterAll(async () => {
   try {
+    await purgeLedgerForTenant();
     await purgeLedgerForTest();
     if (cleanup.claimIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM tpa_claim_correspondence WHERE claim_id = ANY($1::int[])`, cleanup.claimIds).catch(() => {});
