@@ -536,7 +536,7 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
   - TOTP secrets encrypted with a distinct key
     (`TOTP_ENCRYPTION_KEY`).
   - Backup encryption with customer-managed keys.
-  - Audit log preservation (Loki 30d retention + SQL audit tables
+  - Audit log preservation (Loki 180-day retention + SQL audit tables
     permanent).
   - PHI access middleware (`phiAccessLogger`) on every medical data
     route.

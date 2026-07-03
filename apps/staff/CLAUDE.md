@@ -156,7 +156,7 @@ exercises `local_auth` (the dependency is live; do not remove it). See
 
 ## Future Directions
 
-Use [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md),
+Use [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md),
 [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md),
 [`docs/LANGUAGE_HEALTH.md`](docs/LANGUAGE_HEALTH.md), and
 [`docs/SCREEN_READER_TEST_PLAN.md`](docs/SCREEN_READER_TEST_PLAN.md) for
