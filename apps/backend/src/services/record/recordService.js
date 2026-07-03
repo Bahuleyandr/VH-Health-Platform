@@ -417,6 +417,7 @@ async function getClinicalNoteConsultationsByUid(uid, take) {
       patient_uid: String(uid),
       note_type: { in: PATIENT_CONSULTATION_NOTE_TYPES },
       is_signed: true,
+      appointment_id: { not: null },
       status: { not: 'deleted' },
     },
     select: {
