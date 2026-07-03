@@ -394,7 +394,7 @@ need plugin-channel mock setup that isn't in place yet — see
 
 ## Future Directions
 
-Use [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md),
+Use [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md),
 [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md),
 [`docs/LANGUAGE_HEALTH.md`](docs/LANGUAGE_HEALTH.md), and
 [`../../docs/TRANSLATION_REVIEW_TRACKER.md`](../../docs/TRANSLATION_REVIEW_TRACKER.md)
