@@ -16,8 +16,34 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
+import { AppError } from '../../utils/AppError.js';
 
-const KINDS = new Set(['abdm_callback', 'hl7_inbound']);
+export const VALID_INTEROP_SECRET_KINDS = ['abdm_callback', 'hl7_inbound'];
+const KINDS = new Set(VALID_INTEROP_SECRET_KINDS);
+
+function normalizeKind(kind) {
+  return String(kind || '').trim();
+}
+
+function normalizeSender(senderIdentifier) {
+  return String(senderIdentifier || '').trim();
+}
+
+function maskedRow(row) {
+  if (!row) return null;
+  const hasSecret = row.has_secret === true || row.has_secret === 'true' || row.has_secret === 1;
+  return {
+    id: Number(row.id),
+    tenant_id: row.tenant_id,
+    kind: row.kind,
+    sender_identifier: row.sender_identifier,
+    status: row.status,
+    has_secret: hasSecret,
+    secret_masked: hasSecret ? '********' : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
 
 /**
  * Resolve the tenant for an inbound callback BEFORE the HMAC check, from a
@@ -70,16 +96,44 @@ export async function getInteropSecret(tenantId, kind) {
 }
 
 /**
+ * Super-admin console list surface. Never decrypts or returns secret material;
+ * only reports masked metadata for the selected tenant.
+ */
+export async function listInteropSecretsForTenant(tenantId) {
+  if (!tenantId) throw AppError.badRequest('tenantId is required', 'TENANT_ID_REQUIRED');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id,
+            tenant_id::text AS tenant_id,
+            kind,
+            sender_identifier,
+            status,
+            (secret_ciphertext IS NOT NULL) AS has_secret,
+            created_at,
+            updated_at
+       FROM tenant_interop_secrets
+      WHERE tenant_id = $1::uuid
+      ORDER BY kind ASC, sender_identifier ASC`,
+    tenantId,
+  );
+  return rows.map(maskedRow);
+}
+
+/**
  * Upsert a tenant's interop secret (stored encrypted). (kind, sender_identifier)
  * is globally unique so a sender maps to exactly one tenant — re-pointing a
  * sender to a different tenant updates the existing row.
  */
 export async function upsertInteropSecret({ tenantId, kind, senderIdentifier, secret }) {
-  if (!tenantId) throw new Error('tenantId is required');
-  if (!KINDS.has(kind)) throw new Error(`Unknown interop secret kind: ${kind}`);
-  const sid = String(senderIdentifier || '').trim();
-  if (!sid) throw new Error('senderIdentifier is required');
-  if (!secret) throw new Error('secret is required');
+  if (!tenantId) throw AppError.badRequest('tenantId is required', 'TENANT_ID_REQUIRED');
+  const cleanKind = normalizeKind(kind);
+  if (!KINDS.has(cleanKind)) {
+    throw AppError.badRequest(`Unknown interop secret kind: ${kind}`, 'INTEROP_SECRET_KIND_INVALID', {
+      allowed: VALID_INTEROP_SECRET_KINDS,
+    });
+  }
+  const sid = normalizeSender(senderIdentifier);
+  if (!sid) throw AppError.badRequest('senderIdentifier is required', 'INTEROP_SECRET_SENDER_REQUIRED');
+  if (!secret) throw AppError.badRequest('secret is required', 'INTEROP_SECRET_VALUE_REQUIRED');
   const ciphertext = encryptField(String(secret));
   await prisma.$executeRawUnsafe(
     `INSERT INTO tenant_interop_secrets
@@ -90,8 +144,30 @@ export async function upsertInteropSecret({ tenantId, kind, senderIdentifier, se
        secret_ciphertext = EXCLUDED.secret_ciphertext,
        status = 'active',
        updated_at = NOW()`,
-    tenantId, kind, sid, ciphertext,
+    tenantId, cleanKind, sid, ciphertext,
   );
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id,
+            tenant_id::text AS tenant_id,
+            kind,
+            sender_identifier,
+            status,
+            (secret_ciphertext IS NOT NULL) AS has_secret,
+            created_at,
+            updated_at
+       FROM tenant_interop_secrets
+      WHERE tenant_id = $1::uuid
+        AND kind = $2
+        AND sender_identifier = $3
+      LIMIT 1`,
+    tenantId, cleanKind, sid,
+  );
+  return maskedRow(rows[0]);
 }
 
-export default { resolveTenantBySender, getInteropSecret, upsertInteropSecret };
+export default {
+  resolveTenantBySender,
+  getInteropSecret,
+  listInteropSecretsForTenant,
+  upsertInteropSecret,
+};

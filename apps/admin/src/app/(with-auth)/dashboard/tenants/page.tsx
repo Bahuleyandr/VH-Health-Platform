@@ -2,14 +2,20 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Globe2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Building2, ChevronDown, Globe2, KeyRound, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   createTenant,
+  getTenantKekRewrapJob,
+  listTenantInteropSecrets,
   listTenants,
+  startTenantKekRewrapJob,
   updateTenant,
+  upsertTenantInteropSecret,
   type Tenant,
   type TenantComplianceProfile,
+  type TenantInteropSecret,
+  type TenantKekRewrapJob,
   type TenantRegion,
 } from "@/lib/api/tenants";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -56,6 +62,19 @@ function statusBadge(status: string) {
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
 
+function interopKindLabel(kind: TenantInteropSecret["kind"]) {
+  if (kind === "abdm_callback") return "ABDM callback";
+  if (kind === "hl7_inbound") return "HL7 inbound";
+  return kind;
+}
+
+function jobStatusBadge(status?: TenantKekRewrapJob["status"]) {
+  if (status === "succeeded") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "failed") return "bg-red-100 text-red-800 border-red-200";
+  if (status === "running" || status === "queued") return "bg-blue-100 text-blue-800 border-blue-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
 export default function TenantsAdminPage() {
   const queryClient = useQueryClient();
   const { isSuperAdmin, loading: permLoading } = usePermissions();
@@ -66,10 +85,36 @@ export default function TenantsAdminPage() {
     region: "IN" as TenantRegion,
     compliance_profile: "DPDP" as TenantComplianceProfile,
   });
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+  const [secretDraft, setSecretDraft] = useState({
+    kind: "abdm_callback" as TenantInteropSecret["kind"],
+    senderIdentifier: "",
+    secret: "",
+  });
+  const [jobIds, setJobIds] = useState<Record<string, string>>({});
 
   const tenants = useQuery({
     queryKey: ["tenants"],
     queryFn: () => listTenants(),
+  });
+
+  const selectedTenant = tenants.data?.tenants.find((tenant) => tenant.id === selectedTenantId) ?? null;
+  const selectedJobId = selectedTenantId ? jobIds[selectedTenantId] : undefined;
+
+  const interopSecrets = useQuery({
+    queryKey: ["tenant-interop-secrets", selectedTenantId],
+    queryFn: () => listTenantInteropSecrets(selectedTenantId as string),
+    enabled: Boolean(selectedTenantId),
+  });
+
+  const kekJob = useQuery({
+    queryKey: ["tenant-kek-rewrap-job", selectedTenantId, selectedJobId],
+    queryFn: () => getTenantKekRewrapJob(selectedTenantId as string, selectedJobId as string),
+    enabled: Boolean(selectedTenantId && selectedJobId),
+    refetchInterval: (query) => {
+      const status = (query.state.data as TenantKekRewrapJob | undefined)?.status;
+      return status === "queued" || status === "running" ? 2000 : false;
+    },
   });
 
   const create = useMutation({
@@ -90,6 +135,32 @@ export default function TenantsAdminPage() {
       queryClient.invalidateQueries({ queryKey: ["tenants"] });
     },
     onError: (err: Error) => toast.error(err.message || "Update failed"),
+  });
+
+  const saveInteropSecret = useMutation({
+    mutationFn: () => {
+      if (!selectedTenantId) throw new Error("Tenant is required");
+      return upsertTenantInteropSecret(selectedTenantId, secretDraft);
+    },
+    onSuccess: () => {
+      toast.success("Interop secret stored");
+      setSecretDraft((current) => ({ ...current, secret: "" }));
+      queryClient.invalidateQueries({ queryKey: ["tenant-interop-secrets", selectedTenantId] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Secret update failed"),
+  });
+
+  const queueKekRewrap = useMutation({
+    mutationFn: () => {
+      if (!selectedTenantId) throw new Error("Tenant is required");
+      return startTenantKekRewrapJob(selectedTenantId);
+    },
+    onSuccess: (job) => {
+      toast.success("KEK re-wrap queued");
+      setJobIds((current) => ({ ...current, [job.tenant_id]: job.job_id }));
+      queryClient.invalidateQueries({ queryKey: ["tenant-kek-rewrap-job", job.tenant_id, job.job_id] });
+    },
+    onError: (err: Error) => toast.error(err.message || "KEK re-wrap failed"),
   });
 
   // W5 S3 — begin operating inside a tenant (SUPER_ADMIN only; the backend
@@ -128,6 +199,9 @@ export default function TenantsAdminPage() {
   }
 
   const rows: Tenant[] = tenants.data?.tenants ?? [];
+  const currentJob =
+    kekJob.data ??
+    (queueKekRewrap.data?.tenant_id === selectedTenantId ? queueKekRewrap.data : null);
 
   return (
     <div className="space-y-6">
@@ -269,6 +343,13 @@ export default function TenantsAdminPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex gap-1">
                       <button
+                        onClick={() => setSelectedTenantId((current) => (current === row.id ? null : row.id))}
+                        className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent"
+                      >
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${selectedTenantId === row.id ? "rotate-180" : ""}`} />
+                        Details
+                      </button>
+                      <button
                         onClick={() => void handleActAs(row)}
                         disabled={actingPending || actingTenant?.id === row.id}
                         title={actingTenant?.id === row.id ? "Already acting as this tenant" : "Operate inside this tenant (audited)"}
@@ -302,6 +383,143 @@ export default function TenantsAdminPage() {
           </tbody>
         </table>
       </div>
+
+      {selectedTenant ? (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold">{selectedTenant.name}</h2>
+              <div className="mt-1 text-xs font-mono text-muted-foreground">{selectedTenant.slug} / {selectedTenant.id}</div>
+            </div>
+            <button
+              onClick={() => {
+                interopSecrets.refetch();
+                if (selectedJobId) kekJob.refetch();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
+                  <KeyRound className="h-4 w-4" />
+                  Interop secrets
+                </h3>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
+                  {interopSecrets.data?.count ?? 0}
+                </span>
+              </div>
+
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Kind</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Sender</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Secret</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {(interopSecrets.data?.secrets ?? []).length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-5 text-center text-sm text-muted-foreground" colSpan={4}>
+                          No interop secrets
+                        </td>
+                      </tr>
+                    ) : (
+                      (interopSecrets.data?.secrets ?? []).map((secret) => (
+                        <tr key={`${secret.kind}:${secret.sender_identifier}`}>
+                          <td className="px-3 py-2">{interopKindLabel(secret.kind)}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{secret.sender_identifier}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{secret.secret_masked ?? "-"}</td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">{fmt(secret.updated_at)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-[180px_1fr_1fr_auto]">
+                <select
+                  aria-label="Interop kind"
+                  value={secretDraft.kind}
+                  onChange={(event) => setSecretDraft({ ...secretDraft, kind: event.target.value as TenantInteropSecret["kind"] })}
+                  className="rounded-md border border-border bg-card px-2 py-2 text-sm"
+                >
+                  <option value="abdm_callback">ABDM callback</option>
+                  <option value="hl7_inbound">HL7 inbound</option>
+                </select>
+                <input
+                  aria-label="Sender identifier"
+                  value={secretDraft.senderIdentifier}
+                  onChange={(event) => setSecretDraft({ ...secretDraft, senderIdentifier: event.target.value })}
+                  placeholder="Sender identifier"
+                  className="rounded-md border border-border bg-card px-2 py-2 text-sm"
+                />
+                <input
+                  aria-label="Secret value"
+                  type="password"
+                  value={secretDraft.secret}
+                  onChange={(event) => setSecretDraft({ ...secretDraft, secret: event.target.value })}
+                  placeholder="Secret value"
+                  className="rounded-md border border-border bg-card px-2 py-2 text-sm"
+                />
+                <button
+                  onClick={() => saveInteropSecret.mutate()}
+                  disabled={!secretDraft.senderIdentifier.trim() || !secretDraft.secret || saveInteropSecret.isPending}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  <KeyRound className="h-4 w-4" />
+                  Store
+                </button>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
+                <RotateCcw className="h-4 w-4" />
+                KEK re-wrap
+              </h3>
+              <div className="rounded-md border border-border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${jobStatusBadge(currentJob?.status)}`}>
+                    {currentJob?.status ?? "idle"}
+                  </span>
+                  <button
+                    onClick={() => queueKekRewrap.mutate()}
+                    disabled={queueKekRewrap.isPending || currentJob?.status === "queued" || currentJob?.status === "running"}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Queue re-wrap
+                  </button>
+                </div>
+                {currentJob ? (
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <div className="font-mono">{currentJob.job_id}</div>
+                    <div>Updated {fmt(currentJob.updated_at)}</div>
+                    {currentJob.summary ? (
+                      <div>
+                        Re-wrapped {currentJob.summary.rewrapped} value{currentJob.summary.rewrapped === 1 ? "" : "s"}
+                      </div>
+                    ) : null}
+                    {currentJob.error ? (
+                      <div className="text-red-700">{currentJob.error.message}</div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
