@@ -3787,6 +3787,396 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Due'**
   String get yourHealthWhatsNextDue;
+
+  /// Screen title for antenatal-care timeline
+  ///
+  /// In en, this message translates to:
+  /// **'ANC Timeline'**
+  String get ancTimelineTitle;
+
+  /// Error title when ANC timeline loading fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load ANC timeline'**
+  String get ancLoadFailed;
+
+  /// Empty-state title when no pregnancy is linked
+  ///
+  /// In en, this message translates to:
+  /// **'No active pregnancy on record'**
+  String get ancNoActivePregnancyTitle;
+
+  /// Empty-state subtitle when no pregnancy is linked
+  ///
+  /// In en, this message translates to:
+  /// **'If you have started antenatal care, your doctor will register your pregnancy at your next visit.'**
+  String get ancNoActivePregnancySubtitle;
+
+  /// Prefix before expected delivery date
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get ancDuePrefix;
+
+  /// Fallback when gestational age is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Gestational age unavailable'**
+  String get ancGestationalAgeFallback;
+
+  /// Label for high-risk pregnancy flag
+  ///
+  /// In en, this message translates to:
+  /// **'High-risk pregnancy'**
+  String get ancHighRiskPregnancy;
+
+  /// Prefix before high-risk reasons
+  ///
+  /// In en, this message translates to:
+  /// **'High-risk'**
+  String get ancHighRiskPrefix;
+
+  /// Prominent ANC safety heading for danger signs
+  ///
+  /// In en, this message translates to:
+  /// **'Danger signs'**
+  String get ancDangerSignsTitle;
+
+  /// Heading for ANC self-care advice
+  ///
+  /// In en, this message translates to:
+  /// **'ANC self-care'**
+  String get ancSafetyGuidanceTitle;
+
+  /// Subtitle under danger-sign safety guidance
+  ///
+  /// In en, this message translates to:
+  /// **'Call the hospital or seek urgent care if any of these appear.'**
+  String get ancSafetyGuidanceSubtitle;
+
+  /// Prefix before trimester number
+  ///
+  /// In en, this message translates to:
+  /// **'Trimester'**
+  String get ancTrimesterPrefix;
+
+  /// Shown when backend advice content is pending review
+  ///
+  /// In en, this message translates to:
+  /// **'Clinical content pending review'**
+  String get ancClinicalContentPending;
+
+  /// Small note when ANC advice content is pending clinical review
+  ///
+  /// In en, this message translates to:
+  /// **'Reviewed local-language guidance is pending clinical sign-off.'**
+  String get ancContentPendingReview;
+
+  /// Inline error when ANC advice loading fails
+  ///
+  /// In en, this message translates to:
+  /// **'ANC safety guidance could not be loaded right now.'**
+  String get ancAdviceLoadFailed;
+
+  /// Heading for fetal kick counter card
+  ///
+  /// In en, this message translates to:
+  /// **'Fetal kick counter'**
+  String get ancFetalKickCounter;
+
+  /// Prefix before last fetal kick log
+  ///
+  /// In en, this message translates to:
+  /// **'Last saved'**
+  String get ancLastSavedPrefix;
+
+  /// Unit label for fetal kicks
+  ///
+  /// In en, this message translates to:
+  /// **'kicks'**
+  String get ancKicksUnit;
+
+  /// Small connector before a date
+  ///
+  /// In en, this message translates to:
+  /// **'on'**
+  String get ancOnDatePrefix;
+
+  /// Input label for fetal kick count
+  ///
+  /// In en, this message translates to:
+  /// **'Kick count'**
+  String get ancKickCountLabel;
+
+  /// Input label for fetal kick observation window
+  ///
+  /// In en, this message translates to:
+  /// **'Observation window (minutes)'**
+  String get ancObservationWindowLabel;
+
+  /// Input label for optional notes
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
+  String get ancNotesLabel;
+
+  /// Validation error for fetal kick count
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a kick count between 0 and 999'**
+  String get ancKickCountValidation;
+
+  /// Validation error for fetal kick observation window
+  ///
+  /// In en, this message translates to:
+  /// **'Observation window must be 1-1440 minutes'**
+  String get ancWindowValidation;
+
+  /// Success message after saving fetal kicks
+  ///
+  /// In en, this message translates to:
+  /// **'Kick count saved'**
+  String get ancKickCountSaved;
+
+  /// Error message when fetal kick save fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save kick count'**
+  String get ancCouldNotSaveKickCount;
+
+  /// Button label to save fetal kicks
+  ///
+  /// In en, this message translates to:
+  /// **'Save kick count'**
+  String get ancSaveKickCount;
+
+  /// Button label while saving
+  ///
+  /// In en, this message translates to:
+  /// **'Saving...'**
+  String get ancSaving;
+
+  /// Heading for maternity packages
+  ///
+  /// In en, this message translates to:
+  /// **'Maternity packages'**
+  String get ancMaternityPackages;
+
+  /// Fallback name for maternity package
+  ///
+  /// In en, this message translates to:
+  /// **'Maternity package'**
+  String get ancPackageFallback;
+
+  /// Fallback when package pricing is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Pricing under review'**
+  String get ancPricingUnderReview;
+
+  /// Suffix after duration count
+  ///
+  /// In en, this message translates to:
+  /// **'days'**
+  String get ancDaysSuffix;
+
+  /// Heading for next ANC visit card
+  ///
+  /// In en, this message translates to:
+  /// **'Next visit'**
+  String get ancNextVisit;
+
+  /// Fallback when next visit date is not set
+  ///
+  /// In en, this message translates to:
+  /// **'To be scheduled'**
+  String get ancToBeScheduled;
+
+  /// Heading for completed ANC visits
+  ///
+  /// In en, this message translates to:
+  /// **'Visits so far'**
+  String get ancVisitsSoFar;
+
+  /// Fallback visit title
+  ///
+  /// In en, this message translates to:
+  /// **'Visit'**
+  String get ancVisit;
+
+  /// Prefix before ANC visit number
+  ///
+  /// In en, this message translates to:
+  /// **'Visit #'**
+  String get ancVisitNumberPrefix;
+
+  /// Suffix after gestational age week count
+  ///
+  /// In en, this message translates to:
+  /// **'weeks'**
+  String get ancGaWeeksSuffix;
+
+  /// Blood pressure label
+  ///
+  /// In en, this message translates to:
+  /// **'BP'**
+  String get ancBpLabel;
+
+  /// Weight label
+  ///
+  /// In en, this message translates to:
+  /// **'Weight'**
+  String get ancWeightLabel;
+
+  /// Fetal heart rate label
+  ///
+  /// In en, this message translates to:
+  /// **'FHR'**
+  String get ancFhrLabel;
+
+  /// Fundal height label
+  ///
+  /// In en, this message translates to:
+  /// **'Fundal ht.'**
+  String get ancFundalHeightLabel;
+
+  /// Hemoglobin label
+  ///
+  /// In en, this message translates to:
+  /// **'Hb'**
+  String get ancHbLabel;
+
+  /// Urine albumin label
+  ///
+  /// In en, this message translates to:
+  /// **'Urine albumin'**
+  String get ancUrineAlbuminLabel;
+
+  /// Heading for ANC supplements
+  ///
+  /// In en, this message translates to:
+  /// **'Supplements'**
+  String get ancSupplements;
+
+  /// Prefix before supplement dose
+  ///
+  /// In en, this message translates to:
+  /// **'Dose'**
+  String get ancDosePrefix;
+
+  /// Prefix before supplement frequency
+  ///
+  /// In en, this message translates to:
+  /// **'Frequency'**
+  String get ancFrequencyPrefix;
+
+  /// Prefix before supplement start date
+  ///
+  /// In en, this message translates to:
+  /// **'since'**
+  String get ancSincePrefix;
+
+  /// Prefix before supplement reminder times
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder times'**
+  String get ancReminderTimesPrefix;
+
+  /// Shown when supplement has no fixed dose time
+  ///
+  /// In en, this message translates to:
+  /// **'No fixed reminder time'**
+  String get ancNoFixedReminderTime;
+
+  /// Supplement reminder enabled label
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get ancReminderEnabledLabel;
+
+  /// Supplement reminder disabled label
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get ancReminderDisabledLabel;
+
+  /// Snackbar when supplement reminder is enabled
+  ///
+  /// In en, this message translates to:
+  /// **'Supplement reminder turned on'**
+  String get ancReminderOn;
+
+  /// Snackbar when supplement reminder is disabled
+  ///
+  /// In en, this message translates to:
+  /// **'Supplement reminder turned off'**
+  String get ancReminderOff;
+
+  /// Snackbar when supplement reminder toggle fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update supplement reminder'**
+  String get ancReminderToggleFailed;
+
+  /// Snackbar when backend toggle saved but local notification scheduling is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder saved, but no fixed local notification could be scheduled.'**
+  String get ancReminderScheduleFailed;
+
+  /// ANC advice category label
+  ///
+  /// In en, this message translates to:
+  /// **'Danger signs'**
+  String get ancAdviceCategoryDangerSigns;
+
+  /// ANC advice category label
+  ///
+  /// In en, this message translates to:
+  /// **'Baby movements'**
+  String get ancAdviceCategoryFetalMovement;
+
+  /// ANC advice category label
+  ///
+  /// In en, this message translates to:
+  /// **'Foods to avoid'**
+  String get ancAdviceCategoryFoodsToAvoid;
+
+  /// ANC advice category label
+  ///
+  /// In en, this message translates to:
+  /// **'When to contact us'**
+  String get ancAdviceCategoryWhenToContact;
+
+  /// Supplement frequency label
+  ///
+  /// In en, this message translates to:
+  /// **'Once daily'**
+  String get ancFrequencyOnceDaily;
+
+  /// Supplement frequency label
+  ///
+  /// In en, this message translates to:
+  /// **'Twice daily'**
+  String get ancFrequencyTwiceDaily;
+
+  /// Supplement frequency label
+  ///
+  /// In en, this message translates to:
+  /// **'Three times daily'**
+  String get ancFrequencyThriceDaily;
+
+  /// Supplement frequency label
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly'**
+  String get ancFrequencyWeekly;
+
+  /// Supplement frequency label
+  ///
+  /// In en, this message translates to:
+  /// **'As needed'**
+  String get ancFrequencyAsNeeded;
 }
 
 class _AppLocalizationsDelegate

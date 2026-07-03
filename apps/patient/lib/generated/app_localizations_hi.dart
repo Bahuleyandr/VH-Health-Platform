@@ -1951,4 +1951,205 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get yourHealthWhatsNextDue => 'देय';
+
+  @override
+  String get ancTimelineTitle => 'ANC टाइमलाइन';
+
+  @override
+  String get ancLoadFailed => 'ANC टाइमलाइन लोड नहीं हो सकी';
+
+  @override
+  String get ancNoActivePregnancyTitle =>
+      'कोई सक्रिय गर्भावस्था रिकॉर्ड में नहीं है';
+
+  @override
+  String get ancNoActivePregnancySubtitle =>
+      'अगर आपने प्रसवपूर्व देखभाल शुरू कर दी है, तो डॉक्टर आपकी अगली विज़िट में गर्भावस्था दर्ज करेंगे।';
+
+  @override
+  String get ancDuePrefix => 'अनुमानित तारीख';
+
+  @override
+  String get ancGestationalAgeFallback => 'गर्भावधि आयु उपलब्ध नहीं';
+
+  @override
+  String get ancHighRiskPregnancy => 'उच्च-जोखिम गर्भावस्था';
+
+  @override
+  String get ancHighRiskPrefix => 'उच्च जोखिम';
+
+  @override
+  String get ancDangerSignsTitle => 'खतरे के संकेत';
+
+  @override
+  String get ancSafetyGuidanceTitle => 'ANC स्व-देखभाल';
+
+  @override
+  String get ancSafetyGuidanceSubtitle =>
+      'इनमें से कुछ भी दिखे तो अस्पताल को कॉल करें या तुरंत देखभाल लें।';
+
+  @override
+  String get ancTrimesterPrefix => 'त्रैमासिक';
+
+  @override
+  String get ancClinicalContentPending => 'क्लिनिकल सामग्री समीक्षा में है';
+
+  @override
+  String get ancContentPendingReview =>
+      'समीक्षित स्थानीय-भाषा मार्गदर्शन अभी क्लिनिकल साइन-ऑफ की प्रतीक्षा में है।';
+
+  @override
+  String get ancAdviceLoadFailed =>
+      'ANC सुरक्षा मार्गदर्शन अभी लोड नहीं हो सका।';
+
+  @override
+  String get ancFetalKickCounter => 'भ्रूण किक काउंटर';
+
+  @override
+  String get ancLastSavedPrefix => 'अंतिम सेव';
+
+  @override
+  String get ancKicksUnit => 'किक';
+
+  @override
+  String get ancOnDatePrefix => 'को';
+
+  @override
+  String get ancKickCountLabel => 'किक गिनती';
+
+  @override
+  String get ancObservationWindowLabel => 'अवलोकन अवधि (मिनट)';
+
+  @override
+  String get ancNotesLabel => 'नोट्स';
+
+  @override
+  String get ancKickCountValidation => '0 से 999 के बीच किक गिनती दर्ज करें';
+
+  @override
+  String get ancWindowValidation => 'अवलोकन अवधि 1-1440 मिनट होनी चाहिए';
+
+  @override
+  String get ancKickCountSaved => 'किक गिनती सेव हो गई';
+
+  @override
+  String get ancCouldNotSaveKickCount => 'किक गिनती सेव नहीं हो सकी';
+
+  @override
+  String get ancSaveKickCount => 'किक गिनती सेव करें';
+
+  @override
+  String get ancSaving => 'सेव हो रहा है...';
+
+  @override
+  String get ancMaternityPackages => 'मातृत्व पैकेज';
+
+  @override
+  String get ancPackageFallback => 'मातृत्व पैकेज';
+
+  @override
+  String get ancPricingUnderReview => 'मूल्य समीक्षा में है';
+
+  @override
+  String get ancDaysSuffix => 'दिन';
+
+  @override
+  String get ancNextVisit => 'अगली विज़िट';
+
+  @override
+  String get ancToBeScheduled => 'शेड्यूल किया जाना है';
+
+  @override
+  String get ancVisitsSoFar => 'अब तक की विज़िट';
+
+  @override
+  String get ancVisit => 'विज़िट';
+
+  @override
+  String get ancVisitNumberPrefix => 'विज़िट #';
+
+  @override
+  String get ancGaWeeksSuffix => 'सप्ताह';
+
+  @override
+  String get ancBpLabel => 'BP';
+
+  @override
+  String get ancWeightLabel => 'वज़न';
+
+  @override
+  String get ancFhrLabel => 'FHR';
+
+  @override
+  String get ancFundalHeightLabel => 'फंडल ऊँचाई';
+
+  @override
+  String get ancHbLabel => 'Hb';
+
+  @override
+  String get ancUrineAlbuminLabel => 'मूत्र एल्ब्यूमिन';
+
+  @override
+  String get ancSupplements => 'सप्लीमेंट';
+
+  @override
+  String get ancDosePrefix => 'खुराक';
+
+  @override
+  String get ancFrequencyPrefix => 'आवृत्ति';
+
+  @override
+  String get ancSincePrefix => 'से';
+
+  @override
+  String get ancReminderTimesPrefix => 'रिमाइंडर समय';
+
+  @override
+  String get ancNoFixedReminderTime => 'कोई निश्चित रिमाइंडर समय नहीं';
+
+  @override
+  String get ancReminderEnabledLabel => 'चालू';
+
+  @override
+  String get ancReminderDisabledLabel => 'बंद';
+
+  @override
+  String get ancReminderOn => 'सप्लीमेंट रिमाइंडर चालू किया गया';
+
+  @override
+  String get ancReminderOff => 'सप्लीमेंट रिमाइंडर बंद किया गया';
+
+  @override
+  String get ancReminderToggleFailed => 'सप्लीमेंट रिमाइंडर अपडेट नहीं हो सका';
+
+  @override
+  String get ancReminderScheduleFailed =>
+      'रिमाइंडर सेव हुआ, लेकिन स्थानीय नोटिफिकेशन शेड्यूल नहीं हो सका।';
+
+  @override
+  String get ancAdviceCategoryDangerSigns => 'खतरे के संकेत';
+
+  @override
+  String get ancAdviceCategoryFetalMovement => 'बच्चे की हरकतें';
+
+  @override
+  String get ancAdviceCategoryFoodsToAvoid => 'बचने वाले खाद्य पदार्थ';
+
+  @override
+  String get ancAdviceCategoryWhenToContact => 'कब संपर्क करें';
+
+  @override
+  String get ancFrequencyOnceDaily => 'दिन में एक बार';
+
+  @override
+  String get ancFrequencyTwiceDaily => 'दिन में दो बार';
+
+  @override
+  String get ancFrequencyThriceDaily => 'दिन में तीन बार';
+
+  @override
+  String get ancFrequencyWeekly => 'साप्ताहिक';
+
+  @override
+  String get ancFrequencyAsNeeded => 'ज़रूरत पड़ने पर';
 }
