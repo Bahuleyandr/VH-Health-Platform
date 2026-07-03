@@ -318,6 +318,21 @@ List<Widget> buildSettingsSections(SettingsController c) {
           ),
           const Divider(height: 1),
           ListTile(
+            leading: Icon(Icons.manage_accounts_outlined, color: cs.primary),
+            title: Text(c.loc.recordAccessTitle, style: txt.titleMedium),
+            subtitle: Text(
+              c.loc.recordAccessSettingsSubtitle,
+              style: txt.bodySmall,
+            ),
+            trailing: Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: cs.onSurfaceVariant,
+            ),
+            onTap: () => c.context.push('/settings/record-access'),
+          ),
+          const Divider(height: 1),
+          ListTile(
             leading: Icon(Icons.delete_forever_outlined, color: cs.error),
             title: Text(
               'Delete account',

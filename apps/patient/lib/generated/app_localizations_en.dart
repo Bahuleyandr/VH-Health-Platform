@@ -2146,4 +2146,155 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ancFrequencyAsNeeded => 'As needed';
+
+  @override
+  String get recordAccessTitle => 'Record access';
+
+  @override
+  String get recordAccessSettingsSubtitle =>
+      'Control who can see your released records';
+
+  @override
+  String get recordAccessLoadFailed => 'Could not load record access';
+
+  @override
+  String get recordAccessGrantButton => 'Grant access';
+
+  @override
+  String get recordAccessGrantConfirmTitle => 'Grant record access?';
+
+  @override
+  String get recordAccessGrantConfirmBody =>
+      'This person will be able to view the selected released portal records until you revoke access or the grant expires.';
+
+  @override
+  String get recordAccessGrantSuccess => 'Record access granted';
+
+  @override
+  String get recordAccessGrantFailed => 'Could not grant record access';
+
+  @override
+  String get recordAccessRevokeConfirmTitle => 'Revoke access?';
+
+  @override
+  String get recordAccessRevokeConfirmBody =>
+      'This stops future proxy access. It does not remove clinical or audit records already retained by the hospital.';
+
+  @override
+  String get recordAccessRevokeButton => 'Revoke';
+
+  @override
+  String get recordAccessRevokedByPatient => 'Revoked by patient in app';
+
+  @override
+  String get recordAccessRevokeSuccess => 'Record access revoked';
+
+  @override
+  String get recordAccessRevokeFailed => 'Could not revoke record access';
+
+  @override
+  String get recordAccessEmptyTitle => 'No record access grants';
+
+  @override
+  String get recordAccessEmptySubtitle =>
+      'People you allow to view your released records will appear here.';
+
+  @override
+  String get recordAccessConsentTitle => 'You are in control';
+
+  @override
+  String get recordAccessConsentBody =>
+      'Grant access only to someone you trust. They can view released portal records for the selected scope; in-hospital notes are never shared through the patient portal.';
+
+  @override
+  String get recordAccessGrantedByMeTitle => 'People who can see my records';
+
+  @override
+  String get recordAccessHeldByMeTitle => 'Records shared with me';
+
+  @override
+  String get recordAccessStatus => 'Status';
+
+  @override
+  String get recordAccessScope => 'Scope';
+
+  @override
+  String get recordAccessGranted => 'Granted';
+
+  @override
+  String get recordAccessExpires => 'Expires';
+
+  @override
+  String get recordAccessRevoked => 'Revoked';
+
+  @override
+  String get recordAccessGrantSheetTitle => 'Grant record access';
+
+  @override
+  String get recordAccessGrantSheetBody =>
+      'Enter the proxy\'s patient UID exactly as issued by the hospital. Ask reception if you do not know it.';
+
+  @override
+  String get recordAccessProxyUidLabel => 'Proxy patient UID';
+
+  @override
+  String get recordAccessProxyUidHelper =>
+      'Hospital-issued UUID for the person receiving access';
+
+  @override
+  String get recordAccessProxyUidRequired => 'Enter the proxy patient UID';
+
+  @override
+  String get recordAccessProxyUidInvalid => 'Enter a valid UUID';
+
+  @override
+  String get recordAccessRelationshipLabel => 'Relationship';
+
+  @override
+  String get recordAccessRelationshipHelper =>
+      'Example: spouse, parent, caregiver';
+
+  @override
+  String get recordAccessRelationshipRequired => 'Enter the relationship';
+
+  @override
+  String get recordAccessScopeResults => 'Released results';
+
+  @override
+  String get recordAccessScopeResultsSubtitle =>
+      'Lab results and released portal result records';
+
+  @override
+  String get recordAccessScopeClaimDocuments => 'Claim documents';
+
+  @override
+  String get recordAccessScopeClaimDocumentsSubtitle =>
+      'Released insurance or claim-support documents';
+
+  @override
+  String get recordAccessConsentMethodLabel => 'Consent method';
+
+  @override
+  String get recordAccessConsentMethodOtp => 'OTP / app confirmation';
+
+  @override
+  String get recordAccessConsentMethodWritten => 'Written consent';
+
+  @override
+  String get recordAccessConsentMethodVerbal => 'Verbal consent documented';
+
+  @override
+  String get recordAccessConsentMethodGuardian => 'Guardian for minor';
+
+  @override
+  String get recordAccessContinueButton => 'Continue';
+
+  @override
+  String get recordAccessProxyFallback => 'Proxy';
+
+  @override
+  String get recordAccessStatusActive => 'Active';
+
+  @override
+  String get recordAccessStatusRevoked => 'Revoked';
 }

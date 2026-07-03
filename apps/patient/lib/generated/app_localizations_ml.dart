@@ -2190,4 +2190,156 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get ancFrequencyAsNeeded => 'ആവശ്യമായപ്പോൾ';
+
+  @override
+  String get recordAccessTitle => 'റെക്കോർഡ് ആക്സസ്';
+
+  @override
+  String get recordAccessSettingsSubtitle =>
+      'നിങ്ങളുടെ റിലീസ് ചെയ്ത രേഖകൾ ആരെല്ലാം കാണാം എന്ന് നിയന്ത്രിക്കുക';
+
+  @override
+  String get recordAccessLoadFailed => 'റെക്കോർഡ് ആക്സസ് ലോഡ് ചെയ്യാനായില്ല';
+
+  @override
+  String get recordAccessGrantButton => 'ആക്സസ് നൽകുക';
+
+  @override
+  String get recordAccessGrantConfirmTitle => 'റെക്കോർഡ് ആക്സസ് നൽകണോ?';
+
+  @override
+  String get recordAccessGrantConfirmBody =>
+      'നിങ്ങൾ ആക്സസ് പിൻവലിക്കുന്നതുവരെ അല്ലെങ്കിൽ അനുമതി കാലഹരണപ്പെടുന്നതുവരെ ഈ വ്യക്തിക്ക് തിരഞ്ഞെടുത്ത റിലീസ് ചെയ്ത പോർട്ടൽ രേഖകൾ കാണാനാകും.';
+
+  @override
+  String get recordAccessGrantSuccess => 'റെക്കോർഡ് ആക്സസ് നൽകി';
+
+  @override
+  String get recordAccessGrantFailed => 'റെക്കോർഡ് ആക്സസ് നൽകാനായില്ല';
+
+  @override
+  String get recordAccessRevokeConfirmTitle => 'ആക്സസ് പിൻവലിക്കണോ?';
+
+  @override
+  String get recordAccessRevokeConfirmBody =>
+      'ഇത് ഭാവിയിലെ proxy ആക്സസ് നിർത്തും. ആശുപത്രി സൂക്ഷിക്കുന്ന ക്ലിനിക്കൽ അല്ലെങ്കിൽ ഓഡിറ്റ് രേഖകൾ ഇത് നീക്കില്ല.';
+
+  @override
+  String get recordAccessRevokeButton => 'പിൻവലിക്കുക';
+
+  @override
+  String get recordAccessRevokedByPatient => 'ആപ്പിൽ രോഗി പിൻവലിച്ചു';
+
+  @override
+  String get recordAccessRevokeSuccess => 'റെക്കോർഡ് ആക്സസ് പിൻവലിച്ചു';
+
+  @override
+  String get recordAccessRevokeFailed => 'റെക്കോർഡ് ആക്സസ് പിൻവലിക്കാനായില്ല';
+
+  @override
+  String get recordAccessEmptyTitle => 'റെക്കോർഡ് ആക്സസ് അനുമതികൾ ഇല്ല';
+
+  @override
+  String get recordAccessEmptySubtitle =>
+      'നിങ്ങളുടെ റിലീസ് ചെയ്ത രേഖകൾ കാണാൻ നിങ്ങൾ അനുമതിയുള്ളവർ ഇവിടെ കാണിക്കും.';
+
+  @override
+  String get recordAccessConsentTitle => 'നിയന്ത്രണം നിങ്ങളുടെതാണ്';
+
+  @override
+  String get recordAccessConsentBody =>
+      'നിങ്ങൾ വിശ്വസിക്കുന്ന ഒരാൾക്കേ ആക്സസ് നൽകൂ. തിരഞ്ഞെടുത്ത പരിധിയിൽ അവർ റിലീസ് ചെയ്ത പോർട്ടൽ രേഖകൾ കാണാം; ആശുപത്രിക്കുള്ളിലെ കുറിപ്പുകൾ രോഗി പോർട്ടൽ വഴി ഒരിക്കലും പങ്കിടില്ല.';
+
+  @override
+  String get recordAccessGrantedByMeTitle => 'എന്റെ രേഖകൾ കാണാൻ കഴിയുന്നവർ';
+
+  @override
+  String get recordAccessHeldByMeTitle => 'എന്നോട് പങ്കിട്ട രേഖകൾ';
+
+  @override
+  String get recordAccessStatus => 'നില';
+
+  @override
+  String get recordAccessScope => 'പരിധി';
+
+  @override
+  String get recordAccessGranted => 'നൽകിയത്';
+
+  @override
+  String get recordAccessExpires => 'കാലഹരണം';
+
+  @override
+  String get recordAccessRevoked => 'പിൻവലിച്ചത്';
+
+  @override
+  String get recordAccessGrantSheetTitle => 'റെക്കോർഡ് ആക്സസ് നൽകുക';
+
+  @override
+  String get recordAccessGrantSheetBody =>
+      'ആശുപത്രി നൽകിയ proxy രോഗി UID അതേപടി നൽകുക. അറിയില്ലെങ്കിൽ റിസപ്ഷനോട് ചോദിക്കുക.';
+
+  @override
+  String get recordAccessProxyUidLabel => 'Proxy രോഗി UID';
+
+  @override
+  String get recordAccessProxyUidHelper =>
+      'ആക്സസ് ലഭിക്കുന്ന വ്യക്തിക്ക് ആശുപത്രി നൽകിയ UUID';
+
+  @override
+  String get recordAccessProxyUidRequired => 'Proxy രോഗി UID നൽകുക';
+
+  @override
+  String get recordAccessProxyUidInvalid => 'ശരിയായ UUID നൽകുക';
+
+  @override
+  String get recordAccessRelationshipLabel => 'ബന്ധം';
+
+  @override
+  String get recordAccessRelationshipHelper =>
+      'ഉദാഹരണം: പങ്കാളി, മാതാപിതാവ്, പരിചരിക്കുന്നവർ';
+
+  @override
+  String get recordAccessRelationshipRequired => 'ബന്ധം നൽകുക';
+
+  @override
+  String get recordAccessScopeResults => 'റിലീസ് ചെയ്ത ഫലങ്ങൾ';
+
+  @override
+  String get recordAccessScopeResultsSubtitle =>
+      'ലാബ് ഫലങ്ങളും റിലീസ് ചെയ്ത പോർട്ടൽ ഫല രേഖകളും';
+
+  @override
+  String get recordAccessScopeClaimDocuments => 'ക്ലെയിം രേഖകൾ';
+
+  @override
+  String get recordAccessScopeClaimDocumentsSubtitle =>
+      'റിലീസ് ചെയ്ത ഇൻഷുറൻസ് അല്ലെങ്കിൽ ക്ലെയിം സഹായ രേഖകൾ';
+
+  @override
+  String get recordAccessConsentMethodLabel => 'സമ്മതി രീതി';
+
+  @override
+  String get recordAccessConsentMethodOtp => 'OTP / ആപ്പ് സ്ഥിരീകരണം';
+
+  @override
+  String get recordAccessConsentMethodWritten => 'എഴുത്ത് സമ്മതി';
+
+  @override
+  String get recordAccessConsentMethodVerbal => 'വായ്മൊഴി സമ്മതി രേഖപ്പെടുത്തി';
+
+  @override
+  String get recordAccessConsentMethodGuardian =>
+      'പ്രായപൂർത്തിയാകാത്തവർക്കുള്ള രക്ഷിതാവ്';
+
+  @override
+  String get recordAccessContinueButton => 'തുടരുക';
+
+  @override
+  String get recordAccessProxyFallback => 'Proxy';
+
+  @override
+  String get recordAccessStatusActive => 'സജീവം';
+
+  @override
+  String get recordAccessStatusRevoked => 'പിൻവലിച്ചത്';
 }

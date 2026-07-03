@@ -2179,4 +2179,156 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get ancFrequencyAsNeeded => 'అవసరమైనప్పుడు';
+
+  @override
+  String get recordAccessTitle => 'రికార్డ్ యాక్సెస్';
+
+  @override
+  String get recordAccessSettingsSubtitle =>
+      'మీ విడుదలైన రికార్డులు ఎవరు చూడగలరో నియంత్రించండి';
+
+  @override
+  String get recordAccessLoadFailed => 'రికార్డ్ యాక్సెస్ లోడ్ కాలేదు';
+
+  @override
+  String get recordAccessGrantButton => 'యాక్సెస్ ఇవ్వండి';
+
+  @override
+  String get recordAccessGrantConfirmTitle => 'రికార్డ్ యాక్సెస్ ఇవ్వాలా?';
+
+  @override
+  String get recordAccessGrantConfirmBody =>
+      'మీరు యాక్సెస్ రద్దు చేసే వరకు లేదా అనుమతి గడువు ముగిసే వరకు ఈ వ్యక్తి ఎంచుకున్న విడుదలైన పోర్టల్ రికార్డులను చూడగలరు.';
+
+  @override
+  String get recordAccessGrantSuccess => 'రికార్డ్ యాక్సెస్ ఇవ్వబడింది';
+
+  @override
+  String get recordAccessGrantFailed => 'రికార్డ్ యాక్సెస్ ఇవ్వలేకపోయాం';
+
+  @override
+  String get recordAccessRevokeConfirmTitle => 'యాక్సెస్ రద్దు చేయాలా?';
+
+  @override
+  String get recordAccessRevokeConfirmBody =>
+      'ఇది భవిష్యత్ proxy యాక్సెస్‌ను ఆపుతుంది. ఆసుపత్రి ఉంచిన క్లినికల్ లేదా ఆడిట్ రికార్డులను తొలగించదు.';
+
+  @override
+  String get recordAccessRevokeButton => 'రద్దు చేయండి';
+
+  @override
+  String get recordAccessRevokedByPatient => 'యాప్‌లో రోగి రద్దు చేశారు';
+
+  @override
+  String get recordAccessRevokeSuccess => 'రికార్డ్ యాక్సెస్ రద్దయింది';
+
+  @override
+  String get recordAccessRevokeFailed => 'రికార్డ్ యాక్సెస్ రద్దు చేయలేకపోయాం';
+
+  @override
+  String get recordAccessEmptyTitle => 'రికార్డ్ యాక్సెస్ అనుమతులు లేవు';
+
+  @override
+  String get recordAccessEmptySubtitle =>
+      'మీ విడుదలైన రికార్డులు చూడేందుకు మీరు అనుమతించే వారు ఇక్కడ కనిపిస్తారు.';
+
+  @override
+  String get recordAccessConsentTitle => 'నియంత్రణ మీ చేతిలో ఉంది';
+
+  @override
+  String get recordAccessConsentBody =>
+      'నమ్మకమైన వ్యక్తికే యాక్సెస్ ఇవ్వండి. వారు ఎంచుకున్న పరిధిలో విడుదలైన పోర్టల్ రికార్డులను చూడగలరు; ఆసుపత్రి లోపలి నోట్లు రోగి పోర్టల్ ద్వారా ఎప్పుడూ పంచబడవు.';
+
+  @override
+  String get recordAccessGrantedByMeTitle => 'నా రికార్డులు చూడగల వ్యక్తులు';
+
+  @override
+  String get recordAccessHeldByMeTitle => 'నాతో పంచుకున్న రికార్డులు';
+
+  @override
+  String get recordAccessStatus => 'స్థితి';
+
+  @override
+  String get recordAccessScope => 'పరిధి';
+
+  @override
+  String get recordAccessGranted => 'ఇవ్వబడింది';
+
+  @override
+  String get recordAccessExpires => 'గడువు';
+
+  @override
+  String get recordAccessRevoked => 'రద్దయింది';
+
+  @override
+  String get recordAccessGrantSheetTitle => 'రికార్డ్ యాక్సెస్ ఇవ్వండి';
+
+  @override
+  String get recordAccessGrantSheetBody =>
+      'ఆసుపత్రి ఇచ్చిన proxy రోగి UID ను యథాతథంగా నమోదు చేయండి. తెలియకపోతే రిసెప్షన్‌ను అడగండి.';
+
+  @override
+  String get recordAccessProxyUidLabel => 'Proxy రోగి UID';
+
+  @override
+  String get recordAccessProxyUidHelper =>
+      'యాక్సెస్ పొందే వ్యక్తికి ఆసుపత్రి ఇచ్చిన UUID';
+
+  @override
+  String get recordAccessProxyUidRequired => 'Proxy రోగి UID నమోదు చేయండి';
+
+  @override
+  String get recordAccessProxyUidInvalid =>
+      'చెల్లుబాటు అయ్యే UUID నమోదు చేయండి';
+
+  @override
+  String get recordAccessRelationshipLabel => 'సంబంధం';
+
+  @override
+  String get recordAccessRelationshipHelper =>
+      'ఉదాహరణ: జీవిత భాగస్వామి, తల్లిదండ్రి, సంరక్షకుడు';
+
+  @override
+  String get recordAccessRelationshipRequired => 'సంబంధం నమోదు చేయండి';
+
+  @override
+  String get recordAccessScopeResults => 'విడుదలైన ఫలితాలు';
+
+  @override
+  String get recordAccessScopeResultsSubtitle =>
+      'ల్యాబ్ ఫలితాలు మరియు విడుదలైన పోర్టల్ ఫలిత రికార్డులు';
+
+  @override
+  String get recordAccessScopeClaimDocuments => 'క్లెయిమ్ పత్రాలు';
+
+  @override
+  String get recordAccessScopeClaimDocumentsSubtitle =>
+      'విడుదలైన బీమా లేదా క్లెయిమ్ సహాయక పత్రాలు';
+
+  @override
+  String get recordAccessConsentMethodLabel => 'సమ్మతి విధానం';
+
+  @override
+  String get recordAccessConsentMethodOtp => 'OTP / యాప్ నిర్ధారణ';
+
+  @override
+  String get recordAccessConsentMethodWritten => 'లిఖిత సమ్మతి';
+
+  @override
+  String get recordAccessConsentMethodVerbal => 'మౌఖిక సమ్మతి నమోదు';
+
+  @override
+  String get recordAccessConsentMethodGuardian => 'మైనర్‌కు సంరక్షకుడు';
+
+  @override
+  String get recordAccessContinueButton => 'కొనసాగించండి';
+
+  @override
+  String get recordAccessProxyFallback => 'Proxy';
+
+  @override
+  String get recordAccessStatusActive => 'సక్రియం';
+
+  @override
+  String get recordAccessStatusRevoked => 'రద్దయింది';
 }
