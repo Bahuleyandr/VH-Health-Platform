@@ -300,7 +300,8 @@ Builders are param-free unless noted.
 | **Patient portal** (Sprint 10) | | |
 | Bills list / detail | `/portal/bills`, `/portal/bills/:id` | GET |
 | Lab orders | `/portal/lab-orders` | GET |
-| Lab results | `/portal/lab-results` | GET |
+| Lab results list / detail | `/portal/lab-results`, `/portal/lab-results/:id` | GET |
+| Lab result trends | `/portal/lab-results/trends?test_code=&months=` | GET |
 | TPA claims / detail | `/portal/tpa/claims`, `/portal/tpa/claims/:id` | GET |
 | Secure messages / thread | `/portal/messages`, `/portal/messages/:id` | GET |
 | Mark thread read | `/portal/messages/:id/read` | POST |

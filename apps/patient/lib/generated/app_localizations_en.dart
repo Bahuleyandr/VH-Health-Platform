@@ -947,6 +947,75 @@ class AppLocalizationsEn extends AppLocalizations {
       'Official signed summaries from your hospital stay are fetched separately.';
 
   @override
+  String get labResultsTitle => 'Lab results';
+
+  @override
+  String get labResultsEmptyTitle => 'No lab results yet';
+
+  @override
+  String get labResultsEmptySubtitle =>
+      'Released lab results will appear here. Pull to refresh.';
+
+  @override
+  String get labResultsLoadFailed => 'Unable to load lab results.';
+
+  @override
+  String get labResultDetailsTitle => 'Lab result';
+
+  @override
+  String get labResultDetailLoadFailed => 'Unable to load this lab result.';
+
+  @override
+  String get labResultValue => 'Value';
+
+  @override
+  String get labResultReference => 'Reference';
+
+  @override
+  String get labResultObserved => 'Observed';
+
+  @override
+  String get labResultCode => 'Test code';
+
+  @override
+  String get labResultLoincCode => 'LOINC code';
+
+  @override
+  String get labResultTrendTitle => 'Trend';
+
+  @override
+  String get labResultTrendLast => 'Last';
+
+  @override
+  String get labResultTrendMonths => 'months';
+
+  @override
+  String get labResultTrendLatest => 'Latest';
+
+  @override
+  String get labResultTrendRange => 'Range';
+
+  @override
+  String get labResultTrendPoints => 'Points';
+
+  @override
+  String get labResultTrendResultsLabel => 'results';
+
+  @override
+  String get labResultTrendLoadFailed => 'Unable to load this trend.';
+
+  @override
+  String get labResultTrendEmptyTitle => 'Not enough trend data yet';
+
+  @override
+  String get labResultTrendEmptySubtitle =>
+      'At least two released numeric results are needed to draw a trend.';
+
+  @override
+  String get labResultTrendUnavailable =>
+      'A trend is not available for this result because no test code is linked.';
+
+  @override
   String get summaryAllergies => 'Allergies';
 
   @override

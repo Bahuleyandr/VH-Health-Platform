@@ -1868,6 +1868,138 @@ abstract class AppLocalizations {
   /// **'Official signed summaries from your hospital stay are fetched separately.'**
   String get dischargeSummariesOfficialHint;
 
+  /// No description provided for @labResultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lab results'**
+  String get labResultsTitle;
+
+  /// No description provided for @labResultsEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No lab results yet'**
+  String get labResultsEmptyTitle;
+
+  /// No description provided for @labResultsEmptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Released lab results will appear here. Pull to refresh.'**
+  String get labResultsEmptySubtitle;
+
+  /// No description provided for @labResultsLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load lab results.'**
+  String get labResultsLoadFailed;
+
+  /// No description provided for @labResultDetailsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lab result'**
+  String get labResultDetailsTitle;
+
+  /// No description provided for @labResultDetailLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load this lab result.'**
+  String get labResultDetailLoadFailed;
+
+  /// No description provided for @labResultValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Value'**
+  String get labResultValue;
+
+  /// No description provided for @labResultReference.
+  ///
+  /// In en, this message translates to:
+  /// **'Reference'**
+  String get labResultReference;
+
+  /// No description provided for @labResultObserved.
+  ///
+  /// In en, this message translates to:
+  /// **'Observed'**
+  String get labResultObserved;
+
+  /// No description provided for @labResultCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Test code'**
+  String get labResultCode;
+
+  /// No description provided for @labResultLoincCode.
+  ///
+  /// In en, this message translates to:
+  /// **'LOINC code'**
+  String get labResultLoincCode;
+
+  /// No description provided for @labResultTrendTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Trend'**
+  String get labResultTrendTitle;
+
+  /// No description provided for @labResultTrendLast.
+  ///
+  /// In en, this message translates to:
+  /// **'Last'**
+  String get labResultTrendLast;
+
+  /// No description provided for @labResultTrendMonths.
+  ///
+  /// In en, this message translates to:
+  /// **'months'**
+  String get labResultTrendMonths;
+
+  /// No description provided for @labResultTrendLatest.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest'**
+  String get labResultTrendLatest;
+
+  /// No description provided for @labResultTrendRange.
+  ///
+  /// In en, this message translates to:
+  /// **'Range'**
+  String get labResultTrendRange;
+
+  /// No description provided for @labResultTrendPoints.
+  ///
+  /// In en, this message translates to:
+  /// **'Points'**
+  String get labResultTrendPoints;
+
+  /// No description provided for @labResultTrendResultsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'results'**
+  String get labResultTrendResultsLabel;
+
+  /// No description provided for @labResultTrendLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load this trend.'**
+  String get labResultTrendLoadFailed;
+
+  /// No description provided for @labResultTrendEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough trend data yet'**
+  String get labResultTrendEmptyTitle;
+
+  /// No description provided for @labResultTrendEmptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'At least two released numeric results are needed to draw a trend.'**
+  String get labResultTrendEmptySubtitle;
+
+  /// No description provided for @labResultTrendUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'A trend is not available for this result because no test code is linked.'**
+  String get labResultTrendUnavailable;
+
   /// No description provided for @summaryAllergies.
   ///
   /// In en, this message translates to:
