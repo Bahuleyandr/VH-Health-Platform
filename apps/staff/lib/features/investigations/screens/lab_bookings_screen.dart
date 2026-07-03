@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -12,6 +13,17 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
+
+int? _intValue(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+String? _nonEmptyString(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
 
 class LabBookingsScreen extends StatefulWidget {
   const LabBookingsScreen({super.key});
@@ -811,6 +823,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           ],
         );
       case 'DISPATCHED':
+        final investigationId = _intValue(booking['investigation_id']);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -843,9 +856,18 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 ),
               ),
             ElevatedButton.icon(
-              onPressed: () => _markCollected(id),
-              icon: const Icon(Icons.science, size: 16),
-              label: Text(s.labBookingsMarkCollected),
+              onPressed: () => investigationId == null
+                  ? _markCollected(id)
+                  : _scanAndCollect(booking),
+              icon: Icon(
+                investigationId == null ? Icons.science : Icons.qr_code_scanner,
+                size: 16,
+              ),
+              label: Text(
+                investigationId == null
+                    ? s.labBookingsMarkCollected
+                    : 'Scan and collect',
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.purple,
                 foregroundColor: Colors.white,
@@ -1057,6 +1079,44 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     } catch (e) {
       _showSnack('Error: $e', isError: true);
     }
+  }
+
+  Future<void> _scanAndCollect(Map<String, dynamic> booking) async {
+    final s = AppStrings.of(context);
+    final investigationId = _intValue(booking['investigation_id']);
+    final bookingId = _intValue(booking['id']);
+    if (investigationId == null) {
+      if (bookingId != null) await _markCollected(bookingId);
+      return;
+    }
+
+    final params = <String, String>{};
+    final patientUid = _nonEmptyString(
+      booking['patient_uid'] ?? booking['patientUid'],
+    );
+    if (patientUid != null) params['patient_uid'] = patientUid;
+    final uri = Uri(
+      path: '/lab/specimen-scan/$investigationId',
+      queryParameters: params.isEmpty ? null : params,
+    );
+    final collected = await context.push<bool>(uri.toString());
+    if (collected != true || !mounted) return;
+
+    _stopLocationSharing();
+    if (bookingId != null) {
+      try {
+        await MedicalApiService.markSamplesCollected(bookingId);
+      } catch (e) {
+        _showSnack(
+          'Specimen collected, but queue update failed: $e',
+          isError: true,
+        );
+        _fetchBookings();
+        return;
+      }
+    }
+    _showSnack(s.labBookingsSamplesCollectedToast);
+    _fetchBookings();
   }
 
   Future<void> _startProcessing(int id) async {

@@ -1025,7 +1025,7 @@ function mintInvestigationBarcode(investigationId) {
 }
 
 export const markSampleCollected = async ({
-  id, collected_by, collected_notes, sample_barcode, tenantId = null,
+  id, collected_by, collected_notes, sample_barcode, scanned_patient_uid, tenantId = null,
 }) => {
   const investigationId = parseInt(id, 10);
   if (!Number.isFinite(investigationId) || investigationId <= 0) {
@@ -1039,7 +1039,7 @@ export const markSampleCollected = async ({
   // update would translate to a generic 500; surface the missing-row
   // case explicitly.
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status, sample_barcode
+    `SELECT id, status, patient_uid, sample_barcode
        FROM investigations
       WHERE id = $1::int
         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -1049,9 +1049,29 @@ export const markSampleCollected = async ({
   );
   if (!existing.length) throw AppError.notFound('Investigation not found');
 
+  const scannedPatientUid = scanned_patient_uid ? String(scanned_patient_uid).trim() : null;
+  const expectedPatientUid = existing[0].patient_uid ? String(existing[0].patient_uid).toLowerCase() : null;
+  const patientMatch = scannedPatientUid
+    ? expectedPatientUid === scannedPatientUid.toLowerCase()
+    : null;
+  if (scannedPatientUid && !patientMatch) {
+    throw AppError.conflict(
+      'Patient identity mismatch: the scanned wristband does not match this specimen order. Re-scan the correct patient — this cannot be overridden.',
+      'SPECIMEN_PATIENT_MISMATCH',
+      {
+        code: 'SPECIMEN_PATIENT_MISMATCH',
+        hardStop: true,
+        failedRight: 'patient',
+        expected_patient_uid: existing[0].patient_uid,
+        scanned_patient_uid: scannedPatientUid,
+      },
+    );
+  }
+
   // Reuse the existing barcode if the caller is re-marking (idempotent
   // for "redraw" workflows). Otherwise mint a new one if not supplied.
-  let resolvedBarcode = sample_barcode ? String(sample_barcode).trim().slice(0, 40) : null;
+  const suppliedTubeBarcode = sample_barcode ? String(sample_barcode).trim().slice(0, 40) : null;
+  let resolvedBarcode = suppliedTubeBarcode;
   if (!resolvedBarcode) {
     resolvedBarcode = existing[0].sample_barcode || mintInvestigationBarcode(investigationId);
   }
@@ -1063,6 +1083,10 @@ export const markSampleCollected = async ({
             collected_by = $1::uuid,
             collected_notes = $2,
             sample_barcode = $3,
+            collection_scanned_patient_uid = COALESCE($6::uuid, collection_scanned_patient_uid),
+            collection_patient_match = COALESCE($7::boolean, collection_patient_match),
+            patient_scanned_at = CASE WHEN $6::uuid IS NOT NULL THEN NOW() ELSE patient_scanned_at END,
+            tube_scanned_at = CASE WHEN $8::boolean THEN NOW() ELSE tube_scanned_at END,
             sample_rejected_at = NULL,
             sample_rejected_by = NULL,
             sample_rejection_reason = NULL,
@@ -1071,12 +1095,17 @@ export const markSampleCollected = async ({
         AND ($5::uuid IS NULL OR tenant_id = $5::uuid)
       RETURNING id, uid, status, collected_at, collected_by,
                 collected_notes, sample_barcode,
+                collection_scanned_patient_uid, collection_patient_match,
+                patient_scanned_at, tube_scanned_at,
                 sample_rejected_at, sample_rejected_by, sample_rejection_reason`,
     String(collected_by),
     collected_notes || null,
     resolvedBarcode,
     investigationId,
     tenantId || null,
+    scannedPatientUid,
+    patientMatch,
+    Boolean(suppliedTubeBarcode),
   );
   return rows[0];
 };

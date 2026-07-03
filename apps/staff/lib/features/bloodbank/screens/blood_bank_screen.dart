@@ -1,8 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+
+int? _intValue(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+String? _nonEmptyString(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
 
 class BloodBankScreen extends StatefulWidget {
   const BloodBankScreen({super.key});
@@ -19,6 +32,11 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   List<Map<String, dynamic>> _inventory = [];
   bool _loadingInventory = true;
   String? _inventoryError;
+
+  // Issued units awaiting two-person bedside verification.
+  List<Map<String, dynamic>> _issuedUnits = [];
+  bool _loadingIssuedUnits = true;
+  String? _issuedUnitsError;
 
   // Request form
   final _requestFormKey = GlobalKey<FormState>();
@@ -42,8 +60,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _fetchInventory();
+    _fetchIssuedUnits();
   }
 
   @override
@@ -80,6 +99,39 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     } finally {
       if (mounted) setState(() => _loadingInventory = false);
     }
+  }
+
+  Future<void> _fetchIssuedUnits() async {
+    setState(() {
+      _loadingIssuedUnits = true;
+      _issuedUnitsError = null;
+    });
+    try {
+      final response = await ApiClient.get(
+        '/blood-bank/units',
+        queryParameters: const {'status': 'issued'},
+      );
+      if (response.isSuccess) {
+        final data = response.data;
+        final list = data is Map ? data['units'] ?? data['items'] ?? [] : data;
+        _issuedUnits = List<Map<String, dynamic>>.from(
+          (list is List ? list : const []).map(
+            (i) => i is Map<String, dynamic> ? i : <String, dynamic>{},
+          ),
+        );
+      } else {
+        _issuedUnitsError =
+            response.message ?? 'Failed to load issued blood units';
+      }
+    } catch (_) {
+      _issuedUnitsError = 'Could not connect to server';
+    } finally {
+      if (mounted) setState(() => _loadingIssuedUnits = false);
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([_fetchInventory(), _fetchIssuedUnits()]);
   }
 
   Future<void> _submitRequest() async {
@@ -153,18 +205,20 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: s.bloodBankRefreshTooltip,
-            onPressed: _fetchInventory,
+            onPressed: _refreshAll,
           ),
           const LogoutAction(),
         ],
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           tabs: [
             Tab(text: s.bloodBankTabInventory),
             Tab(text: s.bloodBankTabRequests),
+            const Tab(text: 'Transfusions'),
             Tab(text: s.bloodBankTabDonations),
           ],
         ),
@@ -174,6 +228,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         children: [
           _buildInventoryTab(),
           _buildRequestsTab(),
+          _buildTransfusionsTab(),
           _buildDonationsTab(),
         ],
       ),
@@ -482,6 +537,171 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildTransfusionsTab() {
+    if (_loadingIssuedUnits) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_issuedUnitsError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 48,
+                color: AppTheme.errorRed,
+              ),
+              const SizedBox(height: 12),
+              Text(_issuedUnitsError!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _fetchIssuedUnits,
+                icon: const Icon(Icons.refresh),
+                label: Text(AppStrings.of(context).actionRetry),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_issuedUnits.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _fetchIssuedUnits,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(24),
+          children: [
+            const SizedBox(height: 80),
+            Icon(
+              Icons.bloodtype_outlined,
+              size: 56,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No issued units awaiting bedside verification',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _fetchIssuedUnits,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _issuedUnits.length,
+        itemBuilder: (context, index) =>
+            _buildIssuedUnitCard(_issuedUnits[index]),
+      ),
+    );
+  }
+
+  Widget _buildIssuedUnitCard(Map<String, dynamic> unit) {
+    final requestId = _intValue(unit['request_id']);
+    final unitNumber = _nonEmptyString(unit['unit_number']);
+    final bloodGroup = _nonEmptyString(unit['blood_group']) ?? '-';
+    final component = _nonEmptyString(unit['component']) ?? 'blood unit';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bloodtype, color: AppTheme.errorRed),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    unitNumber ?? 'Issued unit',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  bloodGroup,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.errorRed,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${component.toUpperCase()} - request #${requestId ?? '-'}',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: requestId == null
+                      ? null
+                      : () => _openTransfusionScan(
+                          requestId: requestId,
+                          unitNumber: unitNumber,
+                          verifierRole: 'first',
+                        ),
+                  icon: const Icon(Icons.filter_1),
+                  label: const Text('First verifier'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: requestId == null
+                      ? null
+                      : () => _openTransfusionScan(
+                          requestId: requestId,
+                          unitNumber: unitNumber,
+                          verifierRole: 'second',
+                        ),
+                  icon: const Icon(Icons.filter_2),
+                  label: const Text('Second verifier'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.errorRed,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openTransfusionScan({
+    required int requestId,
+    required String verifierRole,
+    String? unitNumber,
+  }) async {
+    final params = <String, String>{'role': verifierRole};
+    if (unitNumber != null) params['unit_number'] = unitNumber;
+    final uri = Uri(
+      path: '/blood-bank/scan/$requestId',
+      queryParameters: params,
+    );
+    final verified = await context.push<bool>(uri.toString());
+    if (verified != true || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Bedside verification recorded'),
+        backgroundColor: AppTheme.successGreen,
+      ),
+    );
+    _fetchIssuedUnits();
   }
 
   Widget _legendDot(Color color, String label) {

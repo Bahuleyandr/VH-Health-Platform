@@ -392,6 +392,64 @@ describe('Investigation order workflow — deep integration', () => {
       expect(rejected.body.data.sample_rejection_reason).toBe('Haemolysed sample');
     });
 
+    it('blocks specimen collection on a wrong-patient wristband even with notes', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId, test_name: 'Specimen wristband mismatch', type: 'LAB', priority: 'URGENT',
+      });
+      expect(order.statusCode).toBe(200);
+      const invId = order.body.data.investigation.id;
+
+      const collected = await lab.post(`/api/v1/lab/samples/${invId}/collect`).send({
+        sample_barcode: 'B4-TUBE-WRONG',
+        scanned_patient_uid: DOCTOR_UID,
+        collected_notes: 'Attempted collection with manual note',
+      });
+
+      expect(collected.statusCode).toBe(409);
+      expect(collected.body.details).toMatchObject({
+        code: 'SPECIMEN_PATIENT_MISMATCH',
+        hardStop: true,
+        failedRight: 'patient',
+      });
+    });
+
+    it('captures wristband + tube barcode on specimen collection', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId, test_name: 'Specimen bedside scan CBC', type: 'LAB', priority: 'URGENT',
+      });
+      expect(order.statusCode).toBe(200);
+      const invId = order.body.data.investigation.id;
+
+      const collected = await lab.post(`/api/v1/lab/samples/${invId}/collect`).send({
+        sample_barcode: 'B4-TUBE-OK',
+        scanned_patient_uid: PATIENT_UID,
+        collected_notes: 'Bedside tube draw',
+      });
+
+      expect(collected.statusCode).toBe(200);
+      expect(collected.body.data).toMatchObject({
+        status: 'COLLECTED',
+        collected_by: LAB_UID,
+        sample_barcode: 'B4-TUBE-OK',
+        collection_scanned_patient_uid: PATIENT_UID,
+        collection_patient_match: true,
+      });
+      expect(collected.body.data.patient_scanned_at).toBeTruthy();
+      expect(collected.body.data.tube_scanned_at).toBeTruthy();
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT sample_barcode, collection_scanned_patient_uid, collection_patient_match,
+                patient_scanned_at, tube_scanned_at
+           FROM investigations WHERE id = $1::int`,
+        invId,
+      );
+      expect(rows[0].sample_barcode).toBe('B4-TUBE-OK');
+      expect(String(rows[0].collection_scanned_patient_uid)).toBe(PATIENT_UID);
+      expect(rows[0].collection_patient_match).toBe(true);
+      expect(rows[0].patient_scanned_at).toBeTruthy();
+      expect(rows[0].tube_scanned_at).toBeTruthy();
+    });
+
     it('bulk-updates investigation sample collection with audit fields', async () => {
       const first = await doctor.post('/api/v1/investigations/order').send({
         patient_id: patientIntId, test_name: 'Serum Electrolytes', type: 'LAB',
