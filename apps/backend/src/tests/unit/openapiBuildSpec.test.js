@@ -102,6 +102,28 @@ describe('buildOpenApiDocument overlay', () => {
     expect(op.responses[200].content['application/json'].schema).toEqual({ $ref: '#/components/schemas/XResp' });
   });
 
+  it('attaches overlay query parameters after path parameters', () => {
+    const routes = [{ method: 'get', path: '/api/v1/x/{id}' }];
+    const overlay = {
+      'GET /api/v1/x/{id}': {
+        parameters: [
+          {
+            name: 'status',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+          },
+        ],
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    const op = doc.paths['/api/v1/x/{id}'].get;
+    expect(op.parameters).toEqual([
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+      { name: 'status', in: 'query', required: false, schema: { type: 'string' } },
+    ]);
+  });
+
   it('falls back to the generic Success response when no overlay entry exists', () => {
     const routes = [{ method: 'get', path: '/api/v1/y' }];
     const doc = buildOpenApiDocument(routes, base, {});
