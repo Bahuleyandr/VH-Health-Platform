@@ -13,6 +13,7 @@ import * as clinicalMar from '../../../scripts/openapi/schemas/clinicalMar.mjs';
 import * as pharmacy from '../../../scripts/openapi/schemas/pharmacy.mjs';
 import * as users from '../../../scripts/openapi/schemas/users.mjs';
 import * as config from '../../../scripts/openapi/schemas/config.mjs';
+import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -26,7 +27,8 @@ const MODULES = [
   clinicalMar,
   pharmacy,
   users,
-  config
+  config,
+  portal
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

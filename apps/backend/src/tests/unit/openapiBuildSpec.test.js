@@ -124,6 +124,22 @@ describe('buildOpenApiDocument overlay', () => {
     ]);
   });
 
+  it('attaches overlay summary, description, and response description', () => {
+    const routes = [{ method: 'get', path: '/api/v1/x' }];
+    const overlay = {
+      'GET /api/v1/x': {
+        summary: 'List X',
+        description: 'Only safe X rows are visible.',
+        responseDescription: 'Safe X rows.',
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+    const op = doc.paths['/api/v1/x'].get;
+    expect(op.summary).toBe('List X');
+    expect(op.description).toBe('Only safe X rows are visible.');
+    expect(op.responses[200].description).toBe('Safe X rows.');
+  });
+
   it('falls back to the generic Success response when no overlay entry exists', () => {
     const routes = [{ method: 'get', path: '/api/v1/y' }];
     const doc = buildOpenApiDocument(routes, base, {});
