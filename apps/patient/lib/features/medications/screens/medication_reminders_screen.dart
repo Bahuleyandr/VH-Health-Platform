@@ -121,7 +121,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
         _syncNotifications();
       } else {
         setState(() {
-          _error = resp.message ?? l.medicationRemindersLoadFailed;
+          _error = resp.failureMessage(l.medicationRemindersLoadFailed);
           _loading = false;
         });
       }
@@ -474,7 +474,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(resp.message ?? l.medicationReminderSaveFailed),
+            content: Text(resp.failureMessage(l.medicationReminderSaveFailed)),
           ),
         );
       }

@@ -123,7 +123,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
       }
       if (mounted) {
         setState(() {
-          _error = resp.message ?? l.appointmentsLoadFailed;
+          _error = resp.failureMessage(l.appointmentsLoadFailed);
           _loadingAppointments = false;
         });
       }
@@ -235,7 +235,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
         _showSuccess(l.appointmentsCancelledToast);
         _fetchAppointments();
       } else {
-        _showError(resp.message ?? l.appointmentsCancelFailed);
+        _showError(resp.failureMessage(l.appointmentsCancelFailed));
       }
     } catch (e) {
       debugPrint('Cancel appointment failed: $e');

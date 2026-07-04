@@ -99,7 +99,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       } else {
         final l = AppLocalizations.of(context)!;
         setState(() {
-          _error = response.message ?? l.messagesLoadFailed;
+          _error = response.failureMessage(l.messagesLoadFailed);
           _loading = false;
         });
       }
@@ -313,7 +313,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
       } else {
         setState(() {
           _sending = false;
-          _error = response.message ?? l.messagesSendFailed;
+          _error = response.failureMessage(l.messagesSendFailed);
         });
       }
     } catch (e) {

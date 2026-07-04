@@ -136,7 +136,9 @@ class _RecordsScreenState extends State<RecordsScreen>
               .toList();
         });
       } else {
-        setState(() => _error = response.message ?? 'Failed to load records');
+        setState(
+          () => _error = response.failureMessage('Failed to load records'),
+        );
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -205,7 +207,7 @@ class _RecordsScreenState extends State<RecordsScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.message ?? 'Failed to delete record'),
+              content: Text(response.failureMessage('Failed to delete record')),
               backgroundColor: Colors.red,
             ),
           );
@@ -292,7 +294,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                   _fetchRecords();
                 }
               } else {
-                throw Exception(response.message ?? 'Upload failed');
+                throw Exception(response.failureMessage('Upload failed'));
               }
             } catch (e) {
               if (ctx.mounted) {

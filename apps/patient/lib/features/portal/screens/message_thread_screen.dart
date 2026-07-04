@@ -112,7 +112,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
         });
       } else if (initialLoad) {
         setState(() {
-          _error = response.message ?? 'Failed to load thread';
+          _error = response.failureMessage('Failed to load thread');
           _loading = false;
         });
       }
@@ -148,7 +148,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
       } else {
         setState(() {
           _sending = false;
-          _error = response.message ?? 'Send failed';
+          _error = response.failureMessage('Send failed');
         });
       }
     } catch (e) {

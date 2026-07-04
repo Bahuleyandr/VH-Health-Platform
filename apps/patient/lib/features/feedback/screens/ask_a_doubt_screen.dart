@@ -69,7 +69,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
         );
         context.pop();
       } else {
-        final msg = response.message ?? loc.feedbackFailed;
+        final msg = response.failureMessage(loc.feedbackFailed);
         messenger.showSnackBar(
           SnackBar(
             content: Text(msg),

@@ -45,7 +45,7 @@ class _RefillScreenState extends State<RefillScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load prescriptions';
+          _error = response.failureMessage('Failed to load prescriptions');
           _loading = false;
         });
       }
@@ -113,7 +113,9 @@ class _RefillScreenState extends State<RefillScreen> {
       } else {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? l.refillRequestFailed)),
+          SnackBar(
+            content: Text(response.failureMessage(l.refillRequestFailed)),
+          ),
         );
       }
     } catch (e) {

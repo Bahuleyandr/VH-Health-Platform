@@ -16,7 +16,7 @@ class ApiPatientExplainersRepository implements PatientExplainersRepository {
   Future<List<PatientExplainer>> listExplainers() async {
     final response = await ApiClient.get('/portal/explainers');
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Failed to load explainers');
+      throw Exception(response.failureMessage('Failed to load explainers'));
     }
 
     return response.dataAsList().whereType<Map>().map((row) {
@@ -28,7 +28,7 @@ class ApiPatientExplainersRepository implements PatientExplainersRepository {
   Future<PatientExplainer> getExplainer(int reviewId) async {
     final response = await ApiClient.get('/portal/explainers/$reviewId');
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Failed to load explainer');
+      throw Exception(response.failureMessage('Failed to load explainer'));
     }
 
     return PatientExplainer.fromJson(response.dataAsMap());

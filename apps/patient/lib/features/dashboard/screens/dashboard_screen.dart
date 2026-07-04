@@ -279,8 +279,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         setState(() {
           _commandCenterLoading = false;
-          _commandCenterError =
-              result.message ?? 'Today could not refresh right now.';
+          _commandCenterError = result.failureMessage(
+            'Today could not refresh right now.',
+          );
         });
       }
     } catch (e) {
@@ -314,8 +315,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         setState(() {
           _commandCenterLoading = false;
-          _commandCenterError =
-              response.message ?? 'Today could not refresh right now.';
+          _commandCenterError = response.failureMessage(
+            'Today could not refresh right now.',
+          );
         });
       }
     } catch (e) {

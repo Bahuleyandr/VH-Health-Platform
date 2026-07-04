@@ -209,7 +209,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
         // Hand back to the parent: switch to + refresh My Appointments.
         widget.onBooked();
       } else {
-        _showError(resp.message ?? l10n.appointmentFailed);
+        _showError(resp.failureMessage(l10n.appointmentFailed));
       }
     } catch (e) {
       debugPrint('Appointment booking failed: $e');

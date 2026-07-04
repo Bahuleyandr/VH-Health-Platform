@@ -119,7 +119,9 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
         widget.onSubmitted();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? l.vitalsRecordFailed)),
+          SnackBar(
+            content: Text(response.failureMessage(l.vitalsRecordFailed)),
+          ),
         );
       }
     } catch (e) {

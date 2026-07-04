@@ -133,6 +133,26 @@ void main() {
     });
   });
 
+  group('CachedApiResponse', () {
+    test('passes failure messages through the wrapped response', () {
+      const cached = CachedApiResponse(
+        response: ApiResponse(
+          statusCode: 500,
+          isSuccess: false,
+          requestId: 'cached-ref-123456',
+        ),
+        fromCache: false,
+        staleLabel: null,
+      );
+
+      expect(
+        cached.failureMessage('Failed to refresh'),
+        'Failed to refresh · ref cached-r',
+      );
+      expect(cached.requestId, 'cached-ref-123456');
+    });
+  });
+
   group('ApiResponse.dataAsList', () {
     test('returns list from data when data is a list', () {
       final body = jsonEncode({

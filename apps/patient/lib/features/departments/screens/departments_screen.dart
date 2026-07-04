@@ -119,7 +119,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
         }
       } else {
         setState(() {
-          _error = response.message ?? _loc.departmentsLoadFailed;
+          _error = response.failureMessage(_loc.departmentsLoadFailed);
           _isLoading = false;
         });
       }
