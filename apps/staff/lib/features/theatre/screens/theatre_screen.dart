@@ -1,12 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/theatre_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
+typedef TheatreScheduleLoader =
+    Future<List<dynamic>> Function({required String date});
+typedef TheatreAvailabilityLoader = Future<List<dynamic>> Function(String date);
+typedef RealtimeEventStreamFactory =
+    Stream<RealtimeEvent> Function(String channel);
+
 class TheatreScreen extends StatefulWidget {
-  const TheatreScreen({super.key});
+  final TheatreScheduleLoader? loadSchedule;
+  final TheatreAvailabilityLoader? loadAvailability;
+  final RealtimeEventStreamFactory? realtimeEvents;
+
+  const TheatreScreen({
+    super.key,
+    this.loadSchedule,
+    this.loadAvailability,
+    this.realtimeEvents,
+  });
 
   @override
   State<TheatreScreen> createState() => _TheatreScreenState();
@@ -20,6 +38,8 @@ class _TheatreScreenState extends State<TheatreScreen>
   String? _error;
   List<dynamic> _schedule = [];
   List<dynamic> _availability = [];
+  StreamSubscription<RealtimeEvent>? _orBoardSub;
+  Timer? _refreshDebounce;
 
   String get _dateStr => DateFormat('yyyy-MM-dd').format(_selectedDate);
 
@@ -33,31 +53,61 @@ class _TheatreScreenState extends State<TheatreScreen>
       }
     });
     _loadCurrentTab();
+    _attachRealtime();
   }
 
   @override
   void dispose() {
+    _orBoardSub?.cancel();
+    _refreshDebounce?.cancel();
     _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadCurrentTab() async {
+  Future<void> _attachRealtime() async {
+    final injectedEvents = widget.realtimeEvents;
+    if (injectedEvents != null) {
+      _orBoardSub = injectedEvents(
+        'staff:or-board',
+      ).listen(_handleRealtimeNudge);
+      return;
+    }
+
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    if (!mounted) return;
+    _orBoardSub = rt.events('staff:or-board').listen(_handleRealtimeNudge);
+  }
+
+  void _handleRealtimeNudge(RealtimeEvent _) => _debouncedRefresh();
+
+  void _debouncedRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _loadCurrentTab(showLoading: false);
+    });
+  }
+
+  Future<void> _loadCurrentTab({bool showLoading = true}) async {
     if (_tabController.index == 0) {
-      await _fetchSchedule();
+      await _fetchSchedule(showLoading: showLoading);
     } else {
-      await _fetchAvailability();
+      await _fetchAvailability(showLoading: showLoading);
     }
   }
 
-  Future<void> _fetchSchedule() async {
-    if (mounted) {
+  Future<void> _fetchSchedule({bool showLoading = true}) async {
+    if (mounted && showLoading) {
       setState(() {
         _loading = true;
         _error = null;
       });
     }
     try {
-      final data = await TheatreApiService.getTodaySchedule(date: _dateStr);
+      final data = await (widget.loadSchedule != null
+          ? widget.loadSchedule!(date: _dateStr)
+          : TheatreApiService.getTodaySchedule(date: _dateStr));
       if (mounted) {
         setState(() {
           _schedule = data;
@@ -74,15 +124,17 @@ class _TheatreScreenState extends State<TheatreScreen>
     }
   }
 
-  Future<void> _fetchAvailability() async {
-    if (mounted) {
+  Future<void> _fetchAvailability({bool showLoading = true}) async {
+    if (mounted && showLoading) {
       setState(() {
         _loading = true;
         _error = null;
       });
     }
     try {
-      final data = await TheatreApiService.getAvailability(_dateStr);
+      final data = await (widget.loadAvailability != null
+          ? widget.loadAvailability!(_dateStr)
+          : TheatreApiService.getAvailability(_dateStr));
       if (mounted) {
         setState(() {
           _availability = data;
