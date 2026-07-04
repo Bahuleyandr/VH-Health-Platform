@@ -36,6 +36,7 @@ export 'theme/app_theme.dart';
 export 'theme/theme_colors.dart';
 export 'utils/date_formatter.dart';
 export 'utils/input_sanitizer.dart';
+export 'utils/log_sanitizer.dart';
 export 'utils/request_reference.dart';
 export 'utils/safe_url_launcher.dart';
 export 'utils/validators.dart';

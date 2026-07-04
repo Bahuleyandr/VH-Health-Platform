@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../utils/log_sanitizer.dart';
 import 'http_client.dart';
 import 'offline_queue.dart';
 
@@ -247,7 +248,9 @@ class ConnectivitySyncService extends ChangeNotifier {
           if (resp.isSuccess) {
             await OfflineQueue.remove(id);
             if (kDebugMode) {
-              debugPrint('ConnectivitySync: synced id=$id ($endpoint)');
+              debugPrint(
+                'ConnectivitySync: synced id=$id (${logSafePath(endpoint)})',
+              );
             }
           } else if (dispositionForStatus(resp.statusCode) ==
               SyncDisposition.conflict) {
@@ -256,7 +259,7 @@ class ConnectivitySyncService extends ChangeNotifier {
             await OfflineQueue.markConflict(id, reason);
             if (kDebugMode) {
               debugPrint(
-                'ConnectivitySync: CONFLICT id=$id ($endpoint): $reason',
+                'ConnectivitySync: CONFLICT id=$id (${logSafePath(endpoint)})',
               );
             }
           } else {
@@ -269,7 +272,7 @@ class ConnectivitySyncService extends ChangeNotifier {
           }
         } catch (e) {
           if (kDebugMode) {
-            debugPrint('ConnectivitySync: error id=$id: $e');
+            debugPrint('ConnectivitySync: error id=$id: ${logSafeError(e)}');
           }
           await OfflineQueue.incrementRetry(id);
         }

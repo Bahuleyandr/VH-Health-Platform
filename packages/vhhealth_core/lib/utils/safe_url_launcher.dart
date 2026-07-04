@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'log_sanitizer.dart';
+
 /// Safe URL launcher that validates schemes before opening.
 ///
 /// Prevents javascript:, data:, and other dangerous URL schemes from being
@@ -34,7 +36,9 @@ class SafeUrlLauncher {
   }) async {
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      if (kDebugMode) debugPrint('SafeUrlLauncher: invalid URL: $url');
+      if (kDebugMode) {
+        debugPrint('SafeUrlLauncher: invalid URL: ${logSafePath(url)}');
+      }
       return false;
     }
     return launchUri(uri, mode: mode);
@@ -57,7 +61,9 @@ class SafeUrlLauncher {
         return true;
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('SafeUrlLauncher: launch failed: $e');
+      if (kDebugMode) {
+        debugPrint('SafeUrlLauncher: launch failed: ${logSafeError(e)}');
+      }
     }
     return false;
   }

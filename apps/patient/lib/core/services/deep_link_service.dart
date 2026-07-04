@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/utils/log_sanitizer.dart';
 
 /// Maps push notification data payloads to GoRouter paths for deep linking.
 class DeepLinkService {
@@ -79,7 +80,9 @@ class DeepLinkService {
     if (route != null && route.startsWith('/')) {
       if (_isAllowed(route)) return route;
       if (kDebugMode) {
-        debugPrint('DeepLinkService: rejected non-allowlisted route: $route');
+        debugPrint(
+          'DeepLinkService: rejected non-allowlisted route: ${logSafePath(route)}',
+        );
       }
       return null;
     }
