@@ -185,7 +185,12 @@ Future<void> main() async {
 
       // Auto-replay queued mutations when connectivity is restored.
       ConnectivityService.onChange.listen((online) {
-        if (online) MutationQueue.replayQueue();
+        if (online) {
+          MutationQueue.replayQueue();
+          unawaited(
+            WebSocketService.instance.handleConnectivityChanged(online),
+          );
+        }
       });
 
       // Connect the WebSocket service for real-time updates.
