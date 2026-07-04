@@ -137,9 +137,14 @@ class _TpaClaimCard extends StatelessWidget {
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
-                  Chip(
-                    label: Text(status, style: const TextStyle(fontSize: 11)),
-                    visualDensity: VisualDensity.compact,
+                  Semantics(
+                    container: true,
+                    label: status,
+                    excludeSemantics: true,
+                    child: Chip(
+                      label: Text(status, style: const TextStyle(fontSize: 11)),
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
                 ],
               ),

@@ -131,6 +131,18 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
     }
   }
 
+  Widget _numericFieldSemantics({
+    required String label,
+    required Widget child,
+  }) {
+    return Semantics(
+      container: true,
+      label: label,
+      textField: true,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -164,44 +176,50 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             Row(
               children: [
                 Expanded(
-                  child: TextFormField(
-                    controller: _systolicCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: l.vitalsSystolic,
-                      suffixText: 'mmHg',
-                      border: const OutlineInputBorder(),
-                    ),
-                    validator: (v) {
-                      if (v != null && v.isNotEmpty) {
-                        final n = int.tryParse(v);
-                        if (n == null || n < 50 || n > 300) {
-                          return l.vitalsInvalidValue;
+                  child: _numericFieldSemantics(
+                    label: '${l.vitalsSystolic}, mmHg',
+                    child: TextFormField(
+                      controller: _systolicCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: l.vitalsSystolic,
+                        suffixText: 'mmHg',
+                        border: const OutlineInputBorder(),
+                      ),
+                      validator: (v) {
+                        if (v != null && v.isNotEmpty) {
+                          final n = int.tryParse(v);
+                          if (n == null || n < 50 || n > 300) {
+                            return l.vitalsInvalidValue;
+                          }
                         }
-                      }
-                      return null;
-                    },
+                        return null;
+                      },
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TextFormField(
-                    controller: _diastolicCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: l.vitalsDiastolic,
-                      suffixText: 'mmHg',
-                      border: const OutlineInputBorder(),
-                    ),
-                    validator: (v) {
-                      if (v != null && v.isNotEmpty) {
-                        final n = int.tryParse(v);
-                        if (n == null || n < 20 || n > 200) {
-                          return l.vitalsInvalidValue;
+                  child: _numericFieldSemantics(
+                    label: '${l.vitalsDiastolic}, mmHg',
+                    child: TextFormField(
+                      controller: _diastolicCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: l.vitalsDiastolic,
+                        suffixText: 'mmHg',
+                        border: const OutlineInputBorder(),
+                      ),
+                      validator: (v) {
+                        if (v != null && v.isNotEmpty) {
+                          final n = int.tryParse(v);
+                          if (n == null || n < 20 || n > 200) {
+                            return l.vitalsInvalidValue;
+                          }
                         }
-                      }
-                      return null;
-                    },
+                        return null;
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -209,116 +227,131 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             const SizedBox(height: 16),
 
             // Heart Rate
-            TextFormField(
-              controller: _heartRateCtrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: l.vitalsHeartRate,
-                suffixText: 'bpm',
-                prefixIcon: const Icon(Icons.favorite_border),
-                border: const OutlineInputBorder(),
-              ),
-              validator: (v) {
-                if (v != null && v.isNotEmpty) {
-                  final n = int.tryParse(v);
-                  if (n == null || n < 30 || n > 250) {
-                    return l.vitalsHeartRateRange;
+            _numericFieldSemantics(
+              label: '${l.vitalsHeartRate}, bpm',
+              child: TextFormField(
+                controller: _heartRateCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: l.vitalsHeartRate,
+                  suffixText: 'bpm',
+                  prefixIcon: const Icon(Icons.favorite_border),
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v != null && v.isNotEmpty) {
+                    final n = int.tryParse(v);
+                    if (n == null || n < 30 || n > 250) {
+                      return l.vitalsHeartRateRange;
+                    }
                   }
-                }
-                return null;
-              },
+                  return null;
+                },
+              ),
             ),
             const SizedBox(height: 16),
 
             // Temperature
-            TextFormField(
-              controller: _temperatureCtrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: l.vitalsTemperature,
-                suffixText: '°F',
-                prefixIcon: const Icon(Icons.thermostat),
-                border: const OutlineInputBorder(),
-              ),
-              validator: (v) {
-                if (v != null && v.isNotEmpty) {
-                  final n = double.tryParse(v);
-                  if (n == null || n < 90 || n > 110) {
-                    return l.vitalsTemperatureRange;
+            _numericFieldSemantics(
+              label: '${l.vitalsTemperature}, °F',
+              child: TextFormField(
+                controller: _temperatureCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: l.vitalsTemperature,
+                  suffixText: '°F',
+                  prefixIcon: const Icon(Icons.thermostat),
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v != null && v.isNotEmpty) {
+                    final n = double.tryParse(v);
+                    if (n == null || n < 90 || n > 110) {
+                      return l.vitalsTemperatureRange;
+                    }
                   }
-                }
-                return null;
-              },
+                  return null;
+                },
+              ),
             ),
             const SizedBox(height: 16),
 
             // Blood Sugar
-            TextFormField(
-              controller: _bloodSugarCtrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: l.vitalsBloodSugar,
-                suffixText: 'mg/dL',
-                prefixIcon: const Icon(Icons.water_drop_outlined),
-                border: const OutlineInputBorder(),
-              ),
-              validator: (v) {
-                if (v != null && v.isNotEmpty) {
-                  final n = int.tryParse(v);
-                  if (n == null || n < 20 || n > 600) {
-                    return l.vitalsBloodSugarRange;
+            _numericFieldSemantics(
+              label: '${l.vitalsBloodSugar}, mg/dL',
+              child: TextFormField(
+                controller: _bloodSugarCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: l.vitalsBloodSugar,
+                  suffixText: 'mg/dL',
+                  prefixIcon: const Icon(Icons.water_drop_outlined),
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v != null && v.isNotEmpty) {
+                    final n = int.tryParse(v);
+                    if (n == null || n < 20 || n > 600) {
+                      return l.vitalsBloodSugarRange;
+                    }
                   }
-                }
-                return null;
-              },
+                  return null;
+                },
+              ),
             ),
             const SizedBox(height: 16),
 
             // Weight
-            TextFormField(
-              controller: _weightCtrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: l.vitalsWeight,
-                suffixText: 'kg',
-                prefixIcon: const Icon(Icons.monitor_weight_outlined),
-                border: const OutlineInputBorder(),
-              ),
-              validator: (v) {
-                if (v != null && v.isNotEmpty) {
-                  final n = double.tryParse(v);
-                  if (n == null || n < 1 || n > 300) {
-                    return l.vitalsWeightRange;
+            _numericFieldSemantics(
+              label: '${l.vitalsWeight}, kg',
+              child: TextFormField(
+                controller: _weightCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: l.vitalsWeight,
+                  suffixText: 'kg',
+                  prefixIcon: const Icon(Icons.monitor_weight_outlined),
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v != null && v.isNotEmpty) {
+                    final n = double.tryParse(v);
+                    if (n == null || n < 1 || n > 300) {
+                      return l.vitalsWeightRange;
+                    }
                   }
-                }
-                return null;
-              },
+                  return null;
+                },
+              ),
             ),
             const SizedBox(height: 16),
 
             // SpO2
-            TextFormField(
-              controller: _spo2Ctrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: l.vitalsSpO2,
-                suffixText: '%',
-                prefixIcon: const Icon(Icons.air),
-                border: const OutlineInputBorder(),
-              ),
-              validator: (v) {
-                if (v != null && v.isNotEmpty) {
-                  final n = int.tryParse(v);
-                  if (n == null || n < 50 || n > 100) {
-                    return l.vitalsSpo2Range;
+            _numericFieldSemantics(
+              label: '${l.vitalsSpO2}, %',
+              child: TextFormField(
+                controller: _spo2Ctrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: l.vitalsSpO2,
+                  suffixText: '%',
+                  prefixIcon: const Icon(Icons.air),
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if (v != null && v.isNotEmpty) {
+                    final n = int.tryParse(v);
+                    if (n == null || n < 50 || n > 100) {
+                      return l.vitalsSpo2Range;
+                    }
                   }
-                }
-                return null;
-              },
+                  return null;
+                },
+              ),
             ),
             const SizedBox(height: 24),
 

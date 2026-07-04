@@ -171,20 +171,25 @@ class _BillCard extends StatelessWidget {
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColour.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      bill.status,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: statusColour,
-                        fontWeight: FontWeight.w600,
+                  Semantics(
+                    container: true,
+                    label: bill.status,
+                    excludeSemantics: true,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColour.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        bill.status,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: statusColour,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),

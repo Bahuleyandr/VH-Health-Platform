@@ -406,7 +406,9 @@ class _FeatureDialButton extends StatelessWidget {
 
     return Semantics(
       button: true,
+      container: true,
       label: feature.label,
+      excludeSemantics: true,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
