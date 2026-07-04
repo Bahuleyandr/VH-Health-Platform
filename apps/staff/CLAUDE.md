@@ -1,21 +1,22 @@
 # CLAUDE.md — VHHealth Staff App
 
 ## Project Overview
-Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has 218 Dart source files across 40+ feature modules.
+Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has 226 Dart source files across 41 feature modules.
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
-- **State**: Provider (ThemeNotifier)
+- **State**: Provider (`ThemeProvider`, `LocaleProvider`, `NotificationProvider`, `RealtimeProvider`, `WebSocketProvider`, `MessageUnreadProvider`, `ClinicalInboxProvider`, `SessionTimeoutProvider`)
 - **Navigation**: GoRouter with auth redirect guard
 - **HTTP**: `package:http`
 - **Auth**: Employee ID + password/PIN → backend JWT
 - **Storage**: flutter_secure_storage (JWT, staff data)
 - **UI**: Material 3, professional blue/teal theme
+- **Desktop**: Windows runner with 1100x700 minimum size, persistent desktop scrollbars/hover polish, bed-board split view, OS toasts for Code Blue/messages, and an MSIX release channel on `staff-v*` tags
 
 ## Repository Layout
 ```
 lib/
-  main.dart                          # Entry point, ThemeNotifier, MaterialApp.router
+  main.dart                          # Entry point, MultiProvider root, MaterialApp.router
   firebase_options.dart              # Firebase config
   core/
     config/api_config.dart           # Base URL, API key, JWT headers
@@ -27,7 +28,7 @@ lib/
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
       sos_button.dart                # Emergency SOS FAB
-  features/                          # ~40 feature modules (218 Dart files total)
+  features/                          # 41 feature modules (226 Dart files total)
     auth/                            # Employee ID + password/PIN login
     dashboard/                       # Home: check-in status, stats, feature grid
     attendance/                      # Check in/out + history
@@ -56,7 +57,7 @@ lib/
     messaging/                       # Secure staff messaging
     notifications/                   # Push notification centre
     hr/                              # HR admin (payroll, credentialing)
-    payroll/                         # Payroll summary view (built, routing pending S3)
+    payroll/                         # Live payroll self-service: payslips, queries, declarations, tax summary
     reports/                         # Clinical + operational reports
     safety/                          # Incident reporting, code blue
     about/                           # App version + build info
@@ -88,6 +89,7 @@ lib/
 | Attendance history | `/staff/attendance/:staffId` | GET |
 | Apply leave | `/staff/hr/leave/apply` | POST |
 | Leave balance | `/staff/hr/leave-balance/:staffId` | GET |
+| Payroll self-service | `/staff/hr/payroll/my-payslips`, `/staff/hr/payroll/queries`, `/staff/hr/payroll/investment-declarations`, `/staff/hr/payroll/tax-summary` | GET, POST |
 | Upload investigation | `/staff/medical/investigations` | POST |
 | Upload consultation | `/staff/medical/consultations` | POST |
 | Update pharmacy order | `/staff/pharmacy/orders` | POST |
@@ -133,6 +135,9 @@ The five separate source repos these were merged from are archived on GitHub as 
 - Staff-specific theme: blue/teal primary (distinct from patient app's teal/green)
 - Use descriptive SnackBars for success/error feedback
 - GoRouter redirect guard: unauthenticated users → `/login`
+- Windows desktop builds enforce an 1100x700 minimum window size and use `ConstrainedContent`/split-view patterns to keep workbench screens readable on wide monitors.
+- Windows desktop notifications are wired behind the desktop platform gate; Code Blue and message toasts focus the window/deep-link when cheap.
+- MSIX packaging is configured in `pubspec.yaml` (`display_name: VH Health Staff`, `identity_name: com.vhhealth.staff`) and the release workflow attaches unsigned/test-signed `.msix` artifacts on `staff-v*` tags.
 - **Offline writes**: queue via `ConnectivitySyncService.instance.enqueue(...)` — **not** `OfflineQueue.enqueue` directly — so the sync badge stays accurate.
 - `OfflineSyncBadge` is mounted in `StaffScaffold` app-bar actions; hidden when online + empty + no conflicts. Tap opens `SyncStatusSheet` with per-conflict Discard/Retry.
 - UI reads sync state via `ListenableBuilder(listenable: ConnectivitySyncService.instance, ...)` — the service is a `ChangeNotifier`.
