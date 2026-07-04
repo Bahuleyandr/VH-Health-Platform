@@ -5,10 +5,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class BookInvestigationStepChoose extends StatelessWidget {
   final bool loadingCatalog;
+  final String? catalogError;
   final Map<String, List<dynamic>> groupedCatalog;
   final Set<int> selectedTestIds;
   final TextEditingController customTestController;
@@ -16,6 +18,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
   final String? slipPhotoName;
   final double estimatedCost;
   final ValueChanged<String> onSearchChanged;
+  final VoidCallback onCatalogRetry;
   final void Function(int id, bool? selected) onTestToggle;
   final VoidCallback onCustomTestChanged;
   final VoidCallback onPickCamera;
@@ -25,6 +28,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
   const BookInvestigationStepChoose({
     super.key,
     required this.loadingCatalog,
+    required this.catalogError,
     required this.groupedCatalog,
     required this.selectedTestIds,
     required this.customTestController,
@@ -32,6 +36,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
     required this.slipPhotoName,
     required this.estimatedCost,
     required this.onSearchChanged,
+    required this.onCatalogRetry,
     required this.onTestToggle,
     required this.onCustomTestChanged,
     required this.onPickCamera,
@@ -59,48 +64,65 @@ class BookInvestigationStepChoose extends StatelessWidget {
         const SizedBox(height: 12),
 
         // Test catalog
-        if (loadingCatalog)
-          const Center(child: CircularProgressIndicator())
-        else ...[
-          ...groupedCatalog.entries.map((entry) {
+        DataStateBuilder<MapEntry<String, List<dynamic>>>(
+          isLoading: loadingCatalog,
+          error: catalogError,
+          data: groupedCatalog.entries.toList(),
+          onRetry: onCatalogRetry,
+          emptyIcon: Icons.science_outlined,
+          emptyTitle: l.bookInvestigationCatalogEmptyTitle,
+          emptySubtitle: l.bookInvestigationCatalogEmptySubtitle,
+          errorTitle: l.genericError,
+          errorActionLabel: l.commonRetryButton,
+          emptyActionLabel: l.commonRefreshButton,
+          builder: (context, grouped) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    entry.key.toUpperCase(),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                ...entry.value.map((test) {
-                  final id = test['id'] as int;
-                  final selected = selectedTestIds.contains(id);
-                  final cost = test['default_cost'] ?? 0;
-                  return CheckboxListTile(
-                    value: selected,
-                    onChanged: (v) => onTestToggle(id, v),
-                    title: Text(test['name'] ?? ''),
-                    subtitle: Text(
-                      test['requires_fasting'] == true
-                          ? l.bookInvestigationCostFasting(cost.toString())
-                          : '₹$cost',
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurfaceVariant,
+                ...grouped.map((entry) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          entry.key.toUpperCase(),
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                    ),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
+                      ...entry.value.map((test) {
+                        final id = test['id'] as int;
+                        final selected = selectedTestIds.contains(id);
+                        final cost = test['default_cost'] ?? 0;
+                        return CheckboxListTile(
+                          value: selected,
+                          onChanged: (v) => onTestToggle(id, v),
+                          title: Text(test['name'] ?? ''),
+                          subtitle: Text(
+                            test['requires_fasting'] == true
+                                ? l.bookInvestigationCostFasting(
+                                    cost.toString(),
+                                  )
+                                : '₹$cost',
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                        );
+                      }),
+                    ],
                   );
                 }),
               ],
             );
-          }),
-        ],
+          },
+        ),
 
         const Divider(height: 24),
 

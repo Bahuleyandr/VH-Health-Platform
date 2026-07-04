@@ -4,6 +4,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class FamilyScreen extends StatefulWidget {
@@ -17,10 +18,13 @@ class _FamilyScreenState extends State<FamilyScreen> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _members = [];
+  bool _didLoad = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _fetchMembers();
   }
 
@@ -152,103 +156,53 @@ class _FamilyScreenState extends State<FamilyScreen> {
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context)!;
 
-    if (_loading) {
-      return const SizedBox(
-        height: 200,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return SizedBox(
-        height: 200,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 48,
-                color: theme.colorScheme.error,
-              ),
-              const SizedBox(height: 12),
-              Text(_error!, style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _fetchMembers,
-                icon: const Icon(Icons.refresh),
-                label: Text(l.familyRetryButton),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_members.isEmpty) {
-      return SizedBox(
-        height: 200,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.family_restroom,
-                size: 48,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 12),
-              Text(l.familyNoMembers, style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 8),
-              Text(
-                l.familyNoMembersHint,
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _addMember,
-                icon: const Icon(Icons.person_add),
-                label: Text(l.familyAddMember),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFCE93D8),
-                  side: const BorderSide(color: Color(0xFFCE93D8)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l.familyYourFamily,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          l.familyManageHint,
-          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
-        ),
-        const SizedBox(height: 16),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _members.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 12),
+    return DataStateBuilder<Map<String, dynamic>>(
+      isLoading: _loading,
+      error: _error,
+      data: _members,
+      onRetry: _fetchMembers,
+      onEmptyAction: _addMember,
+      emptyIcon: Icons.family_restroom,
+      emptyTitle: l.familyNoMembers,
+      emptySubtitle: l.familyNoMembersHint,
+      emptyActionLabel: l.familyAddMember,
+      errorTitle: l.genericError,
+      errorActionLabel: l.commonRetryButton,
+      builder: (context, members) {
+        return ListView.separated(
+          itemCount: members.length + 1,
+          separatorBuilder: (_, index) => index == 0
+              ? const SizedBox(height: 16)
+              : const SizedBox(height: 12),
           itemBuilder: (context, index) {
+            if (index == 0) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l.familyYourFamily,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    l.familyManageHint,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              );
+            }
+            final member = members[index - 1];
             return _FamilyMemberCard(
-              member: _members[index],
-              onRemove: () => _removeMember(_members[index]),
+              member: member,
+              onRemove: () => _removeMember(member),
             );
           },
-        ),
-      ],
+        );
+      },
     );
   }
 }

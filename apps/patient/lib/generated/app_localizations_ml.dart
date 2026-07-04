@@ -1147,7 +1147,7 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get vitalsHistoryFailed =>
-      'വൈറ്റൽ ഹിസ്റ്ററി ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു';
+      'വൈറ്റൽസ് ചരിത്രം ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.';
 
   @override
   String get familyTitle => 'കുടുംബ അംഗങ്ങൾ';
@@ -1470,7 +1470,7 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get familyLoadFailed =>
-      'കുടുംബാംഗങ്ങളെ ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു';
+      'കുടുംബാംഗങ്ങളെ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.';
 
   @override
   String get familyUnknown => 'അജ്ഞാതം';
@@ -2391,7 +2391,8 @@ class AppLocalizationsMl extends AppLocalizations {
   }
 
   @override
-  String get pharmacyPlaceOrderFailed => 'ഓർഡർ നൽകാനായില്ല';
+  String get pharmacyPlaceOrderFailed =>
+      'ഓർഡർ നൽകാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.';
 
   @override
   String pharmacyPlaceOrderError(String error) {
@@ -3524,4 +3525,69 @@ class AppLocalizationsMl extends AppLocalizations {
   @override
   String get dashboardHealthConnectPrompt =>
       'ആപ്പ് അടഞ്ഞിരിക്കുമ്പോൾ എണ്ണിയ സ്റ്റെപ്പുകൾ VH Health സിങ്ക് ചെയ്യാൻ Health Connect അനുവദിക്കുക.';
+
+  @override
+  String get tpaClaimsEmptySubtitle =>
+      'നിങ്ങളുടെ സന്ദർശനങ്ങൾക്ക് സൃഷ്ടിച്ച ഇൻഷുറൻസ്, കാഷ്‌ലെസ് ക്ലെയിമുകൾ ഇവിടെ കാണിക്കും.';
+
+  @override
+  String get tpaClaimNoDataHint =>
+      'പുതിയ ക്ലെയിം വിശദാംശങ്ങൾക്കായി താഴേക്ക് വലിക്കുകയോ Refresh തട്ടുകയോ ചെയ്യുക.';
+
+  @override
+  String get appointmentsLoadFailed =>
+      'അപ്പോയിന്റ്മെന്റുകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get appointmentsNoDocuments =>
+      'ഈ അപ്പോയിന്റ്മെന്റിന് ഇതുവരെ രേഖകൾ ലഭ്യമല്ല.';
+
+  @override
+  String get appointmentsDocumentsTitle => 'രേഖകൾ';
+
+  @override
+  String get appointmentsDocumentFallback => 'രേഖ';
+
+  @override
+  String get appointmentsDocumentsLoadFailed =>
+      'അപ്പോയിന്റ്മെന്റ് രേഖകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String appointmentsCancelConfirm(String doctor, String date, String time) {
+    return '$date ന് $time മണിക്ക് $doctor യോടുള്ള അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കണോ?';
+  }
+
+  @override
+  String get appointmentsCancelledToast => 'അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കി';
+
+  @override
+  String get appointmentsCancelFailed =>
+      'അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get appointmentsEmptyHint =>
+      'നിങ്ങളുടെ കെയർ ടീമിനൊപ്പം ഒരു സന്ദർശനം ബുക്ക് ചെയ്യുക; അത് ഇവിടെ കാണിക്കും.';
+
+  @override
+  String get appointmentsUpcomingSection => 'വരാനിരിക്കുന്നത്';
+
+  @override
+  String get appointmentsPastSection => 'മുമ്പത്തെ';
+
+  @override
+  String get bookInvestigationCatalogLoadFailed =>
+      'ഇൻവെസ്റ്റിഗേഷൻ കാറ്റലോഗ് ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കാം അല്ലെങ്കിൽ പരിശോധനകൾ കൈമാറി നൽകാം.';
+
+  @override
+  String get bookInvestigationCatalogEmptyTitle => 'പരിശോധനകൾ കണ്ടെത്തിയില്ല';
+
+  @override
+  String get bookInvestigationCatalogEmptySubtitle =>
+      'മറ്റൊരു തിരയൽ ശ്രമിക്കുക, കസ്റ്റം പരിശോധന നൽകുക, അല്ലെങ്കിൽ പ്രിസ്ക്രിപ്ഷൻ സ്ലിപ്പ് അപ്‌ലോഡ് ചെയ്യുക.';
+
+  @override
+  String get pharmacyPlaceOrderButton => 'ഓർഡർ നൽകുക';
+
+  @override
+  String get pharmacyPlacingOrderButton => 'ഓർഡർ നൽകുന്നു...';
 }

@@ -1148,7 +1148,8 @@ class AppLocalizationsTa extends AppLocalizations {
       'லாக் வைட்டல்ஸ் தாவலைப் பயன்படுத்தி உங்கள் உயிர்களை பதிவு செய்யவும்.';
 
   @override
-  String get vitalsHistoryFailed => 'முக்கிய வரலாற்றை ஏற்றுவதில் தோல்வி';
+  String get vitalsHistoryFailed =>
+      'வைட்டல்ஸ் வரலாற்றை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
   String get familyTitle => 'குடும்ப உறுப்பினர்கள்';
@@ -1471,7 +1472,8 @@ class AppLocalizationsTa extends AppLocalizations {
   String get familyPhoneInvalid => 'சரியான தொலைபேசி எண்ணை உள்ளிடவும்';
 
   @override
-  String get familyLoadFailed => 'குடும்ப உறுப்பினர்களை ஏற்ற முடியவில்லை';
+  String get familyLoadFailed =>
+      'குடும்ப உறுப்பினர்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
   String get familyUnknown => 'தெரியவில்லை';
@@ -2399,7 +2401,8 @@ class AppLocalizationsTa extends AppLocalizations {
   }
 
   @override
-  String get pharmacyPlaceOrderFailed => 'ஆர்டர் இட முடியவில்லை';
+  String get pharmacyPlaceOrderFailed =>
+      'ஆர்டரை இட முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
   String pharmacyPlaceOrderError(String error) {
@@ -3534,4 +3537,70 @@ class AppLocalizationsTa extends AppLocalizations {
   @override
   String get dashboardHealthConnectPrompt =>
       'செயலி மூடப்பட்டிருக்கும் போது எண்ணப்பட்ட படிகளை VH Health ஒத்திசைக்க Health Connect அனுமதிக்கவும்.';
+
+  @override
+  String get tpaClaimsEmptySubtitle =>
+      'உங்கள் வருகைகளுக்கான காப்பீடு மற்றும் காஷ்லெஸ் கோரிக்கைகள் இங்கே தோன்றும்.';
+
+  @override
+  String get tpaClaimNoDataHint =>
+      'சமீபத்திய கோரிக்கை விவரங்களுக்கு கீழே இழுக்கவும் அல்லது Refresh தட்டவும்.';
+
+  @override
+  String get appointmentsLoadFailed =>
+      'அப்பாயின்ட்மென்ட்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்க கீழே இழுக்கவும்.';
+
+  @override
+  String get appointmentsNoDocuments =>
+      'இந்த அப்பாயின்ட்மென்டுக்கு இன்னும் ஆவணங்கள் இல்லை.';
+
+  @override
+  String get appointmentsDocumentsTitle => 'ஆவணங்கள்';
+
+  @override
+  String get appointmentsDocumentFallback => 'ஆவணம்';
+
+  @override
+  String get appointmentsDocumentsLoadFailed =>
+      'அப்பாயின்ட்மென்ட் ஆவணங்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String appointmentsCancelConfirm(String doctor, String date, String time) {
+    return '$date அன்று $time மணிக்கு $doctor உடன் உள்ள அப்பாயின்ட்மென்டை ரத்து செய்யவா?';
+  }
+
+  @override
+  String get appointmentsCancelledToast =>
+      'அப்பாயின்ட்மென்ட் ரத்து செய்யப்பட்டது';
+
+  @override
+  String get appointmentsCancelFailed =>
+      'அப்பாயின்ட்மென்டை ரத்து செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get appointmentsEmptyHint =>
+      'உங்கள் பராமரிப்பு குழுவுடன் ஒரு வருகையை புக் செய்யுங்கள்; அது இங்கே தோன்றும்.';
+
+  @override
+  String get appointmentsUpcomingSection => 'வரவிருக்கும்';
+
+  @override
+  String get appointmentsPastSection => 'கடந்த';
+
+  @override
+  String get bookInvestigationCatalogLoadFailed =>
+      'பரிசோதனை பட்டியலை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கலாம் அல்லது பரிசோதனைகளை கைமுறையாக உள்ளிடலாம்.';
+
+  @override
+  String get bookInvestigationCatalogEmptyTitle => 'பரிசோதனைகள் இல்லை';
+
+  @override
+  String get bookInvestigationCatalogEmptySubtitle =>
+      'வேறு தேடலை முயற்சிக்கவும், தனிப்பயன் பரிசோதனையை உள்ளிடவும், அல்லது மருந்துச் சீட்டை பதிவேற்றவும்.';
+
+  @override
+  String get pharmacyPlaceOrderButton => 'ஆர்டர் இடு';
+
+  @override
+  String get pharmacyPlacingOrderButton => 'ஆர்டர் இடப்படுகிறது...';
 }

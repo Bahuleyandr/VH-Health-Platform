@@ -1076,7 +1076,7 @@
   "vitalsAtLeastOne": "குறைந்தது ஒரு முக்கிய அடையாளத்தை உள்ளிடவும்",
   "vitalsNoHistory": "இதுவரை பதிவு இல்லை",
   "vitalsNoHistoryHint": "லாக் வைட்டல்ஸ் தாவலைப் பயன்படுத்தி உங்கள் உயிர்களை பதிவு செய்யவும்.",
-  "vitalsHistoryFailed": "முக்கிய வரலாற்றை ஏற்றுவதில் தோல்வி",
+  "vitalsHistoryFailed": "வைட்டல்ஸ் வரலாற்றை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
   "familyTitle": "குடும்ப உறுப்பினர்கள்",
   "familyYourFamily": "உங்கள் குடும்பம்",
   "familyManageHint": "உங்கள் கணக்கில் இணைக்கப்பட்ட குடும்ப உறுப்பினர்களை நிர்வகிக்கவும்.",
@@ -1330,7 +1330,7 @@
   "@familyPhoneInvalid": {
     "description": "Validation when family member phone invalid"
   },
-  "familyLoadFailed": "குடும்ப உறுப்பினர்களை ஏற்ற முடியவில்லை",
+  "familyLoadFailed": "குடும்ப உறுப்பினர்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
   "@familyLoadFailed": {
     "description": "Error state when family members fetch fails"
   },
@@ -2101,7 +2101,7 @@
   "pharmacyPrescriptionOrDescriptionRequired": "மருந்துச் சீட்டை பதிவேற்றவும் அல்லது உங்கள் ஆர்டரை விவரிக்கவும்",
   "pharmacyOrderPlacedToast": "ஆர்டர் இடப்பட்டது! {orderNumber}",
   "pharmacyOrderNumber": "ஆர்டர் எண்: {orderNumber}",
-  "pharmacyPlaceOrderFailed": "ஆர்டர் இட முடியவில்லை",
+  "pharmacyPlaceOrderFailed": "ஆர்டரை இட முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
   "pharmacyPlaceOrderError": "பிழை: {error}",
   "billsTitle": "பில்கள்",
   "billsLoadFailed": "பில்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்க கீழே இழுக்கவும்.",
@@ -2434,5 +2434,23 @@
   "healthPointsCurrentBalance": "தற்போதைய இருப்பு",
   "healthPointsGoal": "இலக்கு",
   "healthPointsStepsToday": "இன்றைய படிகள்",
-  "dashboardHealthConnectPrompt": "செயலி மூடப்பட்டிருக்கும் போது எண்ணப்பட்ட படிகளை VH Health ஒத்திசைக்க Health Connect அனுமதிக்கவும்."
+  "dashboardHealthConnectPrompt": "செயலி மூடப்பட்டிருக்கும் போது எண்ணப்பட்ட படிகளை VH Health ஒத்திசைக்க Health Connect அனுமதிக்கவும்.",
+  "tpaClaimsEmptySubtitle": "உங்கள் வருகைகளுக்கான காப்பீடு மற்றும் காஷ்லெஸ் கோரிக்கைகள் இங்கே தோன்றும்.",
+  "tpaClaimNoDataHint": "சமீபத்திய கோரிக்கை விவரங்களுக்கு கீழே இழுக்கவும் அல்லது Refresh தட்டவும்.",
+  "appointmentsLoadFailed": "அப்பாயின்ட்மென்ட்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்க கீழே இழுக்கவும்.",
+  "appointmentsNoDocuments": "இந்த அப்பாயின்ட்மென்டுக்கு இன்னும் ஆவணங்கள் இல்லை.",
+  "appointmentsDocumentsTitle": "ஆவணங்கள்",
+  "appointmentsDocumentFallback": "ஆவணம்",
+  "appointmentsDocumentsLoadFailed": "அப்பாயின்ட்மென்ட் ஆவணங்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "appointmentsCancelConfirm": "{date} அன்று {time} மணிக்கு {doctor} உடன் உள்ள அப்பாயின்ட்மென்டை ரத்து செய்யவா?",
+  "appointmentsCancelledToast": "அப்பாயின்ட்மென்ட் ரத்து செய்யப்பட்டது",
+  "appointmentsCancelFailed": "அப்பாயின்ட்மென்டை ரத்து செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "appointmentsEmptyHint": "உங்கள் பராமரிப்பு குழுவுடன் ஒரு வருகையை புக் செய்யுங்கள்; அது இங்கே தோன்றும்.",
+  "appointmentsUpcomingSection": "வரவிருக்கும்",
+  "appointmentsPastSection": "கடந்த",
+  "bookInvestigationCatalogLoadFailed": "பரிசோதனை பட்டியலை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கலாம் அல்லது பரிசோதனைகளை கைமுறையாக உள்ளிடலாம்.",
+  "bookInvestigationCatalogEmptyTitle": "பரிசோதனைகள் இல்லை",
+  "bookInvestigationCatalogEmptySubtitle": "வேறு தேடலை முயற்சிக்கவும், தனிப்பயன் பரிசோதனையை உள்ளிடவும், அல்லது மருந்துச் சீட்டை பதிவேற்றவும்.",
+  "pharmacyPlaceOrderButton": "ஆர்டர் இடு",
+  "pharmacyPlacingOrderButton": "ஆர்டர் இடப்படுகிறது..."
 }

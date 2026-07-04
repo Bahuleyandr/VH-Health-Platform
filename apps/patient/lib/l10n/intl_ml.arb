@@ -1076,7 +1076,7 @@
   "vitalsAtLeastOne": "ദയവായി ഒരു സുപ്രധാന ചിഹ്നമെങ്കിലും നൽകുക",
   "vitalsNoHistory": "ഇതുവരെ രേഖകളൊന്നുമില്ല",
   "vitalsNoHistoryHint": "ലോഗ് വൈറ്റൽസ് ടാബ് ഉപയോഗിച്ച് നിങ്ങളുടെ വൈറ്റലുകൾ ലോഗ് ചെയ്യുക.",
-  "vitalsHistoryFailed": "വൈറ്റൽ ഹിസ്റ്ററി ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
+  "vitalsHistoryFailed": "വൈറ്റൽസ് ചരിത്രം ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.",
   "familyTitle": "കുടുംബ അംഗങ്ങൾ",
   "familyYourFamily": "നിങ്ങളുടെ കുടുംബം",
   "familyManageHint": "നിങ്ങളുടെ അക്കൗണ്ടിലേക്ക് ലിങ്ക് ചെയ്‌തിരിക്കുന്ന കുടുംബാംഗങ്ങളെ നിയന്ത്രിക്കുക.",
@@ -1330,7 +1330,7 @@
   "@familyPhoneInvalid": {
     "description": "Validation when family member phone invalid"
   },
-  "familyLoadFailed": "കുടുംബാംഗങ്ങളെ ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
+  "familyLoadFailed": "കുടുംബാംഗങ്ങളെ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.",
   "@familyLoadFailed": {
     "description": "Error state when family members fetch fails"
   },
@@ -2101,7 +2101,7 @@
   "pharmacyPrescriptionOrDescriptionRequired": "ദയവായി പ്രിസ്ക്രിപ്ഷൻ അപ്‌ലോഡ് ചെയ്യുക അല്ലെങ്കിൽ നിങ്ങളുടെ ഓർഡർ വിവരിക്കുക",
   "pharmacyOrderPlacedToast": "ഓർഡർ നൽകി! {orderNumber}",
   "pharmacyOrderNumber": "ഓർഡർ നമ്പർ: {orderNumber}",
-  "pharmacyPlaceOrderFailed": "ഓർഡർ നൽകാനായില്ല",
+  "pharmacyPlaceOrderFailed": "ഓർഡർ നൽകാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.",
   "pharmacyPlaceOrderError": "പിശക്: {error}",
   "billsTitle": "ബില്ലുകൾ",
   "billsLoadFailed": "ബില്ലുകൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.",
@@ -2434,5 +2434,23 @@
   "healthPointsCurrentBalance": "നിലവിലെ ബാലൻസ്",
   "healthPointsGoal": "ലക്ഷ്യം",
   "healthPointsStepsToday": "ഇന്നത്തെ സ്റ്റെപ്പുകൾ",
-  "dashboardHealthConnectPrompt": "ആപ്പ് അടഞ്ഞിരിക്കുമ്പോൾ എണ്ണിയ സ്റ്റെപ്പുകൾ VH Health സിങ്ക് ചെയ്യാൻ Health Connect അനുവദിക്കുക."
+  "dashboardHealthConnectPrompt": "ആപ്പ് അടഞ്ഞിരിക്കുമ്പോൾ എണ്ണിയ സ്റ്റെപ്പുകൾ VH Health സിങ്ക് ചെയ്യാൻ Health Connect അനുവദിക്കുക.",
+  "tpaClaimsEmptySubtitle": "നിങ്ങളുടെ സന്ദർശനങ്ങൾക്ക് സൃഷ്ടിച്ച ഇൻഷുറൻസ്, കാഷ്‌ലെസ് ക്ലെയിമുകൾ ഇവിടെ കാണിക്കും.",
+  "tpaClaimNoDataHint": "പുതിയ ക്ലെയിം വിശദാംശങ്ങൾക്കായി താഴേക്ക് വലിക്കുകയോ Refresh തട്ടുകയോ ചെയ്യുക.",
+  "appointmentsLoadFailed": "അപ്പോയിന്റ്മെന്റുകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.",
+  "appointmentsNoDocuments": "ഈ അപ്പോയിന്റ്മെന്റിന് ഇതുവരെ രേഖകൾ ലഭ്യമല്ല.",
+  "appointmentsDocumentsTitle": "രേഖകൾ",
+  "appointmentsDocumentFallback": "രേഖ",
+  "appointmentsDocumentsLoadFailed": "അപ്പോയിന്റ്മെന്റ് രേഖകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.",
+  "appointmentsCancelConfirm": "{date} ന് {time} മണിക്ക് {doctor} യോടുള്ള അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കണോ?",
+  "appointmentsCancelledToast": "അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കി",
+  "appointmentsCancelFailed": "അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.",
+  "appointmentsEmptyHint": "നിങ്ങളുടെ കെയർ ടീമിനൊപ്പം ഒരു സന്ദർശനം ബുക്ക് ചെയ്യുക; അത് ഇവിടെ കാണിക്കും.",
+  "appointmentsUpcomingSection": "വരാനിരിക്കുന്നത്",
+  "appointmentsPastSection": "മുമ്പത്തെ",
+  "bookInvestigationCatalogLoadFailed": "ഇൻവെസ്റ്റിഗേഷൻ കാറ്റലോഗ് ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കാം അല്ലെങ്കിൽ പരിശോധനകൾ കൈമാറി നൽകാം.",
+  "bookInvestigationCatalogEmptyTitle": "പരിശോധനകൾ കണ്ടെത്തിയില്ല",
+  "bookInvestigationCatalogEmptySubtitle": "മറ്റൊരു തിരയൽ ശ്രമിക്കുക, കസ്റ്റം പരിശോധന നൽകുക, അല്ലെങ്കിൽ പ്രിസ്ക്രിപ്ഷൻ സ്ലിപ്പ് അപ്‌ലോഡ് ചെയ്യുക.",
+  "pharmacyPlaceOrderButton": "ഓർഡർ നൽകുക",
+  "pharmacyPlacingOrderButton": "ഓർഡർ നൽകുന്നു..."
 }

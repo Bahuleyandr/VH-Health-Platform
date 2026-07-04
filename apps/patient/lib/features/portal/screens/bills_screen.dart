@@ -65,10 +65,13 @@ class _BillsScreenState extends State<BillsScreen> {
   bool _loading = true;
   String? _error;
   List<_Bill> _bills = [];
+  bool _didLoad = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _fetch();
   }
 
@@ -122,6 +125,9 @@ class _BillsScreenState extends State<BillsScreen> {
           emptyIcon: Icons.receipt_long_outlined,
           emptyTitle: l.billsEmptyTitle,
           emptySubtitle: l.billsEmptySubtitle,
+          errorTitle: l.genericError,
+          errorActionLabel: l.commonRetryButton,
+          emptyActionLabel: l.commonRefreshButton,
           builder: (context, bills) {
             return ListView.separated(
               padding: const EdgeInsets.all(16),

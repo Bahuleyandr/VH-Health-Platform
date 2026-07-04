@@ -1129,7 +1129,8 @@ class AppLocalizationsHi extends AppLocalizations {
       'रिकॉर्ड करें टैब का उपयोग करके अपने महत्वपूर्ण संकेत दर्ज करें।';
 
   @override
-  String get vitalsHistoryFailed => 'महत्वपूर्ण संकेत इतिहास लोड करने में विफल';
+  String get vitalsHistoryFailed =>
+      'वाइटल्स इतिहास लोड नहीं हो सका। कृपया फिर कोशिश करें।';
 
   @override
   String get familyTitle => 'परिवार के सदस्य';
@@ -1447,7 +1448,8 @@ class AppLocalizationsHi extends AppLocalizations {
   String get familyPhoneInvalid => 'एक मान्य फ़ोन नंबर दर्ज करें';
 
   @override
-  String get familyLoadFailed => 'परिवार के सदस्य लोड करने में विफल';
+  String get familyLoadFailed =>
+      'परिवार के सदस्यों को लोड नहीं किया जा सका। कृपया फिर कोशिश करें।';
 
   @override
   String get familyUnknown => 'अज्ञात';
@@ -2353,7 +2355,8 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
-  String get pharmacyPlaceOrderFailed => 'ऑर्डर नहीं हो सका';
+  String get pharmacyPlaceOrderFailed =>
+      'ऑर्डर नहीं दिया जा सका। कृपया फिर कोशिश करें।';
 
   @override
   String pharmacyPlaceOrderError(String error) {
@@ -3473,4 +3476,69 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get dashboardHealthConnectPrompt =>
       'Health Connect अनुमति दें ताकि VH Health ऐप बंद होने पर गिने गए कदम सिंक कर सके।';
+
+  @override
+  String get tpaClaimsEmptySubtitle =>
+      'आपकी विज़िट के लिए बनाए गए बीमा और कैशलेस दावे यहां दिखाई देंगे।';
+
+  @override
+  String get tpaClaimNoDataHint =>
+      'नवीनतम दावा विवरण देखने के लिए नीचे खींचें या रिफ्रेश टैप करें।';
+
+  @override
+  String get appointmentsLoadFailed =>
+      'अपॉइंटमेंट लोड नहीं हो सके। फिर कोशिश करने के लिए नीचे खींचें।';
+
+  @override
+  String get appointmentsNoDocuments =>
+      'इस अपॉइंटमेंट के लिए अभी कोई दस्तावेज़ उपलब्ध नहीं है।';
+
+  @override
+  String get appointmentsDocumentsTitle => 'दस्तावेज़';
+
+  @override
+  String get appointmentsDocumentFallback => 'दस्तावेज़';
+
+  @override
+  String get appointmentsDocumentsLoadFailed =>
+      'अपॉइंटमेंट दस्तावेज़ लोड नहीं हो सके। कृपया फिर कोशिश करें।';
+
+  @override
+  String appointmentsCancelConfirm(String doctor, String date, String time) {
+    return '$date को $time बजे $doctor के साथ अपॉइंटमेंट रद्द करें?';
+  }
+
+  @override
+  String get appointmentsCancelledToast => 'अपॉइंटमेंट रद्द कर दिया गया';
+
+  @override
+  String get appointmentsCancelFailed =>
+      'अपॉइंटमेंट रद्द नहीं हो सका। कृपया फिर कोशिश करें।';
+
+  @override
+  String get appointmentsEmptyHint =>
+      'अपनी केयर टीम के साथ विज़िट बुक करें और वह यहां दिखाई देगी।';
+
+  @override
+  String get appointmentsUpcomingSection => 'आगामी';
+
+  @override
+  String get appointmentsPastSection => 'पिछले';
+
+  @override
+  String get bookInvestigationCatalogLoadFailed =>
+      'जांच कैटलॉग लोड नहीं हो सका। आप फिर कोशिश कर सकते हैं या जांचें मैन्युअल रूप से दर्ज कर सकते हैं।';
+
+  @override
+  String get bookInvestigationCatalogEmptyTitle => 'कोई जांच नहीं मिली';
+
+  @override
+  String get bookInvestigationCatalogEmptySubtitle =>
+      'दूसरी खोज आज़माएं, कस्टम जांच दर्ज करें, या प्रिस्क्रिप्शन स्लिप अपलोड करें।';
+
+  @override
+  String get pharmacyPlaceOrderButton => 'ऑर्डर दें';
+
+  @override
+  String get pharmacyPlacingOrderButton => 'ऑर्डर दिया जा रहा है...';
 }

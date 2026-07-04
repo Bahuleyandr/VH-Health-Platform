@@ -20,6 +20,9 @@ class DataStateBuilder<T> extends StatelessWidget {
   /// Called when the retry button is pressed (in error or empty states).
   final VoidCallback? onRetry;
 
+  /// Called when the empty-state action is pressed. Falls back to [onRetry].
+  final VoidCallback? onEmptyAction;
+
   // ── Optional customisation ─────────────────────────────────────────────
 
   /// Icon shown in the empty state. Defaults to [Icons.inbox_outlined].
@@ -34,6 +37,15 @@ class DataStateBuilder<T> extends StatelessWidget {
   /// Icon shown in the error state. Defaults to [Icons.error_outline].
   final IconData errorIcon;
 
+  /// Title shown in the error state.
+  final String errorTitle;
+
+  /// Button label shown in the error state.
+  final String errorActionLabel;
+
+  /// Button label shown in the empty state when an action is available.
+  final String emptyActionLabel;
+
   const DataStateBuilder({
     super.key,
     required this.isLoading,
@@ -41,10 +53,14 @@ class DataStateBuilder<T> extends StatelessWidget {
     required this.data,
     required this.builder,
     this.onRetry,
+    this.onEmptyAction,
     this.emptyIcon = Icons.inbox_outlined,
     this.emptyTitle = 'Nothing here yet',
     this.emptySubtitle = '',
     this.errorIcon = Icons.error_outline,
+    this.errorTitle = 'Something went wrong',
+    this.errorActionLabel = 'Retry',
+    this.emptyActionLabel = 'Refresh',
   });
 
   @override
@@ -57,21 +73,22 @@ class DataStateBuilder<T> extends StatelessWidget {
       return _CenteredMessage(
         icon: errorIcon,
         iconColor: Theme.of(context).colorScheme.error,
-        title: 'Something went wrong',
+        title: errorTitle,
         subtitle: error!,
-        actionLabel: 'Retry',
+        actionLabel: errorActionLabel,
         onAction: onRetry,
       );
     }
 
     if (data.isEmpty) {
+      final emptyAction = onEmptyAction ?? onRetry;
       return _CenteredMessage(
         icon: emptyIcon,
         iconColor: Colors.grey.shade400,
         title: emptyTitle,
         subtitle: emptySubtitle,
-        actionLabel: onRetry != null ? 'Refresh' : null,
-        onAction: onRetry,
+        actionLabel: emptyAction != null ? emptyActionLabel : null,
+        onAction: emptyAction,
       );
     }
 
