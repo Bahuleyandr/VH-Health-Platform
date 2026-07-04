@@ -1956,7 +1956,7 @@ class AppLocalizationsMl extends AppLocalizations {
   String get permissionGateSettingUp => 'സജ്ജീകരിക്കുന്നു...';
 
   @override
-  String get yourHealthUploadRecord => 'റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക';
+  String get yourHealthUploadRecord => 'രേഖ അപ്‌ലോഡ് ചെയ്യുക';
 
   @override
   String get yourHealthWhatsNextTitle => 'അടുത്തത് എന്ത്';
@@ -2342,4 +2342,1186 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get recordAccessStatusRevoked => 'പിൻവലിച്ചത്';
+
+  @override
+  String get commonRetryButton => 'വീണ്ടും ശ്രമിക്കുക';
+
+  @override
+  String get commonContinueButton => 'തുടരുക';
+
+  @override
+  String get commonBackButton => 'പിന്നോട്ട്';
+
+  @override
+  String get commonOkButton => 'ശരി';
+
+  @override
+  String get navigationHome => 'ഹോം';
+
+  @override
+  String get notificationsTitle => 'അറിയിപ്പുകൾ';
+
+  @override
+  String get appointmentsBookTab => 'ബുക്ക് ചെയ്യുക';
+
+  @override
+  String get appointmentsMyAppointmentsTab => 'എന്റെ അപ്പോയിന്റ്മെന്റുകൾ';
+
+  @override
+  String get pharmacyOrderTab => 'ഓർഡർ';
+
+  @override
+  String get pharmacyMyOrdersTab => 'എന്റെ ഓർഡറുകൾ';
+
+  @override
+  String get pharmacyFileTooLarge => 'ഫയൽ വളരെ വലുതാണ്. പരമാവധി വലുപ്പം 10 MB.';
+
+  @override
+  String get pharmacyPrescriptionOrDescriptionRequired =>
+      'ദയവായി പ്രിസ്ക്രിപ്ഷൻ അപ്‌ലോഡ് ചെയ്യുക അല്ലെങ്കിൽ നിങ്ങളുടെ ഓർഡർ വിവരിക്കുക';
+
+  @override
+  String pharmacyOrderPlacedToast(String orderNumber) {
+    return 'ഓർഡർ നൽകി! $orderNumber';
+  }
+
+  @override
+  String pharmacyOrderNumber(String orderNumber) {
+    return 'ഓർഡർ നമ്പർ: $orderNumber';
+  }
+
+  @override
+  String get pharmacyPlaceOrderFailed => 'ഓർഡർ നൽകാനായില്ല';
+
+  @override
+  String pharmacyPlaceOrderError(String error) {
+    return 'പിശക്: $error';
+  }
+
+  @override
+  String get billsTitle => 'ബില്ലുകൾ';
+
+  @override
+  String get billsLoadFailed =>
+      'ബില്ലുകൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get billsEmptyTitle => 'ഇനിയും ബില്ലുകളില്ല';
+
+  @override
+  String get billsEmptySubtitle =>
+      'ആശുപത്രി നൽകിയ ബില്ലുകൾ ഇവിടെ കാണും. റിഫ്രഷ് ചെയ്യാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String billsInvoiceFallback(int id) {
+    return 'ഇൻവോയ്സ് #$id';
+  }
+
+  @override
+  String get billsTotal => 'മൊത്തം';
+
+  @override
+  String get billsPaid => 'അടച്ചത്';
+
+  @override
+  String get billsDue => 'ബാക്കി';
+
+  @override
+  String get tpaClaimsTitle => 'ഇൻഷുറൻസ് ക്ലെയിമുകൾ';
+
+  @override
+  String get tpaClaimsLoadFailed =>
+      'ഇൻഷുറൻസ് ക്ലെയിമുകൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get tpaClaimsEmptyTitle => 'ഇനിയും ഇൻഷുറൻസ് ക്ലെയിമുകളില്ല';
+
+  @override
+  String get tpaClaimFallback => 'ക്ലെയിം';
+
+  @override
+  String get tpaClaimClaimed => 'ക്ലെയിം ചെയ്തത്';
+
+  @override
+  String get tpaClaimApproved => 'അംഗീകരിച്ചത്';
+
+  @override
+  String get tpaClaimPaidByInsurer => 'ഇൻഷുറർ അടച്ചത്';
+
+  @override
+  String get tpaClaimBreakdownTitle => 'ക്ലെയിം വിശദാംശം';
+
+  @override
+  String get tpaClaimNoData => 'ഡാറ്റയില്ല';
+
+  @override
+  String get tpaClaimDocumentsLoadFailed => 'ക്ലെയിം രേഖകൾ ലോഡ് ചെയ്യാനായില്ല';
+
+  @override
+  String get tpaClaimLoadFailed =>
+      'ക്ലെയിം ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get tpaClaimDocumentDownloadFailed => 'രേഖ ഡൗൺലോഡ് ചെയ്യാനായില്ല';
+
+  @override
+  String get tpaClaimSummary => 'സാരാംശം';
+
+  @override
+  String get tpaClaimHospitalBilled => 'ആശുപത്രി ബിൽ';
+
+  @override
+  String get tpaClaimTpaClaimed => 'TPA ക്ലെയിം ചെയ്തത്';
+
+  @override
+  String get tpaClaimTpaApproved => 'TPA അംഗീകരിച്ചത്';
+
+  @override
+  String get tpaClaimTpaDisallowed => 'TPA നിരസിച്ചത്';
+
+  @override
+  String get tpaClaimNonPayableItems => 'അടക്കാനാകാത്ത ഇനങ്ങൾ';
+
+  @override
+  String get tpaClaimPolicyCopay => 'പോളിസി കോ-പേ';
+
+  @override
+  String get tpaClaimYouPaid => 'നിങ്ങൾ അടച്ചത്';
+
+  @override
+  String get tpaClaimDocuments => 'ക്ലെയിം രേഖകൾ';
+
+  @override
+  String get tpaClaimDocumentFallback => 'രേഖ';
+
+  @override
+  String get tpaClaimDownloadTooltip => 'ഡൗൺലോഡ്';
+
+  @override
+  String get tpaClaimLatestInsurerMessage => 'പുതിയ ഇൻഷുറർ സന്ദേശം';
+
+  @override
+  String get tpaClaimWhyDisallowed => 'തുക നിരസിച്ചതിന്റെ കാരണം';
+
+  @override
+  String get tpaClaimInvoiceBreakdown => 'ഇൻവോയ്സ് വിശദാംശം';
+
+  @override
+  String get tpaClaimTotal => 'മൊത്തം';
+
+  @override
+  String get tpaClaimCorrespondence => 'കത്തിടപാട്';
+
+  @override
+  String get addDependentTitle => 'ആശ്രിതനെ ചേർക്കുക';
+
+  @override
+  String get addDependentHeading => 'പ്രായപൂർത്തിയാകാത്ത രോഗിയെ ലിങ്ക് ചെയ്യുക';
+
+  @override
+  String get addDependentIntro =>
+      'പ്രായപൂർത്തിയാകാത്ത രോഗിയുടെ ഫോൺ നമ്പർ അല്ലെങ്കിൽ VH Health UID നൽകുക. അവർ ഇതിനകം രജിസ്റ്റർ ചെയ്തിരിക്കണം, സാധാരണയായി ആദ്യ സന്ദർശനത്തിൽ റിസപ്ഷനിൽ.';
+
+  @override
+  String get addDependentIdentifierLabel => 'ഫോൺ നമ്പർ അല്ലെങ്കിൽ UID';
+
+  @override
+  String get addDependentIdentifierHint =>
+      '+91 9876543210 അല്ലെങ്കിൽ റിസപ്ഷനിൽ നിന്നുള്ള UUID';
+
+  @override
+  String get addDependentIdentifierRequired => 'ഫോൺ അല്ലെങ്കിൽ UID ആവശ്യമാണ്';
+
+  @override
+  String get addDependentIdentifierInvalid =>
+      'ഫോൺ (10-15 അക്കങ്ങൾ) അല്ലെങ്കിൽ UID നൽകുക';
+
+  @override
+  String get addDependentRelationshipLabel => 'അവരോടുള്ള നിങ്ങളുടെ ബന്ധം';
+
+  @override
+  String get addDependentRelationshipParent => 'മാതാപിതാവ്';
+
+  @override
+  String get addDependentRelationshipMother => 'അമ്മ';
+
+  @override
+  String get addDependentRelationshipFather => 'അച്ഛൻ';
+
+  @override
+  String get addDependentRelationshipLegalGuardian => 'നിയമപരമായ രക്ഷിതാവ്';
+
+  @override
+  String get addDependentRelationshipGrandparent => 'മുത്തച്ഛൻ/മുത്തശ്ശി';
+
+  @override
+  String get addDependentRelationshipSibling => 'സഹോദരൻ/സഹോദരി';
+
+  @override
+  String get addDependentRelationshipSpouse => 'ജീവിത പങ്കാളി';
+
+  @override
+  String get addDependentRelationshipOther => 'മറ്റ്';
+
+  @override
+  String get addDependentLinkedTitle => 'ആശ്രിതൻ ലിങ്ക് ചെയ്തു';
+
+  @override
+  String addDependentLinkedBody(String name) {
+    return '$name ഇപ്പോൾ നിങ്ങളുടെ അക്കൗണ്ടിൽ ലിങ്ക് ചെയ്തിരിക്കുന്നു. ഇപ്പോൾ അവരുടെ പ്രൊഫൈലിലേക്ക് മാറണോ?';
+  }
+
+  @override
+  String get addDependentNotYetButton => 'ഇപ്പോൾ വേണ്ട';
+
+  @override
+  String get addDependentSwitchProfileButton => 'പ്രൊഫൈൽ മാറ്റുക';
+
+  @override
+  String addDependentLinkedToast(String name) {
+    return '$name ലിങ്ക് ചെയ്തു';
+  }
+
+  @override
+  String get addDependentLinkFailed =>
+      'ആശ്രിതനെ ലിങ്ക് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get addDependentLinkingButton => 'ലിങ്ക് ചെയ്യുന്നു...';
+
+  @override
+  String get addDependentLinkButton => 'ആശ്രിതനെ ലിങ്ക് ചെയ്യുക';
+
+  @override
+  String get addDependentReceptionHint =>
+      'ആശ്രിതൻ കാണുന്നില്ലേ? ആദ്യം റിസപ്ഷനിൽ രജിസ്റ്റർ ചെയ്യാൻ പറയുക. ലിങ്ക് ചെയ്യുന്നതിന് മുമ്പ് VH Health UID വേണം.';
+
+  @override
+  String get medicationFrequencyOnceDaily => 'ദിവസത്തിൽ ഒരിക്കൽ';
+
+  @override
+  String get medicationFrequencyTwiceDaily => 'ദിവസത്തിൽ രണ്ടുതവണ';
+
+  @override
+  String get medicationFrequencyThriceDaily => 'ദിവസത്തിൽ മൂന്നു തവണ';
+
+  @override
+  String get medicationFrequencyAsNeeded => 'ആവശ്യമായപ്പോൾ';
+
+  @override
+  String get medicationRemindersLoadFailed =>
+      'മരുന്ന് ഓർമ്മപ്പെടുത്തലുകൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get medicationRemindersRetryButton =>
+      'ഓർമ്മപ്പെടുത്തൽ വീണ്ടും ശ്രമിക്കുക';
+
+  @override
+  String get medicationReminderAncSupplement => 'ANC സപ്ലിമെന്റ്';
+
+  @override
+  String get medicationReminderDeleteTooltip => 'ഓർമ്മപ്പെടുത്തൽ നീക്കുക';
+
+  @override
+  String medicationReminderDosageLine(String dosage) {
+    return 'ഡോസ്: $dosage';
+  }
+
+  @override
+  String medicationReminderFrequencyLine(String frequency) {
+    return 'ആവൃത്തി: $frequency';
+  }
+
+  @override
+  String medicationReminderTimesLine(String times) {
+    return 'സമയം: $times';
+  }
+
+  @override
+  String medicationReminderNotesLine(String notes) {
+    return 'കുറിപ്പുകൾ: $notes';
+  }
+
+  @override
+  String medicationReminderStartLine(String date) {
+    return 'ആരംഭം: $date';
+  }
+
+  @override
+  String medicationReminderEndLine(String date) {
+    return 'അവസാനം: $date';
+  }
+
+  @override
+  String get medicationReminderNoEndDate => 'അവസാനം: അവസാന തീയതി ഇല്ല';
+
+  @override
+  String get medicationReminderNotesOptional => 'കുറിപ്പുകൾ (ഐച്ഛികം)';
+
+  @override
+  String get bookInvestigationSlotMorning => 'രാവിലെ (9 AM - 12 PM)';
+
+  @override
+  String get bookInvestigationSlotAfternoon => 'ഉച്ചയ്ക്ക് (12 PM - 3 PM)';
+
+  @override
+  String get bookInvestigationSlotEvening => 'വൈകുന്നേരം (3 PM - 6 PM)';
+
+  @override
+  String get bookInvestigationBookingFailed => 'ബുക്കിംഗ് പരാജയപ്പെട്ടു';
+
+  @override
+  String get bookInvestigationBookingError =>
+      'പരിശോധന ബുക്ക് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get bookInvestigationBookNowButton => 'ഇപ്പോൾ ബുക്ക് ചെയ്യുക';
+
+  @override
+  String get bookInvestigationBookingButton => 'ബുക്ക് ചെയ്യുന്നു...';
+
+  @override
+  String bookInvestigationSelectedCount(int count) {
+    return '$count തിരഞ്ഞെടുത്തു';
+  }
+
+  @override
+  String get bookInvestigationSearchHint => 'ടെസ്റ്റുകൾ തിരയുക...';
+
+  @override
+  String bookInvestigationCostFasting(String cost) {
+    return '₹$cost • ഉപവാസം ആവശ്യമാണ്';
+  }
+
+  @override
+  String get bookInvestigationCustomTestHint =>
+      'ഉദാ. CBC, ഷുഗർ ടെസ്റ്റ്, തൈറോയ്ഡ്';
+
+  @override
+  String get bookInvestigationCameraButton => 'ക്യാമറ';
+
+  @override
+  String get bookInvestigationGalleryButton => 'ഗാലറി';
+
+  @override
+  String get bookInvestigationPhotoSelected => 'ഫോട്ടോ തിരഞ്ഞെടുത്തു';
+
+  @override
+  String get bookInvestigationCollectionAddressLabel => 'ശേഖരണ വിലാസം *';
+
+  @override
+  String get bookInvestigationCollectionAddressHint =>
+      'നിങ്ങളുടെ പൂർണ്ണ വിലാസം നൽകുക';
+
+  @override
+  String get bookInvestigationLandmarkLabel => 'ലാൻഡ്‌മാർക്ക്';
+
+  @override
+  String get bookInvestigationLandmarkHint => 'അടുത്ത്/എതിർവശം...';
+
+  @override
+  String get bookInvestigationPreferredDate => 'ഇഷ്ടപ്പെട്ട തീയതി';
+
+  @override
+  String get bookInvestigationNotesOptional => 'കുറിപ്പുകൾ (ഐച്ഛികം)';
+
+  @override
+  String get bookInvestigationNotesHint => 'പ്രത്യേക നിർദ്ദേശങ്ങൾ...';
+
+  @override
+  String get vitalsInvalidValue => 'അസാധു';
+
+  @override
+  String get vitalsHeartRateRange => '30-250 bpm നൽകുക';
+
+  @override
+  String get vitalsTemperatureRange => '90-110 °F നൽകുക';
+
+  @override
+  String get vitalsBloodSugarRange => '20-600 mg/dL നൽകുക';
+
+  @override
+  String get vitalsWeightRange => '1-300 kg നൽകുക';
+
+  @override
+  String get vitalsSpo2Range => '50-100% നൽകുക';
+
+  @override
+  String get vitalsHistoryHeading => 'ചരിത്രം';
+
+  @override
+  String get yourHealthTabTimeline => 'ടൈംലൈൻ';
+
+  @override
+  String get yourHealthTabMyUploads => 'എന്റെ അപ്‌ലോഡുകൾ';
+
+  @override
+  String get yourHealthTabPrescriptions => 'പ്രിസ്ക്രിപ്ഷനുകൾ';
+
+  @override
+  String get pharmacyOrderNoteHint =>
+      'ഉദാ., Dolo 650 - 2 സ്ട്രിപ്പ്, Pan 40 - 1 സ്ട്രിപ്പ്...';
+
+  @override
+  String get pharmacyHomeDelivery => 'ഹോം ഡെലിവറി';
+
+  @override
+  String get pharmacyPickup => 'പിക്കപ്പ്';
+
+  @override
+  String get pharmacyLandmarkOptional => 'ലാൻഡ്‌മാർക്ക് (ഐച്ഛികം)';
+
+  @override
+  String get pharmacyLandmarkHint => 'അടുത്ത്...';
+
+  @override
+  String get commonCouldNotOpenLink => 'ലിങ്ക് തുറക്കാനായില്ല';
+
+  @override
+  String get commonCloseButton => 'അടയ്ക്കുക';
+
+  @override
+  String get commonOpenButton => 'തുറക്കുക';
+
+  @override
+  String get commonRefreshButton => 'റിഫ്രഷ്';
+
+  @override
+  String get guestSignInDefaultFeature => 'ഈ സൗകര്യം';
+
+  @override
+  String get guestSignInTitle => 'സൈൻ ഇൻ ആവശ്യമാണ്';
+
+  @override
+  String guestSignInBody(String feature) {
+    return '$feature ഉപയോഗിക്കാൻ സൈൻ ഇൻ ചെയ്യുക.';
+  }
+
+  @override
+  String get guestSignInKeepBrowsing => 'തുടർന്ന് കാണുക';
+
+  @override
+  String get guestSignInAndReturn => 'സൈൻ ഇൻ ചെയ്തു മടങ്ങുക';
+
+  @override
+  String get dashboardOpenStepChallenge => 'സ്റ്റെപ്പ് ചലഞ്ച് തുറക്കുക';
+
+  @override
+  String get dashboardRecentActivity => 'സമീപകാല പ്രവർത്തനം';
+
+  @override
+  String get dashboardOpenHealthPoints => 'ഹെൽത്ത് പോയിന്റുകൾ തുറക്കുക';
+
+  @override
+  String get dashboardHealthConnectSynced =>
+      'ആരോഗ്യ ഡാറ്റ സിങ്ക് ചെയ്തു - പ്രവർത്തനവും വൈറ്റൽസും പുതുക്കി';
+
+  @override
+  String get dashboardHealthConnectNoSamples =>
+      'സിങ്ക് ചെയ്യാൻ പുതിയ സാമ്പിളുകൾ ഇല്ല';
+
+  @override
+  String get dashboardHealthConnectOpenFailed =>
+      'Health Connect തുറക്കാനായില്ല';
+
+  @override
+  String get dashboardExploreSection => 'അന്വേഷിക്കുക';
+
+  @override
+  String get dashboardTodaySection => 'ഇന്ന്';
+
+  @override
+  String get profileSwitcherSelfName => 'നിങ്ങൾ';
+
+  @override
+  String get profileSwitcherTitle => 'പ്രൊഫൈലുകൾ';
+
+  @override
+  String get profileSwitcherSubtitle =>
+      'നിങ്ങളുടെ പ്രൊഫൈലും ലിങ്ക് ചെയ്ത ആശ്രിതരും തമ്മിൽ മാറുക';
+
+  @override
+  String get profileSwitcherYourProfile => 'നിങ്ങളുടെ പ്രൊഫൈൽ';
+
+  @override
+  String get profileSwitcherNoDependents =>
+      'ഇനിയും ആശ്രിതർ ലിങ്ക് ചെയ്തിട്ടില്ല';
+
+  @override
+  String get profileSwitcherRemoveDependentTitle => 'ആശ്രിതനെ നീക്കണോ?';
+
+  @override
+  String profileSwitcherRemoveDependentBody(String name) {
+    return '$name നെ ലിങ്ക് ചെയ്ത പ്രൊഫൈലുകളിൽ നിന്ന് നീക്കണോ?';
+  }
+
+  @override
+  String get profileSwitcherRemoveButton => 'നീക്കുക';
+
+  @override
+  String profileSwitcherRemovedToast(String name) {
+    return '$name നീക്കം ചെയ്തു';
+  }
+
+  @override
+  String get profileSwitcherRemoveFailed =>
+      'ആശ്രിതനെ നീക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get periodTrackerMarkStartedToday =>
+      'ഇന്ന് ആരംഭിച്ചു എന്ന് അടയാളപ്പെടുത്തുക';
+
+  @override
+  String get periodTrackerEnterStartDate => 'ആരംഭ തീയതി നൽകുക';
+
+  @override
+  String get periodTrackerOpen => 'ട്രാക്കർ തുറക്കുക';
+
+  @override
+  String get periodTrackerCycleStartRecorded =>
+      'ചക്രത്തിന്റെ തുടക്കം രേഖപ്പെടുത്തി';
+
+  @override
+  String get periodTrackerCycleStartSaveFailed =>
+      'ചക്രത്തിന്റെ തുടക്കം സംരക്ഷിക്കാനായില്ല';
+
+  @override
+  String get periodTrackerSavedToast => 'സൈക്കിൾ ട്രാക്കർ സംരക്ഷിച്ചു';
+
+  @override
+  String get periodTrackerLastPeriodStart => 'അവസാന പീരിയഡ് ആരംഭം';
+
+  @override
+  String get periodTrackerTitle => 'പീരിയഡ് ട്രാക്കർ';
+
+  @override
+  String get periodTrackerCycleDetails => 'സൈക്കിൾ വിവരങ്ങൾ';
+
+  @override
+  String get periodTrackerCycleLength => 'സൈക്കിൾ ദൈർഘ്യം';
+
+  @override
+  String get periodTrackerDays => 'ദിവസങ്ങൾ';
+
+  @override
+  String get periodTrackerPeriodLength => 'പീരിയഡ് ദൈർഘ്യം';
+
+  @override
+  String get periodTrackerSaving => 'സംരക്ഷിക്കുന്നു';
+
+  @override
+  String get periodTrackerSaveTracker => 'ട്രാക്കർ സംരക്ഷിക്കുക';
+
+  @override
+  String get periodTrackerAddFirstDay =>
+      'അവസാന പീരിയഡിന്റെ ആദ്യ ദിവസം ചേർക്കുക.';
+
+  @override
+  String get periodTrackerPregnancyCaution =>
+      'ഇത് രോഗനിർണയം അല്ല. ഗർഭ പരിശോധനയോ ഡോക്ടർ പരിശോധനയോ പരിഗണിക്കുക.';
+
+  @override
+  String periodTrackerCycleDay(int cycleDay) {
+    return 'സൈക്കിൾ ദിവസം $cycleDay';
+  }
+
+  @override
+  String get periodTrackerStartedToday => 'ഇന്ന് ആരംഭിച്ചു';
+
+  @override
+  String get periodTrackerAddDate => 'തീയതി ചേർക്കുക';
+
+  @override
+  String get periodTrackerEnterDate => 'തീയതി നൽകുക';
+
+  @override
+  String get periodTrackerStartTracking => 'ട്രാക്കിംഗ് തുടങ്ങുക';
+
+  @override
+  String get periodTrackerMayBePregnant => 'നിങ്ങൾ ഗർഭിണിയായിരിക്കാം';
+
+  @override
+  String periodTrackerCycleDelayed(int days) {
+    return 'സൈക്കിൾ $days ദിവസം വൈകി';
+  }
+
+  @override
+  String get periodTrackerCycleDueToday => 'സൈക്കിൾ ഇന്ന് പ്രതീക്ഷിക്കുന്നു';
+
+  @override
+  String periodTrackerDaysToNextCycle(int days) {
+    return 'അടുത്ത സൈക്കിളിന് $days ദിവസം';
+  }
+
+  @override
+  String get periodTrackerLastRecordedPeriod => 'അവസാനം രേഖപ്പെടുത്തിയ പീരിയഡ്';
+
+  @override
+  String get periodTrackerEstimatedFertileWindow => 'അനുമാനിച്ച ഫർട്ടൈൽ വിൻഡോ';
+
+  @override
+  String get periodTrackerExpectedPeriodDate =>
+      'പ്രതീക്ഷിക്കുന്ന പീരിയഡ് തീയതി';
+
+  @override
+  String get periodTrackerExpectedNextPeriod =>
+      'അടുത്ത പ്രതീക്ഷിക്കുന്ന പീരിയഡ്';
+
+  @override
+  String get periodTrackerPrivacyNote =>
+      'ഇപ്പോൾ ഇത് ഈ ഉപകരണത്തിൽ പ്രാദേശികമായി സംരക്ഷിക്കുന്നു. സമ്മതി, നിലനിർത്തൽ, ക്ലിനിക്കൽ റിവ്യൂ നിയമങ്ങൾ പൂർത്തിയായ ശേഷം ആശുപത്രി സിങ്ക് ചേർക്കാം.';
+
+  @override
+  String get billDetailLoadFailed =>
+      'ബിൽ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get billDetailPaymentLinkFailed =>
+      'പേയ്മെന്റ് ലിങ്ക് സൃഷ്ടിക്കാനായില്ല';
+
+  @override
+  String get billDetailSubtotal => 'ഉപമൊത്തം';
+
+  @override
+  String get billDetailDiscount => 'ഡിസ്കൗണ്ട്';
+
+  @override
+  String billDetailPayViaUpi(String amount) {
+    return 'UPI വഴി $amount അടയ്ക്കുക';
+  }
+
+  @override
+  String get billDetailPayViaUpiBody =>
+      'തുക മുൻകൂട്ടി നിറച്ച UPI ആപ്പ് തുറക്കാൻ തട്ടുക.';
+
+  @override
+  String get billDetailGenerating => 'സൃഷ്ടിക്കുന്നു...';
+
+  @override
+  String get billDetailPayNow => 'ഇപ്പോൾ അടയ്ക്കുക';
+
+  @override
+  String billDetailPaymentLinkReference(String token) {
+    return 'പേയ്മെന്റ് ലിങ്ക് റഫറൻസ്: $token...';
+  }
+
+  @override
+  String get billDetailInsuranceBreakdown => 'ഇൻഷുറൻസ് / TPA വിശദാംശം';
+
+  @override
+  String billDetailClaimNumber(String claimNumber) {
+    return 'ക്ലെയിം $claimNumber';
+  }
+
+  @override
+  String get billDetailTotalBilled => 'മൊത്തം ബിൽ';
+
+  @override
+  String get billDetailTpaPaid => 'TPA അടച്ചത്';
+
+  @override
+  String get billDetailPatientShare => 'രോഗിയുടെ വിഹിതം';
+
+  @override
+  String get billDetailWhatWasNotCovered => 'കവർ ചെയ്യാത്തത്';
+
+  @override
+  String get billDetailLatestInsurerNote => 'പുതിയ ഇൻഷുറർ കുറിപ്പ്';
+
+  @override
+  String get billDetailViewFullInsuranceClaim =>
+      'മുഴുവൻ ഇൻഷുറൻസ് ക്ലെയിം കാണുക';
+
+  @override
+  String get billDetailItems => 'ഇനങ്ങൾ';
+
+  @override
+  String get billDetailPaymentHistory => 'പേയ്മെന്റ് ചരിത്രം';
+
+  @override
+  String get labOrdersLoadFailed =>
+      'ലാബ് ഓർഡറുകൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.';
+
+  @override
+  String get labOrdersDownloadFailed => 'റിപ്പോർട്ട് ഡൗൺലോഡ് ചെയ്യാനായില്ല';
+
+  @override
+  String get labOrdersTitle => 'ലാബ് ഓർഡറുകൾ';
+
+  @override
+  String get labOrdersEmptyTitle => 'ലാബ് ഓർഡറുകളില്ല';
+
+  @override
+  String get labOrdersEmptySubtitle =>
+      'ഡോക്ടർ ഓർഡർ ചെയ്ത ലാബ് പരിശോധനകൾ ശേഖരണ നിർദ്ദേശങ്ങളും റിപ്പോർട്ടുകളും കൂടെ ഇവിടെ കാണും.';
+
+  @override
+  String labOrdersOrderedBy(String doctorName) {
+    return '$doctorName ഓർഡർ ചെയ്തത്';
+  }
+
+  @override
+  String get labOrdersWhere => 'എവിടെ';
+
+  @override
+  String get labOrdersBy => 'മുമ്പ്';
+
+  @override
+  String get labOrdersScheduled => 'ക്രമീകരിച്ചു';
+
+  @override
+  String get labOrdersNoCollectionInstructions =>
+      'ഡോക്ടർ ഇനിയും ശേഖരണ നിർദ്ദേശങ്ങൾ നൽകിയിട്ടില്ല. ലാബ് സ്ഥലം, സമയം എന്നിവയ്ക്ക് സ്റ്റാഫിനെ ചോദിക്കുക.';
+
+  @override
+  String get labOrdersCompleted => 'പൂർത്തിയായി';
+
+  @override
+  String get labOrdersDownloading => 'ഡൗൺലോഡ് ചെയ്യുന്നു...';
+
+  @override
+  String get labOrdersDownloadReport => 'റിപ്പോർട്ട് ഡൗൺലോഡ് ചെയ്യുക';
+
+  @override
+  String labOrdersRequestedOn(String date) {
+    return '$date ന് അഭ്യർത്ഥിച്ചു';
+  }
+
+  @override
+  String get labOrdersFastingRequired => 'ഉപവാസം ആവശ്യമാണ്';
+
+  @override
+  String get messagesCategoryGeneral => 'സാധാരണ';
+
+  @override
+  String get messagesCategoryAppointment => 'അപ്പോയിന്റ്മെന്റ്';
+
+  @override
+  String get messagesCategoryPrescription => 'പ്രിസ്ക്രിപ്ഷൻ';
+
+  @override
+  String get messagesCategoryLabResult => 'ലാബ് ഫലം';
+
+  @override
+  String get messagesCategoryBilling => 'ബില്ലിംഗ്';
+
+  @override
+  String get messagesCategoryDischarge => 'ഡിസ്ചാർജ്';
+
+  @override
+  String get messagesCategoryOther => 'മറ്റ്';
+
+  @override
+  String get messagesLoadFailed =>
+      'സന്ദേശങ്ങൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get messagesTitle => 'സന്ദേശങ്ങൾ';
+
+  @override
+  String get messagesNewMessage => 'പുതിയ സന്ദേശം';
+
+  @override
+  String get messagesEmptyTitle => 'ഇനിയും സന്ദേശങ്ങളില്ല';
+
+  @override
+  String get messagesEmptySubtitle =>
+      'താഴെയുള്ള പുതിയ സന്ദേശം ബട്ടൺ ഉപയോഗിച്ച് ആശുപത്രിയുമായി സുരക്ഷിത സംഭാഷണം തുടങ്ങുക.';
+
+  @override
+  String get messagesUrgent => 'അടിയന്തിരം';
+
+  @override
+  String get messagesSubjectBodyRequired => 'വിഷയവും സന്ദേശവും ആവശ്യമാണ്.';
+
+  @override
+  String get messagesSendFailed =>
+      'സന്ദേശം അയയ്ക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get messagesCategoryLabel => 'വിഭാഗം';
+
+  @override
+  String get messagesSubjectLabel => 'വിഷയം';
+
+  @override
+  String get messagesBodyLabel => 'സന്ദേശം';
+
+  @override
+  String get messagesSending => 'അയക്കുന്നു...';
+
+  @override
+  String get messagesSendButton => 'അയയ്ക്കുക';
+
+  @override
+  String get recordsPickFile => 'ദയവായി ഫയൽ തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String get settingsDeletingAccount => 'അക്കൗണ്ട് നീക്കുന്നു...';
+
+  @override
+  String get settingsDeleteAccountFailed =>
+      'അക്കൗണ്ട് നീക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get settingsDeleteAccountTitle => 'അക്കൗണ്ട് നീക്കുക';
+
+  @override
+  String get settingsDeleteAccountConsequences =>
+      'ഇത് നിങ്ങളുടെ ലോഗിൻ ആക്സസ് നീക്കുകയും അക്കൗണ്ടിലെ വ്യക്തിഗത തിരിച്ചറിയൽ വിവരങ്ങൾ മായ്ക്കുകയും ചെയ്യും. ആശുപത്രിക്ക് നിയമപരമായി സൂക്ഷിക്കേണ്ട ക്ലിനിക്കൽ, ബില്ലിംഗ്, ഓഡിറ്റ് രേഖകൾ നിലനിർത്തും. സജീവ അഡ്മിഷൻ തുറന്നിരിക്കുമ്പോൾ അക്കൗണ്ട് നീക്കാനാകില്ല.';
+
+  @override
+  String get settingsEnterOtp => '6 അക്ക OTP നൽകുക.';
+
+  @override
+  String get settingsOtpNotReady =>
+      'OTP ഇനിയും തയ്യാറായിട്ടില്ല. കോഡ് വീണ്ടും അയയ്ക്കുക.';
+
+  @override
+  String get settingsOtpVerificationFailed =>
+      'OTP പരിശോധന പരാജയപ്പെട്ടു. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get settingsVerifyPhoneTitle => 'നിങ്ങളുടെ ഫോൺ പരിശോധിക്കുക';
+
+  @override
+  String settingsFreshOtpSent(String phone) {
+    return '$phone ലേക്ക് പുതിയ OTP അയച്ചു.';
+  }
+
+  @override
+  String get settingsSendingOtp => 'OTP അയയ്ക്കുന്നു...';
+
+  @override
+  String get settingsResendOtp => 'വീണ്ടും അയയ്ക്കുക';
+
+  @override
+  String get settingsVerifyButton => 'പരിശോധിക്കുക';
+
+  @override
+  String get settingsConfirmDeletionTitle => 'നീക്കം സ്ഥിരീകരിക്കുക';
+
+  @override
+  String get settingsConfirmDeletionBody =>
+      'ഈ നടപടി തിരികെ മാറ്റാനാകില്ല. ഈ ഉപകരണത്തിൽ നിന്നു നിങ്ങളെ ലോഗ് ഔട്ട് ചെയ്യും, മറ്റു സെഷനുകൾ റദ്ദാക്കും.';
+
+  @override
+  String get settingsDeleteAccountButton => 'അക്കൗണ്ട് നീക്കുക';
+
+  @override
+  String get settingsActiveAdmissionBlocksDeletion =>
+      'സജീവ അഡ്മിഷൻ തുറന്നിരിക്കുമ്പോൾ അക്കൗണ്ട് നീക്കം തടഞ്ഞിരിക്കുന്നു.';
+
+  @override
+  String settingsHospitalIdLine(String name, String hospitalNumber) {
+    return '$name - ആശുപത്രി ID $hospitalNumber';
+  }
+
+  @override
+  String get settingsManageDependents => 'ആശ്രിതരെ നിയന്ത്രിക്കുക';
+
+  @override
+  String get settingsManageDependentsSubtitle =>
+      'നിങ്ങളുടെ അക്കൗണ്ടിനു കീഴിൽ പ്രായപൂർത്തിയാകാത്തവരെ ലിങ്ക് ചെയ്യുകയോ നീക്കുകയോ ചെയ്യുക';
+
+  @override
+  String get settingsHealthDataSynced =>
+      'ആരോഗ്യ ഡാറ്റ സിങ്ക് ചെയ്തു - പ്രവർത്തനവും വൈറ്റൽസും പുതുക്കി';
+
+  @override
+  String get settingsNoNewSamplesToSync =>
+      'സിങ്ക് ചെയ്യാൻ പുതിയ സാമ്പിളുകൾ ഇല്ല';
+
+  @override
+  String get settingsDeleteAccountSubtitle =>
+      'നീക്കുന്നതിന് മുമ്പ് OTP ഉപയോഗിച്ച് വീണ്ടും സ്ഥിരീകരിക്കുക';
+
+  @override
+  String get settingsLegalSection => 'നിയമപരമായത്';
+
+  @override
+  String get settingsOpenTermsInBrowser =>
+      'നിലവിലെ നിബന്ധനകൾ ബ്രൗസറിൽ തുറക്കുക';
+
+  @override
+  String get settingsOpenPrivacyInBrowser =>
+      'നിലവിലെ സ്വകാര്യതാ നയം ബ്രൗസറിൽ തുറക്കുക';
+
+  @override
+  String get splashUseStandardPhone =>
+      'ദയവായി സാധാരണ, മാറ്റം വരുത്താത്ത ഫോൺ ഉപയോഗിക്കുക.';
+
+  @override
+  String get splashAuthenticateToContinue => 'തുടരാൻ സ്ഥിരീകരിക്കുക';
+
+  @override
+  String get splashUpdateRequired => 'അപ്ഡേറ്റ് ആവശ്യമാണ്';
+
+  @override
+  String get splashUpdateBody =>
+      'VH Health ന്റെ ഈ പതിപ്പ് ഇനി പിന്തുണയ്ക്കുന്നില്ല. തുടരാൻ ഏറ്റവും പുതിയ പതിപ്പ് ഇൻസ്റ്റാൾ ചെയ്യുക.';
+
+  @override
+  String get splashUpdateButton => 'VH Health അപ്ഡേറ്റ് ചെയ്യുക';
+
+  @override
+  String get yourHealthTimelineFilterAll => 'എല്ലാം';
+
+  @override
+  String get yourHealthTimelineFilterVisits => 'സന്ദർശനങ്ങൾ';
+
+  @override
+  String get yourHealthTimelineFilterPrescriptions => 'പ്രിസ്ക്രിപ്ഷനുകൾ';
+
+  @override
+  String get yourHealthTimelineFilterLabs => 'ലാബുകൾ';
+
+  @override
+  String get yourHealthTimelineFilterUploads => 'അപ്‌ലോഡുകൾ';
+
+  @override
+  String get yourHealthTimelineFilterHospital => 'ആശുപത്രി രേഖകൾ';
+
+  @override
+  String get yourHealthTimelineReady => 'നിങ്ങളുടെ ആരോഗ്യ ടൈംലൈൻ തയ്യാറാണ്';
+
+  @override
+  String yourHealthTimelineUpdateCount(int count) {
+    return 'ഒരു ടൈംലൈനിൽ $count ആരോഗ്യ അപ്ഡേറ്റുകൾ';
+  }
+
+  @override
+  String get yourHealthTimelineRxPill => 'Rx';
+
+  @override
+  String get yourHealthTimelineVisitsPill => 'സന്ദർശനങ്ങൾ';
+
+  @override
+  String get yourHealthTimelineUploadsPill => 'അപ്‌ലോഡുകൾ';
+
+  @override
+  String get yourHealthTimelineDatePending => 'തീയതി ബാക്കി';
+
+  @override
+  String yourHealthTimelineFilteredEmpty(String filter) {
+    return 'ഇനിയും $filter ഇല്ല';
+  }
+
+  @override
+  String get yourHealthTimelineEmptyTitle => 'ഇനിയും ടൈംലൈൻ ഇനങ്ങളില്ല';
+
+  @override
+  String get yourHealthTimelineFilteredEmptySubtitle =>
+      'മറ്റൊരു ഫിൽട്ടർ ശ്രമിക്കുക അല്ലെങ്കിൽ പുതിയ ആശുപത്രി രേഖകൾ റിഫ്രഷ് ചെയ്യുക.';
+
+  @override
+  String get yourHealthTimelineEmptySubtitle =>
+      'പ്രിസ്ക്രിപ്ഷനുകൾ, കൺസൾട്ടേഷനുകൾ, ആശുപത്രി രേഖകൾ, അപ്‌ലോഡുകൾ എന്നിവ ഇവിടെ സ്വയം ശേഖരിക്കും.';
+
+  @override
+  String get recordExtractionMissingRecordId => 'രേഖ ID കാണുന്നില്ല';
+
+  @override
+  String get recordExtractionUnavailable => 'എക്സ്ട്രാക്ഷൻ ഇനിയും ലഭ്യമല്ല';
+
+  @override
+  String get recordExtractionProcessFailed =>
+      'എക്സ്ട്രാക്ഷൻ പ്രോസസ് ചെയ്യാനായില്ല';
+
+  @override
+  String get recordExtractionUploadedRecord => 'അപ്‌ലോഡ് ചെയ്ത രേഖ';
+
+  @override
+  String get recordExtractionMessageSent => 'ആശുപത്രി ടീമിന് സന്ദേശം അയച്ചു';
+
+  @override
+  String get recordExtractionMessageFailed =>
+      'സന്ദേശം അയയ്ക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get recordExtractionMessageHospital => 'ആശുപത്രിക്ക് സന്ദേശം';
+
+  @override
+  String get recordExtractionRefresh => 'എക്സ്ട്രാക്ഷൻ റിഫ്രഷ് ചെയ്യുക';
+
+  @override
+  String get recordExtractionUploadedFile => 'അപ്‌ലോഡ് ചെയ്ത ഫയൽ';
+
+  @override
+  String get recordExtractionFilePreviewUnavailable => 'ഫയൽ പ്രിവ്യൂ ലഭ്യമല്ല';
+
+  @override
+  String get recordExtractionOpenFileToCompare =>
+      'താരതമ്യം ചെയ്യാൻ ഫയൽ തുറക്കുക';
+
+  @override
+  String get recordExtractionImagePreviewUnavailable =>
+      'ചിത്ര പ്രിവ്യൂ ലഭ്യമല്ല';
+
+  @override
+  String get recordExtractionReviewFlags => 'റിവ്യൂ ഫ്ലാഗുകൾ';
+
+  @override
+  String get recordExtractionPatientIdentifiers => 'രോഗി തിരിച്ചറിയൽ വിവരങ്ങൾ';
+
+  @override
+  String get recordExtractionDiagnoses => 'രോഗനിർണയങ്ങൾ';
+
+  @override
+  String get recordExtractionMedications => 'മരുന്നുകൾ';
+
+  @override
+  String get recordExtractionTestsReports => 'പരിശോധനകളും റിപ്പോർട്ടുകളും';
+
+  @override
+  String get recordExtractionFollowUp => 'ഫോളോ അപ്';
+
+  @override
+  String get recordExtractionOtherFields =>
+      'മറ്റ് എക്സ്ട്രാക്റ്റ് ചെയ്ത ഫീൽഡുകൾ';
+
+  @override
+  String get recordExtractionDates => 'തീയതികൾ';
+
+  @override
+  String get recordExtractionCitations => 'ഉദ്ധരണികൾ';
+
+  @override
+  String get recordExtractionOcrText => 'OCR ടെക്സ്റ്റ്';
+
+  @override
+  String recordExtractionReviewed(String status) {
+    return 'എക്സ്ട്രാക്ഷൻ റിവ്യൂ ചെയ്തു: $status';
+  }
+
+  @override
+  String get recordExtractionDraftWarning =>
+      'AI ഡ്രാഫ്റ്റ് - ആശ്രയിക്കുന്നതിന് മുമ്പ് ഓരോ മൂല്യവും അസൽ രേഖയുമായി പരിശോധിക്കുക.';
+
+  @override
+  String get recordExtractionDocument => 'രേഖ';
+
+  @override
+  String get recordExtractionProcessing => 'പ്രോസസ് ചെയ്യുന്നു';
+
+  @override
+  String get recordExtractionNoValues => 'എക്സ്ട്രാക്റ്റ് ചെയ്ത മൂല്യങ്ങളില്ല';
+
+  @override
+  String get recordExtractionProcessButton => 'എക്സ്ട്രാക്ഷൻ പ്രോസസ് ചെയ്യുക';
+
+  @override
+  String get dashboardHealthConnectPermissionDenied =>
+      'Health Connect അനുമതി നൽകിയില്ല. ആപ്പിനുള്ളിലെ നടക്കൽ ട്രാക്കിംഗ് തുടരും.';
+
+  @override
+  String get dashboardWellnessBandExcellent => 'നിങ്ങൾ നന്നായി ചെയ്യുന്നു';
+
+  @override
+  String get dashboardWellnessBandGood => 'ഇത് തുടരുക';
+
+  @override
+  String get dashboardWellnessBandNeedsAttention => 'കുറച്ച് ശ്രദ്ധ ആവശ്യമാണ്';
+
+  @override
+  String get dashboardWellnessShowBreakdown => 'വിശദാംശം കാണിക്കുക';
+
+  @override
+  String get dashboardWellnessHideBreakdown => 'വിശദാംശം മറയ്ക്കുക';
+
+  @override
+  String get dashboardWellnessBreakdownTitle => 'വെൽനെസ് വിശദാംശം';
+
+  @override
+  String get dashboardWellnessNoSplit => 'വെൽനെസ് വിഭജനം ഇനിയും ലഭ്യമല്ല.';
+
+  @override
+  String get dashboardWellnessMedicationStatus => 'മരുന്ന് നില';
+
+  @override
+  String get dashboardWellnessMedicationProxy =>
+      'പ്രിസ്ക്രിപ്ഷൻ നില സൂചകമാണ്, ഡോസ് പാലനം അല്ല';
+
+  @override
+  String get dashboardWellnessNoPrescriptions =>
+      'ട്രാക്ക് ചെയ്യാൻ ഇനിയും പ്രിസ്ക്രിപ്ഷനുകളില്ല';
+
+  @override
+  String dashboardWellnessPrescriptionsActive(int active, int total) {
+    return '$total പ്രിസ്ക്രിപ്ഷനുകളിൽ $active സജീവം/കാലാവധി കഴിഞ്ഞിട്ടില്ല';
+  }
+
+  @override
+  String get healthPointsCentralStats => 'കേന്ദ്ര കണക്കുകൾ';
+
+  @override
+  String get healthPointsRefreshingActivity =>
+      'നിങ്ങളുടെ പ്രവർത്തനം റിഫ്രഷ് ചെയ്യുന്നു';
+
+  @override
+  String get healthPointsCentralStatsSubtitle =>
+      'നടപ്പ്, പോയിന്റുകൾ, വെൽനെസ്, ഉറക്ക തയ്യാറെടുപ്പ്';
+
+  @override
+  String healthPointsCentralStatsFromSource(String source) {
+    return '$source നിന്നുള്ള നടപ്പ്, ഉറക്കം, പോയിന്റുകൾ';
+  }
+
+  @override
+  String get healthPointsRefreshStatsTooltip => 'കണക്കുകൾ റിഫ്രഷ് ചെയ്യുക';
+
+  @override
+  String get healthPointsWalking => 'നടപ്പ്';
+
+  @override
+  String healthPointsGoalStepCaption(int goal) {
+    return '$goal-സ്റ്റെപ്പ് ലക്ഷ്യം';
+  }
+
+  @override
+  String healthPointsActivitySourceCaption(String activity, String source) {
+    return '$source നിന്നുള്ള $activity';
+  }
+
+  @override
+  String get healthPointsDistance => 'ദൂരം';
+
+  @override
+  String get healthPointsToday => 'ഇന്ന്';
+
+  @override
+  String get healthPointsSleep => 'ഉറക്കം';
+
+  @override
+  String get healthPointsNoData => 'ഡാറ്റയില്ല';
+
+  @override
+  String get healthPointsConnectHealthData => 'ഹെൽത്ത് ഡാറ്റ കണക്ട് ചെയ്യുക';
+
+  @override
+  String healthPointsSyncSource(String source) {
+    return '$source സിങ്ക്';
+  }
+
+  @override
+  String get healthPointsWellness => 'വെൽനെസ്';
+
+  @override
+  String get healthPointsOutOfHundred => '100 ൽ';
+
+  @override
+  String get healthPointsPoints => 'പോയിന്റുകൾ';
+
+  @override
+  String get healthPointsCurrentBalance => 'നിലവിലെ ബാലൻസ്';
+
+  @override
+  String get healthPointsGoal => 'ലക്ഷ്യം';
+
+  @override
+  String get healthPointsStepsToday => 'ഇന്നത്തെ സ്റ്റെപ്പുകൾ';
+
+  @override
+  String get dashboardHealthConnectPrompt =>
+      'ആപ്പ് അടഞ്ഞിരിക്കുമ്പോൾ എണ്ണിയ സ്റ്റെപ്പുകൾ VH Health സിങ്ക് ചെയ്യാൻ Health Connect അനുവദിക്കുക.';
 }

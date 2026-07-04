@@ -1,7 +1,6 @@
 {
   "@@locale": "hi",
   "@@last_modified": "2025-06-13T14:39:15.000Z",
-
   "authLoginTitle": "अपने खाते में लॉग इन करें",
   "@authLoginTitle": {
     "description": "लॉगिन स्क्रीन पर शीर्षक"
@@ -30,18 +29,18 @@
   "@authSendingOtp": {
     "description": "OTP अनुरोध प्रगति पर होने पर दिखाया गया स्थिति लेबल"
   },
-"authMagicLinkSent": "मैजिक लिंक सफलतापूर्वक भेजा गया",
-"@authMagicLinkSent": {
-  "description": "मैजिक लिंक ईमेल भेजे जाने के बाद दिखाया जाने वाला सफलता संदेश।"
-},
-"authMagicLinkFailed": "मैजिक लिंक भेजने में विफल",
-"@authMagicLinkFailed": {
-  "description": "जब सर्वर मैजिक लिंक भेजने में विफल रहता है तो दिखाया जाने वाला त्रुटि संदेश।"
-},
-"authMagicLinkError": "मैजिक लिंक भेजते समय कुछ गलत हो गया",
-"@authMagicLinkError": {
-  "description": "मैजिक लिंक प्रक्रिया के दौरान अप्रत्याशित समस्याओं के लिए सामान्य त्रुटि संदेश।"
-},
+  "authMagicLinkSent": "मैजिक लिंक सफलतापूर्वक भेजा गया",
+  "@authMagicLinkSent": {
+    "description": "मैजिक लिंक ईमेल भेजे जाने के बाद दिखाया जाने वाला सफलता संदेश।"
+  },
+  "authMagicLinkFailed": "मैजिक लिंक भेजने में विफल",
+  "@authMagicLinkFailed": {
+    "description": "जब सर्वर मैजिक लिंक भेजने में विफल रहता है तो दिखाया जाने वाला त्रुटि संदेश।"
+  },
+  "authMagicLinkError": "मैजिक लिंक भेजते समय कुछ गलत हो गया",
+  "@authMagicLinkError": {
+    "description": "मैजिक लिंक प्रक्रिया के दौरान अप्रत्याशित समस्याओं के लिए सामान्य त्रुटि संदेश।"
+  },
   "authContinueAsGuest": "अतिथि के रूप में जारी रखें",
   "@authContinueAsGuest": {
     "description": "अतिथि लॉगिन प्रवाह के लिए बटन टेक्स्ट"
@@ -79,221 +78,432 @@
     "description": "जब बिना साइन-इन फ़ोन के SOS शुरू किया जाता है तो उपयोग किया जाने वाला पहचानकर्ता"
   },
   "otpVerifyOtpTitle": "OTP सत्यापित करें",
-  "@otpVerifyOtpTitle": { "description": "OTP सत्यापन स्क्रीन के ऐप बार में शीर्षक" },
+  "@otpVerifyOtpTitle": {
+    "description": "OTP सत्यापन स्क्रीन के ऐप बार में शीर्षक"
+  },
   "otpOtpSentTo": "OTP भेजा गया",
-  "@otpOtpSentTo": { "description": "उपयोगकर्ता फ़ोन नंबर से पहले का उपसर्ग" },
+  "@otpOtpSentTo": {
+    "description": "उपयोगकर्ता फ़ोन नंबर से पहले का उपसर्ग"
+  },
   "otpEnterOtp": "OTP दर्ज करें",
-  "@otpEnterOtp": { "description": "छह अंकों के OTP इनपुट के ऊपर लेबल" },
+  "@otpEnterOtp": {
+    "description": "छह अंकों के OTP इनपुट के ऊपर लेबल"
+  },
   "otpPleaseEnterOtp": "कृपया OTP दर्ज करें",
-  "@otpPleaseEnterOtp": { "description": "जब OTP फ़ील्ड खाली हो तो सत्यापन संदेश" },
+  "@otpPleaseEnterOtp": {
+    "description": "जब OTP फ़ील्ड खाली हो तो सत्यापन संदेश"
+  },
   "otpOtpMustBe6Digits": "OTP 6 अंकों का होना चाहिए",
-  "@otpOtpMustBe6Digits": { "description": "जब OTP की लंबाई छह नहीं होती है तो सत्यापन संदेश" },
+  "@otpOtpMustBe6Digits": {
+    "description": "जब OTP की लंबाई छह नहीं होती है तो सत्यापन संदेश"
+  },
   "otpVerify": "सत्यापित करें",
-  "@otpVerify": { "description": "OTP सत्यापित करने के लिए प्राथमिक बटन टेक्स्ट" },
+  "@otpVerify": {
+    "description": "OTP सत्यापित करने के लिए प्राथमिक बटन टेक्स्ट"
+  },
   "otpResendOtpIn": "OTP फिर से भेजें",
-  "@otpResendOtpIn": { "description": "कूलडाउन सेकंड से पहले का उपसर्ग, जैसे 'OTP फिर से भेजें 25 सेकंड में'" },
+  "@otpResendOtpIn": {
+    "description": "कूलडाउन सेकंड से पहले का उपसर्ग, जैसे 'OTP फिर से भेजें 25 सेकंड में'"
+  },
   "otpResendOtp": "OTP फिर से भेजें",
-  "@otpResendOtp": { "description": "कूलडाउन खत्म होने के बाद OTP फिर से भेजने के लिए क्लिक करने योग्य टेक्स्ट" },
+  "@otpResendOtp": {
+    "description": "कूलडाउन खत्म होने के बाद OTP फिर से भेजने के लिए क्लिक करने योग्य टेक्स्ट"
+  },
   "otpErrorOccurred": "एक त्रुटि हुई",
-  "@otpErrorOccurred": { "description": "स्नैकबार में सामान्य त्रुटि उपसर्ग" },
+  "@otpErrorOccurred": {
+    "description": "स्नैकबार में सामान्य त्रुटि उपसर्ग"
+  },
   "otpLoginSuccessful": "लॉगिन सफल",
-  "@otpLoginSuccessful": { "description": "सफल लॉगिन के बाद दिखाया गया स्नैकबार" },
+  "@otpLoginSuccessful": {
+    "description": "सफल लॉगिन के बाद दिखाया गया स्नैकबार"
+  },
   "otpLoginFailed": "लॉगिन विफल",
-  "@otpLoginFailed": { "description": "जब बैकएंड लॉगिन विफल हो जाता है तो स्नैकबार" },
+  "@otpLoginFailed": {
+    "description": "जब बैकएंड लॉगिन विफल हो जाता है तो स्नैकबार"
+  },
   "otpFailed": "OTP सत्यापित करने में विफल",
-  "@otpFailed": { "description": "सामान्य OTP सत्यापन विफलता संदेश" },
+  "@otpFailed": {
+    "description": "सामान्य OTP सत्यापन विफलता संदेश"
+  },
   "otpInvalidOtp": "अमान्य OTP",
-  "@otpInvalidOtp": { "description": "FirebaseAuthException: invalid-verification-code" },
+  "@otpInvalidOtp": {
+    "description": "FirebaseAuthException: invalid-verification-code"
+  },
   "otpOtpSessionExpired": "OTP सत्र समाप्त हो गया",
-  "@otpOtpSessionExpired": { "description": "FirebaseAuthException: session-expired" },
+  "@otpOtpSessionExpired": {
+    "description": "FirebaseAuthException: session-expired"
+  },
   "otpOtpResendFailed": "OTP फिर से भेजने में विफल",
-  "@otpOtpResendFailed": { "description": "जब पुनः भेजने का प्रयास विफल हो जाता है तो स्नैकबार" },
+  "@otpOtpResendFailed": {
+    "description": "जब पुनः भेजने का प्रयास विफल हो जाता है तो स्नैकबार"
+  },
   "otpOtpResentSuccessfully": "OTP सफलतापूर्वक फिर से भेजा गया",
-  "@otpOtpResentSuccessfully": { "description": "जब पुनः भेजने का प्रयास सफल होता है तो स्नैकबार" },
+  "@otpOtpResentSuccessfully": {
+    "description": "जब पुनः भेजने का प्रयास सफल होता है तो स्नैकबार"
+  },
   "otpInvalidFirebaseToken": "अमान्य Firebase टोकन",
-  "@otpInvalidFirebaseToken": { "description": "जब Firebase शून्य ID टोकन लौटाता है तो एज-केस त्रुटि" },
+  "@otpInvalidFirebaseToken": {
+    "description": "जब Firebase शून्य ID टोकन लौटाता है तो एज-केस त्रुटि"
+  },
   "autoSignInSuccess": "आप स्वचालित रूप से साइन इन हो गए हैं!",
   "@autoSignInSuccess": {
-  "description": "Firebase फ़ोन प्रमाणीकरण ऑटो-सत्यापन सफल होने के बाद स्नैकबार"},
+    "description": "Firebase फ़ोन प्रमाणीकरण ऑटो-सत्यापन सफल होने के बाद स्नैकबार"
+  },
   "commonTermsConditionsDisclaimerTitle": "शर्तें, नियम और गोपनीयता",
-  "@commonTermsConditionsDisclaimerTitle": { "description": "शर्तें / नियम / गोपनीयता स्क्रीन के लिए ऐप-बार शीर्षक" },
+  "@commonTermsConditionsDisclaimerTitle": {
+    "description": "शर्तें / नियम / गोपनीयता स्क्रीन के लिए ऐप-बार शीर्षक"
+  },
   "commonTermsOfUse": "उपयोग की शर्तें",
-  "@commonTermsOfUse": { "description": "उपयोग की शर्तों के लिए अनुभाग शीर्षलेख" },
+  "@commonTermsOfUse": {
+    "description": "उपयोग की शर्तों के लिए अनुभाग शीर्षलेख"
+  },
   "commonConditions": "नियम",
-  "@commonConditions": { "description": "नियम / अस्वीकरण के लिए अनुभाग शीर्षलेख" },
+  "@commonConditions": {
+    "description": "नियम / अस्वीकरण के लिए अनुभाग शीर्षलेख"
+  },
   "commonPrivacyPolicy": "गोपनीयता नीति",
-  "@commonPrivacyPolicy": { "description": "गोपनीयता नीति के लिए अनुभाग शीर्षलेख" },
+  "@commonPrivacyPolicy": {
+    "description": "गोपनीयता नीति के लिए अनुभाग शीर्षलेख"
+  },
   "commonBackToLogin": "लॉगिन पर वापस जाएं",
-  "@commonBackToLogin": { "description": "लॉगिन स्क्रीन पर लौटने के लिए बटन टेक्स्ट" },
-"backToDashboard": "डैशबोर्ड पर वापस जाएं",
-"@backToDashboard": { "description": "मुख्य डैशबोर्ड स्क्रीन पर वापस जाने के लिए बटन टेक्स्ट" },
+  "@commonBackToLogin": {
+    "description": "लॉगिन स्क्रीन पर लौटने के लिए बटन टेक्स्ट"
+  },
+  "backToDashboard": "डैशबोर्ड पर वापस जाएं",
+  "@backToDashboard": {
+    "description": "मुख्य डैशबोर्ड स्क्रीन पर वापस जाने के लिए बटन टेक्स्ट"
+  },
   "termsBody": "VH Health में आपका स्वागत है। इस मोबाइल एप्लिकेशन को एक्सेस और उपयोग करके, आप इन उपयोग की शर्तों से बंधे होने के लिए सहमत हैं।\n\n1. उद्देश्य: VH Health एक मोबाइल एप्लिकेशन है जो रोगियों को उनके स्वास्थ्य रिकॉर्ड, अपॉइंटमेंट्स, नुस्खे, जांच और अस्पताल के साथ संचार का प्रबंधन करने में सहायता करने के लिए डिज़ाइन किया गया है।\n2. पात्रता: इस ऐप का स्वतंत्र रूप से उपयोग करने के लिए आपकी आयु कम से कम 18 वर्ष होनी चाहिए। नाबालिगों द्वारा उपयोग एक अभिभावक द्वारा पर्यवेक्षित किया जाना चाहिए।\n3. सेवाओं का उपयोग:\n   • आप सटीक और पूरी जानकारी प्रदान करने के लिए सहमत हैं।\n   • आप ऐप की कार्यक्षमता या सुरक्षा का दुरुपयोग या हस्तक्षेप नहीं करने के लिए सहमत हैं।\n   • किसी भी गैर-कानूनी या निषिद्ध उपयोग की सख्त मनाही है।\n4. बौद्धिक संपदा: ऐप के भीतर सभी सामग्री, जिसमें लोगो, टेक्स्ट, चित्र और डेटा शामिल हैं, VH Health या उसके लाइसेंसदाताओं की संपत्ति है और लागू कॉपीराइट और ट्रेडमार्क कानूनों द्वारा संरक्षित है।\n5. संशोधन: हम किसी भी समय, बिना किसी सूचना के, किसी भी सुविधा या कार्यक्षमता को संशोधित करने या बंद करने का अधिकार सुरक्षित रखते हैं।\n6. समाप्ति: VH Health शर्तों का उल्लंघन करने वाले या दुरुपयोग में लिप्त किसी भी उपयोगकर्ता की पहुंच को निलंबित या समाप्त कर सकता है।",
-  "@termsBody": { "description": "शर्तें अस्वीकरण स्क्रीन में प्रदर्शित संपूर्ण उपयोग की शर्तें सामग्री" },
+  "@termsBody": {
+    "description": "शर्तें अस्वीकरण स्क्रीन में प्रदर्शित संपूर्ण उपयोग की शर्तें सामग्री"
+  },
   "conditionsBody": "1. **चिकित्सा सलाह अस्वीकरण:**\n   • यह ऐप सामान्य सूचनात्मक उद्देश्यों और सुविधा के लिए है।\n   • यह योग्य स्वास्थ्य पेशेवरों के साथ सीधे परामर्श का विकल्प नहीं है।\n   • निदान और उपचार के लिए हमेशा अपने डॉक्टर या अस्पताल के कर्मचारियों से परामर्श करें।\n\n2. आपातकालीन उपयोग:\n   • यह ऐप आपातकालीन चिकित्सा सहायता के लिए नहीं है।\n   • आपातकाल की स्थिति में, कृपया अपने स्थानीय आपातकालीन नंबर पर कॉल करें या निकटतम अस्पताल जाएं।\n\n3. सेवा उपलब्धता:\n   • हम निरंतर उपलब्धता के लिए प्रयास करते हैं, लेकिन निर्बाध पहुंच की गारंटी नहीं देते हैं।\n   • तकनीकी समस्याएं, अपडेट या नेटवर्क विफलताएं कभी-कभी पहुंच को प्रभावित कर सकती हैं।\n\n4. डेटा सटीकता:\n   • अपॉइंटमेंट शेड्यूल और रिपोर्ट जैसी जानकारी अस्पताल प्रणालियों से प्राप्त की जाती है और मैनुअल प्रविष्टि के अधीन हो सकती है।\n   • VH Health गलत डेटा प्रविष्टि या तीसरे पक्ष के सिस्टम मुद्दों के कारण होने वाली त्रुटियों के लिए उत्तरदायी नहीं है।",
-  "@conditionsBody": { "description": "संपूर्ण नियम / चिकित्सा अस्वीकरण पाठ" },
+  "@conditionsBody": {
+    "description": "संपूर्ण नियम / चिकित्सा अस्वीकरण पाठ"
+  },
   "privacyBody": "1. **सूचना संग्रह:**\n   • हम आपका नाम, फ़ोन नंबर, यूआईडी, मेडिकल रिकॉर्ड, अपॉइंटमेंट डेटा और अपलोड एकत्र करते हैं।\n   • हम ऐप के प्रदर्शन को बेहतर बनाने के लिए डिवाइस पहचानकर्ता और उपयोग विश्लेषण भी एकत्र कर सकते हैं।\n\n2. सूचना का उपयोग:\n   • आपकी जानकारी का उपयोग केवल ऐप के भीतर सेवाएं प्रदान करने के लिए किया जाता है।\n   • हम आपके डेटा को नहीं बेचते हैं या विज्ञापन उद्देश्यों के लिए इसका उपयोग नहीं करते हैं।\n\n3. डेटा साझाकरण:\n   • आपका डेटा आपकी देखभाल में शामिल अधिकृत अस्पताल कर्मचारियों और चिकित्सा पेशेवरों के साथ साझा किया जा सकता है।\n   • यदि कानून द्वारा आवश्यक हो या कानूनी दायित्वों के मामले में हम डेटा का खुलासा भी कर सकते हैं।\n\n4. डेटा सुरक्षा:\n   • हम आपके डेटा की सुरक्षा के लिए उद्योग-मानक सुरक्षा प्रथाओं का उपयोग करते हैं।\n   • हालांकि, कोई भी प्रणाली 100% सुरक्षित नहीं है; ऐप का उपयोग आपके अपने जोखिम पर है।\n\n5. आपके अधिकार:\n   • आप अपनी संग्रहीत जानकारी तक पहुंच का अनुरोध कर सकते हैं या सुधार का अनुरोध कर सकते हैं।\n   • आप अस्पताल प्रशासन से संपर्क करके अपने खाते को हटाने का अनुरोध भी कर सकते हैं।\n\n6. डेटा प्रतिधारण:\n   • आपका डेटा स्वास्थ्य सेवा या कानूनी उद्देश्यों के लिए आवश्यक होने तक बनाए रखा जाएगा।",
-  "@privacyBody": { "description": "संपूर्ण गोपनीयता नीति पाठ" },
+  "@privacyBody": {
+    "description": "संपूर्ण गोपनीयता नीति पाठ"
+  },
   "profileEditScreenTitle": "प्रोफ़ाइल संपादित करें",
-  "@profileEditScreenTitle": { "description": "प्रोफ़ाइल संपादन स्क्रीन का शीर्षक" },
+  "@profileEditScreenTitle": {
+    "description": "प्रोफ़ाइल संपादन स्क्रीन का शीर्षक"
+  },
   "profileNameLabel": "पूरा नाम",
-  "@profileNameLabel": { "description": "नाम इनपुट के लिए लेबल" },
+  "@profileNameLabel": {
+    "description": "नाम इनपुट के लिए लेबल"
+  },
   "profileNameHint": "अपना पूरा नाम दर्ज करें",
-  "@profileNameHint": { "description": "नाम इनपुट के लिए संकेत" },
+  "@profileNameHint": {
+    "description": "नाम इनपुट के लिए संकेत"
+  },
   "profileNameValidationRequired": "नाम आवश्यक है",
-  "@profileNameValidationRequired": { "description": "जब नाम खाली हो तो सत्यापन संदेश" },
+  "@profileNameValidationRequired": {
+    "description": "जब नाम खाली हो तो सत्यापन संदेश"
+  },
   "profileEmailLabel": "ईमेल पता",
-  "@profileEmailLabel": { "description": "ईमेल इनपुट के लिए लेबल" },
+  "@profileEmailLabel": {
+    "description": "ईमेल इनपुट के लिए लेबल"
+  },
   "profileEmailHint": "example@domain.com",
-  "@profileEmailHint": { "description": "ईमेल इनपुट के लिए संकेत" },
+  "@profileEmailHint": {
+    "description": "ईमेल इनपुट के लिए संकेत"
+  },
   "profileEmailValidationInvalid": "एक मान्य ईमेल पता दर्ज करें",
-  "@profileEmailValidationInvalid": { "description": "अमान्य ईमेल के लिए सत्यापन संदेश" },
+  "@profileEmailValidationInvalid": {
+    "description": "अमान्य ईमेल के लिए सत्यापन संदेश"
+  },
   "profileBirthdayLabel": "जन्मदिन",
-  "@profileBirthdayLabel": { "description": "जन्मदिन फ़ील्ड के लिए लेबल" },
+  "@profileBirthdayLabel": {
+    "description": "जन्मदिन फ़ील्ड के लिए लेबल"
+  },
   "profileBirthdayHint": "अपनी जन्म तिथि चुनें",
-  "@profileBirthdayHint": { "description": "जन्मदिन फ़ील्ड के लिए संकेत" },
+  "@profileBirthdayHint": {
+    "description": "जन्मदिन फ़ील्ड के लिए संकेत"
+  },
   "profileSaveChangesButton": "बदलाव सहेजें",
-  "@profileSaveChangesButton": { "description": "प्रोफ़ाइल संपादन सहेजने के लिए बटन टेक्स्ट" },
+  "@profileSaveChangesButton": {
+    "description": "प्रोफ़ाइल संपादन सहेजने के लिए बटन टेक्स्ट"
+  },
   "profileUpdatedSuccessfully": "प्रोफ़ाइल सफलतापूर्वक अपडेट की गई",
-  "@profileUpdatedSuccessfully": { "description": "सफल प्रोफ़ाइल अपडेट के बाद स्नैकबार टेक्स्ट" },
+  "@profileUpdatedSuccessfully": {
+    "description": "सफल प्रोफ़ाइल अपडेट के बाद स्नैकबार टेक्स्ट"
+  },
   "networkError": "नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।",
-  "@networkError": { "description": "जब एक सामान्य नेटवर्क त्रुटि होती है तो स्नैकबार टेक्स्ट" },
+  "@networkError": {
+    "description": "जब एक सामान्य नेटवर्क त्रुटि होती है तो स्नैकबार टेक्स्ट"
+  },
   "profileSetupTitle": "अपनी प्रोफ़ाइल सेट करें",
-  "@profileSetupTitle": { "description": "प्रोफ़ाइल सेटअप स्क्रीन का ऐप-बार शीर्षक" },
+  "@profileSetupTitle": {
+    "description": "प्रोफ़ाइल सेटअप स्क्रीन का ऐप-बार शीर्षक"
+  },
   "profileUploadProfilePic": "फोटो जोड़ें",
-  "@profileUploadProfilePic": { "description": "खाली अवतार के अंदर संकेत" },
+  "@profileUploadProfilePic": {
+    "description": "खाली अवतार के अंदर संकेत"
+  },
   "profileSetupSaved": "प्रोफ़ाइल सफलतापूर्वक सहेजी गई",
-  "@profileSetupSaved": { "description": "प्रोफ़ाइल सहेजे जाने के बाद स्नैकबार" },
+  "@profileSetupSaved": {
+    "description": "प्रोफ़ाइल सहेजे जाने के बाद स्नैकबार"
+  },
   "profileSetupSaveFailed": "प्रोफ़ाइल सहेजने में असमर्थ",
-  "@profileSetupSaveFailed": { "description": "जब सहेजना विफल हो जाता है तो स्नैकबार" },
+  "@profileSetupSaveFailed": {
+    "description": "जब सहेजना विफल हो जाता है तो स्नैकबार"
+  },
   "profileGenderLabel": "लिंग",
-  "@profileGenderLabel": { "description": "लिंग ड्रॉपडाउन के लिए लेबल" },
+  "@profileGenderLabel": {
+    "description": "लिंग ड्रॉपडाउन के लिए लेबल"
+  },
   "profileGenderMale": "पुरुष",
-  "@profileGenderMale": { "description": "लिंग विकल्प: पुरुष" },
+  "@profileGenderMale": {
+    "description": "लिंग विकल्प: पुरुष"
+  },
   "profileGenderFemale": "महिला",
-  "@profileGenderFemale": { "description": "लिंग विकल्प: महिला" },
+  "@profileGenderFemale": {
+    "description": "लिंग विकल्प: महिला"
+  },
   "profileGenderOther": "अन्य",
-  "@profileGenderOther": { "description": "लिंग विकल्प: अन्य" },
+  "@profileGenderOther": {
+    "description": "लिंग विकल्प: अन्य"
+  },
   "profileGenderValidationRequired": "कृपया एक लिंग चुनें",
-  "@profileGenderValidationRequired": { "description": "जब कोई लिंग नहीं चुना जाता है तो सत्यापन" },
+  "@profileGenderValidationRequired": {
+    "description": "जब कोई लिंग नहीं चुना जाता है तो सत्यापन"
+  },
   "profileEmailHintOptional": "वैकल्पिक",
-  "@profileEmailHintOptional": { "description": "संकेत टेक्स्ट जो दिखाता है कि ईमेल फ़ील्ड वैकल्पिक है" },
+  "@profileEmailHintOptional": {
+    "description": "संकेत टेक्स्ट जो दिखाता है कि ईमेल फ़ील्ड वैकल्पिक है"
+  },
   "profileBirthdaySelectLabel": "जन्मदिन चुनें",
-  "@profileBirthdaySelectLabel": { "description": "जब जन्मदिन नहीं चुना जाता है तो लेबल" },
+  "@profileBirthdaySelectLabel": {
+    "description": "जब जन्मदिन नहीं चुना जाता है तो लेबल"
+  },
   "profileBirthdayLabelShort": "जन्मदिन",
-  "@profileBirthdayLabelShort": { "description": "स्वरूपित तिथि से पहले उपयोग किया जाने वाला छोटा लेबल" },
+  "@profileBirthdayLabelShort": {
+    "description": "स्वरूपित तिथि से पहले उपयोग किया जाने वाला छोटा लेबल"
+  },
   "profileAnniversarySelectLabel": "सालगिरह चुनें",
-  "@profileAnniversarySelectLabel": { "description": "जब सालगिरह नहीं चुनी जाती है तो लेबल" },
+  "@profileAnniversarySelectLabel": {
+    "description": "जब सालगिरह नहीं चुनी जाती है तो लेबल"
+  },
   "profileAnniversaryLabelShort": "सालगिरह",
-  "@profileAnniversaryLabelShort": { "description": "स्वरूपित तिथि से पहले उपयोग किया जाने वाला छोटा लेबल" },
-"commonSkipButton": "छोड़ें",
-"@commonSkipButton": { "description": "द्वितीयक बटन जो उपयोगकर्ता को एक वैकल्पिक चरण छोड़ने देता है"},
-"commonSubmitButton": "सबमिट करें",
-"@commonSubmitButton": { "description": "प्राथमिक बटन जिसका उपयोग किसी क्रिया की पुष्टि करने या उसे समाप्त करने के लिए किया जाता है"},
-"commonCancelButton": "रद्द करें",
-"@commonCancelButton": { "description": "किसी संवाद या कार्रवाई को रद्द करने के लिए सामान्य बटन लेबल" },
+  "@profileAnniversaryLabelShort": {
+    "description": "स्वरूपित तिथि से पहले उपयोग किया जाने वाला छोटा लेबल"
+  },
+  "commonSkipButton": "छोड़ें",
+  "@commonSkipButton": {
+    "description": "द्वितीयक बटन जो उपयोगकर्ता को एक वैकल्पिक चरण छोड़ने देता है"
+  },
+  "commonSubmitButton": "सबमिट करें",
+  "@commonSubmitButton": {
+    "description": "प्राथमिक बटन जिसका उपयोग किसी क्रिया की पुष्टि करने या उसे समाप्त करने के लिए किया जाता है"
+  },
+  "commonCancelButton": "रद्द करें",
+  "@commonCancelButton": {
+    "description": "किसी संवाद या कार्रवाई को रद्द करने के लिए सामान्य बटन लेबल"
+  },
   "filesPickerError": "फ़ाइल नहीं चुन सका। कृपया पुनः प्रयास करें।",
-  "@filesPickerError": { "description": "जब छवि पिकर विफल हो जाता है तो स्नैकबार" },
+  "@filesPickerError": {
+    "description": "जब छवि पिकर विफल हो जाता है तो स्नैकबार"
+  },
   "hello": "नमस्ते",
-  "@hello": { "description": "डैशबोर्ड ऐप-बार पर प्रयुक्त अभिवादन" },
+  "@hello": {
+    "description": "डैशबोर्ड ऐप-बार पर प्रयुक्त अभिवादन"
+  },
   "changeLanguage": "भाषा बदलें",
-  "@changeLanguage": { "description": "भाषा स्विचर के लिए टूलटिप" },
+  "@changeLanguage": {
+    "description": "भाषा स्विचर के लिए टूलटिप"
+  },
   "lastAppointment": "पिछली अपॉइंटमेंट",
-  "@lastAppointment": { "description": "पिछली अपॉइंटमेंट की तारीख से पहले का लेबल" },
+  "@lastAppointment": {
+    "description": "पिछली अपॉइंटमेंट की तारीख से पहले का लेबल"
+  },
   "upcomingAppointment": "आगामी अपॉइंटमेंट",
-  "@upcomingAppointment": { "description": "अगली अपॉइंटमेंट की तारीख से पहले का लेबल" },
+  "@upcomingAppointment": {
+    "description": "अगली अपॉइंटमेंट की तारीख से पहले का लेबल"
+  },
   "notAvailable": "उपलब्ध नहीं",
-  "@notAvailable": { "description": "जब कोई मान अनुपलब्ध हो तो दिखाया जाता है" },
+  "@notAvailable": {
+    "description": "जब कोई मान अनुपलब्ध हो तो दिखाया जाता है"
+  },
   "yourHealth": "आपका स्वास्थ्य",
-  "@yourHealth": { "description": "डैशबोर्ड टाइल: आपका स्वास्थ्य" },
+  "@yourHealth": {
+    "description": "डैशबोर्ड टाइल: आपका स्वास्थ्य"
+  },
   "appointments": "अपॉइंटमेंट्स",
-  "@appointments": { "description": "डैशबोर्ड टाइल: अपॉइंटमेंट्स" },
+  "@appointments": {
+    "description": "डैशबोर्ड टाइल: अपॉइंटमेंट्स"
+  },
   "pharmacy": "फार्मेसी",
-  "@pharmacy": { "description": "डैशबोर्ड टाइल: फार्मेसी" },
+  "@pharmacy": {
+    "description": "डैशबोर्ड टाइल: फार्मेसी"
+  },
   "investigations": "जांच",
-  "@investigations": { "description": "डैशबोर्ड टाइल: जांच" },
+  "@investigations": {
+    "description": "डैशबोर्ड टाइल: जांच"
+  },
   "askDoubt": "संदेह पूछें",
-  "@askDoubt": { "description": "डैशबोर्ड टाइल: संदेह पूछें" },
+  "@askDoubt": {
+    "description": "डैशबोर्ड टाइल: संदेह पूछें"
+  },
   "triviaLabel": "रोचक तथ्य",
-  "@triviaLabel": { "description": "डैशबोर्ड टाइल: रोचक तथ्य" },
+  "@triviaLabel": {
+    "description": "डैशबोर्ड टाइल: रोचक तथ्य"
+  },
   "departments": "विभाग",
-  "@departments": { "description": "डैशबोर्ड टाइल: विभाग" },
+  "@departments": {
+    "description": "डैशबोर्ड टाइल: विभाग"
+  },
   "aboutUsLabel": "हमारे बारे में",
-  "@aboutUsLabel": { "description": "डैशबोर्ड टाइल: हमारे बारे में" },
+  "@aboutUsLabel": {
+    "description": "डैशबोर्ड टाइल: हमारे बारे में"
+  },
   "yourHealthTitle": "आपका स्वास्थ्य",
-  "@yourHealthTitle": { "description": "आपका स्वास्थ्य स्क्रीन का ऐप-बार शीर्षक" },
+  "@yourHealthTitle": {
+    "description": "आपका स्वास्थ्य स्क्रीन का ऐप-बार शीर्षक"
+  },
   "yourHealthSortNewest": "क्रमबद्ध करें: नवीनतम पहले",
-  "@yourHealthSortNewest": { "description": "जब सूची सबसे पुरानी→नवीनतम होती है तो टूलटिप; टैप करने पर नवीनतम पहले स्विच हो जाता है" },
+  "@yourHealthSortNewest": {
+    "description": "जब सूची सबसे पुरानी→नवीनतम होती है तो टूलटिप; टैप करने पर नवीनतम पहले स्विच हो जाता है"
+  },
   "yourHealthSortOldest": "क्रमबद्ध करें: सबसे पुराना पहले",
-  "@yourHealthSortOldest": { "description": "जब सूची नवीनतम→सबसे पुरानी होती है तो टूलटिप; टैप करने पर सबसे पुराना पहले स्विच हो जाता है" },
+  "@yourHealthSortOldest": {
+    "description": "जब सूची नवीनतम→सबसे पुरानी होती है तो टूलटिप; टैप करने पर सबसे पुराना पहले स्विच हो जाता है"
+  },
   "yourHealthFilterByType": "प्रकार के अनुसार फ़िल्टर करें",
-  "@yourHealthFilterByType": { "description": "रिकॉर्ड प्रकार फ़िल्टर के लिए ड्रॉपडाउन लेबल" },
+  "@yourHealthFilterByType": {
+    "description": "रिकॉर्ड प्रकार फ़िल्टर के लिए ड्रॉपडाउन लेबल"
+  },
   "yourHealthNoRecords": "कोई रिकॉर्ड नहीं मिला",
-  "@yourHealthNoRecords": { "description": "जब रिकॉर्ड सूची खाली होती है तो दिखाया जाता है" },
+  "@yourHealthNoRecords": {
+    "description": "जब रिकॉर्ड सूची खाली होती है तो दिखाया जाता है"
+  },
   "yourHealthUploaded": "अपलोड किया गया",
-  "@yourHealthUploaded": { "description": "अपलोड तिथि से पहले का उपसर्ग" },
+  "@yourHealthUploaded": {
+    "description": "अपलोड तिथि से पहले का उपसर्ग"
+  },
   "yourHealthLoginToView": "अपने मेडिकल रिकॉर्ड तक पहुंचने के लिए लॉग इन करें",
-  "@yourHealthLoginToView": { "description": "अतिथि उपयोगकर्ताओं को दिखाया गया संदेश" },
+  "@yourHealthLoginToView": {
+    "description": "अतिथि उपयोगकर्ताओं को दिखाया गया संदेश"
+  },
   "recordsLoadFailed": "रिकॉर्ड लोड नहीं हो सके",
-  "@recordsLoadFailed": { "description": "जब API लाने में विफल रहता है तो स्नैकबार टेक्स्ट" },
+  "@recordsLoadFailed": {
+    "description": "जब API लाने में विफल रहता है तो स्नैकबार टेक्स्ट"
+  },
   "recordsShowingOffline": "ऑफ़लाइन डेटा दिखाया जा रहा है",
-  "@recordsShowingOffline": { "description": "जब कैश किया गया डेटा प्रदर्शित होता है तो स्नैकबार" },
+  "@recordsShowingOffline": {
+    "description": "जब कैश किया गया डेटा प्रदर्शित होता है तो स्नैकबार"
+  },
   "fileQuarantined": "फ़ाइल क्वारंटाइन में है और डाउनलोड नहीं की जा सकती",
-  "@fileQuarantined": { "description": "जब बैकएंड फ़ाइल क्वारंटाइन को इंगित करता है तो स्नैकबार" },
+  "@fileQuarantined": {
+    "description": "जब बैकएंड फ़ाइल क्वारंटाइन को इंगित करता है तो स्नैकबार"
+  },
   "fileCouldNotOpen": "फ़ाइल खोलने में असमर्थ",
-  "@fileCouldNotOpen": { "description": "जब फ़ाइल डाउनलोड या खोली नहीं जा सकती तो स्नैकबार" },
+  "@fileCouldNotOpen": {
+    "description": "जब फ़ाइल डाउनलोड या खोली नहीं जा सकती तो स्नैकबार"
+  },
   "recordTypeAll": "सभी",
-  "@recordTypeAll": { "description": "रिकॉर्ड प्रकार विकल्प: सभी" },
+  "@recordTypeAll": {
+    "description": "रिकॉर्ड प्रकार विकल्प: सभी"
+  },
   "recordTypeConsultation": "परामर्श",
-  "@recordTypeConsultation": { "description": "रिकॉर्ड प्रकार विकल्प: परामर्श" },
+  "@recordTypeConsultation": {
+    "description": "रिकॉर्ड प्रकार विकल्प: परामर्श"
+  },
   "recordTypeInvestigation": "जांच",
-  "@recordTypeInvestigation": { "description": "रिकॉर्ड प्रकार विकल्प: जांच" },
+  "@recordTypeInvestigation": {
+    "description": "रिकॉर्ड प्रकार विकल्प: जांच"
+  },
   "recordTypeReport": "रिपोर्ट",
-  "@recordTypeReport": { "description": "रिकॉर्ड प्रकार विकल्प: रिपोर्ट" },
+  "@recordTypeReport": {
+    "description": "रिकॉर्ड प्रकार विकल्प: रिपोर्ट"
+  },
   "login": "लॉग इन करें",
-  "@login": { "description": "सामान्य लॉगिन बटन लेबल" },
+  "@login": {
+    "description": "सामान्य लॉगिन बटन लेबल"
+  },
   "requestAppointment": "अपॉइंटमेंट का अनुरोध करें",
-  "@requestAppointment": { "description": "ऐप-बार शीर्षक" },
+  "@requestAppointment": {
+    "description": "ऐप-बार शीर्षक"
+  },
   "enterYourPhone": "अपना फ़ोन नंबर दर्ज करें",
-  "@enterYourPhone": { "description": "अतिथि होने पर फ़ोन इनपुट के लिए शीर्षक" },
+  "@enterYourPhone": {
+    "description": "अतिथि होने पर फ़ोन इनपुट के लिए शीर्षक"
+  },
   "enterValidPhone": "कृपया एक मान्य 10-अंकीय फ़ोन नंबर दर्ज करें",
-  "@enterValidPhone": { "description": "फ़ोन फ़ील्ड के लिए सत्यापन" },
+  "@enterValidPhone": {
+    "description": "फ़ोन फ़ील्ड के लिए सत्यापन"
+  },
   "chooseDepartmentOrDoctor": "विभाग चुनें",
-  "@chooseDepartmentOrDoctor": { "description": "विभाग चयन के लिए ड्रॉपडाउन लेबल" },
+  "@chooseDepartmentOrDoctor": {
+    "description": "विभाग चयन के लिए ड्रॉपडाउन लेबल"
+  },
   "selectDoctorPlaceholder": "डॉक्टर चुनें (वैकल्पिक)",
-  "@selectDoctorPlaceholder": { "description": "डॉक्टर ड्रॉपडाउन के लिए लेबल" },
+  "@selectDoctorPlaceholder": {
+    "description": "डॉक्टर ड्रॉपडाउन के लिए लेबल"
+  },
   "selectDoctorAndDate": "कृपया एक विभाग चुनें",
-  "@selectDoctorAndDate": { "description": "जब कोई विभाग नहीं चुना जाता है तो सत्यापन" },
+  "@selectDoctorAndDate": {
+    "description": "जब कोई विभाग नहीं चुना जाता है तो सत्यापन"
+  },
   "submitRequest": "अनुरोध सबमिट करें",
-  "@submitRequest": { "description": "अपॉइंटमेंट अनुरोध सबमिट करने के लिए बटन टेक्स्ट" },
+  "@submitRequest": {
+    "description": "अपॉइंटमेंट अनुरोध सबमिट करने के लिए बटन टेक्स्ट"
+  },
   "appointmentConfirmationNote": "अपॉइंटमेंट अनुरोध प्राप्त हुआ! हम जल्द ही पुष्टि करेंगे।",
-  "@appointmentConfirmationNote": { "description": "सफल सबमिशन के बाद स्नैकबार" },
+  "@appointmentConfirmationNote": {
+    "description": "सफल सबमिशन के बाद स्नैकबार"
+  },
   "appointmentFailed": "अपॉइंटमेंट बुक करने में विफल",
-  "@appointmentFailed": { "description": "सामान्य API विफलता संदेश" },
+  "@appointmentFailed": {
+    "description": "सामान्य API विफलता संदेश"
+  },
   "genericError": "कुछ गलत हो गया। कृपया पुनः प्रयास करें।",
-  "@genericError": { "description": "सामान्य नेटवर्क/त्रुटि स्नैकबार" },
+  "@genericError": {
+    "description": "सामान्य नेटवर्क/त्रुटि स्नैकबार"
+  },
   "calendarSyncTitle": "कैलेंडर में जोड़ें?",
-  "@calendarSyncTitle": { "description": "कैलेंडर सिंक के लिए संवाद शीर्षक" },
+  "@calendarSyncTitle": {
+    "description": "कैलेंडर सिंक के लिए संवाद शीर्षक"
+  },
   "calendarSyncPrompt": "क्या आप इस अपॉइंटमेंट को अपने कैलेंडर में जोड़ना चाहते हैं?",
-  "@calendarSyncPrompt": { "description": "कैलेंडर सिंक के लिए संवाद बॉडी" },
+  "@calendarSyncPrompt": {
+    "description": "कैलेंडर सिंक के लिए संवाद बॉडी"
+  },
   "yesAlways": "हाँ, हमेशा",
-  "@yesAlways": { "description": "संवाद बटन: हमेशा कैलेंडर में जोड़ें" },
+  "@yesAlways": {
+    "description": "संवाद बटन: हमेशा कैलेंडर में जोड़ें"
+  },
   "no": "नहीं",
-  "@no": { "description": "संवाद बटन: कैलेंडर में जोड़ने से मना करें" },
+  "@no": {
+    "description": "संवाद बटन: कैलेंडर में जोड़ने से मना करें"
+  },
   "calendarEventTitle": "VH Health अपॉइंटमेंट",
-  "@calendarEventTitle": { "description": "कैलेंडर ईवेंट के लिए शीर्षक" },
+  "@calendarEventTitle": {
+    "description": "कैलेंडर ईवेंट के लिए शीर्षक"
+  },
   "calendarEventDescription": "{doctor} के साथ अपॉइंटमेंट",
   "@calendarEventDescription": {
     "description": "कैलेंडर ईवेंट के लिए विवरण",
-    "placeholders": { "doctor": {} }
+    "placeholders": {
+      "doctor": {}
+    }
   },
   "calendarEventLocation": "VH Health अस्पताल",
-  "@calendarEventLocation": { "description": "कैलेंडर ईवेंट के लिए स्थान स्ट्रिंग" },
+  "@calendarEventLocation": {
+    "description": "कैलेंडर ईवेंट के लिए स्थान स्ट्रिंग"
+  },
   "generalDoctor": "डॉक्टर",
-  "@generalDoctor": { "description": "कैलेंडर विवरण में फॉलबैक डॉक्टर का नाम" },
+  "@generalDoctor": {
+    "description": "कैलेंडर विवरण में फॉलबैक डॉक्टर का नाम"
+  },
   "sosSent": "SOS अलर्ट भेजा गया!",
-  "@sosSent": { "description": "SOS बटन टैप करने के बाद स्नैकबार" },
+  "@sosSent": {
+    "description": "SOS बटन टैप करने के बाद स्नैकबार"
+  },
   "requestAppointmentPhoneNumber": "फ़ोन नंबर",
-  "@requestAppointmentPhoneNumber": { "description": "फ़ोन टेक्स्ट फ़ील्ड के लिए लेबल" },
+  "@requestAppointmentPhoneNumber": {
+    "description": "फ़ोन टेक्स्ट फ़ील्ड के लिए लेबल"
+  },
   "cardiology": "हृदय रोग विज्ञान",
   "neurology": "तंत्रिका विज्ञान",
   "orthopedics": "हड्डी रोग",
@@ -301,175 +511,341 @@
   "pediatrics": "बाल रोग",
   "general_medicine": "सामान्य चिकित्सा",
   "pharmacyTitle": "दवाएं ऑर्डर करें",
-  "@pharmacyTitle": { "description": "फार्मेसी स्क्रीन का ऐप-बार शीर्षक" },
+  "@pharmacyTitle": {
+    "description": "फार्मेसी स्क्रीन का ऐप-बार शीर्षक"
+  },
   "pharmacyPermissionsRequired": "फ़ाइलों का चयन करने के लिए संग्रहण अनुमति आवश्यक है।",
-  "@pharmacyPermissionsRequired": { "description": "जब उपयोगकर्ता फ़ाइल-पिकर अनुमतियों से इनकार करता है तो स्नैकबार" },
+  "@pharmacyPermissionsRequired": {
+    "description": "जब उपयोगकर्ता फ़ाइल-पिकर अनुमतियों से इनकार करता है तो स्नैकबार"
+  },
   "pharmacyFilePickerError": "फ़ाइल नहीं चुन सका। कृपया पुनः प्रयास करें।",
-  "@pharmacyFilePickerError": { "description": "जब फ़ाइल-पिकर विफल हो जाता है तो स्नैकबार" },
+  "@pharmacyFilePickerError": {
+    "description": "जब फ़ाइल-पिकर विफल हो जाता है तो स्नैकबार"
+  },
   "pharmacyFormAndFileRequired": "कृपया फ़ॉर्म पूरा करें और एक नुस्खे की फ़ाइल संलग्न करें।",
-  "@pharmacyFormAndFileRequired": { "description": "जब फ़ॉर्म/फ़ाइल के बिना सबमिट दबाया जाता है तो स्नैकबार" },
+  "@pharmacyFormAndFileRequired": {
+    "description": "जब फ़ॉर्म/फ़ाइल के बिना सबमिट दबाया जाता है तो स्नैकबार"
+  },
   "pharmacyUploadFailed": "अपलोड विफल। कृपया पुनः प्रयास करें।",
-  "@pharmacyUploadFailed": { "description": "जब नुस्खा अपलोड विफल हो जाता है तो स्नैकबार" },
+  "@pharmacyUploadFailed": {
+    "description": "जब नुस्खा अपलोड विफल हो जाता है तो स्नैकबार"
+  },
   "pharmacySubmissionFailed": "ऑर्डर सबमिशन विफल।",
-  "@pharmacySubmissionFailed": { "description": "बैकएंड त्रुटि से सामान्य फॉलबैक संदेश" },
+  "@pharmacySubmissionFailed": {
+    "description": "बैकएंड त्रुटि से सामान्य फॉलबैक संदेश"
+  },
   "pharmacyConfirmationNote": "ऑर्डर दिया गया! हमारी फार्मेसी पुष्टि करने के लिए कॉल करेगी।",
-  "@pharmacyConfirmationNote": { "description": "सफल ऑर्डर के बाद स्नैकबार" },
+  "@pharmacyConfirmationNote": {
+    "description": "सफल ऑर्डर के बाद स्नैकबार"
+  },
   "pharmacyInfoBanner": "अपने डॉक्टर का नुस्खा (पीडीएफ या छवि) और डिलीवरी पता अपलोड करें।",
-  "@pharmacyInfoBanner": { "description": "निर्देशों के साथ शीर्ष बैनर" },
+  "@pharmacyInfoBanner": {
+    "description": "निर्देशों के साथ शीर्ष बैनर"
+  },
   "pharmacyUploadPrescriptionButton": "नुस्खा अपलोड करें",
-  "@pharmacyUploadPrescriptionButton": { "description": "एक फ़ाइल चुनने के लिए बटन टेक्स्ट" },
+  "@pharmacyUploadPrescriptionButton": {
+    "description": "एक फ़ाइल चुनने के लिए बटन टेक्स्ट"
+  },
   "fileSelected": "चयनित",
-  "@fileSelected": { "description": "चयनित फ़ाइल नाम से पहले का उपसर्ग" },
+  "@fileSelected": {
+    "description": "चयनित फ़ाइल नाम से पहले का उपसर्ग"
+  },
   "fileClearSelection": "साफ़ करें",
-  "@fileClearSelection": { "description": "चयनित फ़ाइल को हटाने के लिए लिंक" },
+  "@fileClearSelection": {
+    "description": "चयनित फ़ाइल को हटाने के लिए लिंक"
+  },
   "pharmacyDeliveryAddressLabel": "डिलीवरी का पता",
-  "@pharmacyDeliveryAddressLabel": { "description": "पता टेक्स्टएरिया के लिए लेबल" },
+  "@pharmacyDeliveryAddressLabel": {
+    "description": "पता टेक्स्टएरिया के लिए लेबल"
+  },
   "pharmacyDeliveryAddressHint": "मकान / फ्लैट नंबर, गली, क्षेत्र, पिन कोड...",
-  "@pharmacyDeliveryAddressHint": { "description": "पता टेक्स्टएरिया के अंदर संकेत" },
+  "@pharmacyDeliveryAddressHint": {
+    "description": "पता टेक्स्टएरिया के अंदर संकेत"
+  },
   "pharmacyDeliveryAddressValidationRequired": "पता आवश्यक है",
-  "@pharmacyDeliveryAddressValidationRequired": { "description": "जब पता खाली हो तो सत्यापन" },
+  "@pharmacyDeliveryAddressValidationRequired": {
+    "description": "जब पता खाली हो तो सत्यापन"
+  },
   "pharmacySubmitOrderButton": "ऑर्डर सबमिट करें",
-  "@pharmacySubmitOrderButton": { "description": "फार्मेसी ऑर्डर सबमिट करने के लिए प्राथमिक बटन" },
+  "@pharmacySubmitOrderButton": {
+    "description": "फार्मेसी ऑर्डर सबमिट करने के लिए प्राथमिक बटन"
+  },
   "pharmacyCallButton": "फार्मेसी को कॉल करें",
-  "@pharmacyCallButton": { "description": "फार्मेसी को फ़ोन कॉल शुरू करने के लिए बटन" },
+  "@pharmacyCallButton": {
+    "description": "फार्मेसी को फ़ोन कॉल शुरू करने के लिए बटन"
+  },
   "pharmacyCallFailed": "डायलर लॉन्च नहीं हो सका।",
-  "@pharmacyCallFailed": { "description": "जब tel: लॉन्च विफल हो जाता है तो स्नैकबार" },
+  "@pharmacyCallFailed": {
+    "description": "जब tel: लॉन्च विफल हो जाता है तो स्नैकबार"
+  },
   "pharmacyPhoneNumberLabel": "फ़ोन नंबर",
-  "@pharmacyPhoneNumberLabel": { "description": "फ़ोन फ़ील्ड के लिए लेबल (अतिथि मोड)" },
+  "@pharmacyPhoneNumberLabel": {
+    "description": "फ़ोन फ़ील्ड के लिए लेबल (अतिथि मोड)"
+  },
   "pharmacyPhoneNumberHint": "10-अंकीय मोबाइल नंबर",
-  "@pharmacyPhoneNumberHint": { "description": "फ़ोन फ़ील्ड के लिए संकेत" },
+  "@pharmacyPhoneNumberHint": {
+    "description": "फ़ोन फ़ील्ड के लिए संकेत"
+  },
   "pharmacyPhoneNumberValidationInvalid": "एक मान्य 10-अंकीय मोबाइल नंबर दर्ज करें",
-  "@pharmacyPhoneNumberValidationInvalid": { "description": "फ़ोन इनपुट के लिए सत्यापन त्रुटि" },
+  "@pharmacyPhoneNumberValidationInvalid": {
+    "description": "फ़ोन इनपुट के लिए सत्यापन त्रुटि"
+  },
   "investigationsTitle": "जांच का अनुरोध करें",
-  "@investigationsTitle": { "description": "ऐप-बार शीर्षक" },
+  "@investigationsTitle": {
+    "description": "ऐप-बार शीर्षक"
+  },
   "investigationsTestNameLabel": "परीक्षण का नाम",
-  "@investigationsTestNameLabel": { "description": "जांच परीक्षण नाम के लिए लेबल" },
+  "@investigationsTestNameLabel": {
+    "description": "जांच परीक्षण नाम के लिए लेबल"
+  },
   "investigationsTestNameHint": "उदा. पूर्ण रक्त गणना",
-  "@investigationsTestNameHint": { "description": "परीक्षण नाम फ़ील्ड में संकेत" },
+  "@investigationsTestNameHint": {
+    "description": "परीक्षण नाम फ़ील्ड में संकेत"
+  },
   "investigationsTestNameValidationRequired": "परीक्षण का नाम आवश्यक है",
-  "@investigationsTestNameValidationRequired": { "description": "जब परीक्षण का नाम खाली हो तो सत्यापन" },
+  "@investigationsTestNameValidationRequired": {
+    "description": "जब परीक्षण का नाम खाली हो तो सत्यापन"
+  },
   "investigationsUploadFileButtonLabel": "डॉक्टर का आदेश अपलोड करें",
-  "@investigationsUploadFileButtonLabel": { "description": "फ़ाइल चुनने के लिए बटन टेक्स्ट" },
+  "@investigationsUploadFileButtonLabel": {
+    "description": "फ़ाइल चुनने के लिए बटन टेक्स्ट"
+  },
   "investigationsSubmitRequestButton": "अनुरोध सबमिट करें",
-  "@investigationsSubmitRequestButton": { "description": "प्राथमिक बटन टेक्स्ट" },
+  "@investigationsSubmitRequestButton": {
+    "description": "प्राथमिक बटन टेक्स्ट"
+  },
   "investigationsViewReportsButton": "जांच रिपोर्ट देखें",
-  "@investigationsViewReportsButton": { "description": "आपका स्वास्थ्य जांच फ़िल्टर का लिंक" },
+  "@investigationsViewReportsButton": {
+    "description": "आपका स्वास्थ्य जांच फ़िल्टर का लिंक"
+  },
   "investigationsFormAndFileRequired": "कृपया फ़ॉर्म पूरा करें और एक फ़ाइल संलग्न करें।",
-  "@investigationsFormAndFileRequired": { "description": "जब फ़ॉर्म/फ़ाइल गुम हो तो स्नैकबार" },
+  "@investigationsFormAndFileRequired": {
+    "description": "जब फ़ॉर्म/फ़ाइल गुम हो तो स्नैकबार"
+  },
   "investigationsConfirmationNote": "अनुरोध भेजा गया! हम शेड्यूल करने के लिए आपसे संपर्क करेंगे।",
-  "@investigationsConfirmationNote": { "description": "सफल सबमिशन के बाद स्नैकबार" },
+  "@investigationsConfirmationNote": {
+    "description": "सफल सबमिशन के बाद स्नैकबार"
+  },
   "investigationsFailed": "अनुरोध सबमिट करने में विफल।",
-  "@investigationsFailed": { "description": "सामान्य बैकएंड विफलता" },
+  "@investigationsFailed": {
+    "description": "सामान्य बैकएंड विफलता"
+  },
   "investigationsUploadFailed": "फ़ाइल अपलोड विफल। कृपया पुनः प्रयास करें।",
-  "@investigationsUploadFailed": { "description": "जब अपलोड विफल हो जाता है तो स्नैकबार" },
+  "@investigationsUploadFailed": {
+    "description": "जब अपलोड विफल हो जाता है तो स्नैकबार"
+  },
   "investigationsPermissionsRequired": "संग्रहण अनुमति आवश्यक है।",
-  "@investigationsPermissionsRequired": { "description": "जब उपयोगकर्ता अनुमतियों से इनकार करता है तो स्नैकबार" },
+  "@investigationsPermissionsRequired": {
+    "description": "जब उपयोगकर्ता अनुमतियों से इनकार करता है तो स्नैकबार"
+  },
   "investigationsFilePickerError": "एक फ़ाइल नहीं चुन सका। कृपया पुनः प्रयास करें।",
-  "@investigationsFilePickerError": { "description": "जब फ़ाइल-पिकर थ्रो करता है तो स्नैकबार" },
+  "@investigationsFilePickerError": {
+    "description": "जब फ़ाइल-पिकर थ्रो करता है तो स्नैकबार"
+  },
   "triviaTitle": "स्वास्थ्य रोचक तथ्य",
-  "@triviaTitle": { "description": "रोचक तथ्य स्क्रीन का ऐप-बार शीर्षक" },
+  "@triviaTitle": {
+    "description": "रोचक तथ्य स्क्रीन का ऐप-बार शीर्षक"
+  },
   "triviaDidYouKnow": "क्या आप जानते हैं?",
-  "@triviaDidYouKnow": { "description": "रोचक तथ्य के ऊपर शीर्षक" },
+  "@triviaDidYouKnow": {
+    "description": "रोचक तथ्य के ऊपर शीर्षक"
+  },
   "triviaNewTriviaButton": "एक और तथ्य दिखाएं",
-  "@triviaNewTriviaButton": { "description": "एक नया यादृच्छिक रोचक तथ्य लोड करने के लिए बटन" },
+  "@triviaNewTriviaButton": {
+    "description": "एक नया यादृच्छिक रोचक तथ्य लोड करने के लिए बटन"
+  },
   "triviaFact1": "मानव का हृदय प्रति दिन लगभग 100,000 बार धड़कता है।",
-  "@triviaFact1": { "description": "यादृच्छिक रोचक तथ्य #1" },
+  "@triviaFact1": {
+    "description": "यादृच्छिक रोचक तथ्य #1"
+  },
   "triviaFact2": "100 बार हंसना लगभग एक स्थिर बाइक पर 15 मिनट के व्यायाम के बराबर है।",
-  "@triviaFact2": { "description": "यादृच्छिक रोचक तथ्य #2" },
+  "@triviaFact2": {
+    "description": "यादृच्छिक रोचक तथ्य #2"
+  },
   "triviaFact3": "आपकी नाक 50,000 विभिन्न गंधों को याद रख सकती है।",
-  "@triviaFact3": { "description": "यादृच्छिक रोचक तथ्य #3" },
+  "@triviaFact3": {
+    "description": "यादृच्छिक रोचक तथ्य #3"
+  },
   "triviaFact4": "हड्डियाँ समान वजन के स्टील से लगभग पाँच गुना मजबूत होती हैं।",
-  "@triviaFact4": { "description": "यादृच्छिक रोचक तथ्य #4" },
+  "@triviaFact4": {
+    "description": "यादृच्छिक रोचक तथ्य #4"
+  },
   "triviaFact5": "एक औसत वयस्क की त्वचा लगभग 2 वर्ग मीटर को कवर करती है।",
-  "@triviaFact5": { "description": "यादृच्छिक रोचक तथ्य #5" },
+  "@triviaFact5": {
+    "description": "यादृच्छिक रोचक तथ्य #5"
+  },
   "triviaFact6": "आपका पेट खुद को पचाने से बचने के लिए हर कुछ दिनों में अपनी परत बदलता है।",
-  "@triviaFact6": { "description": "यादृच्छिक रोचक तथ्य #6" },
+  "@triviaFact6": {
+    "description": "यादृच्छिक रोचक तथ्य #6"
+  },
   "triviaFact7": "सबसे मजबूत मांसपेशी (वजन के हिसाब से) मैसेटर है—जबड़े की मांसपेशी।",
-  "@triviaFact7": { "description": "यादृच्छिक रोचक तथ्य #7" },
+  "@triviaFact7": {
+    "description": "यादृच्छिक रोचक तथ्य #7"
+  },
   "triviaFact8": "लोग रात की तुलना में सुबह में लगभग 1 सेमी लम्बे होते हैं।",
-  "@triviaFact8": { "description": "यादृच्छिक रोचक तथ्य #8" },
+  "@triviaFact8": {
+    "description": "यादृच्छिक रोचक तथ्य #8"
+  },
   "triviaFact9": "पसीना खुद गंधहीन होता है; त्वचा पर बैक्टीरिया शरीर की गंध पैदा करते हैं।",
-  "@triviaFact9": { "description": "यादृच्छिक रोचक तथ्य #9" },
+  "@triviaFact9": {
+    "description": "यादृच्छिक रोचक तथ्य #9"
+  },
   "triviaFact10": "मनुष्य अपने डीएनए का 50% केले के साथ साझा करते हैं।",
-  "@triviaFact10": { "description": "यादृच्छिक रोचक तथ्य #10" },
+  "@triviaFact10": {
+    "description": "यादृच्छिक रोचक तथ्य #10"
+  },
   "departmentsTitle": "अस्पताल के विभाग",
-  "@departmentsTitle": { "description": "विभाग स्क्रीन का ऐप-बार शीर्षक" },
+  "@departmentsTitle": {
+    "description": "विभाग स्क्रीन का ऐप-बार शीर्षक"
+  },
   "departmentsLoadFailed": "विभागों को लोड करने में असमर्थ। पुनः प्रयास करने के लिए नीचे खींचें।",
-  "@departmentsLoadFailed": { "description": "जब लाने में विफल रहता है तो स्नैकबार" },
+  "@departmentsLoadFailed": {
+    "description": "जब लाने में विफल रहता है तो स्नैकबार"
+  },
   "departmentsNoneFound": "कोई विभाग नहीं मिला।",
-  "@departmentsNoneFound": { "description": "जब API खाली सूची लौटाता है तो दिखाया जाता है" },
+  "@departmentsNoneFound": {
+    "description": "जब API खाली सूची लौटाता है तो दिखाया जाता है"
+  },
   "departmentsUnknown": "अज्ञात विभाग",
-  "@departmentsUnknown": { "description": "जब विभाग फ़ील्ड गुम हो तो फॉलबैक नाम" },
+  "@departmentsUnknown": {
+    "description": "जब विभाग फ़ील्ड गुम हो तो फॉलबैक नाम"
+  },
   "departmentsDoctor": "डॉक्टर",
-  "@departmentsDoctor": { "description": "फॉलबैक डॉक्टर का नाम" },
+  "@departmentsDoctor": {
+    "description": "फॉलबैक डॉक्टर का नाम"
+  },
   "departmentsBook": "बुक करें",
-  "@departmentsBook": { "description": "एक डॉक्टर के साथ अपॉइंटमेंट बुक करने के लिए बटन टेक्स्ट" },
+  "@departmentsBook": {
+    "description": "एक डॉक्टर के साथ अपॉइंटमेंट बुक करने के लिए बटन टेक्स्ट"
+  },
   "guestUser": "अतिथि",
-  "@guestUser": { "description": "अतिथि उपयोगकर्ताओं के लिए प्रदर्शन नाम" },
+  "@guestUser": {
+    "description": "अतिथि उपयोगकर्ताओं के लिए प्रदर्शन नाम"
+  },
   "aboutUsContent": "2003 में हमारी स्थापना के बाद से, वेंकटेश्वर अस्पताल चेन्नई के हृदय में आशा और उपचार का प्रतीक रहा है। दूरदर्शी हृदय रोग विशेषज्ञ डॉ. थिलाई वल्लाल द्वारा स्थापित, हम एक विशेष हृदय देखभाल केंद्र से चेन्नई के सबसे भरोसेमंद मल्टीस्पेशलिटी स्वास्थ्य संस्थानों में से एक बन गए हैं, जिसने हमारी दयालु देखभाल की प्रतिबद्धता के साथ दस लाख से अधिक जिंदगियों को छुआ है।\n\n## हमारा मिशन: रोकथाम ही हमारा जुनून है\nवेंकटेश्वर अस्पताल में, हम मानते हैं कि सबसे अच्छा उपचार रोकथाम है। हमारा प्राथमिक मिशन उपचार से परे है—हम व्यापक स्क्रीनिंग, शिक्षा और व्यक्तिगत कल्याण कार्यक्रमों के माध्यम से जीवनशैली से जुड़ी बीमारियों की शुरुआत को रोकने के लिए समर्पित हैं। इस सक्रिय दृष्टिकोण ने हजारों रोगियों को दिल के दौरे, स्ट्रोक और अन्य रोकी जा सकने वाली स्थितियों से बचने में मदद की है।\n\n## विश्वस्तरीय सुविधाएं, अपनेपन वाली देखभाल\nनंदनम, चैमियर्स रोड पर हमारी 150 बिस्तरों वाली सुविधा अत्याधुनिक तकनीक को व्यक्तिगत देखभाल की गर्मजोशी के साथ जोड़ती है। कई विशिष्टताओं में 100 से अधिक प्रतिष्ठित डॉक्टरों और अत्याधुनिक बुनियादी ढांचे के साथ, हम प्रदान करते हैं:\n\n- **उन्नत हृदय देखभाल**: 100,000 से अधिक सफल हृदय प्रक्रियाएं पूरी हुईं\n- **24/7 आपातकालीन सेवाएं**: चौबीसों घंटे ट्रॉमा और क्रिटिकल केयर\n- **व्यापक विशेषज्ञताएं**: कार्डियोलॉजी से कॉस्मेटोलॉजी तक, न्यूरोलॉजी से नेफ्रोलॉजी तक\n- **आधुनिक आईसीयू**: 1:1 नर्स-रोगी अनुपात और उन्नत निगरानी प्रणालियों के साथ 25 बिस्तरों वाला बंद आईसीयू\n- **अत्याधुनिक निदान**: एमआरआई, सीटी स्कैन, उन्नत विकृति विज्ञान प्रयोगशाला और इमेजिंग सुविधाएं\n\n## चिकित्सा उत्कृष्टता में अग्रणी\n### नवीनतम प्रक्रियाएं और प्रौद्योगिकियां\n\n**न्यूनतम इनवेसिव कार्डियक हस्तक्षेप**\n- ड्रग-एल्यूटिंग स्टेंट के साथ उन्नत एंजियोप्लास्टी तकनीक\n- ट्रांसकैथेटर एओर्टिक वाल्व रिप्लेसमेंट (TAVR)\n- लीडलेस पेसमेकर इम्प्लांटेशन\n- जटिल अतालता पृथक्करण के लिए 3डी मैपिंग\n- इंट्रावास्कुलर अल्ट्रासाउंड (IVUS) निर्देशित प्रक्रियाएं\n\n**रोबोटिक और लेप्रोस्कोपिक सर्जरी**\n- सटीक ट्यूमर हटाने के लिए रोबोट-सहायता प्राप्त सर्जरी\n- सिंगल-इंसीजन लेप्रोस्कोपिक प्रक्रियाएं\n- तेजी से रिकवरी के साथ एंडोस्कोपिक स्पाइन सर्जरी\n- न्यूनतम निशान के लिए लेजर-सहायता प्राप्त सर्जरी\n\n**उन्नत कैंसर देखभाल**\n- लक्षित चिकित्सा और इम्यूनोथेरेपी प्रोटोकॉल\n- छवि-निर्देशित विकिरण चिकित्सा (IGRT)\n- ट्यूमर के उपचार के लिए साइबरनाइफ रेडियोसर्जरी\n- व्यक्तिगत कैंसर जीनोमिक्स परीक्षण\n- दर्द रहित कीमोथेरेपी वितरण प्रणाली\n\n**अत्याधुनिक निदान**\n- अल्ट्रा-हाई रेजोल्यूशन इमेजिंग के लिए 3 टेस्ला एमआरआई\n- कार्डियक और पूरे शरीर के स्कैन के लिए 256-स्लाइस सीटी स्कैनर\n- प्रारंभिक कैंसर का पता लगाने के लिए पीईटी-सीटी\n- उन्नत 4डी अल्ट्रासाउंड तकनीक\n- एआई-संचालित नैदानिक व्याख्या प्रणाली\n\n**अभिनव उपचार दृष्टिकोण**\n- कार्डियक पुनर्जनन के लिए स्टेम सेल थेरेपी\n- प्लेटलेट-रिच प्लाज्मा (पीआरपी) थेरेपी\n- गैर-सर्जिकल बॉडी कॉन्टूरिंग और एस्थेटिक प्रक्रियाएं\n- हाइपरबेरिक ऑक्सीजन थेरेपी के साथ उन्नत घाव भरना\n- सिद्ध और आधुनिक चिकित्सा को मिलाकर एकीकृत समग्र उपचार\n\n## मान्यता और उत्कृष्टता\n- **रेडियो सिटी आइकन अवार्ड 2022** हृदय देखभाल में उत्कृष्टता के लिए\n- **NABH मान्यता** रोगी देखभाल और सुरक्षा के उच्चतम मानकों को सुनिश्चित करना\n- **4.7/5 रोगी संतुष्टि रेटिंग** हजारों समीक्षाओं के आधार पर\n- कई विशिष्टताओं में **उत्कृष्टता केंद्र** का पदनाम\n\n## स्वास्थ्य सेवा शिक्षा में नवाचार\nरोगी देखभाल से परे, हम अपने संबद्ध स्वास्थ्य विज्ञान कार्यक्रमों के माध्यम से स्वास्थ्य पेशेवरों की अगली पीढ़ी का पोषण करते हैं। तमिलनाडु डॉ. एम.जी.आर. मेडिकल यूनिवर्सिटी से संबद्ध, हम कार्डियक टेक्नोलॉजी, क्रिटिकल केयर और हेल्थकेयर मैनेजमेंट में विशेष पाठ्यक्रम प्रदान करते हैं।\n\n## हमारे मूल्य, आपका विश्वास\n**दया** - हर मरीज परिवार है\n**उत्कृष्टता** - उच्चतम चिकित्सा मानकों की खोज\n**नवाचार** - उन्नत उपचारों और प्रौद्योगिकियों को अपनाना\n**अखंडता** - पारदर्शी, नैतिक स्वास्थ्य सेवा वितरण\n\n## प्रेरणा देने वाला नेतृत्व\nकार्डियोलॉजिकल सोसाइटी ऑफ इंडिया, यूरोपियन सोसाइटी ऑफ कार्डियोलॉजी और इंडियन मेडिकल एसोसिएशन के एक सक्रिय सदस्य डॉ. थिलाई वल्लाल के नेतृत्व में, हमारा अस्पताल आधुनिक चिकित्सा को समग्र कल्याण के साथ जोड़कर एकीकृत स्वास्थ्य सेवा दृष्टिकोणों में अग्रणी बना हुआ है।\n\n## आपका स्वास्थ्य, हमारी प्रतिबद्धता\nनियमित जांच से लेकर जटिल सर्जरी तक, निवारक देखभाल से लेकर आपातकालीन हस्तक्षेप तक, वेंकटेश्वर अस्पताल 24/7 आपकी सेवा के लिए तैयार है। कैशलेस बीमा सुविधाओं, सस्ती उपचार विकल्पों और रोगी-प्रथम दृष्टिकोण के साथ, हम यह सुनिश्चित करते हैं कि गुणवत्तापूर्ण स्वास्थ्य सेवा सभी के लिए सुलभ बनी रहे।\n\n**हमसे मिलें:**\n36-ए, चैमियर्स रोड, नंदनम\nचेन्नई - 600035\n(देवर प्रतिमा के पास)\n\n*जहां उपचार दिल से मिलता है, और तकनीक करुणा से मिलती है—वेंकटेश्वर अस्पताल में आपका स्वागत है, आजीवन कल्याण में आपका साथी।*",
   "@aboutUsContent": {
     "description": "हमारे बारे में स्क्रीन के लिए पूर्ण मार्कडाउन सामग्री"
   },
   "settingsTitle": "सेटिंग्स",
-  "@settingsTitle": { "description": "ऐप-बार शीर्षक" },
+  "@settingsTitle": {
+    "description": "ऐप-बार शीर्षक"
+  },
   "settingsEditProfile": "प्रोफ़ाइल संपादित करें",
-  "@settingsEditProfile": { "description": "प्रोफ़ाइल संपादित करने के लिए सूची-टाइल लेबल" },
+  "@settingsEditProfile": {
+    "description": "प्रोफ़ाइल संपादित करने के लिए सूची-टाइल लेबल"
+  },
   "settingsLanguage": "भाषा",
-  "@settingsLanguage": { "description": "भाषा के लिए अनुभाग शीर्षक" },
+  "@settingsLanguage": {
+    "description": "भाषा के लिए अनुभाग शीर्षक"
+  },
   "settingsAccessibility": "सरल उपयोग",
-  "@settingsAccessibility": { "description": "फ़ॉन्ट आकार स्लाइडर के लिए अनुभाग शीर्षक" },
+  "@settingsAccessibility": {
+    "description": "फ़ॉन्ट आकार स्लाइडर के लिए अनुभाग शीर्षक"
+  },
   "settingsFontSize": "फ़ॉन्ट आकार",
-  "@settingsFontSize": { "description": "फ़ॉन्ट आकार विकल्प के लिए लेबल" },
+  "@settingsFontSize": {
+    "description": "फ़ॉन्ट आकार विकल्प के लिए लेबल"
+  },
   "settingsFontSizeChanged": "फ़ॉन्ट आकार सेट किया गया",
-  "@settingsFontSizeChanged": { "description": "फ़ॉन्ट आकार बदलने के बाद स्नैकबार उपसर्ग" },
+  "@settingsFontSizeChanged": {
+    "description": "फ़ॉन्ट आकार बदलने के बाद स्नैकबार उपसर्ग"
+  },
   "settingsTheme": "डार्क थीम",
-  "@settingsTheme": { "description": "थीम टॉगल के लिए लेबल" },
+  "@settingsTheme": {
+    "description": "थीम टॉगल के लिए लेबल"
+  },
   "settingsDarkTheme": "डार्क मोड सक्षम",
-  "@settingsDarkTheme": { "description": "जब डार्क मोड चालू हो तो उपशीर्षक" },
+  "@settingsDarkTheme": {
+    "description": "जब डार्क मोड चालू हो तो उपशीर्षक"
+  },
   "settingsLightTheme": "लाइट मोड सक्षम",
-  "@settingsLightTheme": { "description": "जब डार्क मोड बंद हो तो उपशीर्षक" },
+  "@settingsLightTheme": {
+    "description": "जब डार्क मोड बंद हो तो उपशीर्षक"
+  },
   "settingsSecurity": "सुरक्षा",
-  "@settingsSecurity": { "description": "बायोमेट्रिक लॉगिन के लिए अनुभाग शीर्षक" },
+  "@settingsSecurity": {
+    "description": "बायोमेट्रिक लॉगिन के लिए अनुभाग शीर्षक"
+  },
   "settingsBiometricLogin": "बायोमेट्रिक लॉगिन का उपयोग करें",
-  "@settingsBiometricLogin": { "description": "बायोमेट्रिक टॉगल के लिए लेबल" },
+  "@settingsBiometricLogin": {
+    "description": "बायोमेट्रिक टॉगल के लिए लेबल"
+  },
   "settingsBiometricNotSupported": "इस डिवाइस पर बायोमेट्रिक्स समर्थित नहीं है।",
-  "@settingsBiometricNotSupported": { "description": "जब डिवाइस में बायोमेट्रिक्स की कमी होती है तो स्नैकबार" },
+  "@settingsBiometricNotSupported": {
+    "description": "जब डिवाइस में बायोमेट्रिक्स की कमी होती है तो स्नैकबार"
+  },
   "settingsLogout": "लॉग आउट करें",
-  "@settingsLogout": { "description": "लॉगआउट बटन पर लेबल" },
+  "@settingsLogout": {
+    "description": "लॉगआउट बटन पर लेबल"
+  },
   "settingsLogoutConfirmation": "लॉग आउट करें",
-  "@settingsLogoutConfirmation": { "description": "लॉगआउट पुष्टि के लिए पूछने वाला संवाद शीर्षक" },
+  "@settingsLogoutConfirmation": {
+    "description": "लॉगआउट पुष्टि के लिए पूछने वाला संवाद शीर्षक"
+  },
   "settingsAreYouSureLogout": "क्या आप वाकई लॉग आउट करना चाहते हैं?",
-  "@settingsAreYouSureLogout": { "description": "लॉगआउट पुष्टि के लिए संवाद बॉडी" },
+  "@settingsAreYouSureLogout": {
+    "description": "लॉगआउट पुष्टि के लिए संवाद बॉडी"
+  },
   "settingsConfirmLogout": "हाँ, लॉग आउट करें",
-  "@settingsConfirmLogout": { "description": "संवाद पुष्टि बटन" },
+  "@settingsConfirmLogout": {
+    "description": "संवाद पुष्टि बटन"
+  },
   "calendarFullAccess": "मेरा स्वास्थ्य कैलेंडर",
-  "@calendarFullAccess": { "description": "ऐप-बार शीर्षक और अनुमति प्रॉम्प्ट शीर्षक" },
+  "@calendarFullAccess": {
+    "description": "ऐप-बार शीर्षक और अनुमति प्रॉम्प्ट शीर्षक"
+  },
   "calendarPermissionDenied": "कैलेंडर अनुमति अस्वीकृत।",
-  "@calendarPermissionDenied": { "description": "जब उपयोगकर्ता कैलेंडर अनुमति से इनकार करता है तो स्नैकबार टेक्स्ट" },
+  "@calendarPermissionDenied": {
+    "description": "जब उपयोगकर्ता कैलेंडर अनुमति से इनकार करता है तो स्नैकबार टेक्स्ट"
+  },
   "calendarEnablePermissions": "अपने ईवेंट देखने के लिए सेटिंग्स में कैलेंडर अनुमति सक्षम करें।",
-  "@calendarEnablePermissions": { "description": "जब अनुमति नहीं दी जाती है तो दिखाया गया संदेश" },
+  "@calendarEnablePermissions": {
+    "description": "जब अनुमति नहीं दी जाती है तो दिखाया गया संदेश"
+  },
   "openSettings": "सेटिंग्स खोलें",
-  "@openSettings": { "description": "सिस्टम सेटिंग्स खोलने के लिए बटन लेबल" },
-"settingsPermissionsTitle": "अनुमतियाँ",
-"@settingsPermissionsTitle": { "description": "कैलेंडर, कैमरा आदि जैसे ऐप अनुमतियों के लिए अनुभाग शीर्षक" },
-"settingsPermissionCalendar": "कैलेंडर तक पहुंच",
-"@settingsPermissionCalendar": { "description": "कैलेंडर अनुमति के लिए लेबल" },
-"settingsPermissionCalendarDesc": "अपॉइंटमेंट और जांच दिखाने के लिए उपयोग किया जाता है",
-"@settingsPermissionCalendarDesc": { "description": "कैलेंडर अनुमति उपयोग का विवरण" },
-"settingsPermissionLocation": "स्थान तक पहुंच",
-"@settingsPermissionLocation": { "description": "स्थान अनुमति के लिए लेबल" },
-"settingsPermissionLocationDesc": "SOS और आस-पास के अस्पताल खोजने के लिए उपयोग किया जाता है",
-"@settingsPermissionLocationDesc": { "description": "स्थान अनुमति उपयोग का विवरण" },
-"settingsPermissionCamera": "कैमरा तक पहुंच",
-"@settingsPermissionCamera": { "description": "कैमरा अनुमति के लिए लेबल" },
-"settingsPermissionCameraDesc": "नुस्खे स्कैन करने और छवियाँ अपलोड करने के लिए उपयोग किया जाता है",
-"@settingsPermissionCameraDesc": { "description": "कैमरा अनुमति उपयोग का विवरण"},
-"settingsPermissionManage": "प्रबंधित करें",
-"@settingsPermissionManage": { "description": "बटन के लिए लेबल जो अनुमति नियंत्रण के लिए सिस्टम सेटिंग्स खोलता है" },
-"settingsPermissionGranted": "अनुमति दी गई",
-"@settingsPermissionGranted": { "description": "अनुमति दी गई है यह दिखाने वाला लेबल" },
-"settingsPermissionDenied": "अस्वीकृत",
-"@settingsPermissionDenied": { "description": "अनुमति अस्वीकार कर दी गई है यह दिखाने वाला लेबल" },
+  "@openSettings": {
+    "description": "सिस्टम सेटिंग्स खोलने के लिए बटन लेबल"
+  },
+  "settingsPermissionsTitle": "अनुमतियाँ",
+  "@settingsPermissionsTitle": {
+    "description": "कैलेंडर, कैमरा आदि जैसे ऐप अनुमतियों के लिए अनुभाग शीर्षक"
+  },
+  "settingsPermissionCalendar": "कैलेंडर तक पहुंच",
+  "@settingsPermissionCalendar": {
+    "description": "कैलेंडर अनुमति के लिए लेबल"
+  },
+  "settingsPermissionCalendarDesc": "अपॉइंटमेंट और जांच दिखाने के लिए उपयोग किया जाता है",
+  "@settingsPermissionCalendarDesc": {
+    "description": "कैलेंडर अनुमति उपयोग का विवरण"
+  },
+  "settingsPermissionLocation": "स्थान तक पहुंच",
+  "@settingsPermissionLocation": {
+    "description": "स्थान अनुमति के लिए लेबल"
+  },
+  "settingsPermissionLocationDesc": "SOS और आस-पास के अस्पताल खोजने के लिए उपयोग किया जाता है",
+  "@settingsPermissionLocationDesc": {
+    "description": "स्थान अनुमति उपयोग का विवरण"
+  },
+  "settingsPermissionCamera": "कैमरा तक पहुंच",
+  "@settingsPermissionCamera": {
+    "description": "कैमरा अनुमति के लिए लेबल"
+  },
+  "settingsPermissionCameraDesc": "नुस्खे स्कैन करने और छवियाँ अपलोड करने के लिए उपयोग किया जाता है",
+  "@settingsPermissionCameraDesc": {
+    "description": "कैमरा अनुमति उपयोग का विवरण"
+  },
+  "settingsPermissionManage": "प्रबंधित करें",
+  "@settingsPermissionManage": {
+    "description": "बटन के लिए लेबल जो अनुमति नियंत्रण के लिए सिस्टम सेटिंग्स खोलता है"
+  },
+  "settingsPermissionGranted": "अनुमति दी गई",
+  "@settingsPermissionGranted": {
+    "description": "अनुमति दी गई है यह दिखाने वाला लेबल"
+  },
+  "settingsPermissionDenied": "अस्वीकृत",
+  "@settingsPermissionDenied": {
+    "description": "अनुमति अस्वीकार कर दी गई है यह दिखाने वाला लेबल"
+  },
   "settingsDynamicColors": "डायनामिक थीम रंग",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"
@@ -507,50 +883,93 @@
     "description": "Generic label for a reset button"
   },
   "refreshCalendar": "ईवेंट ताज़ा करें",
-  "@refreshCalendar": { "description": "ताज़ा करें आइकन पर टूलटिप" },
+  "@refreshCalendar": {
+    "description": "ताज़ा करें आइकन पर टूलटिप"
+  },
   "calendarLoadFailed": "कैलेंडर ईवेंट लोड करने में असमर्थ।",
-  "@calendarLoadFailed": { "description": "जब API लाने में विफल रहता है तो स्नैकबार" },
+  "@calendarLoadFailed": {
+    "description": "जब API लाने में विफल रहता है तो स्नैकबार"
+  },
   "selectDayPrompt": "ईवेंट देखने के लिए एक दिन चुनें",
-  "@selectDayPrompt": { "description": "जब कोई तारीख नहीं चुनी जाती है तो दिखाया जाता है" },
+  "@selectDayPrompt": {
+    "description": "जब कोई तारीख नहीं चुनी जाती है तो दिखाया जाता है"
+  },
   "noEventsForDay": "इस दिन के लिए कोई ईवेंट नहीं है",
-  "@noEventsForDay": { "description": "जब चुने हुए दिन में कोई ईवेंट नहीं होता है तो दिखाया जाता है" },
+  "@noEventsForDay": {
+    "description": "जब चुने हुए दिन में कोई ईवेंट नहीं होता है तो दिखाया जाता है"
+  },
   "unknownEvent": "अज्ञात ईवेंट",
-  "@unknownEvent": { "description": "जब ईवेंट प्रकार/शीर्षक गुम हो तो फॉलबैक शीर्षक" },
+  "@unknownEvent": {
+    "description": "जब ईवेंट प्रकार/शीर्षक गुम हो तो फॉलबैक शीर्षक"
+  },
   "eventTypesAppointment": "अपॉइंटमेंट",
-  "@eventTypesAppointment": { "description": "अपॉइंटमेंट ईवेंट के लिए पठनीय नाम" },
+  "@eventTypesAppointment": {
+    "description": "अपॉइंटमेंट ईवेंट के लिए पठनीय नाम"
+  },
   "eventTypesInvestigation": "जांच",
-  "@eventTypesInvestigation": { "description": "जांच ईवेंट के लिए पठनीय नाम" },
+  "@eventTypesInvestigation": {
+    "description": "जांच ईवेंट के लिए पठनीय नाम"
+  },
   "eventTypesPharmacyOrder": "फार्मेसी ऑर्डर",
-  "@eventTypesPharmacyOrder": { "description": "फार्मेसी ईवेंट के लिए पठनीय नाम" },
+  "@eventTypesPharmacyOrder": {
+    "description": "फार्मेसी ईवेंट के लिए पठनीय नाम"
+  },
   "feedbackPhoneNumber": "फ़ोन नंबर",
-  "@feedbackPhoneNumber": { "description": "जब अतिथि उपयोगकर्ता संदेह पूछते हैं तो फ़ोन टेक्स्ट फ़ील्ड के लिए लेबल" },
+  "@feedbackPhoneNumber": {
+    "description": "जब अतिथि उपयोगकर्ता संदेह पूछते हैं तो फ़ोन टेक्स्ट फ़ील्ड के लिए लेबल"
+  },
   "feedbackPlaceholder": "अपना प्रश्न यहाँ टाइप करें",
-  "@feedbackPlaceholder": { "description": "बहु-पंक्ति प्रश्न फ़ील्ड पर लेबल" },
+  "@feedbackPlaceholder": {
+    "description": "बहु-पंक्ति प्रश्न फ़ील्ड पर लेबल"
+  },
   "feedbackHint": "उदाहरण: क्या मुझे सर्जरी के बाद अपनी दवा जारी रखनी चाहिए?",
-  "@feedbackHint": { "description": "प्रश्न इनपुट के अंदर संकेत टेक्स्ट" },
+  "@feedbackHint": {
+    "description": "प्रश्न इनपुट के अंदर संकेत टेक्स्ट"
+  },
   "questionCannotBeEmpty": "प्रश्न खाली नहीं हो सकता।",
-  "@questionCannotBeEmpty": { "description": "जब प्रश्न फ़ील्ड खाली हो तो सत्यापन संदेश" },
+  "@questionCannotBeEmpty": {
+    "description": "जब प्रश्न फ़ील्ड खाली हो तो सत्यापन संदेश"
+  },
   "submit": "सबमिट करें",
-  "@submit": { "description": "सामान्य सबमिट बटन लेबल" },
+  "@submit": {
+    "description": "सामान्य सबमिट बटन लेबल"
+  },
   "feedbackSuccess": "आपका प्रश्न भेज दिया गया है! हमारी टीम जल्द ही जवाब देगी।",
-  "@feedbackSuccess": { "description": "सफल सबमिशन के बाद स्नैकबार" },
+  "@feedbackSuccess": {
+    "description": "सफल सबमिशन के बाद स्नैकबार"
+  },
   "feedbackFailed": "आपका प्रश्न नहीं भेज सका। कृपया पुनः प्रयास करें।",
-  "@feedbackFailed": { "description": "जब API कॉल विफल हो जाती है तो फॉलबैक त्रुटि संदेश" },
+  "@feedbackFailed": {
+    "description": "जब API कॉल विफल हो जाती है तो फॉलबैक त्रुटि संदेश"
+  },
   "notifications": "सूचनाएं",
-  "@notifications": { "description": "ऐप-बार शीर्षक" },
+  "@notifications": {
+    "description": "ऐप-बार शीर्षक"
+  },
   "failedToFetchNotifications": "सूचनाएं प्राप्त करने में असमर्थ। कृपया ताज़ा करने के लिए खींचें।",
-  "@failedToFetchNotifications": { "description": "जब बैकएंड त्रुटि स्थिति लौटाता है तो स्नैकबार" },
+  "@failedToFetchNotifications": {
+    "description": "जब बैकएंड त्रुटि स्थिति लौटाता है तो स्नैकबार"
+  },
   "errorFetchingNotifications": "सूचनाएं प्राप्त करते समय नेटवर्क त्रुटि।",
-  "@errorFetchingNotifications": { "description": "जब अनुरोध अपवाद फेंकता है तो स्नैकबार" },
+  "@errorFetchingNotifications": {
+    "description": "जब अनुरोध अपवाद फेंकता है तो स्नैकबार"
+  },
   "noNotifications": "आपके पास कोई सूचना नहीं है।",
-  "@noNotifications": { "description": "जब सूचना सूची खाली होती है तो दिखाया जाता है" },
+  "@noNotifications": {
+    "description": "जब सूचना सूची खाली होती है तो दिखाया जाता है"
+  },
   "notificationMarkedAsRead": "सूचना पढ़ी गई के रूप में चिह्नित",
-  "@notificationMarkedAsRead": { "description": "जब उपयोगकर्ता पढ़ी गई के रूप में चिह्नित करने के लिए स्वाइप करता है तो स्नैकबार" },
+  "@notificationMarkedAsRead": {
+    "description": "जब उपयोगकर्ता पढ़ी गई के रूप में चिह्नित करने के लिए स्वाइप करता है तो स्नैकबार"
+  },
   "notification": "सूचना",
-  "@notification": { "description": "जब सूचना शीर्षक गुम हो तो फॉलबैक शीर्षक" },
-"downloadPermissionDenied": "फ़ाइलें डाउनलोड करने के लिए संग्रहण अनुमति आवश्यक है।",
-"@downloadPermissionDenied": { "description": "जब उपयोगकर्ता संग्रहण अनुमति से इनकार करता है तो दिखाया जाता है" },
-
+  "@notification": {
+    "description": "जब सूचना शीर्षक गुम हो तो फॉलबैक शीर्षक"
+  },
+  "downloadPermissionDenied": "फ़ाइलें डाउनलोड करने के लिए संग्रहण अनुमति आवश्यक है।",
+  "@downloadPermissionDenied": {
+    "description": "जब उपयोगकर्ता संग्रहण अनुमति से इनकार करता है तो दिखाया जाता है"
+  },
   "vitalsTitle": "महत्वपूर्ण संकेत",
   "vitalsLogTab": "रिकॉर्ड करें",
   "vitalsHistoryTab": "इतिहास",
@@ -558,27 +977,22 @@
   "vitalsRecordButton": "रिकॉर्ड करें",
   "vitalsRecordedSuccess": "महत्वपूर्ण संकेत सफलतापूर्वक रिकॉर्ड किए गए",
   "vitalsNoHistory": "अभी तक कोई रिकॉर्ड नहीं",
-
   "familyTitle": "परिवार के सदस्य",
   "familyAddMember": "परिवार का सदस्य जोड़ें",
   "familyNoMembers": "अभी तक कोई परिवार का सदस्य नहीं",
   "familyFullName": "पूरा नाम",
   "familyPhone": "फोन नंबर",
   "familyRelationship": "रिश्ता",
-
   "refillTitle": "प्रिस्क्रिप्शन रिफिल",
   "refillRequestButton": "रिफिल अनुरोध करें",
   "refillNoActive": "कोई सक्रिय प्रिस्क्रिप्शन नहीं",
-
   "stepsTitle": "कदम चुनौती",
   "stepsStartWalk": "चलना शुरू करें",
   "stepsStopWalk": "चलना बंद करें",
-
   "updateAvailableTitle": "अपडेट उपलब्ध",
   "updateAvailableBody": "VH Health का नया संस्करण उपलब्ध है। कृपया बेहतर अनुभव के लिए अपडेट करें।",
   "updateNow": "अभी अपडेट करें",
   "updateLater": "बाद में",
-
   "yourHealthTabRecords": "रिकॉर्ड",
   "yourHealthTabConsultations": "परामर्श",
   "yourHealthTabConsultationNotes": "परामर्श नोट्स",
@@ -690,13 +1104,17 @@
   "familyRemoveConfirm": "क्या आप वाकई {name} को हटाना चाहते हैं?",
   "@familyRemoveConfirm": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "familyRemoved": "{name} को परिवार के सदस्यों से हटा दिया गया",
   "@familyRemoved": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "familyRemoveFailed": "सदस्य हटाने में विफल",
@@ -709,13 +1127,17 @@
   "refillConfirmBody": "{medication} के लिए रिफिल का अनुरोध करें?",
   "@refillConfirmBody": {
     "placeholders": {
-      "medication": { "type": "String" }
+      "medication": {
+        "type": "String"
+      }
     }
   },
   "refillRequested": "{medication} के लिए रिफिल का अनुरोध किया गया",
   "@refillRequested": {
     "placeholders": {
-      "medication": { "type": "String" }
+      "medication": {
+        "type": "String"
+      }
     }
   },
   "refillRequestFailed": "रिफिल अनुरोध करने में विफल",
@@ -740,7 +1162,6 @@
   "medicationReminderDosage": "खुराक",
   "medicationReminderFrequency": "आवृत्ति",
   "medicationReminderNoReminders": "कोई दवा रिमाइंडर सेट नहीं",
-
   "bookInvestigationTitle": "जाँच बुक करें",
   "bookInvestigationStepChoose": "जाँच चुनें",
   "bookInvestigationStepCollection": "संग्रह वरीयता",
@@ -759,7 +1180,6 @@
   "bookInvestigationBooked": "जाँच बुक हो गई!",
   "bookInvestigationConfirmationNote": "आपको जल्द ही पुष्टिकरण कॉल प्राप्त होगी।\nहम आपको बुकिंग की स्थिति पर अपडेट करते रहेंगे।",
   "bookInvestigationBackButton": "जाँच पर वापस जाएँ",
-
   "stepsSetupProfileTitle": "अपनी प्रोफ़ाइल सेट करें",
   "stepsPickColor": "एक रंग चुनें:",
   "stepsSaveProfile": "प्रोफ़ाइल सहेजें",
@@ -772,7 +1192,6 @@
   "stepsThisMonth": "इस महीने",
   "stepsNoLeaderboardData": "अभी तक कोई लीडरबोर्ड डेटा नहीं",
   "stepsYourRewards": "आपके पुरस्कार",
-
   "familyMemberIdNotFound": "सदस्य ID नहीं मिली",
   "familyRemoveFailedRetry": "सदस्य हटाने में विफल। कृपया पुनः प्रयास करें।",
   "familyAddFailedRetry": "परिवार का सदस्य जोड़ने में विफल। कृपया पुनः प्रयास करें।",
@@ -787,7 +1206,6 @@
   "familyPhoneInvalid": "एक मान्य फ़ोन नंबर दर्ज करें",
   "familyLoadFailed": "परिवार के सदस्य लोड करने में विफल",
   "familyUnknown": "अज्ञात",
-
   "recordsDocumentUrlMissing": "दस्तावेज़ URL उपलब्ध नहीं",
   "recordsDeleteTitle": "रिकॉर्ड हटाएँ?",
   "recordsDeletePrefix": "हटाएँ ",
@@ -799,14 +1217,12 @@
   "recordsHospitalEmptySubtitle": "आपकी विज़िट के बाद अस्पताल द्वारा जारी दस्तावेज़ यहां दिखेंगे।",
   "recordsUploadEmptyHint": "अपने पिछले प्रिस्क्रिप्शन और रिपोर्ट एक ही जगह रखने के लिए अपलोड करें",
   "recordsUploadSheetTitle": "रिकॉर्ड अपलोड करें",
-
   "abdmHeading": "आयुष्मान भारत हेल्थ अकाउंट",
   "abdmDescription": "ABHA (आयुष्मान भारत हेल्थ अकाउंट) एक विशिष्ट हेल्थ ID है जो आपको अपने स्वास्थ्य रिकॉर्ड को डिजिटल रूप से संग्रहीत और साझा करने देती है।",
   "abdmDataSecurityNote": "आपका डेटा सुरक्षित रहता है और केवल आपकी सहमति से ही साझा किया जाता है।",
   "abdmYourNumber": "आपका ABHA नंबर",
   "abdmVerifyHeading": "अपना ABHA सत्यापित करें",
   "abdmEnterOtp": "अपने मोबाइल नंबर पर भेजा गया OTP दर्ज करें",
-
   "medicationRemindersEmpty": "अभी तक कोई दवा रिमाइंडर नहीं",
   "medicationRemindersEmptyHint": "जोड़ने के लिए + टैप करें",
   "medicationReminderRequiredFields": "दवा का नाम और खुराक आवश्यक हैं",
@@ -815,7 +1231,6 @@
   "medicationReminderTimes": "रिमाइंडर समय",
   "medicationReminderAddTime": "समय जोड़ें",
   "medicationReminderSave": "रिमाइंडर सहेजें",
-
   "pharmacyTakePhoto": "फोटो लें",
   "pharmacyChooseFromGallery": "गैलरी से चुनें",
   "pharmacyOrderPlacedTitle": "ऑर्डर हो गया!",
@@ -825,15 +1240,12 @@
   "pharmacyCameraOrGallery": "कैमरा या गैलरी",
   "pharmacyOrDescribe": "या अपना ऑर्डर लिखें",
   "pharmacyDeliveryPreference": "डिलीवरी वरीयता",
-
   "refillPrescriptionIdMissing": "प्रिस्क्रिप्शन ID नहीं मिली",
   "refillRequestRetry": "रिफिल अनुरोध करने में विफल। कृपया पुनः प्रयास करें।",
   "refillTapPrefix": "टैप करें ",
   "refillRequestedHeading": "रिफिल अनुरोध किया गया",
-
   "vitalsTrendsHeading": "पिछले माप के मुक़ाबले रुझान",
   "vitalsRecordFailedRetry": "महत्वपूर्ण संकेत रिकॉर्ड करने में विफल। कृपया पुनः प्रयास करें।",
-
   "yourHealthPrescriptionsEmpty": "अभी तक कोई प्रिस्क्रिप्शन नहीं",
   "yourHealthPrescriptionsEmptyHint": "आपके डॉक्टर के प्रिस्क्रिप्शन यहाँ दिखाई देंगे",
   "yourHealthClinicalNotes": "क्लिनिकल टिप्पणियाँ",
@@ -843,32 +1255,57 @@
   "yourHealthSafetyNotes": "सुरक्षा टिप्पणियाँ",
   "yourHealthClinicianOverride": "फ़ाइल में चिकित्सक का ओवरराइड:",
   "yourHealthTabExplanations": "व्याख्याएँ",
-  "@yourHealthTabExplanations": { "description": "Machine translated; review required. Tab label for accepted patient explanations in Your Health" },
+  "@yourHealthTabExplanations": {
+    "description": "Machine translated; review required. Tab label for accepted patient explanations in Your Health"
+  },
   "yourHealthExplanationsDetailTitle": "व्याख्या",
-  "@yourHealthExplanationsDetailTitle": { "description": "Machine translated; review required. App bar title for a patient explanation detail" },
+  "@yourHealthExplanationsDetailTitle": {
+    "description": "Machine translated; review required. App bar title for a patient explanation detail"
+  },
   "yourHealthExplanationsReviewedLabel": "समीक्षित",
-  "@yourHealthExplanationsReviewedLabel": { "description": "Machine translated; review required. Label before the reviewed date on a patient explanation" },
+  "@yourHealthExplanationsReviewedLabel": {
+    "description": "Machine translated; review required. Label before the reviewed date on a patient explanation"
+  },
   "yourHealthExplanationsSummary": "सारांश",
-  "@yourHealthExplanationsSummary": { "description": "Machine translated; review required. Section heading for explanation summary" },
+  "@yourHealthExplanationsSummary": {
+    "description": "Machine translated; review required. Section heading for explanation summary"
+  },
   "yourHealthExplanationsKeyPoints": "मुख्य बातें",
-  "@yourHealthExplanationsKeyPoints": { "description": "Machine translated; review required. Section heading for explanation key points" },
+  "@yourHealthExplanationsKeyPoints": {
+    "description": "Machine translated; review required. Section heading for explanation key points"
+  },
   "yourHealthExplanationsNextSteps": "अगले कदम",
-  "@yourHealthExplanationsNextSteps": { "description": "Machine translated; review required. Section heading for explanation next steps" },
+  "@yourHealthExplanationsNextSteps": {
+    "description": "Machine translated; review required. Section heading for explanation next steps"
+  },
   "yourHealthExplanationsWhenToSeekHelp": "कब मदद लें",
-  "@yourHealthExplanationsWhenToSeekHelp": { "description": "Machine translated; review required. Section heading for explanation urgent-care guidance" },
+  "@yourHealthExplanationsWhenToSeekHelp": {
+    "description": "Machine translated; review required. Section heading for explanation urgent-care guidance"
+  },
   "yourHealthExplanationsSafetyTitle": "समीक्षा संकेत",
-  "@yourHealthExplanationsSafetyTitle": { "description": "Machine translated; review required. Heading for safety or review flag banner on explanation detail" },
+  "@yourHealthExplanationsSafetyTitle": {
+    "description": "Machine translated; review required. Heading for safety or review flag banner on explanation detail"
+  },
   "yourHealthExplanationsSafetyBody": "आपकी देखभाल टीम ने इस व्याख्या पर अतिरिक्त ध्यान देने के लिए चिह्नित किया है। नीचे दिए गए मार्गदर्शन का पालन करें और लक्षण बिगड़ने पर अस्पताल से संपर्क करें।",
-  "@yourHealthExplanationsSafetyBody": { "description": "Machine translated; review required. Body text for safety or review flag banner on explanation detail" },
+  "@yourHealthExplanationsSafetyBody": {
+    "description": "Machine translated; review required. Body text for safety or review flag banner on explanation detail"
+  },
   "yourHealthExplanationsNoSummary": "कोई विवरण उपलब्ध नहीं है",
-  "@yourHealthExplanationsNoSummary": { "description": "Machine translated; review required. Fallback text when an explanation section is empty" },
+  "@yourHealthExplanationsNoSummary": {
+    "description": "Machine translated; review required. Fallback text when an explanation section is empty"
+  },
   "yourHealthExplanationsLoadFailed": "यह व्याख्या लोड नहीं हो सकी।",
-  "@yourHealthExplanationsLoadFailed": { "description": "Machine translated; review required. Error text when explanation detail loading fails" },
+  "@yourHealthExplanationsLoadFailed": {
+    "description": "Machine translated; review required. Error text when explanation detail loading fails"
+  },
   "yourHealthExplanationsRetry": "पुनः प्रयास करें",
-  "@yourHealthExplanationsRetry": { "description": "Machine translated; review required. Retry button label for explanation detail" },
+  "@yourHealthExplanationsRetry": {
+    "description": "Machine translated; review required. Retry button label for explanation detail"
+  },
   "yourHealthExplanationsEmpty": "अभी तक कोई समीक्षित व्याख्या नहीं",
-  "@yourHealthExplanationsEmpty": { "description": "Machine translated; review required. Empty state for explanations tab if a visible tab refreshes to no data" },
-
+  "@yourHealthExplanationsEmpty": {
+    "description": "Machine translated; review required. Empty state for explanations tab if a visible tab refreshes to no data"
+  },
   "appointmentsCancel": "अपॉइंटमेंट रद्द करें",
   "appointmentsConfirmCancel": "हाँ, रद्द करें",
   "appointmentsSelectTimeSlot": "समय स्लॉट चुनें",
@@ -876,34 +1313,29 @@
   "appointmentsEmpty": "अभी तक कोई अपॉइंटमेंट नहीं",
   "appointmentsBookOneNow": "अभी एक बुक करें",
   "appointmentsViewPrescription": "प्रिस्क्रिप्शन देखें",
-
   "symptomCheckerTitle": "लक्षण जाँच",
   "symptomCheckerDescribePrompt": "बताएँ आप कैसा महसूस कर रहे हैं",
   "symptomCheckerRedFlags": "गंभीर संकेत",
   "symptomCheckerPossibleCauses": "संभावित कारण",
   "symptomCheckerBookAppointment": "अपॉइंटमेंट बुक करें",
   "symptomCheckerDisclaimer": "ट्राइएज परिणाम AI-सहायता प्राप्त है और चिकित्सकीय निदान नहीं है। हमेशा योग्य चिकित्सक से सलाह लें।",
-
   "checkinSaveFailed": "चेक-इन सहेजा नहीं जा सका। कृपया पुनः प्रयास करें।",
   "checkinTitle": "दैनिक चेक-इन",
   "checkinHowFeeling": "आज आप कैसा महसूस कर रहे हैं?",
   "checkinQuickVitals": "त्वरित संकेत (वैकल्पिक)",
   "checkinSaveButton": "चेक-इन सहेजें  ·  +10 अंक",
   "checkinSavedToast": "+10 हेल्थ पॉइंट जोड़े गए। कल मिलते हैं!",
-
   "settingsHealthIdLabel": "हेल्थ ID (ABHA)",
   "settingsHealthIdSubtitle": "आयुष्मान भारत हेल्थ अकाउंट",
   "settingsConnectWearables": "वियरेबल कनेक्ट करें",
   "settingsConnectWearablesSubtitle": "Apple Health / Google Health Connect से कदम, हृदय गति, SpO₂ सिंक करें",
   "settingsHealthPermissionsDenied": "हेल्थ अनुमतियाँ नहीं दी गईं",
   "settingsSyncingHealth": "हेल्थ डेटा सिंक हो रहा है…",
-
   "otpVerifyPhoneHeading": "अपना फ़ोन नंबर सत्यापित करें",
   "otpEnterDigits": "इस नंबर पर भेजा गया 6-अंकीय OTP दर्ज करें",
   "otpVerifyButtonText": "OTP सत्यापित करें",
   "otpResendingOtp": "OTP फिर से भेजा जा रहा है...",
   "otpSentSuccess": "OTP आपके फ़ोन नंबर पर भेज दिया गया है",
-
   "dashboardScheduleNextVisit": "अपनी अगली विज़िट शेड्यूल करें",
   "dashboardStayOnTop": "अपने स्वास्थ्य पर ध्यान दें",
   "dashboardBookNow": "अभी बुक करें",
@@ -917,25 +1349,21 @@
   "dashboardWellnessScore": "वेलनेस स्कोर",
   "dashboardLastVisitTitle": "पिछली विज़िट",
   "dashboardNextVisitTitle": "अगली विज़िट",
-
   "investigationsFileTooLarge": "फ़ाइल बहुत बड़ी है। अधिकतम आकार 10 MB है।",
   "investigationsViewDownloadReport": "रिपोर्ट देखें / डाउनलोड करें",
   "investigationsBookButton": "जाँच बुक करें",
   "investigationsNoFiles": "कोई फ़ाइल उपलब्ध नहीं",
   "myBookingsSlipAttached": "प्रिस्क्रिप्शन स्लिप संलग्न",
   "myBookingsDownloadResult": "परिणाम डाउनलोड करें",
-
   "pharmacyOrderNote": "ऑर्डर नोट",
   "pharmacyDeliveryInfo": "डिलीवरी जानकारी",
   "pharmacyOrdersEmpty": "अभी तक कोई ऑर्डर नहीं",
   "pharmacyOrdersEmptyHint": "ऑर्डर टैब से अपना पहला ऑर्डर करें",
   "pharmacyOrderCancelled": "ऑर्डर रद्द",
-
   "splashDeviceNotSupported": "डिवाइस समर्थित नहीं",
   "splashDeviceNotSupportedBody": "आपकी सुरक्षा के लिए, VH Health इस डिवाइस पर नहीं चल सकता। कारण:",
   "splashAppName": "VH Health",
   "splashTapAnywhere": "जारी रखने के लिए कहीं भी टैप करें",
-
   "gamificationRewardClaimed": "पुरस्कार प्राप्त!",
   "gamificationVoucherCode": "आपका वाउचर कोड:",
   "gamificationVoucherCopied": "वाउचर कोड कॉपी किया गया!",
@@ -946,36 +1374,27 @@
   "gamificationCompleteMilestones": "पुरस्कार पाने के लिए माइलस्टोन पूरे करें!",
   "gamificationNoPointHistory": "अभी तक कोई अंक इतिहास नहीं",
   "gamificationNoMilestones": "अभी तक कोई माइलस्टोन उपलब्ध नहीं",
-
   "stepsShareCardTitle": "VH Health कदम चुनौती",
   "stepsShareCardSubtitle": "वेंकटेश्वर अस्पताल, चेन्नई",
   "stepsShareCardFooter": "VH Health ऐप",
-
   "documentOpening": "दस्तावेज़ खोला जा रहा है...",
   "documentCouldNotOpen": "दस्तावेज़ नहीं खोला जा सका",
-
   "permissionsNotNow": "अभी नहीं",
   "permissionsOpenSettings": "सेटिंग्स खोलें",
-
   "feedbackRateExperience": "अपने अनुभव को रेट करें",
   "feedbackSubmitButton": "फ़ीडबैक सबमिट करें",
   "feedbackHistoryTitle": "मेरा फ़ीडबैक",
-
   "logoutConfirmTitle": "लॉगआउट की पुष्टि करें",
   "logoutConfirmBody": "क्या आप वाकई लॉगआउट करना चाहते हैं?",
-
   "aboutHospitalName": "वेंकटेश्वर अस्पताल",
   "aboutOpenInMaps": "Google Maps में खोलने के लिए टैप करें →",
-
   "departmentsConsultationFee": "परामर्श शुल्क",
   "departmentsNoDoctors": "इस विभाग में कोई डॉक्टर उपलब्ध नहीं",
-
   "circularDialNoFeatures": "कोई सुविधा उपलब्ध नहीं",
   "deliveryYourLocation": "आपका स्थान",
   "authDevLoginSkipOtp": "डेव लॉगिन (OTP छोड़ें)",
   "permissionGateSettingUp": "सेट किया जा रहा है...",
   "yourHealthUploadRecord": "रिकॉर्ड अपलोड करें",
-
   "yourHealthWhatsNextTitle": "आगे क्या",
   "yourHealthWhatsNextSubtitle": "आपकी देखभाल टीम ने आपके लिए जो लक्ष्य और फॉलो-अप चिह्नित किए हैं।",
   "yourHealthWhatsNextGoals": "लक्ष्य",
@@ -986,7 +1405,6 @@
   "yourHealthWhatsNextTarget": "लक्ष्य",
   "yourHealthWhatsNextCurrent": "वर्तमान",
   "yourHealthWhatsNextDue": "देय",
-
   "ancTimelineTitle": "ANC टाइमलाइन",
   "ancLoadFailed": "ANC टाइमलाइन लोड नहीं हो सकी",
   "ancNoActivePregnancyTitle": "कोई सक्रिय गर्भावस्था रिकॉर्ड में नहीं है",
@@ -1098,5 +1516,353 @@
   "recordAccessContinueButton": "जारी रखें",
   "recordAccessProxyFallback": "प्रॉक्सी",
   "recordAccessStatusActive": "सक्रिय",
-  "recordAccessStatusRevoked": "वापस लिया गया"
+  "recordAccessStatusRevoked": "वापस लिया गया",
+  "commonRetryButton": "फिर कोशिश करें",
+  "commonContinueButton": "जारी रखें",
+  "commonBackButton": "वापस",
+  "commonOkButton": "ठीक है",
+  "navigationHome": "होम",
+  "notificationsTitle": "सूचनाएँ",
+  "appointmentsBookTab": "बुक करें",
+  "appointmentsMyAppointmentsTab": "मेरी अपॉइंटमेंट्स",
+  "pharmacyOrderTab": "ऑर्डर",
+  "pharmacyMyOrdersTab": "मेरे ऑर्डर",
+  "pharmacyFileTooLarge": "फ़ाइल बहुत बड़ी है। अधिकतम आकार 10 MB है।",
+  "pharmacyPrescriptionOrDescriptionRequired": "कृपया प्रिस्क्रिप्शन अपलोड करें या अपना ऑर्डर लिखें",
+  "pharmacyOrderPlacedToast": "ऑर्डर हो गया! {orderNumber}",
+  "pharmacyOrderNumber": "ऑर्डर नंबर: {orderNumber}",
+  "pharmacyPlaceOrderFailed": "ऑर्डर नहीं हो सका",
+  "pharmacyPlaceOrderError": "त्रुटि: {error}",
+  "billsTitle": "बिल",
+  "billsLoadFailed": "बिल लोड नहीं हो सके। फिर कोशिश करने के लिए नीचे खींचें।",
+  "billsEmptyTitle": "अभी कोई बिल नहीं",
+  "billsEmptySubtitle": "अस्पताल द्वारा जारी बिल यहाँ दिखेंगे। रीफ्रेश करने के लिए नीचे खींचें।",
+  "billsInvoiceFallback": "इनवॉइस #{id}",
+  "billsTotal": "कुल",
+  "billsPaid": "भुगतान",
+  "billsDue": "बकाया",
+  "tpaClaimsTitle": "बीमा दावे",
+  "tpaClaimsLoadFailed": "बीमा दावे लोड नहीं हो सके। फिर कोशिश करने के लिए नीचे खींचें।",
+  "tpaClaimsEmptyTitle": "अभी कोई बीमा दावा नहीं",
+  "tpaClaimFallback": "दावा",
+  "tpaClaimClaimed": "दावा किया गया",
+  "tpaClaimApproved": "स्वीकृत",
+  "tpaClaimPaidByInsurer": "बीमाकर्ता द्वारा भुगतान",
+  "tpaClaimBreakdownTitle": "दावे का विवरण",
+  "tpaClaimNoData": "कोई डेटा नहीं",
+  "tpaClaimDocumentsLoadFailed": "दावे के दस्तावेज़ लोड नहीं हो सके",
+  "tpaClaimLoadFailed": "दावा लोड नहीं हो सका। फिर कोशिश करने के लिए नीचे खींचें।",
+  "tpaClaimDocumentDownloadFailed": "दस्तावेज़ डाउनलोड नहीं हो सका",
+  "tpaClaimSummary": "सारांश",
+  "tpaClaimHospitalBilled": "अस्पताल बिल",
+  "tpaClaimTpaClaimed": "TPA दावा",
+  "tpaClaimTpaApproved": "TPA स्वीकृत",
+  "tpaClaimTpaDisallowed": "TPA अस्वीकृत",
+  "tpaClaimNonPayableItems": "गैर-देय आइटम",
+  "tpaClaimPolicyCopay": "पॉलिसी सह-भुगतान",
+  "tpaClaimYouPaid": "आपने भुगतान किया",
+  "tpaClaimDocuments": "दावे के दस्तावेज़",
+  "tpaClaimDocumentFallback": "दस्तावेज़",
+  "tpaClaimDownloadTooltip": "डाउनलोड",
+  "tpaClaimLatestInsurerMessage": "नवीनतम बीमाकर्ता संदेश",
+  "tpaClaimWhyDisallowed": "राशि अस्वीकृत क्यों हुई",
+  "tpaClaimInvoiceBreakdown": "इनवॉइस विवरण",
+  "tpaClaimTotal": "कुल",
+  "tpaClaimCorrespondence": "पत्राचार",
+  "addDependentTitle": "निर्भर सदस्य जोड़ें",
+  "addDependentHeading": "नाबालिग मरीज लिंक करें",
+  "addDependentIntro": "नाबालिग मरीज का फ़ोन नंबर या VH Health UID दर्ज करें। नाबालिग पहले से पंजीकृत होना चाहिए, आमतौर पर पहली विज़िट में रिसेप्शन पर।",
+  "addDependentIdentifierLabel": "फ़ोन नंबर या UID",
+  "addDependentIdentifierHint": "+91 9876543210 या रिसेप्शन से मिला UUID",
+  "addDependentIdentifierRequired": "फ़ोन या UID आवश्यक है",
+  "addDependentIdentifierInvalid": "फ़ोन (10-15 अंक) या UID दर्ज करें",
+  "addDependentRelationshipLabel": "उनसे आपका संबंध",
+  "addDependentRelationshipParent": "माता-पिता",
+  "addDependentRelationshipMother": "माँ",
+  "addDependentRelationshipFather": "पिता",
+  "addDependentRelationshipLegalGuardian": "कानूनी अभिभावक",
+  "addDependentRelationshipGrandparent": "दादा-दादी/नाना-नानी",
+  "addDependentRelationshipSibling": "भाई-बहन",
+  "addDependentRelationshipSpouse": "जीवनसाथी",
+  "addDependentRelationshipOther": "अन्य",
+  "addDependentLinkedTitle": "निर्भर सदस्य लिंक हुआ",
+  "addDependentLinkedBody": "{name} अब आपके खाते से लिंक है। अभी उनके प्रोफ़ाइल पर स्विच करें?",
+  "addDependentNotYetButton": "अभी नहीं",
+  "addDependentSwitchProfileButton": "प्रोफ़ाइल बदलें",
+  "addDependentLinkedToast": "{name} लिंक हुआ",
+  "addDependentLinkFailed": "निर्भर सदस्य लिंक नहीं हो सका। कृपया फिर कोशिश करें।",
+  "addDependentLinkingButton": "लिंक हो रहा है...",
+  "addDependentLinkButton": "निर्भर सदस्य लिंक करें",
+  "addDependentReceptionHint": "निर्भर सदस्य नहीं दिख रहा? पहले रिसेप्शन से उनका पंजीकरण कराएँ। लिंक करने से पहले उन्हें VH Health UID चाहिए।",
+  "medicationFrequencyOnceDaily": "दिन में एक बार",
+  "medicationFrequencyTwiceDaily": "दिन में दो बार",
+  "medicationFrequencyThriceDaily": "दिन में तीन बार",
+  "medicationFrequencyAsNeeded": "ज़रूरत पड़ने पर",
+  "medicationRemindersLoadFailed": "दवा रिमाइंडर लोड नहीं हो सके। फिर कोशिश करने के लिए नीचे खींचें।",
+  "medicationRemindersRetryButton": "रिमाइंडर फिर कोशिश करें",
+  "medicationReminderAncSupplement": "ANC सप्लीमेंट",
+  "medicationReminderDeleteTooltip": "रिमाइंडर हटाएँ",
+  "medicationReminderDosageLine": "खुराक: {dosage}",
+  "medicationReminderFrequencyLine": "आवृत्ति: {frequency}",
+  "medicationReminderTimesLine": "समय: {times}",
+  "medicationReminderNotesLine": "नोट्स: {notes}",
+  "medicationReminderStartLine": "शुरू: {date}",
+  "medicationReminderEndLine": "समाप्त: {date}",
+  "medicationReminderNoEndDate": "समाप्त: कोई अंतिम तारीख नहीं",
+  "medicationReminderNotesOptional": "नोट्स (वैकल्पिक)",
+  "bookInvestigationSlotMorning": "सुबह (9 AM - 12 PM)",
+  "bookInvestigationSlotAfternoon": "दोपहर (12 PM - 3 PM)",
+  "bookInvestigationSlotEvening": "शाम (3 PM - 6 PM)",
+  "bookInvestigationBookingFailed": "बुकिंग विफल",
+  "bookInvestigationBookingError": "जांच बुक नहीं हो सकी। कृपया फिर कोशिश करें।",
+  "bookInvestigationBookNowButton": "अभी बुक करें",
+  "bookInvestigationBookingButton": "बुक हो रहा है...",
+  "bookInvestigationSelectedCount": "{count} चयनित",
+  "bookInvestigationSearchHint": "टेस्ट खोजें...",
+  "bookInvestigationCostFasting": "₹{cost} • उपवास आवश्यक",
+  "bookInvestigationCustomTestHint": "जैसे CBC, शुगर टेस्ट, थायरॉयड",
+  "bookInvestigationCameraButton": "कैमरा",
+  "bookInvestigationGalleryButton": "गैलरी",
+  "bookInvestigationPhotoSelected": "फ़ोटो चुनी गई",
+  "bookInvestigationCollectionAddressLabel": "कलेक्शन पता *",
+  "bookInvestigationCollectionAddressHint": "अपना पूरा पता दर्ज करें",
+  "bookInvestigationLandmarkLabel": "लैंडमार्क",
+  "bookInvestigationLandmarkHint": "पास/सामने...",
+  "bookInvestigationPreferredDate": "पसंदीदा तारीख",
+  "bookInvestigationNotesOptional": "नोट्स (वैकल्पिक)",
+  "bookInvestigationNotesHint": "कोई विशेष निर्देश...",
+  "vitalsInvalidValue": "अमान्य",
+  "vitalsHeartRateRange": "30-250 bpm दर्ज करें",
+  "vitalsTemperatureRange": "90-110 °F दर्ज करें",
+  "vitalsBloodSugarRange": "20-600 mg/dL दर्ज करें",
+  "vitalsWeightRange": "1-300 kg दर्ज करें",
+  "vitalsSpo2Range": "50-100% दर्ज करें",
+  "vitalsHistoryHeading": "इतिहास",
+  "yourHealthTabTimeline": "टाइमलाइन",
+  "yourHealthTabMyUploads": "मेरे अपलोड",
+  "yourHealthTabPrescriptions": "प्रिस्क्रिप्शन",
+  "pharmacyOrderNoteHint": "जैसे, Dolo 650 - 2 स्ट्रिप्स, Pan 40 - 1 स्ट्रिप...",
+  "pharmacyHomeDelivery": "होम डिलीवरी",
+  "pharmacyPickup": "पिकअप",
+  "pharmacyLandmarkOptional": "लैंडमार्क (वैकल्पिक)",
+  "pharmacyLandmarkHint": "पास...",
+  "commonCouldNotOpenLink": "लिंक नहीं खुल सका",
+  "commonCloseButton": "बंद करें",
+  "commonOpenButton": "खोलें",
+  "commonRefreshButton": "रीफ्रेश",
+  "guestSignInDefaultFeature": "यह सुविधा",
+  "guestSignInTitle": "साइन इन आवश्यक है",
+  "guestSignInBody": "{feature} उपयोग करने के लिए साइन इन करें।",
+  "guestSignInKeepBrowsing": "ब्राउज़ करते रहें",
+  "guestSignInAndReturn": "साइन इन करके लौटें",
+  "dashboardOpenStepChallenge": "स्टेप चैलेंज खोलें",
+  "dashboardRecentActivity": "हाल की गतिविधि",
+  "dashboardOpenHealthPoints": "हेल्थ पॉइंट्स खोलें",
+  "dashboardHealthConnectSynced": "स्वास्थ्य डेटा सिंक हुआ - गतिविधि और वाइटल्स अपडेट हुए",
+  "dashboardHealthConnectNoSamples": "सिंक करने के लिए नए नमूने नहीं",
+  "dashboardHealthConnectOpenFailed": "Health Connect नहीं खुल सका",
+  "dashboardExploreSection": "एक्सप्लोर",
+  "dashboardTodaySection": "आज",
+  "profileSwitcherSelfName": "आप",
+  "profileSwitcherTitle": "प्रोफाइल",
+  "profileSwitcherSubtitle": "अपने प्रोफाइल और जुड़े निर्भर सदस्यों के बीच बदलें",
+  "profileSwitcherYourProfile": "आपका प्रोफाइल",
+  "profileSwitcherNoDependents": "अभी कोई निर्भर सदस्य लिंक नहीं",
+  "profileSwitcherRemoveDependentTitle": "निर्भर सदस्य हटाएँ?",
+  "profileSwitcherRemoveDependentBody": "{name} को लिंक प्रोफाइल से हटाएँ?",
+  "profileSwitcherRemoveButton": "हटाएँ",
+  "profileSwitcherRemovedToast": "{name} हटाया गया",
+  "profileSwitcherRemoveFailed": "निर्भर सदस्य हटाया नहीं जा सका। कृपया फिर कोशिश करें।",
+  "periodTrackerMarkStartedToday": "आज शुरू हुआ चिह्नित करें",
+  "periodTrackerEnterStartDate": "शुरुआत की तारीख दर्ज करें",
+  "periodTrackerOpen": "ट्रैकर खोलें",
+  "periodTrackerCycleStartRecorded": "साइकिल शुरुआत दर्ज हुई",
+  "periodTrackerCycleStartSaveFailed": "साइकिल शुरुआत सहेजी नहीं जा सकी",
+  "periodTrackerSavedToast": "साइकिल ट्रैकर सहेजा गया",
+  "periodTrackerLastPeriodStart": "आखिरी पीरियड शुरू",
+  "periodTrackerTitle": "पीरियड ट्रैकर",
+  "periodTrackerCycleDetails": "साइकिल विवरण",
+  "periodTrackerCycleLength": "साइकिल अवधि",
+  "periodTrackerDays": "दिन",
+  "periodTrackerPeriodLength": "पीरियड अवधि",
+  "periodTrackerSaving": "सहेज रहे हैं",
+  "periodTrackerSaveTracker": "ट्रैकर सहेजें",
+  "periodTrackerAddFirstDay": "अपने आखिरी पीरियड का पहला दिन जोड़ें।",
+  "periodTrackerPregnancyCaution": "यह निदान नहीं है। प्रेगनेंसी टेस्ट या चिकित्सक समीक्षा पर विचार करें।",
+  "periodTrackerCycleDay": "साइकिल दिन {cycleDay}",
+  "periodTrackerStartedToday": "आज शुरू हुआ",
+  "periodTrackerAddDate": "तारीख जोड़ें",
+  "periodTrackerEnterDate": "तारीख दर्ज करें",
+  "periodTrackerStartTracking": "ट्रैकिंग शुरू करें",
+  "periodTrackerMayBePregnant": "आप गर्भवती हो सकती हैं",
+  "periodTrackerCycleDelayed": "साइकिल {days} दिन देर है",
+  "periodTrackerCycleDueToday": "साइकिल आज अपेक्षित है",
+  "periodTrackerDaysToNextCycle": "अगली साइकिल में {days} दिन",
+  "periodTrackerLastRecordedPeriod": "आखिरी दर्ज पीरियड",
+  "periodTrackerEstimatedFertileWindow": "अनुमानित फर्टाइल विंडो",
+  "periodTrackerExpectedPeriodDate": "अपेक्षित पीरियड तारीख",
+  "periodTrackerExpectedNextPeriod": "अगला अपेक्षित पीरियड",
+  "periodTrackerPrivacyNote": "अभी यह इस डिवाइस पर स्थानीय रूप से सहेजा गया है। सहमति, रिटेंशन और क्लिनिकल समीक्षा नियम तय होने के बाद अस्पताल सिंक जोड़ा जा सकता है।",
+  "billDetailLoadFailed": "बिल लोड नहीं हो सका। कृपया फिर कोशिश करें।",
+  "billDetailPaymentLinkFailed": "भुगतान लिंक नहीं बन सका",
+  "billDetailSubtotal": "उप-कुल",
+  "billDetailDiscount": "छूट",
+  "billDetailPayViaUpi": "UPI से {amount} भुगतान करें",
+  "billDetailPayViaUpiBody": "राशि भरी हुई UPI ऐप खोलने के लिए टैप करें।",
+  "billDetailGenerating": "बना रहे हैं...",
+  "billDetailPayNow": "अभी भुगतान करें",
+  "billDetailPaymentLinkReference": "भुगतान लिंक संदर्भ: {token}...",
+  "billDetailInsuranceBreakdown": "बीमा / TPA विवरण",
+  "billDetailClaimNumber": "दावा {claimNumber}",
+  "billDetailTotalBilled": "कुल बिल",
+  "billDetailTpaPaid": "TPA भुगतान",
+  "billDetailPatientShare": "मरीज का हिस्सा",
+  "billDetailWhatWasNotCovered": "क्या कवर नहीं हुआ",
+  "billDetailLatestInsurerNote": "नवीनतम बीमाकर्ता नोट",
+  "billDetailViewFullInsuranceClaim": "पूरा बीमा दावा देखें",
+  "billDetailItems": "आइटम",
+  "billDetailPaymentHistory": "भुगतान इतिहास",
+  "labOrdersLoadFailed": "लैब ऑर्डर लोड नहीं हो सके। फिर कोशिश करने के लिए नीचे खींचें।",
+  "labOrdersDownloadFailed": "रिपोर्ट डाउनलोड नहीं हो सकी",
+  "labOrdersTitle": "लैब ऑर्डर",
+  "labOrdersEmptyTitle": "कोई लैब ऑर्डर नहीं",
+  "labOrdersEmptySubtitle": "आपके डॉक्टर द्वारा ऑर्डर किए गए लैब टेस्ट यहाँ कलेक्शन निर्देश और रिपोर्ट के साथ दिखेंगे।",
+  "labOrdersOrderedBy": "{doctorName} द्वारा ऑर्डर",
+  "labOrdersWhere": "कहाँ",
+  "labOrdersBy": "तक",
+  "labOrdersScheduled": "निर्धारित",
+  "labOrdersNoCollectionInstructions": "आपके डॉक्टर ने अभी कलेक्शन निर्देश नहीं दिए हैं। कृपया लैब स्थान और समय के लिए स्टाफ से पूछें।",
+  "labOrdersCompleted": "पूरा हुआ",
+  "labOrdersDownloading": "डाउनलोड हो रहा है...",
+  "labOrdersDownloadReport": "रिपोर्ट डाउनलोड करें",
+  "labOrdersRequestedOn": "{date} को अनुरोध किया गया",
+  "labOrdersFastingRequired": "उपवास आवश्यक",
+  "messagesCategoryGeneral": "सामान्य",
+  "messagesCategoryAppointment": "अपॉइंटमेंट",
+  "messagesCategoryPrescription": "प्रिस्क्रिप्शन",
+  "messagesCategoryLabResult": "लैब परिणाम",
+  "messagesCategoryBilling": "बिलिंग",
+  "messagesCategoryDischarge": "डिस्चार्ज",
+  "messagesCategoryOther": "अन्य",
+  "messagesLoadFailed": "संदेश लोड नहीं हो सके। कृपया फिर कोशिश करें।",
+  "messagesTitle": "संदेश",
+  "messagesNewMessage": "नया संदेश",
+  "messagesEmptyTitle": "अभी कोई संदेश नहीं",
+  "messagesEmptySubtitle": "नीचे नया संदेश बटन से अस्पताल के साथ सुरक्षित बातचीत शुरू करें।",
+  "messagesUrgent": "तत्काल",
+  "messagesSubjectBodyRequired": "विषय और संदेश आवश्यक हैं।",
+  "messagesSendFailed": "संदेश भेजा नहीं जा सका। कृपया फिर कोशिश करें।",
+  "messagesCategoryLabel": "श्रेणी",
+  "messagesSubjectLabel": "विषय",
+  "messagesBodyLabel": "संदेश",
+  "messagesSending": "भेज रहे हैं...",
+  "messagesSendButton": "भेजें",
+  "recordsPickFile": "कृपया फ़ाइल चुनें",
+  "settingsDeletingAccount": "खाता हटाया जा रहा है...",
+  "settingsDeleteAccountFailed": "खाता हटाया नहीं जा सका। कृपया फिर कोशिश करें।",
+  "settingsDeleteAccountTitle": "खाता हटाएँ",
+  "settingsDeleteAccountConsequences": "यह आपकी लॉगिन पहुँच हटाएगा और खाते से आपकी व्यक्तिगत पहचान जानकारी साफ करेगा। क्लिनिकल, बिलिंग और ऑडिट रिकॉर्ड वहाँ रखे जाते हैं जहाँ अस्पताल को कानूनी रूप से रखना आवश्यक है। सक्रिय भर्ती खुली होने पर आप खाता नहीं हटा सकते।",
+  "settingsEnterOtp": "6 अंकों का OTP दर्ज करें।",
+  "settingsOtpNotReady": "OTP अभी तैयार नहीं है। कोड फिर भेजें।",
+  "settingsOtpVerificationFailed": "OTP सत्यापन विफल हुआ। कृपया फिर कोशिश करें।",
+  "settingsVerifyPhoneTitle": "अपना फ़ोन सत्यापित करें",
+  "settingsFreshOtpSent": "हमने {phone} पर नया OTP भेजा है।",
+  "settingsSendingOtp": "OTP भेज रहे हैं...",
+  "settingsResendOtp": "फिर भेजें",
+  "settingsVerifyButton": "सत्यापित करें",
+  "settingsConfirmDeletionTitle": "हटाने की पुष्टि करें",
+  "settingsConfirmDeletionBody": "यह कार्रवाई वापस नहीं की जा सकती। आप इस डिवाइस से लॉग आउट होंगे और सभी अन्य सेशन रद्द होंगे।",
+  "settingsDeleteAccountButton": "खाता हटाएँ",
+  "settingsActiveAdmissionBlocksDeletion": "सक्रिय भर्ती खुली होने पर खाता हटाना रोका गया है।",
+  "settingsHospitalIdLine": "{name} - अस्पताल ID {hospitalNumber}",
+  "settingsManageDependents": "निर्भर सदस्य प्रबंधित करें",
+  "settingsManageDependentsSubtitle": "अपने खाते के अंतर्गत नाबालिग को लिंक करें या हटाएँ",
+  "settingsHealthDataSynced": "स्वास्थ्य डेटा सिंक हुआ - गतिविधि और वाइटल्स अपडेट हुए",
+  "settingsNoNewSamplesToSync": "सिंक करने के लिए नए नमूने नहीं",
+  "settingsDeleteAccountSubtitle": "हटाने से पहले OTP से फिर प्रमाणित करें",
+  "settingsLegalSection": "कानूनी",
+  "settingsOpenTermsInBrowser": "वर्तमान शर्तें अपने ब्राउज़र में खोलें",
+  "settingsOpenPrivacyInBrowser": "वर्तमान गोपनीयता नीति अपने ब्राउज़र में खोलें",
+  "splashUseStandardPhone": "कृपया सामान्य, बिना बदला हुआ फ़ोन उपयोग करें।",
+  "splashAuthenticateToContinue": "जारी रखने के लिए प्रमाणित करें",
+  "splashUpdateRequired": "अपडेट आवश्यक है",
+  "splashUpdateBody": "VH Health का यह संस्करण अब समर्थित नहीं है। जारी रखने के लिए नवीनतम संस्करण इंस्टॉल करें।",
+  "splashUpdateButton": "VH Health अपडेट करें",
+  "yourHealthTimelineFilterAll": "सभी",
+  "yourHealthTimelineFilterVisits": "विज़िट",
+  "yourHealthTimelineFilterPrescriptions": "प्रिस्क्रिप्शन",
+  "yourHealthTimelineFilterLabs": "लैब",
+  "yourHealthTimelineFilterUploads": "अपलोड",
+  "yourHealthTimelineFilterHospital": "अस्पताल दस्तावेज़",
+  "yourHealthTimelineReady": "आपकी हेल्थ टाइमलाइन तैयार है",
+  "yourHealthTimelineUpdateCount": "एक टाइमलाइन में {count} स्वास्थ्य अपडेट",
+  "yourHealthTimelineRxPill": "Rx",
+  "yourHealthTimelineVisitsPill": "विज़िट",
+  "yourHealthTimelineUploadsPill": "अपलोड",
+  "yourHealthTimelineDatePending": "तारीख लंबित",
+  "yourHealthTimelineFilteredEmpty": "अभी कोई {filter} नहीं",
+  "yourHealthTimelineEmptyTitle": "अभी कोई टाइमलाइन आइटम नहीं",
+  "yourHealthTimelineFilteredEmptySubtitle": "दूसरा फ़िल्टर आज़माएँ या नवीनतम अस्पताल रिकॉर्ड रीफ्रेश करें।",
+  "yourHealthTimelineEmptySubtitle": "प्रिस्क्रिप्शन, परामर्श, अस्पताल दस्तावेज़ और अपलोड यहाँ अपने आप जमा होंगे।",
+  "recordExtractionMissingRecordId": "रिकॉर्ड ID गायब है",
+  "recordExtractionUnavailable": "एक्सट्रैक्शन अभी उपलब्ध नहीं है",
+  "recordExtractionProcessFailed": "एक्सट्रैक्शन प्रोसेस नहीं हो सका",
+  "recordExtractionUploadedRecord": "अपलोड किया गया रिकॉर्ड",
+  "recordExtractionMessageSent": "अस्पताल टीम को संदेश भेजा गया",
+  "recordExtractionMessageFailed": "संदेश भेजा नहीं जा सका। कृपया फिर कोशिश करें।",
+  "recordExtractionMessageHospital": "अस्पताल को संदेश",
+  "recordExtractionRefresh": "एक्सट्रैक्शन रीफ्रेश करें",
+  "recordExtractionUploadedFile": "अपलोड की गई फ़ाइल",
+  "recordExtractionFilePreviewUnavailable": "फ़ाइल पूर्वावलोकन उपलब्ध नहीं",
+  "recordExtractionOpenFileToCompare": "तुलना करने के लिए फ़ाइल खोलें",
+  "recordExtractionImagePreviewUnavailable": "छवि पूर्वावलोकन उपलब्ध नहीं",
+  "recordExtractionReviewFlags": "समीक्षा फ्लैग",
+  "recordExtractionPatientIdentifiers": "मरीज पहचानकर्ता",
+  "recordExtractionDiagnoses": "निदान",
+  "recordExtractionMedications": "दवाएँ",
+  "recordExtractionTestsReports": "टेस्ट और रिपोर्ट",
+  "recordExtractionFollowUp": "फॉलो अप",
+  "recordExtractionOtherFields": "अन्य निकाले गए फ़ील्ड",
+  "recordExtractionDates": "तारीखें",
+  "recordExtractionCitations": "उद्धरण",
+  "recordExtractionOcrText": "OCR टेक्स्ट",
+  "recordExtractionReviewed": "एक्सट्रैक्शन समीक्षा हुआ: {status}",
+  "recordExtractionDraftWarning": "AI ड्राफ्ट - भरोसा करने से पहले हर निकाले गए मान को मूल दस्तावेज़ से मिलाएँ।",
+  "recordExtractionDocument": "दस्तावेज़",
+  "recordExtractionProcessing": "प्रोसेस हो रहा है",
+  "recordExtractionNoValues": "कोई निकाला गया मान नहीं",
+  "recordExtractionProcessButton": "एक्सट्रैक्शन प्रोसेस करें",
+  "dashboardHealthConnectPermissionDenied": "Health Connect अनुमति नहीं मिली। ऐप के अंदर वॉक ट्रैकिंग फिर भी काम करेगी।",
+  "dashboardWellnessBandExcellent": "आप अच्छा कर रहे हैं",
+  "dashboardWellnessBandGood": "ऐसे ही जारी रखें",
+  "dashboardWellnessBandNeedsAttention": "थोड़ा ध्यान चाहिए",
+  "dashboardWellnessShowBreakdown": "विवरण दिखाएँ",
+  "dashboardWellnessHideBreakdown": "विवरण छिपाएँ",
+  "dashboardWellnessBreakdownTitle": "वेलनेस विवरण",
+  "dashboardWellnessNoSplit": "अभी वेलनेस विभाजन उपलब्ध नहीं है।",
+  "dashboardWellnessMedicationStatus": "दवा स्थिति",
+  "dashboardWellnessMedicationProxy": "प्रिस्क्रिप्शन स्थिति संकेतक है, खुराक पालन नहीं",
+  "dashboardWellnessNoPrescriptions": "अभी ट्रैक करने के लिए कोई प्रिस्क्रिप्शन नहीं",
+  "dashboardWellnessPrescriptionsActive": "{total} में से {active} प्रिस्क्रिप्शन सक्रिय/असमाप्त",
+  "healthPointsCentralStats": "केंद्रीय आँकड़े",
+  "healthPointsRefreshingActivity": "आपकी गतिविधि रीफ्रेश हो रही है",
+  "healthPointsCentralStatsSubtitle": "चलना, पॉइंट्स, वेलनेस और नींद तैयारी",
+  "healthPointsCentralStatsFromSource": "{source} से चलना, नींद और पॉइंट्स",
+  "healthPointsRefreshStatsTooltip": "आँकड़े रीफ्रेश करें",
+  "healthPointsWalking": "चलना",
+  "healthPointsGoalStepCaption": "{goal}-स्टेप लक्ष्य",
+  "healthPointsActivitySourceCaption": "{source} से {activity}",
+  "healthPointsDistance": "दूरी",
+  "healthPointsToday": "आज",
+  "healthPointsSleep": "नींद",
+  "healthPointsNoData": "कोई डेटा नहीं",
+  "healthPointsConnectHealthData": "हेल्थ डेटा कनेक्ट करें",
+  "healthPointsSyncSource": "{source} सिंक",
+  "healthPointsWellness": "वेलनेस",
+  "healthPointsOutOfHundred": "100 में से",
+  "healthPointsPoints": "पॉइंट्स",
+  "healthPointsCurrentBalance": "वर्तमान बैलेंस",
+  "healthPointsGoal": "लक्ष्य",
+  "healthPointsStepsToday": "आज के कदम",
+  "dashboardHealthConnectPrompt": "Health Connect अनुमति दें ताकि VH Health ऐप बंद होने पर गिने गए कदम सिंक कर सके।"
 }

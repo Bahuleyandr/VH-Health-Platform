@@ -457,6 +457,7 @@ class _HealthHubStatsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     final profile = _mapValue(stepProfile?['profile']) ?? const {};
     final totalPoints =
         _asInt(summary?['totalPoints']) ?? _asInt(summary?['total']) ?? 0;
@@ -512,17 +513,17 @@ class _HealthHubStatsPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Central stats',
+                      l.healthPointsCentralStats,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     Text(
                       loading
-                          ? 'Refreshing your activity'
+                          ? l.healthPointsRefreshingActivity
                           : syncSource == null
-                          ? 'Walking, points, wellness, and sleep readiness'
-                          : 'Walking, sleep, and points from $syncSource',
+                          ? l.healthPointsCentralStatsSubtitle
+                          : l.healthPointsCentralStatsFromSource(syncSource),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -533,7 +534,7 @@ class _HealthHubStatsPanel extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Refresh stats',
+                tooltip: l.healthPointsRefreshStatsTooltip,
                 onPressed: loading ? null : onRefresh,
                 icon: const Icon(Icons.refresh, size: 20),
               ),
@@ -555,39 +556,43 @@ class _HealthHubStatsPanel extends StatelessWidget {
                   _HubMetricTile(
                     icon: Icons.directions_walk,
                     tint: Colors.lightBlueAccent,
-                    label: 'Walking',
+                    label: l.healthPointsWalking,
                     value: loading ? '-' : _formatThousands(steps),
                     caption: syncSource == null
-                        ? '$goal-step goal'
-                        : '${activityLabel ?? '$goal-step goal'} · $syncSource',
+                        ? l.healthPointsGoalStepCaption(goal)
+                        : l.healthPointsActivitySourceCaption(
+                            activityLabel ??
+                                l.healthPointsGoalStepCaption(goal),
+                            syncSource,
+                          ),
                     progress: progress,
                   ),
                   _HubMetricTile(
                     icon: Icons.route_outlined,
                     tint: Colors.tealAccent,
-                    label: 'Distance',
+                    label: l.healthPointsDistance,
                     value: loading ? '-' : _formatKm(distanceMeters),
-                    caption: 'today',
+                    caption: l.healthPointsToday,
                   ),
                   _HubMetricTile(
                     icon: Icons.nightlight_round,
                     tint: Colors.deepPurpleAccent,
-                    label: 'Sleep',
+                    label: l.healthPointsSleep,
                     value: loading
                         ? '-'
                         : sleepMinutes > 0
                         ? _formatSleep(sleepMinutes)
-                        : 'No data',
+                        : l.healthPointsNoData,
                     caption: syncSource == null
-                        ? 'Connect Health data'
-                        : '$syncSource sync',
+                        ? l.healthPointsConnectHealthData
+                        : l.healthPointsSyncSource(syncSource),
                   ),
                   _HubMetricTile(
                     icon: Icons.monitor_heart_outlined,
                     tint: _wellnessColor(wellness),
-                    label: 'Wellness',
+                    label: l.healthPointsWellness,
                     value: wellness == null ? '-' : '$wellness',
-                    caption: 'out of 100',
+                    caption: l.healthPointsOutOfHundred,
                     progress: wellness == null
                         ? null
                         : (wellness / 100).clamp(0.0, 1.0).toDouble(),
@@ -595,16 +600,16 @@ class _HealthHubStatsPanel extends StatelessWidget {
                   _HubMetricTile(
                     icon: Icons.emoji_events_outlined,
                     tint: Colors.amber,
-                    label: 'Points',
+                    label: l.healthPointsPoints,
                     value: '$totalPoints',
-                    caption: 'current balance',
+                    caption: l.healthPointsCurrentBalance,
                   ),
                   _HubMetricTile(
                     icon: Icons.flag_outlined,
                     tint: Colors.greenAccent,
-                    label: 'Goal',
+                    label: l.healthPointsGoal,
                     value: '${(progress * 100).round()}%',
-                    caption: 'steps today',
+                    caption: l.healthPointsStepsToday,
                     progress: progress,
                   ),
                 ],

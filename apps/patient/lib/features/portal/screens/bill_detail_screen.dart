@@ -8,6 +8,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class BillDetailScreen extends StatefulWidget {
   const BillDetailScreen({super.key, required this.invoiceId});
@@ -56,8 +57,9 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
           _loading = false;
         });
       } else {
+        final l = AppLocalizations.of(context)!;
         setState(() {
-          _error = response.message ?? 'Failed to load bill';
+          _error = response.message ?? l.billDetailLoadFailed;
           _loading = false;
         });
       }
@@ -95,9 +97,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
           );
         }
       } else {
+        final l = AppLocalizations.of(context)!;
         setState(() {
           _generatingLink = false;
-          _error = response.message ?? 'Could not generate payment link';
+          _error = response.message ?? l.billDetailPaymentLinkFailed;
         });
       }
     } catch (e) {
@@ -117,13 +120,14 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final due = _invoice == null ? 0.0 : _toDouble(_invoice!['amount_due']);
     final hasDue = due > 0.01;
 
     return FeatureScreenScaffold(
       title:
           _invoice?['invoice_number']?.toString() ??
-          'Invoice #${widget.invoiceId}',
+          l.billsInvoiceFallback(widget.invoiceId),
       icon: Icons.receipt_long,
       color: const Color(0xFFB3E5FC),
       scrollable: true,
@@ -147,7 +151,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                   const SizedBox(height: 16),
                   Text(_error!, textAlign: TextAlign.center),
                   const SizedBox(height: 16),
-                  ElevatedButton(onPressed: _fetch, child: const Text('Retry')),
+                  ElevatedButton(
+                    onPressed: _fetch,
+                    child: Text(l.commonRetryButton),
+                  ),
                 ],
               ),
             )
@@ -156,22 +163,27 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _summaryCard(theme, due, hasDue),
+                  _summaryCard(theme, l, due, hasDue),
                   const SizedBox(height: 16),
-                  if (hasDue) _payCard(theme, due),
+                  if (hasDue) _payCard(theme, l, due),
                   if (hasDue) const SizedBox(height: 16),
-                  if (_tpaBreakdown != null) _insuranceSection(theme),
+                  if (_tpaBreakdown != null) _insuranceSection(theme, l),
                   if (_tpaBreakdown != null) const SizedBox(height: 16),
-                  _itemsSection(theme),
+                  _itemsSection(theme, l),
                   const SizedBox(height: 16),
-                  _paymentsSection(theme),
+                  _paymentsSection(theme, l),
                 ],
               ),
             ),
     );
   }
 
-  Widget _summaryCard(ThemeData theme, double due, bool hasDue) {
+  Widget _summaryCard(
+    ThemeData theme,
+    AppLocalizations l,
+    double due,
+    bool hasDue,
+  ) {
     final inv = _invoice ?? <String, dynamic>{};
     final discount = _toDouble(inv['discount_amount']);
     final igst = _toDouble(inv['igst_amount']);
@@ -183,9 +195,9 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Summary', style: theme.textTheme.titleMedium),
+            Text(l.tpaClaimSummary, style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
-            _row('Subtotal', _inr(_toDouble(inv['subtotal']))),
+            _row(l.billDetailSubtotal, _inr(_toDouble(inv['subtotal']))),
             // Indian GST: intra-state shows CGST + SGST equal halves;
             // inter-state shows a single IGST line. We render whichever
             // variant has a non-zero amount.
@@ -195,12 +207,16 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
               _row('CGST', _inr(cgst)),
               _row('SGST', _inr(sgst)),
             ],
-            if (discount > 0) _row('Discount', '− ${_inr(discount)}'),
+            if (discount > 0) _row(l.billDetailDiscount, '− ${_inr(discount)}'),
             const Divider(height: 24),
-            _row('Total', _inr(_toDouble(inv['total_amount'])), bold: true),
-            _row('Paid', _inr(_toDouble(inv['amount_paid']))),
             _row(
-              'Due',
+              l.billsTotal,
+              _inr(_toDouble(inv['total_amount'])),
+              bold: true,
+            ),
+            _row(l.billsPaid, _inr(_toDouble(inv['amount_paid']))),
+            _row(
+              l.billsDue,
               _inr(due),
               bold: true,
               colour: hasDue ? theme.colorScheme.error : null,
@@ -211,7 +227,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     );
   }
 
-  Widget _payCard(ThemeData theme, double due) {
+  Widget _payCard(ThemeData theme, AppLocalizations l, double due) {
     return Card(
       color: theme.colorScheme.primaryContainer,
       child: Padding(
@@ -220,14 +236,11 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Pay ${_inr(due)} via UPI',
+              l.billDetailPayViaUpi(_inr(due)),
               style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
-            Text(
-              'Tap to open your UPI app (PhonePe / GPay / Paytm) with the amount pre-filled.',
-              style: theme.textTheme.bodySmall,
-            ),
+            Text(l.billDetailPayViaUpiBody, style: theme.textTheme.bodySmall),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _generatingLink ? null : _generatePaymentLink,
@@ -238,12 +251,14 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.qr_code),
-              label: Text(_generatingLink ? 'Generating…' : 'Pay now'),
+              label: Text(
+                _generatingLink ? l.billDetailGenerating : l.billDetailPayNow,
+              ),
             ),
             if (_linkToken != null) ...[
               const SizedBox(height: 8),
               Text(
-                'Payment link reference: ${_linkToken!.substring(0, 12)}…',
+                l.billDetailPaymentLinkReference(_linkToken!.substring(0, 12)),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -255,7 +270,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     );
   }
 
-  Widget _insuranceSection(ThemeData theme) {
+  Widget _insuranceSection(ThemeData theme, AppLocalizations l) {
     final tpa = _tpaBreakdown;
     if (tpa == null) return const SizedBox.shrink();
     final summary = tpa['summary'] as Map<String, dynamic>? ?? const {};
@@ -291,7 +306,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Insurance / TPA breakdown',
+                    l.billDetailInsuranceBreakdown,
                     style: theme.textTheme.titleMedium,
                   ),
                 ),
@@ -315,35 +330,42 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
             if (claimNumber != null) ...[
               const SizedBox(height: 4),
               Text(
-                'Claim $claimNumber',
+                l.billDetailClaimNumber(claimNumber),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
               ),
             ],
             const SizedBox(height: 12),
-            _row('Total billed', _inr(billed)),
-            _row('TPA approved', _inr(approved)),
-            _row('TPA paid', _inr(paid)),
-            if (disallowed > 0) _row('TPA disallowed', _inr(disallowed)),
-            if (copay > 0) _row('Policy co-pay', _inr(copay)),
-            if (nonPayable > 0) _row('Non-payable items', _inr(nonPayable)),
+            _row(l.billDetailTotalBilled, _inr(billed)),
+            _row(l.tpaClaimTpaApproved, _inr(approved)),
+            _row(l.billDetailTpaPaid, _inr(paid)),
+            if (disallowed > 0) _row(l.tpaClaimTpaDisallowed, _inr(disallowed)),
+            if (copay > 0) _row(l.tpaClaimPolicyCopay, _inr(copay)),
+            if (nonPayable > 0)
+              _row(l.tpaClaimNonPayableItems, _inr(nonPayable)),
             if (patientShare > 0)
               _row(
-                'Patient share',
+                l.billDetailPatientShare,
                 _inr(patientShare),
                 bold: true,
                 colour: theme.colorScheme.error,
               ),
             if (lineDecisions.isNotEmpty) ...[
               const Divider(height: 24),
-              Text('What was not covered', style: theme.textTheme.titleSmall),
+              Text(
+                l.billDetailWhatWasNotCovered,
+                style: theme.textTheme.titleSmall,
+              ),
               const SizedBox(height: 8),
               ...lineDecisions.map((d) => _decisionRow(theme, d)),
             ],
             if (latestMessage != null) ...[
               const Divider(height: 24),
-              Text('Latest insurer note', style: theme.textTheme.titleSmall),
+              Text(
+                l.billDetailLatestInsurerNote,
+                style: theme.textTheme.titleSmall,
+              ),
               const SizedBox(height: 6),
               if (latestMessage['subject'] != null)
                 Text(
@@ -378,7 +400,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                     );
                   },
                   icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('View full insurance claim'),
+                  label: Text(l.billDetailViewFullInsuranceClaim),
                 ),
               ),
             ],
@@ -437,7 +459,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     );
   }
 
-  Widget _itemsSection(ThemeData theme) {
+  Widget _itemsSection(ThemeData theme, AppLocalizations l) {
     if (_items.isEmpty) return const SizedBox.shrink();
     return Card(
       child: Padding(
@@ -445,7 +467,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Items', style: theme.textTheme.titleMedium),
+            Text(l.billDetailItems, style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
             ...(_items.map((item) {
               final qty = _toDouble(item['quantity']);
@@ -482,7 +504,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     );
   }
 
-  Widget _paymentsSection(ThemeData theme) {
+  Widget _paymentsSection(ThemeData theme, AppLocalizations l) {
     if (_payments.isEmpty) return const SizedBox.shrink();
     return Card(
       child: Padding(
@@ -490,7 +512,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Payment history', style: theme.textTheme.titleMedium),
+            Text(
+              l.billDetailPaymentHistory,
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 12),
             ...(_payments.map((p) {
               return Padding(

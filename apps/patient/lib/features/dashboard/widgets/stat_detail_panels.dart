@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:vhhealth/core/widgets/health_charts.dart';
 import 'package:vhhealth/features/gamification/utils/tier_utils.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class StepsBreakdownPanel extends StatelessWidget {
   final int? stepsToday;
@@ -31,6 +32,7 @@ class StepsBreakdownPanel extends StatelessWidget {
     final activityLabel = activityLevelLabel ?? _activityLabel(progress);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     final accent = Colors.lightBlueAccent;
 
     return _DetailShell(
@@ -107,7 +109,7 @@ class StepsBreakdownPanel extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onOpenFull,
               icon: const Icon(LucideIcons.arrowRight, size: 16),
-              label: const Text('Open step challenge'),
+              label: Text(l.dashboardOpenStepChallenge),
               style: TextButton.styleFrom(foregroundColor: cs.primary),
             ),
           ),
@@ -161,6 +163,7 @@ class PointsBreakdownPanel extends StatelessWidget {
     final accent = getTierColor(currentTier);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
 
     return _DetailShell(
       accent: accent,
@@ -213,7 +216,7 @@ class PointsBreakdownPanel extends StatelessWidget {
           if (recent.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(
-              'Recent activity',
+              l.dashboardRecentActivity,
               style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
@@ -227,7 +230,7 @@ class PointsBreakdownPanel extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onOpenFull,
               icon: const Icon(LucideIcons.arrowRight, size: 16),
-              label: const Text('Open health points'),
+              label: Text(l.dashboardOpenHealthPoints),
               style: TextButton.styleFrom(foregroundColor: cs.primary),
             ),
           ),
@@ -253,6 +256,7 @@ class CycleBreakdownPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     const accent = Colors.pinkAccent;
     final snapshot = this.snapshot;
     final estimate = snapshot?.estimate();
@@ -383,7 +387,7 @@ class CycleBreakdownPanel extends StatelessWidget {
                     CycleTrackerSnapshot.dateOnly(DateTime.now()),
                   ),
                   icon: const Icon(LucideIcons.checkCircle2, size: 16),
-                  label: const Text('Mark started today'),
+                  label: Text(l.periodTrackerMarkStartedToday),
                   style: FilledButton.styleFrom(
                     backgroundColor: accent,
                     foregroundColor: Colors.white,
@@ -396,7 +400,7 @@ class CycleBreakdownPanel extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: () => _pickPeriodStart(context),
                   icon: const Icon(LucideIcons.calendarPlus, size: 16),
-                  label: const Text('Enter start date'),
+                  label: Text(l.periodTrackerEnterStartDate),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: accent,
                     side: BorderSide(color: accent.withValues(alpha: 0.62)),
@@ -412,7 +416,7 @@ class CycleBreakdownPanel extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onOpenFull,
               icon: const Icon(LucideIcons.arrowRight, size: 16),
-              label: const Text('Open period tracker'),
+              label: Text(l.periodTrackerOpen),
               style: TextButton.styleFrom(foregroundColor: cs.primary),
             ),
           ),

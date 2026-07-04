@@ -67,8 +67,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           TabBar(
             controller: _tabController,
             tabs: [
-              Tab(text: 'Book', icon: Icon(Icons.add_circle_outline)),
-              Tab(text: 'My Appointments', icon: Icon(Icons.list_alt)),
+              Tab(
+                text: l10n.appointmentsBookTab,
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+              Tab(
+                text: l10n.appointmentsMyAppointmentsTab,
+                icon: const Icon(Icons.list_alt),
+              ),
             ],
           ),
           ContactBanner.appointments(),

@@ -226,12 +226,12 @@ class _SplashScreenState extends State<SplashScreen>
         content: Text(
           '${l.splashDeviceNotSupportedBody} '
           '${integrity.reasons.join(', ')}. '
-          'Please use a standard, unmodified phone.',
+          '${l.splashUseStandardPhone}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
+            child: Text(l.commonCloseButton),
           ),
         ],
       ),
@@ -308,13 +308,15 @@ class _SplashScreenState extends State<SplashScreen>
 
       // ── 2. Try biometric auth if enabled ──
       if (biometricEnabled == 'true' && phone != null) {
+        if (!mounted) return;
+        final l = AppLocalizations.of(context)!;
         try {
           final canAuth = await _localAuth.canCheckBiometrics;
           final supported = await _localAuth.isDeviceSupported();
 
           if (canAuth && supported) {
             final didAuth = await _localAuth.authenticate(
-              localizedReason: 'Please authenticate to continue',
+              localizedReason: l.splashAuthenticateToContinue,
               biometricOnly: true,
             );
 
@@ -470,10 +472,10 @@ class _UpdateRequiredScreen extends StatelessWidget {
                           height: 96,
                         ),
                         const SizedBox(height: 28),
-                        const Text(
-                          'Update required',
+                        Text(
+                          AppLocalizations.of(context)!.splashUpdateRequired,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
@@ -481,8 +483,7 @@ class _UpdateRequiredScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'This version of VH Health is no longer supported. '
-                          'Please install the latest version to continue.',
+                          AppLocalizations.of(context)!.splashUpdateBody,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.86),
@@ -496,7 +497,9 @@ class _UpdateRequiredScreen extends StatelessWidget {
                           child: ElevatedButton.icon(
                             onPressed: onUpdate,
                             icon: const Icon(Icons.system_update_alt),
-                            label: const Text('Update VH Health'),
+                            label: Text(
+                              AppLocalizations.of(context)!.splashUpdateButton,
+                            ),
                             style: ElevatedButton.styleFrom(
                               minimumSize: const Size.fromHeight(52),
                             ),

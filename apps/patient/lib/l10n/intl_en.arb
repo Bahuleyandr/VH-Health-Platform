@@ -1056,7 +1056,6 @@
   "investigationsDownloadFailed": "Failed to download report",
   "investigationsFiles": "Files",
   "profileIncomplete": "Please complete your profile to continue",
-
   "vitalsTitle": "Vitals",
   "vitalsLogTab": "Log Vitals",
   "vitalsHistoryTab": "History",
@@ -1078,7 +1077,6 @@
   "vitalsNoHistory": "No vitals recorded yet",
   "vitalsNoHistoryHint": "Log your vitals using the Log Vitals tab.",
   "vitalsHistoryFailed": "Failed to load vitals history",
-
   "familyTitle": "Family Members",
   "familyYourFamily": "Your Family",
   "familyManageHint": "Manage family members linked to your account.",
@@ -1096,17 +1094,20 @@
   "familyRemoveConfirm": "Are you sure you want to remove {name}?",
   "@familyRemoveConfirm": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "familyRemoved": "{name} removed from family members",
   "@familyRemoved": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "familyRemoveFailed": "Failed to remove member",
-
   "refillTitle": "Prescription Refills",
   "refillActivePrescriptions": "Active Prescriptions",
   "refillHint": "Tap \"Request Refill\" to ask your doctor for a renewal.",
@@ -1119,19 +1120,22 @@
   "refillConfirmBody": "Request a refill for {medication}?",
   "@refillConfirmBody": {
     "placeholders": {
-      "medication": { "type": "String" }
+      "medication": {
+        "type": "String"
+      }
     }
   },
   "refillRequested": "Refill requested for {medication}",
   "@refillRequested": {
     "placeholders": {
-      "medication": { "type": "String" }
+      "medication": {
+        "type": "String"
+      }
     }
   },
   "refillRequestFailed": "Failed to request refill",
   "refillStatusActive": "ACTIVE",
   "refillStatusExpired": "EXPIRED",
-
   "stepsTitle": "Step Challenge",
   "stepsProfile": "Profile",
   "stepsHistory": "History",
@@ -1143,592 +1147,1097 @@
   "stepsSessionStopped": "Walk done!",
   "stepsNoHistory": "No walk sessions yet",
   "stepsNoHistoryHint": "Start a walk to begin tracking your steps.",
-
   "abdmTitle": "ABDM (Ayushman Bharat)",
   "abdmRegister": "Register ABHA",
   "abdmVerify": "Verify ABHA",
   "abdmConsents": "Consents",
   "abdmNoConsents": "No consent requests",
-
   "medicationRemindersTitle": "Medication Reminders",
   "medicationReminderAdd": "Add Reminder",
   "medicationReminderName": "Medication Name",
   "medicationReminderDosage": "Dosage",
   "medicationReminderFrequency": "Frequency",
   "medicationReminderNoReminders": "No medication reminders set",
-
   "updateAvailableTitle": "Update Available",
   "updateAvailableBody": "A new version of VH Health is available. Please update for the best experience.",
   "updateNow": "Update Now",
   "updateLater": "Later",
-
   "bookInvestigationTitle": "Book Investigation",
-  "@bookInvestigationTitle": { "description": "AppBar title for the investigation booking screen" },
+  "@bookInvestigationTitle": {
+    "description": "AppBar title for the investigation booking screen"
+  },
   "bookInvestigationStepChoose": "Choose Tests",
-  "@bookInvestigationStepChoose": { "description": "Stepper label for choosing tests" },
+  "@bookInvestigationStepChoose": {
+    "description": "Stepper label for choosing tests"
+  },
   "bookInvestigationStepCollection": "Collection Preference",
-  "@bookInvestigationStepCollection": { "description": "Stepper label for collection preference" },
+  "@bookInvestigationStepCollection": {
+    "description": "Stepper label for collection preference"
+  },
   "bookInvestigationStepReview": "Review & Book",
-  "@bookInvestigationStepReview": { "description": "Stepper label for review and book" },
+  "@bookInvestigationStepReview": {
+    "description": "Stepper label for review and book"
+  },
   "bookInvestigationOrType": "Or type test names:",
-  "@bookInvestigationOrType": { "description": "Heading above the custom test input" },
+  "@bookInvestigationOrType": {
+    "description": "Heading above the custom test input"
+  },
   "bookInvestigationOrUploadSlip": "Or upload prescription slip:",
-  "@bookInvestigationOrUploadSlip": { "description": "Heading above the slip upload buttons" },
+  "@bookInvestigationOrUploadSlip": {
+    "description": "Heading above the slip upload buttons"
+  },
   "bookInvestigationEstimatedCost": "Estimated Cost",
-  "@bookInvestigationEstimatedCost": { "description": "Label for the estimated cost summary" },
+  "@bookInvestigationEstimatedCost": {
+    "description": "Label for the estimated cost summary"
+  },
   "bookInvestigationHomeCollection": "Home Collection",
-  "@bookInvestigationHomeCollection": { "description": "Segmented button label for home collection" },
+  "@bookInvestigationHomeCollection": {
+    "description": "Segmented button label for home collection"
+  },
   "bookInvestigationVisitLab": "Visit Lab",
-  "@bookInvestigationVisitLab": { "description": "Segmented button label for visiting the lab" },
+  "@bookInvestigationVisitLab": {
+    "description": "Segmented button label for visiting the lab"
+  },
   "bookInvestigationTapToSelect": "Tap to select",
-  "@bookInvestigationTapToSelect": { "description": "Subtitle for date tile when no date picked" },
+  "@bookInvestigationTapToSelect": {
+    "description": "Subtitle for date tile when no date picked"
+  },
   "bookInvestigationPreferredTimeSlot": "Preferred Time Slot",
-  "@bookInvestigationPreferredTimeSlot": { "description": "Heading above time-slot chips" },
+  "@bookInvestigationPreferredTimeSlot": {
+    "description": "Heading above time-slot chips"
+  },
   "bookInvestigationReviewBooking": "Review Your Booking",
-  "@bookInvestigationReviewBooking": { "description": "Title above review summary" },
+  "@bookInvestigationReviewBooking": {
+    "description": "Title above review summary"
+  },
   "bookInvestigationSelectedTests": "Selected Tests:",
-  "@bookInvestigationSelectedTests": { "description": "Heading above selected tests list" },
+  "@bookInvestigationSelectedTests": {
+    "description": "Heading above selected tests list"
+  },
   "bookInvestigationCustomTests": "Custom Tests:",
-  "@bookInvestigationCustomTests": { "description": "Heading above custom tests text" },
+  "@bookInvestigationCustomTests": {
+    "description": "Heading above custom tests text"
+  },
   "bookInvestigationSlipAttached": "Prescription slip attached",
-  "@bookInvestigationSlipAttached": { "description": "Indicator that prescription slip was attached" },
+  "@bookInvestigationSlipAttached": {
+    "description": "Indicator that prescription slip was attached"
+  },
   "bookInvestigationBooked": "Test Booked!",
-  "@bookInvestigationBooked": { "description": "Success heading after booking" },
+  "@bookInvestigationBooked": {
+    "description": "Success heading after booking"
+  },
   "bookInvestigationConfirmationNote": "You will receive a confirmation call shortly.\nWe'll keep you updated on your booking status.",
-  "@bookInvestigationConfirmationNote": { "description": "Success body text after booking" },
+  "@bookInvestigationConfirmationNote": {
+    "description": "Success body text after booking"
+  },
   "bookInvestigationBackButton": "Back to Tests & Reports",
-  "@bookInvestigationBackButton": { "description": "Button to return to investigations from success screen" },
-
+  "@bookInvestigationBackButton": {
+    "description": "Button to return to investigations from success screen"
+  },
   "stepsSetupProfileTitle": "Set up your profile",
-  "@stepsSetupProfileTitle": { "description": "Heading on step challenge profile setup card" },
+  "@stepsSetupProfileTitle": {
+    "description": "Heading on step challenge profile setup card"
+  },
   "stepsPickColor": "Pick a color:",
-  "@stepsPickColor": { "description": "Label above color picker on profile setup" },
+  "@stepsPickColor": {
+    "description": "Label above color picker on profile setup"
+  },
   "stepsSaveProfile": "Save Profile",
-  "@stepsSaveProfile": { "description": "Button label to save step challenge profile" },
+  "@stepsSaveProfile": {
+    "description": "Button label to save step challenge profile"
+  },
   "stepsStartWalkUpper": "START WALK",
-  "@stepsStartWalkUpper": { "description": "Button label to begin a walk session (uppercase)" },
+  "@stepsStartWalkUpper": {
+    "description": "Button label to begin a walk session (uppercase)"
+  },
   "stepsWalkInProgress": "Walk in progress…",
-  "@stepsWalkInProgress": { "description": "Indicator during active walk" },
+  "@stepsWalkInProgress": {
+    "description": "Indicator during active walk"
+  },
   "stepsStopWalkUpper": "STOP WALK",
-  "@stepsStopWalkUpper": { "description": "Button label to stop a walk session (uppercase)" },
+  "@stepsStopWalkUpper": {
+    "description": "Button label to stop a walk session (uppercase)"
+  },
   "stepsNoDailyData": "No daily data yet",
-  "@stepsNoDailyData": { "description": "Empty state for daily steps chart" },
+  "@stepsNoDailyData": {
+    "description": "Empty state for daily steps chart"
+  },
   "stepsNoWeeklyData": "No weekly data yet",
-  "@stepsNoWeeklyData": { "description": "Empty state for weekly steps chart" },
+  "@stepsNoWeeklyData": {
+    "description": "Empty state for weekly steps chart"
+  },
   "stepsNoMonthlyData": "No monthly data yet",
-  "@stepsNoMonthlyData": { "description": "Empty state for monthly steps chart" },
+  "@stepsNoMonthlyData": {
+    "description": "Empty state for monthly steps chart"
+  },
   "stepsThisMonth": "This month",
-  "@stepsThisMonth": { "description": "Label for current month section" },
+  "@stepsThisMonth": {
+    "description": "Label for current month section"
+  },
   "stepsNoLeaderboardData": "No leaderboard data yet",
-  "@stepsNoLeaderboardData": { "description": "Empty state for leaderboard" },
+  "@stepsNoLeaderboardData": {
+    "description": "Empty state for leaderboard"
+  },
   "stepsYourRewards": "Your Rewards",
-  "@stepsYourRewards": { "description": "Section heading for user rewards" },
-
+  "@stepsYourRewards": {
+    "description": "Section heading for user rewards"
+  },
   "familyMemberIdNotFound": "Member ID not found",
-  "@familyMemberIdNotFound": { "description": "Snackbar when member id missing during remove" },
+  "@familyMemberIdNotFound": {
+    "description": "Snackbar when member id missing during remove"
+  },
   "familyRemoveFailedRetry": "Failed to remove member. Please try again.",
-  "@familyRemoveFailedRetry": { "description": "Snackbar when remove member request fails (retryable)" },
+  "@familyRemoveFailedRetry": {
+    "description": "Snackbar when remove member request fails (retryable)"
+  },
   "familyAddFailedRetry": "Failed to add family member. Please try again.",
-  "@familyAddFailedRetry": { "description": "Snackbar when add family member request fails (retryable)" },
+  "@familyAddFailedRetry": {
+    "description": "Snackbar when add family member request fails (retryable)"
+  },
   "familyRemoveButton": "Remove",
-  "@familyRemoveButton": { "description": "Dialog action label to confirm removing a member" },
+  "@familyRemoveButton": {
+    "description": "Dialog action label to confirm removing a member"
+  },
   "familyRemoveTooltip": "Remove member",
-  "@familyRemoveTooltip": { "description": "Tooltip for the remove member icon" },
+  "@familyRemoveTooltip": {
+    "description": "Tooltip for the remove member icon"
+  },
   "familyRetryButton": "Retry",
-  "@familyRetryButton": { "description": "Button label to retry loading family members" },
+  "@familyRetryButton": {
+    "description": "Button label to retry loading family members"
+  },
   "familyAddMemberShort": "Add Member",
-  "@familyAddMemberShort": { "description": "Submit button on add family member sheet" },
+  "@familyAddMemberShort": {
+    "description": "Submit button on add family member sheet"
+  },
   "familyTapToSelect": "Tap to select",
-  "@familyTapToSelect": { "description": "Hint inside the date of birth field" },
+  "@familyTapToSelect": {
+    "description": "Hint inside the date of birth field"
+  },
   "familyDobPrefix": "DOB:",
-  "@familyDobPrefix": { "description": "Prefix before formatted date of birth on member card" },
+  "@familyDobPrefix": {
+    "description": "Prefix before formatted date of birth on member card"
+  },
   "familyNameRequired": "Name is required",
-  "@familyNameRequired": { "description": "Validation when family member name empty" },
+  "@familyNameRequired": {
+    "description": "Validation when family member name empty"
+  },
   "familyPhoneRequired": "Phone is required",
-  "@familyPhoneRequired": { "description": "Validation when family member phone empty" },
+  "@familyPhoneRequired": {
+    "description": "Validation when family member phone empty"
+  },
   "familyPhoneInvalid": "Enter a valid phone number",
-  "@familyPhoneInvalid": { "description": "Validation when family member phone invalid" },
+  "@familyPhoneInvalid": {
+    "description": "Validation when family member phone invalid"
+  },
   "familyLoadFailed": "Failed to load family members",
-  "@familyLoadFailed": { "description": "Error state when family members fetch fails" },
+  "@familyLoadFailed": {
+    "description": "Error state when family members fetch fails"
+  },
   "familyUnknown": "Unknown",
-  "@familyUnknown": { "description": "Fallback name when family member name missing" },
-
+  "@familyUnknown": {
+    "description": "Fallback name when family member name missing"
+  },
   "recordsDocumentUrlMissing": "Document URL not available",
-  "@recordsDocumentUrlMissing": { "description": "Snackbar when document URL is missing" },
+  "@recordsDocumentUrlMissing": {
+    "description": "Snackbar when document URL is missing"
+  },
   "recordsDeleteTitle": "Delete Record?",
-  "@recordsDeleteTitle": { "description": "Dialog title to confirm record deletion" },
+  "@recordsDeleteTitle": {
+    "description": "Dialog title to confirm record deletion"
+  },
   "recordsDeletePrefix": "Delete ",
-  "@recordsDeletePrefix": { "description": "Prefix before record title in delete confirmation" },
+  "@recordsDeletePrefix": {
+    "description": "Prefix before record title in delete confirmation"
+  },
   "recordsDeleted": "Record deleted",
-  "@recordsDeleted": { "description": "Snackbar after record deleted" },
+  "@recordsDeleted": {
+    "description": "Snackbar after record deleted"
+  },
   "recordsPickFileFirst": "Please pick a file and enter a title",
-  "@recordsPickFileFirst": { "description": "Validation when file or title missing on upload" },
+  "@recordsPickFileFirst": {
+    "description": "Validation when file or title missing on upload"
+  },
   "recordsUploaded": "Record uploaded",
-  "@recordsUploaded": { "description": "Snackbar after record uploaded" },
+  "@recordsUploaded": {
+    "description": "Snackbar after record uploaded"
+  },
   "recordsUploadButton": "Upload Record",
-  "@recordsUploadButton": { "description": "Button label to open upload record sheet" },
+  "@recordsUploadButton": {
+    "description": "Button label to open upload record sheet"
+  },
   "recordsHospitalEmpty": "Your prescriptions and reports from visits will appear here",
-  "@recordsHospitalEmpty": { "description": "Empty-state body for hospital documents tab" },
+  "@recordsHospitalEmpty": {
+    "description": "Empty-state body for hospital documents tab"
+  },
   "recordsHospitalEmptySubtitle": "Hospital-issued documents will appear here after your visit.",
-  "@recordsHospitalEmptySubtitle": { "description": "Empty-state subtitle for hospital documents tab" },
+  "@recordsHospitalEmptySubtitle": {
+    "description": "Empty-state subtitle for hospital documents tab"
+  },
   "recordsUploadEmptyHint": "Upload your previous prescriptions and reports to keep them in one place",
-  "@recordsUploadEmptyHint": { "description": "Empty-state hint for my uploads tab" },
+  "@recordsUploadEmptyHint": {
+    "description": "Empty-state hint for my uploads tab"
+  },
   "recordsUploadSheetTitle": "Upload a Record",
-  "@recordsUploadSheetTitle": { "description": "Title of the upload record bottom sheet" },
-
+  "@recordsUploadSheetTitle": {
+    "description": "Title of the upload record bottom sheet"
+  },
   "abdmHeading": "Ayushman Bharat Health Account",
-  "@abdmHeading": { "description": "Heading on ABDM screen" },
+  "@abdmHeading": {
+    "description": "Heading on ABDM screen"
+  },
   "abdmDescription": "ABHA (Ayushman Bharat Health Account) is a unique health ID that lets you store and share your health records digitally.",
-  "@abdmDescription": { "description": "Description paragraph on ABDM screen" },
+  "@abdmDescription": {
+    "description": "Description paragraph on ABDM screen"
+  },
   "abdmDataSecurityNote": "Your data stays secure and is shared only with your consent.",
-  "@abdmDataSecurityNote": { "description": "Reassurance about data privacy" },
+  "@abdmDataSecurityNote": {
+    "description": "Reassurance about data privacy"
+  },
   "abdmYourNumber": "Your ABHA Number",
-  "@abdmYourNumber": { "description": "Label above the user's ABHA number" },
+  "@abdmYourNumber": {
+    "description": "Label above the user's ABHA number"
+  },
   "abdmVerifyHeading": "Verify Your ABHA",
-  "@abdmVerifyHeading": { "description": "Heading on verify ABHA screen" },
+  "@abdmVerifyHeading": {
+    "description": "Heading on verify ABHA screen"
+  },
   "abdmEnterOtp": "Enter the OTP sent to your mobile number",
-  "@abdmEnterOtp": { "description": "Instruction above OTP input on verify ABHA screen" },
-
+  "@abdmEnterOtp": {
+    "description": "Instruction above OTP input on verify ABHA screen"
+  },
   "medicationRemindersEmpty": "No medication reminders yet",
-  "@medicationRemindersEmpty": { "description": "Empty state for medication reminders" },
+  "@medicationRemindersEmpty": {
+    "description": "Empty state for medication reminders"
+  },
   "medicationRemindersEmptyHint": "Tap + to add one",
-  "@medicationRemindersEmptyHint": { "description": "Hint below empty state" },
+  "@medicationRemindersEmptyHint": {
+    "description": "Hint below empty state"
+  },
   "medicationReminderRequiredFields": "Medication name and dosage are required",
-  "@medicationReminderRequiredFields": { "description": "Validation when name/dosage empty" },
+  "@medicationReminderRequiredFields": {
+    "description": "Validation when name/dosage empty"
+  },
   "medicationReminderSaveFailed": "Unable to save reminder",
-  "@medicationReminderSaveFailed": { "description": "Snackbar when reminder save fails" },
+  "@medicationReminderSaveFailed": {
+    "description": "Snackbar when reminder save fails"
+  },
   "medicationReminderAddSheetTitle": "Add Medication Reminder",
-  "@medicationReminderAddSheetTitle": { "description": "Title of the add reminder bottom sheet" },
+  "@medicationReminderAddSheetTitle": {
+    "description": "Title of the add reminder bottom sheet"
+  },
   "medicationReminderTimes": "Reminder Times",
-  "@medicationReminderTimes": { "description": "Heading for list of reminder times" },
+  "@medicationReminderTimes": {
+    "description": "Heading for list of reminder times"
+  },
   "medicationReminderAddTime": "Add time",
-  "@medicationReminderAddTime": { "description": "Button to add another reminder time" },
+  "@medicationReminderAddTime": {
+    "description": "Button to add another reminder time"
+  },
   "medicationReminderSave": "Save Reminder",
-  "@medicationReminderSave": { "description": "Button to save reminder" },
-
+  "@medicationReminderSave": {
+    "description": "Button to save reminder"
+  },
   "pharmacyTakePhoto": "Take Photo",
-  "@pharmacyTakePhoto": { "description": "Action label to take a photo from camera" },
+  "@pharmacyTakePhoto": {
+    "description": "Action label to take a photo from camera"
+  },
   "pharmacyChooseFromGallery": "Choose from Gallery",
-  "@pharmacyChooseFromGallery": { "description": "Action label to pick from gallery" },
+  "@pharmacyChooseFromGallery": {
+    "description": "Action label to pick from gallery"
+  },
   "pharmacyOrderPlacedTitle": "Order Placed!",
-  "@pharmacyOrderPlacedTitle": { "description": "Success heading after pharmacy order" },
+  "@pharmacyOrderPlacedTitle": {
+    "description": "Success heading after pharmacy order"
+  },
   "pharmacyOrderPlacedBody": "Our pharmacist will review your prescription and confirm your order shortly.",
-  "@pharmacyOrderPlacedBody": { "description": "Success body after pharmacy order" },
+  "@pharmacyOrderPlacedBody": {
+    "description": "Success body after pharmacy order"
+  },
   "pharmacyUploadHeading": "Upload Prescription",
-  "@pharmacyUploadHeading": { "description": "Heading above pharmacy upload area" },
+  "@pharmacyUploadHeading": {
+    "description": "Heading above pharmacy upload area"
+  },
   "pharmacyTapToUpload": "Tap to upload prescription",
-  "@pharmacyTapToUpload": { "description": "Empty-state text inside upload card" },
+  "@pharmacyTapToUpload": {
+    "description": "Empty-state text inside upload card"
+  },
   "pharmacyCameraOrGallery": "Camera or Gallery",
-  "@pharmacyCameraOrGallery": { "description": "Subtitle below tap to upload" },
+  "@pharmacyCameraOrGallery": {
+    "description": "Subtitle below tap to upload"
+  },
   "pharmacyOrDescribe": "Or Describe Your Order",
-  "@pharmacyOrDescribe": { "description": "Heading above the description input" },
+  "@pharmacyOrDescribe": {
+    "description": "Heading above the description input"
+  },
   "pharmacyDeliveryPreference": "Delivery Preference",
-  "@pharmacyDeliveryPreference": { "description": "Heading for delivery option chooser" },
-
+  "@pharmacyDeliveryPreference": {
+    "description": "Heading for delivery option chooser"
+  },
   "refillPrescriptionIdMissing": "Prescription ID not found",
-  "@refillPrescriptionIdMissing": { "description": "Snackbar when prescription id missing during refill" },
+  "@refillPrescriptionIdMissing": {
+    "description": "Snackbar when prescription id missing during refill"
+  },
   "refillRequestRetry": "Failed to request refill. Please try again.",
-  "@refillRequestRetry": { "description": "Snackbar when refill request fails (retryable)" },
+  "@refillRequestRetry": {
+    "description": "Snackbar when refill request fails (retryable)"
+  },
   "refillTapPrefix": "Tap ",
-  "@refillTapPrefix": { "description": "Hint prefix before button name" },
+  "@refillTapPrefix": {
+    "description": "Hint prefix before button name"
+  },
   "refillRequestedHeading": "Refill Requested",
-  "@refillRequestedHeading": { "description": "Heading shown when a refill request is in flight" },
-
+  "@refillRequestedHeading": {
+    "description": "Heading shown when a refill request is in flight"
+  },
   "vitalsTrendsHeading": "Trends vs Last Reading",
-  "@vitalsTrendsHeading": { "description": "Heading above vitals trends chart" },
+  "@vitalsTrendsHeading": {
+    "description": "Heading above vitals trends chart"
+  },
   "vitalsRecordFailedRetry": "Failed to record vitals. Please try again.",
-  "@vitalsRecordFailedRetry": { "description": "Snackbar when vitals record fails (retryable)" },
-
+  "@vitalsRecordFailedRetry": {
+    "description": "Snackbar when vitals record fails (retryable)"
+  },
   "yourHealthPrescriptionsEmpty": "No prescriptions yet",
-  "@yourHealthPrescriptionsEmpty": { "description": "Empty state for prescriptions tab" },
+  "@yourHealthPrescriptionsEmpty": {
+    "description": "Empty state for prescriptions tab"
+  },
   "yourHealthPrescriptionsEmptyHint": "Your doctor prescriptions will appear here",
-  "@yourHealthPrescriptionsEmptyHint": { "description": "Empty state hint for prescriptions tab" },
+  "@yourHealthPrescriptionsEmptyHint": {
+    "description": "Empty state hint for prescriptions tab"
+  },
   "yourHealthClinicalNotes": "Clinical Notes",
-  "@yourHealthClinicalNotes": { "description": "Heading for clinical notes section" },
+  "@yourHealthClinicalNotes": {
+    "description": "Heading for clinical notes section"
+  },
   "yourHealthDownloadPdf": "Download PDF",
-  "@yourHealthDownloadPdf": { "description": "Button to download a prescription PDF" },
+  "@yourHealthDownloadPdf": {
+    "description": "Button to download a prescription PDF"
+  },
   "yourHealthOrderMedicines": "Order Medicines",
-  "@yourHealthOrderMedicines": { "description": "Button to start a pharmacy order from a prescription" },
+  "@yourHealthOrderMedicines": {
+    "description": "Button to start a pharmacy order from a prescription"
+  },
   "yourHealthPlaceOrder": "Place Order",
-  "@yourHealthPlaceOrder": { "description": "Button to confirm a pharmacy order" },
+  "@yourHealthPlaceOrder": {
+    "description": "Button to confirm a pharmacy order"
+  },
   "yourHealthSafetyNotes": "Safety notes",
-  "@yourHealthSafetyNotes": { "description": "Heading for safety notes section" },
+  "@yourHealthSafetyNotes": {
+    "description": "Heading for safety notes section"
+  },
   "yourHealthClinicianOverride": "Clinician override on file:",
-  "@yourHealthClinicianOverride": { "description": "Label before clinician override note" },
+  "@yourHealthClinicianOverride": {
+    "description": "Label before clinician override note"
+  },
   "yourHealthTabExplanations": "Explanations",
-  "@yourHealthTabExplanations": { "description": "Tab label for accepted patient explanations in Your Health" },
+  "@yourHealthTabExplanations": {
+    "description": "Tab label for accepted patient explanations in Your Health"
+  },
   "yourHealthExplanationsDetailTitle": "Explanation",
-  "@yourHealthExplanationsDetailTitle": { "description": "App bar title for a patient explanation detail" },
+  "@yourHealthExplanationsDetailTitle": {
+    "description": "App bar title for a patient explanation detail"
+  },
   "yourHealthExplanationsReviewedLabel": "Reviewed",
-  "@yourHealthExplanationsReviewedLabel": { "description": "Label before the reviewed date on a patient explanation" },
+  "@yourHealthExplanationsReviewedLabel": {
+    "description": "Label before the reviewed date on a patient explanation"
+  },
   "yourHealthExplanationsSummary": "Summary",
-  "@yourHealthExplanationsSummary": { "description": "Section heading for explanation summary" },
+  "@yourHealthExplanationsSummary": {
+    "description": "Section heading for explanation summary"
+  },
   "yourHealthExplanationsKeyPoints": "Key points",
-  "@yourHealthExplanationsKeyPoints": { "description": "Section heading for explanation key points" },
+  "@yourHealthExplanationsKeyPoints": {
+    "description": "Section heading for explanation key points"
+  },
   "yourHealthExplanationsNextSteps": "Next steps",
-  "@yourHealthExplanationsNextSteps": { "description": "Section heading for explanation next steps" },
+  "@yourHealthExplanationsNextSteps": {
+    "description": "Section heading for explanation next steps"
+  },
   "yourHealthExplanationsWhenToSeekHelp": "When to seek help",
-  "@yourHealthExplanationsWhenToSeekHelp": { "description": "Section heading for explanation urgent-care guidance" },
+  "@yourHealthExplanationsWhenToSeekHelp": {
+    "description": "Section heading for explanation urgent-care guidance"
+  },
   "yourHealthExplanationsSafetyTitle": "Review flag",
-  "@yourHealthExplanationsSafetyTitle": { "description": "Heading for safety or review flag banner on explanation detail" },
+  "@yourHealthExplanationsSafetyTitle": {
+    "description": "Heading for safety or review flag banner on explanation detail"
+  },
   "yourHealthExplanationsSafetyBody": "Your care team marked this explanation for extra attention. Follow the guidance below and contact the hospital if symptoms worsen.",
-  "@yourHealthExplanationsSafetyBody": { "description": "Body text for safety or review flag banner on explanation detail" },
+  "@yourHealthExplanationsSafetyBody": {
+    "description": "Body text for safety or review flag banner on explanation detail"
+  },
   "yourHealthExplanationsNoSummary": "No details provided",
-  "@yourHealthExplanationsNoSummary": { "description": "Fallback text when an explanation section is empty" },
+  "@yourHealthExplanationsNoSummary": {
+    "description": "Fallback text when an explanation section is empty"
+  },
   "yourHealthExplanationsLoadFailed": "Could not load this explanation.",
-  "@yourHealthExplanationsLoadFailed": { "description": "Error text when explanation detail loading fails" },
+  "@yourHealthExplanationsLoadFailed": {
+    "description": "Error text when explanation detail loading fails"
+  },
   "yourHealthExplanationsRetry": "Retry",
-  "@yourHealthExplanationsRetry": { "description": "Retry button label for explanation detail" },
+  "@yourHealthExplanationsRetry": {
+    "description": "Retry button label for explanation detail"
+  },
   "yourHealthExplanationsEmpty": "No reviewed explanations yet",
-  "@yourHealthExplanationsEmpty": { "description": "Empty state for explanations tab if a visible tab refreshes to no data" },
-
+  "@yourHealthExplanationsEmpty": {
+    "description": "Empty state for explanations tab if a visible tab refreshes to no data"
+  },
   "appointmentsCancel": "Cancel Appointment",
-  "@appointmentsCancel": { "description": "Dialog title to cancel an appointment" },
+  "@appointmentsCancel": {
+    "description": "Dialog title to cancel an appointment"
+  },
   "appointmentsConfirmCancel": "Yes, Cancel",
-  "@appointmentsConfirmCancel": { "description": "Confirm button to cancel an appointment" },
+  "@appointmentsConfirmCancel": {
+    "description": "Confirm button to cancel an appointment"
+  },
   "appointmentsSelectTimeSlot": "Select Time Slot",
-  "@appointmentsSelectTimeSlot": { "description": "Sheet title for time slot picker" },
+  "@appointmentsSelectTimeSlot": {
+    "description": "Sheet title for time slot picker"
+  },
   "appointmentsLogOutAndBack": "Please log out and log back in to view your appointments.",
-  "@appointmentsLogOutAndBack": { "description": "Message asking user to re-login when patient id missing" },
+  "@appointmentsLogOutAndBack": {
+    "description": "Message asking user to re-login when patient id missing"
+  },
   "appointmentsEmpty": "No appointments yet",
-  "@appointmentsEmpty": { "description": "Empty state for appointments list" },
+  "@appointmentsEmpty": {
+    "description": "Empty state for appointments list"
+  },
   "appointmentsBookOneNow": "Book one now",
-  "@appointmentsBookOneNow": { "description": "Button label to book first appointment" },
+  "@appointmentsBookOneNow": {
+    "description": "Button label to book first appointment"
+  },
   "appointmentsViewPrescription": "View Prescription",
-  "@appointmentsViewPrescription": { "description": "Button to view prescription from appointment" },
-
+  "@appointmentsViewPrescription": {
+    "description": "Button to view prescription from appointment"
+  },
   "symptomCheckerTitle": "Symptom checker",
-  "@symptomCheckerTitle": { "description": "AppBar title for symptom checker" },
+  "@symptomCheckerTitle": {
+    "description": "AppBar title for symptom checker"
+  },
   "symptomCheckerDescribePrompt": "Describe what you're feeling",
-  "@symptomCheckerDescribePrompt": { "description": "Heading above symptom input" },
+  "@symptomCheckerDescribePrompt": {
+    "description": "Heading above symptom input"
+  },
   "symptomCheckerRedFlags": "Red flags",
-  "@symptomCheckerRedFlags": { "description": "Section heading for red-flag symptoms" },
+  "@symptomCheckerRedFlags": {
+    "description": "Section heading for red-flag symptoms"
+  },
   "symptomCheckerPossibleCauses": "Possible causes",
-  "@symptomCheckerPossibleCauses": { "description": "Section heading for possible causes" },
+  "@symptomCheckerPossibleCauses": {
+    "description": "Section heading for possible causes"
+  },
   "symptomCheckerBookAppointment": "Book an appointment",
-  "@symptomCheckerBookAppointment": { "description": "Button to book an appointment from symptom checker" },
+  "@symptomCheckerBookAppointment": {
+    "description": "Button to book an appointment from symptom checker"
+  },
   "symptomCheckerDisclaimer": "Triage output is AI-assisted and not a medical diagnosis. Always consult a qualified clinician.",
-  "@symptomCheckerDisclaimer": { "description": "Footer disclaimer about AI triage" },
-
+  "@symptomCheckerDisclaimer": {
+    "description": "Footer disclaimer about AI triage"
+  },
   "checkinSaveFailed": "Could not save check-in. Please try again.",
-  "@checkinSaveFailed": { "description": "Snackbar when daily check-in save fails" },
+  "@checkinSaveFailed": {
+    "description": "Snackbar when daily check-in save fails"
+  },
   "checkinTitle": "Daily Check-In",
-  "@checkinTitle": { "description": "Sheet title for daily check-in" },
+  "@checkinTitle": {
+    "description": "Sheet title for daily check-in"
+  },
   "checkinHowFeeling": "How are you feeling today?",
-  "@checkinHowFeeling": { "description": "Mood prompt in check-in sheet" },
+  "@checkinHowFeeling": {
+    "description": "Mood prompt in check-in sheet"
+  },
   "checkinQuickVitals": "Quick vitals (optional)",
-  "@checkinQuickVitals": { "description": "Heading for optional quick vitals" },
+  "@checkinQuickVitals": {
+    "description": "Heading for optional quick vitals"
+  },
   "checkinSaveButton": "Save check-in  ·  +10 points",
-  "@checkinSaveButton": { "description": "Submit button on check-in sheet" },
+  "@checkinSaveButton": {
+    "description": "Submit button on check-in sheet"
+  },
   "checkinSavedToast": "+10 health points added. See you tomorrow!",
-  "@checkinSavedToast": { "description": "Snackbar after successful check-in" },
-
+  "@checkinSavedToast": {
+    "description": "Snackbar after successful check-in"
+  },
   "settingsHealthIdLabel": "Health ID (ABHA)",
-  "@settingsHealthIdLabel": { "description": "Section title for ABHA in settings" },
+  "@settingsHealthIdLabel": {
+    "description": "Section title for ABHA in settings"
+  },
   "settingsHealthIdSubtitle": "Ayushman Bharat Health Account",
-  "@settingsHealthIdSubtitle": { "description": "Subtitle under Health ID section" },
+  "@settingsHealthIdSubtitle": {
+    "description": "Subtitle under Health ID section"
+  },
   "settingsConnectWearables": "Connect wearables",
-  "@settingsConnectWearables": { "description": "Section title for wearables connection" },
+  "@settingsConnectWearables": {
+    "description": "Section title for wearables connection"
+  },
   "settingsConnectWearablesSubtitle": "Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect",
-  "@settingsConnectWearablesSubtitle": { "description": "Subtitle under wearables section" },
+  "@settingsConnectWearablesSubtitle": {
+    "description": "Subtitle under wearables section"
+  },
   "settingsHealthPermissionsDenied": "Health permissions were not granted",
-  "@settingsHealthPermissionsDenied": { "description": "Snackbar when health permissions denied" },
+  "@settingsHealthPermissionsDenied": {
+    "description": "Snackbar when health permissions denied"
+  },
   "settingsSyncingHealth": "Syncing health data…",
-  "@settingsSyncingHealth": { "description": "Snackbar while syncing health data" },
-
+  "@settingsSyncingHealth": {
+    "description": "Snackbar while syncing health data"
+  },
   "otpVerifyPhoneHeading": "Verify Your Phone Number",
-  "@otpVerifyPhoneHeading": { "description": "Heading on the OTP verification screen" },
+  "@otpVerifyPhoneHeading": {
+    "description": "Heading on the OTP verification screen"
+  },
   "otpEnterDigits": "Enter the 6-digit OTP sent to",
-  "@otpEnterDigits": { "description": "Subheading prefix above phone number on OTP screen" },
+  "@otpEnterDigits": {
+    "description": "Subheading prefix above phone number on OTP screen"
+  },
   "otpVerifyButtonText": "Verify OTP",
-  "@otpVerifyButtonText": { "description": "Button label to verify OTP" },
+  "@otpVerifyButtonText": {
+    "description": "Button label to verify OTP"
+  },
   "otpResendingOtp": "Resending OTP...",
-  "@otpResendingOtp": { "description": "Status while OTP resend is in progress" },
+  "@otpResendingOtp": {
+    "description": "Status while OTP resend is in progress"
+  },
   "otpSentSuccess": "OTP has been sent to your phone number",
-  "@otpSentSuccess": { "description": "Snackbar after OTP resend succeeds" },
-
+  "@otpSentSuccess": {
+    "description": "Snackbar after OTP resend succeeds"
+  },
   "dashboardScheduleNextVisit": "Schedule your next visit",
-  "@dashboardScheduleNextVisit": { "description": "Dashboard widget title when no upcoming visit" },
+  "@dashboardScheduleNextVisit": {
+    "description": "Dashboard widget title when no upcoming visit"
+  },
   "dashboardStayOnTop": "Stay on top of your health",
-  "@dashboardStayOnTop": { "description": "Dashboard widget body when no upcoming visit" },
+  "@dashboardStayOnTop": {
+    "description": "Dashboard widget body when no upcoming visit"
+  },
   "dashboardBookNow": "Book Now",
-  "@dashboardBookNow": { "description": "Dashboard CTA to book an appointment" },
+  "@dashboardBookNow": {
+    "description": "Dashboard CTA to book an appointment"
+  },
   "dashboardLastVisit": "Last visit",
-  "@dashboardLastVisit": { "description": "Label for last visit date" },
+  "@dashboardLastVisit": {
+    "description": "Label for last visit date"
+  },
   "dashboardNextVisit": "Next visit",
-  "@dashboardNextVisit": { "description": "Label for next visit date" },
+  "@dashboardNextVisit": {
+    "description": "Label for next visit date"
+  },
   "dashboardLastVisitColon": "Last:",
-  "@dashboardLastVisitColon": { "description": "Compact label for last visit" },
+  "@dashboardLastVisitColon": {
+    "description": "Compact label for last visit"
+  },
   "dashboardNextVisitColon": "Next:",
-  "@dashboardNextVisitColon": { "description": "Compact label for next visit" },
+  "@dashboardNextVisitColon": {
+    "description": "Compact label for next visit"
+  },
   "dashboardToggleTheme": "Toggle theme",
-  "@dashboardToggleTheme": { "description": "Tooltip on theme toggle" },
+  "@dashboardToggleTheme": {
+    "description": "Tooltip on theme toggle"
+  },
   "dashboardToggleFontSize": "Toggle font size",
-  "@dashboardToggleFontSize": { "description": "Tooltip on font size toggle" },
+  "@dashboardToggleFontSize": {
+    "description": "Tooltip on font size toggle"
+  },
   "dashboardHealthPoints": "Health Points",
-  "@dashboardHealthPoints": { "description": "Dashboard widget title for health points" },
+  "@dashboardHealthPoints": {
+    "description": "Dashboard widget title for health points"
+  },
   "dashboardWellnessScore": "Wellness Score",
-  "@dashboardWellnessScore": { "description": "Dashboard widget title for wellness score" },
+  "@dashboardWellnessScore": {
+    "description": "Dashboard widget title for wellness score"
+  },
   "dashboardLastVisitTitle": "Last Visit",
-  "@dashboardLastVisitTitle": { "description": "Title for last visit card" },
+  "@dashboardLastVisitTitle": {
+    "description": "Title for last visit card"
+  },
   "dashboardNextVisitTitle": "Next Visit",
-  "@dashboardNextVisitTitle": { "description": "Title for next visit card" },
-
+  "@dashboardNextVisitTitle": {
+    "description": "Title for next visit card"
+  },
   "investigationsFileTooLarge": "File too large. Maximum size is 10 MB.",
-  "@investigationsFileTooLarge": { "description": "Snackbar when uploaded file exceeds size limit" },
+  "@investigationsFileTooLarge": {
+    "description": "Snackbar when uploaded file exceeds size limit"
+  },
   "investigationsViewDownloadReport": "View / Download Report",
-  "@investigationsViewDownloadReport": { "description": "Button label to view or download a report" },
+  "@investigationsViewDownloadReport": {
+    "description": "Button label to view or download a report"
+  },
   "investigationsBookButton": "Book Investigation",
-  "@investigationsBookButton": { "description": "Button to navigate to book investigation" },
+  "@investigationsBookButton": {
+    "description": "Button to navigate to book investigation"
+  },
   "investigationsNoFiles": "No files available",
-  "@investigationsNoFiles": { "description": "Empty state for investigation files list" },
+  "@investigationsNoFiles": {
+    "description": "Empty state for investigation files list"
+  },
   "myBookingsSlipAttached": "Prescription slip attached",
-  "@myBookingsSlipAttached": { "description": "Indicator on bookings list" },
+  "@myBookingsSlipAttached": {
+    "description": "Indicator on bookings list"
+  },
   "myBookingsDownloadResult": "Download Result",
-  "@myBookingsDownloadResult": { "description": "Button to download investigation result" },
-
+  "@myBookingsDownloadResult": {
+    "description": "Button to download investigation result"
+  },
   "pharmacyOrderNote": "Order Note",
-  "@pharmacyOrderNote": { "description": "Label for order note section" },
+  "@pharmacyOrderNote": {
+    "description": "Label for order note section"
+  },
   "pharmacyDeliveryInfo": "Delivery Info",
-  "@pharmacyDeliveryInfo": { "description": "Label for delivery info section" },
+  "@pharmacyDeliveryInfo": {
+    "description": "Label for delivery info section"
+  },
   "pharmacyOrdersEmpty": "No orders yet",
-  "@pharmacyOrdersEmpty": { "description": "Empty state for orders list" },
+  "@pharmacyOrdersEmpty": {
+    "description": "Empty state for orders list"
+  },
   "pharmacyOrdersEmptyHint": "Place your first order from the Order tab",
-  "@pharmacyOrdersEmptyHint": { "description": "Empty-state hint for orders list" },
+  "@pharmacyOrdersEmptyHint": {
+    "description": "Empty-state hint for orders list"
+  },
   "pharmacyOrderCancelled": "Order Cancelled",
-  "@pharmacyOrderCancelled": { "description": "Status label when order cancelled" },
-
+  "@pharmacyOrderCancelled": {
+    "description": "Status label when order cancelled"
+  },
   "splashDeviceNotSupported": "Device not supported",
-  "@splashDeviceNotSupported": { "description": "Heading shown when device fails attestation" },
+  "@splashDeviceNotSupported": {
+    "description": "Heading shown when device fails attestation"
+  },
   "splashDeviceNotSupportedBody": "For your safety, VH Health cannot run on this device. Reason:",
-  "@splashDeviceNotSupportedBody": { "description": "Body shown when device fails attestation" },
+  "@splashDeviceNotSupportedBody": {
+    "description": "Body shown when device fails attestation"
+  },
   "splashAppName": "VH Health",
-  "@splashAppName": { "description": "App name shown on splash screen" },
+  "@splashAppName": {
+    "description": "App name shown on splash screen"
+  },
   "splashTapAnywhere": "Tap anywhere to continue",
-  "@splashTapAnywhere": { "description": "Splash hint to tap to continue" },
-
+  "@splashTapAnywhere": {
+    "description": "Splash hint to tap to continue"
+  },
   "gamificationRewardClaimed": "Reward Claimed!",
-  "@gamificationRewardClaimed": { "description": "Dialog title after redeeming a reward" },
+  "@gamificationRewardClaimed": {
+    "description": "Dialog title after redeeming a reward"
+  },
   "gamificationVoucherCode": "Your voucher code:",
-  "@gamificationVoucherCode": { "description": "Label above voucher code" },
+  "@gamificationVoucherCode": {
+    "description": "Label above voucher code"
+  },
   "gamificationVoucherCopied": "Voucher code copied!",
-  "@gamificationVoucherCopied": { "description": "Snackbar after copying voucher code" },
+  "@gamificationVoucherCopied": {
+    "description": "Snackbar after copying voucher code"
+  },
   "gamificationCouldNotShare": "Could not share right now",
-  "@gamificationCouldNotShare": { "description": "Snackbar when share fails" },
+  "@gamificationCouldNotShare": {
+    "description": "Snackbar when share fails"
+  },
   "gamificationShareSubtitle": "Share your progress with family and friends",
-  "@gamificationShareSubtitle": { "description": "Subtitle on share card" },
+  "@gamificationShareSubtitle": {
+    "description": "Subtitle on share card"
+  },
   "gamificationLoadFailed": "Could not load your points summary",
-  "@gamificationLoadFailed": { "description": "Error state for points summary" },
+  "@gamificationLoadFailed": {
+    "description": "Error state for points summary"
+  },
   "gamificationHowToEarn": "How to earn points",
-  "@gamificationHowToEarn": { "description": "Heading above earning rules" },
+  "@gamificationHowToEarn": {
+    "description": "Heading above earning rules"
+  },
   "gamificationCompleteMilestones": "Complete milestones to earn rewards!",
-  "@gamificationCompleteMilestones": { "description": "Empty state for rewards tab" },
+  "@gamificationCompleteMilestones": {
+    "description": "Empty state for rewards tab"
+  },
   "gamificationNoPointHistory": "No point history yet",
-  "@gamificationNoPointHistory": { "description": "Empty state for points history" },
+  "@gamificationNoPointHistory": {
+    "description": "Empty state for points history"
+  },
   "gamificationNoMilestones": "No milestones available yet",
-  "@gamificationNoMilestones": { "description": "Empty state for milestones" },
-
+  "@gamificationNoMilestones": {
+    "description": "Empty state for milestones"
+  },
   "stepsShareCardTitle": "VH Health Step Challenge",
-  "@stepsShareCardTitle": { "description": "Title on the step share card image" },
+  "@stepsShareCardTitle": {
+    "description": "Title on the step share card image"
+  },
   "stepsShareCardSubtitle": "Venkataeswara Hospitals, Chennai",
-  "@stepsShareCardSubtitle": { "description": "Subtitle on the step share card image" },
+  "@stepsShareCardSubtitle": {
+    "description": "Subtitle on the step share card image"
+  },
   "stepsShareCardFooter": "VH Health App",
-  "@stepsShareCardFooter": { "description": "Footer on the step share card image" },
-
+  "@stepsShareCardFooter": {
+    "description": "Footer on the step share card image"
+  },
   "documentOpening": "Opening document...",
-  "@documentOpening": { "description": "Snackbar while opening a document" },
+  "@documentOpening": {
+    "description": "Snackbar while opening a document"
+  },
   "documentCouldNotOpen": "Could not open document",
-  "@documentCouldNotOpen": { "description": "Snackbar when document fails to open" },
-
+  "@documentCouldNotOpen": {
+    "description": "Snackbar when document fails to open"
+  },
   "permissionsNotNow": "Not Now",
-  "@permissionsNotNow": { "description": "Permission prompt: dismiss button" },
+  "@permissionsNotNow": {
+    "description": "Permission prompt: dismiss button"
+  },
   "permissionsOpenSettings": "Open Settings",
-  "@permissionsOpenSettings": { "description": "Permission prompt: open settings button" },
-
+  "@permissionsOpenSettings": {
+    "description": "Permission prompt: open settings button"
+  },
   "feedbackRateExperience": "Rate your experience",
-  "@feedbackRateExperience": { "description": "Heading on feedback prompt" },
+  "@feedbackRateExperience": {
+    "description": "Heading on feedback prompt"
+  },
   "feedbackSubmitButton": "Submit Feedback",
-  "@feedbackSubmitButton": { "description": "Button to submit feedback" },
+  "@feedbackSubmitButton": {
+    "description": "Button to submit feedback"
+  },
   "feedbackHistoryTitle": "My Feedback",
-  "@feedbackHistoryTitle": { "description": "AppBar title for feedback history" },
-
+  "@feedbackHistoryTitle": {
+    "description": "AppBar title for feedback history"
+  },
   "logoutConfirmTitle": "Confirm Logout",
-  "@logoutConfirmTitle": { "description": "Dialog title to confirm logout" },
+  "@logoutConfirmTitle": {
+    "description": "Dialog title to confirm logout"
+  },
   "logoutConfirmBody": "Are you sure you want to logout?",
-  "@logoutConfirmBody": { "description": "Dialog body to confirm logout" },
-
+  "@logoutConfirmBody": {
+    "description": "Dialog body to confirm logout"
+  },
   "aboutHospitalName": "Venkataeswara Hospitals",
-  "@aboutHospitalName": { "description": "Hospital name heading on About Us" },
+  "@aboutHospitalName": {
+    "description": "Hospital name heading on About Us"
+  },
   "aboutOpenInMaps": "Tap to open in Google Maps →",
-  "@aboutOpenInMaps": { "description": "Link to open hospital location in Google Maps" },
-
+  "@aboutOpenInMaps": {
+    "description": "Link to open hospital location in Google Maps"
+  },
   "departmentsConsultationFee": "Consultation Fee",
-  "@departmentsConsultationFee": { "description": "Label for doctor consultation fee" },
+  "@departmentsConsultationFee": {
+    "description": "Label for doctor consultation fee"
+  },
   "departmentsNoDoctors": "No doctors available in this department",
-  "@departmentsNoDoctors": { "description": "Empty state for doctors in a department" },
-
+  "@departmentsNoDoctors": {
+    "description": "Empty state for doctors in a department"
+  },
   "circularDialNoFeatures": "No features available",
-  "@circularDialNoFeatures": { "description": "Empty state for circular feature dial" },
+  "@circularDialNoFeatures": {
+    "description": "Empty state for circular feature dial"
+  },
   "deliveryYourLocation": "Your Location",
-  "@deliveryYourLocation": { "description": "Label for user location on delivery map" },
+  "@deliveryYourLocation": {
+    "description": "Label for user location on delivery map"
+  },
   "authDevLoginSkipOtp": "Dev login (skip OTP)",
-  "@authDevLoginSkipOtp": { "description": "Dev-only button to skip OTP" },
+  "@authDevLoginSkipOtp": {
+    "description": "Dev-only button to skip OTP"
+  },
   "permissionGateSettingUp": "Setting up...",
-  "@permissionGateSettingUp": { "description": "Status text while permission gate runs" },
-  "yourHealthUploadRecord": "Upload Record",
-  "@yourHealthUploadRecord": { "description": "Action button on Your Health screen to open upload sheet" },
-
+  "@permissionGateSettingUp": {
+    "description": "Status text while permission gate runs"
+  },
+  "yourHealthUploadRecord": "Upload record",
+  "@yourHealthUploadRecord": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
   "yourHealthWhatsNextTitle": "What's next",
-  "@yourHealthWhatsNextTitle": { "description": "Heading for the care-plan next steps section in Your Health" },
+  "@yourHealthWhatsNextTitle": {
+    "description": "Heading for the care-plan next steps section in Your Health"
+  },
   "yourHealthWhatsNextSubtitle": "Goals and follow-ups your care team marked for you.",
-  "@yourHealthWhatsNextSubtitle": { "description": "Subtitle for the care-plan next steps section" },
+  "@yourHealthWhatsNextSubtitle": {
+    "description": "Subtitle for the care-plan next steps section"
+  },
   "yourHealthWhatsNextGoals": "Goals",
-  "@yourHealthWhatsNextGoals": { "description": "Heading for active care-plan goals" },
+  "@yourHealthWhatsNextGoals": {
+    "description": "Heading for active care-plan goals"
+  },
   "yourHealthWhatsNextFollowUps": "Follow-ups",
-  "@yourHealthWhatsNextFollowUps": { "description": "Heading for care-plan follow-up plans" },
+  "@yourHealthWhatsNextFollowUps": {
+    "description": "Heading for care-plan follow-up plans"
+  },
   "yourHealthWhatsNextLoadFailed": "Could not load your next steps.",
-  "@yourHealthWhatsNextLoadFailed": { "description": "Error text when care-plan next steps loading fails" },
+  "@yourHealthWhatsNextLoadFailed": {
+    "description": "Error text when care-plan next steps loading fails"
+  },
   "yourHealthWhatsNextRetry": "Retry",
-  "@yourHealthWhatsNextRetry": { "description": "Retry button for the care-plan next steps section" },
+  "@yourHealthWhatsNextRetry": {
+    "description": "Retry button for the care-plan next steps section"
+  },
   "yourHealthWhatsNextPlan": "Plan",
-  "@yourHealthWhatsNextPlan": { "description": "Label before a care-plan name" },
+  "@yourHealthWhatsNextPlan": {
+    "description": "Label before a care-plan name"
+  },
   "yourHealthWhatsNextTarget": "Target",
-  "@yourHealthWhatsNextTarget": { "description": "Label before a care-plan goal target value" },
+  "@yourHealthWhatsNextTarget": {
+    "description": "Label before a care-plan goal target value"
+  },
   "yourHealthWhatsNextCurrent": "Current",
-  "@yourHealthWhatsNextCurrent": { "description": "Label before a care-plan goal current value" },
+  "@yourHealthWhatsNextCurrent": {
+    "description": "Label before a care-plan goal current value"
+  },
   "yourHealthWhatsNextDue": "Due",
-  "@yourHealthWhatsNextDue": { "description": "Label before a care-plan due date" },
-
+  "@yourHealthWhatsNextDue": {
+    "description": "Label before a care-plan due date"
+  },
   "ancTimelineTitle": "ANC Timeline",
-  "@ancTimelineTitle": { "description": "Screen title for antenatal-care timeline" },
+  "@ancTimelineTitle": {
+    "description": "Screen title for antenatal-care timeline"
+  },
   "ancLoadFailed": "Could not load ANC timeline",
-  "@ancLoadFailed": { "description": "Error title when ANC timeline loading fails" },
+  "@ancLoadFailed": {
+    "description": "Error title when ANC timeline loading fails"
+  },
   "ancNoActivePregnancyTitle": "No active pregnancy on record",
-  "@ancNoActivePregnancyTitle": { "description": "Empty-state title when no pregnancy is linked" },
+  "@ancNoActivePregnancyTitle": {
+    "description": "Empty-state title when no pregnancy is linked"
+  },
   "ancNoActivePregnancySubtitle": "If you have started antenatal care, your doctor will register your pregnancy at your next visit.",
-  "@ancNoActivePregnancySubtitle": { "description": "Empty-state subtitle when no pregnancy is linked" },
+  "@ancNoActivePregnancySubtitle": {
+    "description": "Empty-state subtitle when no pregnancy is linked"
+  },
   "ancDuePrefix": "Due",
-  "@ancDuePrefix": { "description": "Prefix before expected delivery date" },
+  "@ancDuePrefix": {
+    "description": "Prefix before expected delivery date"
+  },
   "ancGestationalAgeFallback": "Gestational age unavailable",
-  "@ancGestationalAgeFallback": { "description": "Fallback when gestational age is unavailable" },
+  "@ancGestationalAgeFallback": {
+    "description": "Fallback when gestational age is unavailable"
+  },
   "ancHighRiskPregnancy": "High-risk pregnancy",
-  "@ancHighRiskPregnancy": { "description": "Label for high-risk pregnancy flag" },
+  "@ancHighRiskPregnancy": {
+    "description": "Label for high-risk pregnancy flag"
+  },
   "ancHighRiskPrefix": "High-risk",
-  "@ancHighRiskPrefix": { "description": "Prefix before high-risk reasons" },
+  "@ancHighRiskPrefix": {
+    "description": "Prefix before high-risk reasons"
+  },
   "ancDangerSignsTitle": "Danger signs",
-  "@ancDangerSignsTitle": { "description": "Prominent ANC safety heading for danger signs" },
+  "@ancDangerSignsTitle": {
+    "description": "Prominent ANC safety heading for danger signs"
+  },
   "ancSafetyGuidanceTitle": "ANC self-care",
-  "@ancSafetyGuidanceTitle": { "description": "Heading for ANC self-care advice" },
+  "@ancSafetyGuidanceTitle": {
+    "description": "Heading for ANC self-care advice"
+  },
   "ancSafetyGuidanceSubtitle": "Call the hospital or seek urgent care if any of these appear.",
-  "@ancSafetyGuidanceSubtitle": { "description": "Subtitle under danger-sign safety guidance" },
+  "@ancSafetyGuidanceSubtitle": {
+    "description": "Subtitle under danger-sign safety guidance"
+  },
   "ancTrimesterPrefix": "Trimester",
-  "@ancTrimesterPrefix": { "description": "Prefix before trimester number" },
+  "@ancTrimesterPrefix": {
+    "description": "Prefix before trimester number"
+  },
   "ancClinicalContentPending": "Clinical content pending review",
-  "@ancClinicalContentPending": { "description": "Shown when backend advice content is pending review" },
+  "@ancClinicalContentPending": {
+    "description": "Shown when backend advice content is pending review"
+  },
   "ancContentPendingReview": "Reviewed local-language guidance is pending clinical sign-off.",
-  "@ancContentPendingReview": { "description": "Small note when ANC advice content is pending clinical review" },
+  "@ancContentPendingReview": {
+    "description": "Small note when ANC advice content is pending clinical review"
+  },
   "ancAdviceLoadFailed": "ANC safety guidance could not be loaded right now.",
-  "@ancAdviceLoadFailed": { "description": "Inline error when ANC advice loading fails" },
+  "@ancAdviceLoadFailed": {
+    "description": "Inline error when ANC advice loading fails"
+  },
   "ancFetalKickCounter": "Fetal kick counter",
-  "@ancFetalKickCounter": { "description": "Heading for fetal kick counter card" },
+  "@ancFetalKickCounter": {
+    "description": "Heading for fetal kick counter card"
+  },
   "ancLastSavedPrefix": "Last saved",
-  "@ancLastSavedPrefix": { "description": "Prefix before last fetal kick log" },
+  "@ancLastSavedPrefix": {
+    "description": "Prefix before last fetal kick log"
+  },
   "ancKicksUnit": "kicks",
-  "@ancKicksUnit": { "description": "Unit label for fetal kicks" },
+  "@ancKicksUnit": {
+    "description": "Unit label for fetal kicks"
+  },
   "ancOnDatePrefix": "on",
-  "@ancOnDatePrefix": { "description": "Small connector before a date" },
+  "@ancOnDatePrefix": {
+    "description": "Small connector before a date"
+  },
   "ancKickCountLabel": "Kick count",
-  "@ancKickCountLabel": { "description": "Input label for fetal kick count" },
+  "@ancKickCountLabel": {
+    "description": "Input label for fetal kick count"
+  },
   "ancObservationWindowLabel": "Observation window (minutes)",
-  "@ancObservationWindowLabel": { "description": "Input label for fetal kick observation window" },
+  "@ancObservationWindowLabel": {
+    "description": "Input label for fetal kick observation window"
+  },
   "ancNotesLabel": "Notes",
-  "@ancNotesLabel": { "description": "Input label for optional notes" },
+  "@ancNotesLabel": {
+    "description": "Input label for optional notes"
+  },
   "ancKickCountValidation": "Enter a kick count between 0 and 999",
-  "@ancKickCountValidation": { "description": "Validation error for fetal kick count" },
+  "@ancKickCountValidation": {
+    "description": "Validation error for fetal kick count"
+  },
   "ancWindowValidation": "Observation window must be 1-1440 minutes",
-  "@ancWindowValidation": { "description": "Validation error for fetal kick observation window" },
+  "@ancWindowValidation": {
+    "description": "Validation error for fetal kick observation window"
+  },
   "ancKickCountSaved": "Kick count saved",
-  "@ancKickCountSaved": { "description": "Success message after saving fetal kicks" },
+  "@ancKickCountSaved": {
+    "description": "Success message after saving fetal kicks"
+  },
   "ancCouldNotSaveKickCount": "Could not save kick count",
-  "@ancCouldNotSaveKickCount": { "description": "Error message when fetal kick save fails" },
+  "@ancCouldNotSaveKickCount": {
+    "description": "Error message when fetal kick save fails"
+  },
   "ancSaveKickCount": "Save kick count",
-  "@ancSaveKickCount": { "description": "Button label to save fetal kicks" },
+  "@ancSaveKickCount": {
+    "description": "Button label to save fetal kicks"
+  },
   "ancSaving": "Saving...",
-  "@ancSaving": { "description": "Button label while saving" },
+  "@ancSaving": {
+    "description": "Button label while saving"
+  },
   "ancMaternityPackages": "Maternity packages",
-  "@ancMaternityPackages": { "description": "Heading for maternity packages" },
+  "@ancMaternityPackages": {
+    "description": "Heading for maternity packages"
+  },
   "ancPackageFallback": "Maternity package",
-  "@ancPackageFallback": { "description": "Fallback name for maternity package" },
+  "@ancPackageFallback": {
+    "description": "Fallback name for maternity package"
+  },
   "ancPricingUnderReview": "Pricing under review",
-  "@ancPricingUnderReview": { "description": "Fallback when package pricing is unavailable" },
+  "@ancPricingUnderReview": {
+    "description": "Fallback when package pricing is unavailable"
+  },
   "ancDaysSuffix": "days",
-  "@ancDaysSuffix": { "description": "Suffix after duration count" },
+  "@ancDaysSuffix": {
+    "description": "Suffix after duration count"
+  },
   "ancNextVisit": "Next visit",
-  "@ancNextVisit": { "description": "Heading for next ANC visit card" },
+  "@ancNextVisit": {
+    "description": "Heading for next ANC visit card"
+  },
   "ancToBeScheduled": "To be scheduled",
-  "@ancToBeScheduled": { "description": "Fallback when next visit date is not set" },
+  "@ancToBeScheduled": {
+    "description": "Fallback when next visit date is not set"
+  },
   "ancVisitsSoFar": "Visits so far",
-  "@ancVisitsSoFar": { "description": "Heading for completed ANC visits" },
+  "@ancVisitsSoFar": {
+    "description": "Heading for completed ANC visits"
+  },
   "ancVisit": "Visit",
-  "@ancVisit": { "description": "Fallback visit title" },
+  "@ancVisit": {
+    "description": "Fallback visit title"
+  },
   "ancVisitNumberPrefix": "Visit #",
-  "@ancVisitNumberPrefix": { "description": "Prefix before ANC visit number" },
+  "@ancVisitNumberPrefix": {
+    "description": "Prefix before ANC visit number"
+  },
   "ancGaWeeksSuffix": "weeks",
-  "@ancGaWeeksSuffix": { "description": "Suffix after gestational age week count" },
+  "@ancGaWeeksSuffix": {
+    "description": "Suffix after gestational age week count"
+  },
   "ancBpLabel": "BP",
-  "@ancBpLabel": { "description": "Blood pressure label" },
+  "@ancBpLabel": {
+    "description": "Blood pressure label"
+  },
   "ancWeightLabel": "Weight",
-  "@ancWeightLabel": { "description": "Weight label" },
+  "@ancWeightLabel": {
+    "description": "Weight label"
+  },
   "ancFhrLabel": "FHR",
-  "@ancFhrLabel": { "description": "Fetal heart rate label" },
+  "@ancFhrLabel": {
+    "description": "Fetal heart rate label"
+  },
   "ancFundalHeightLabel": "Fundal ht.",
-  "@ancFundalHeightLabel": { "description": "Fundal height label" },
+  "@ancFundalHeightLabel": {
+    "description": "Fundal height label"
+  },
   "ancHbLabel": "Hb",
-  "@ancHbLabel": { "description": "Hemoglobin label" },
+  "@ancHbLabel": {
+    "description": "Hemoglobin label"
+  },
   "ancUrineAlbuminLabel": "Urine albumin",
-  "@ancUrineAlbuminLabel": { "description": "Urine albumin label" },
+  "@ancUrineAlbuminLabel": {
+    "description": "Urine albumin label"
+  },
   "ancSupplements": "Supplements",
-  "@ancSupplements": { "description": "Heading for ANC supplements" },
+  "@ancSupplements": {
+    "description": "Heading for ANC supplements"
+  },
   "ancDosePrefix": "Dose",
-  "@ancDosePrefix": { "description": "Prefix before supplement dose" },
+  "@ancDosePrefix": {
+    "description": "Prefix before supplement dose"
+  },
   "ancFrequencyPrefix": "Frequency",
-  "@ancFrequencyPrefix": { "description": "Prefix before supplement frequency" },
+  "@ancFrequencyPrefix": {
+    "description": "Prefix before supplement frequency"
+  },
   "ancSincePrefix": "since",
-  "@ancSincePrefix": { "description": "Prefix before supplement start date" },
+  "@ancSincePrefix": {
+    "description": "Prefix before supplement start date"
+  },
   "ancReminderTimesPrefix": "Reminder times",
-  "@ancReminderTimesPrefix": { "description": "Prefix before supplement reminder times" },
+  "@ancReminderTimesPrefix": {
+    "description": "Prefix before supplement reminder times"
+  },
   "ancNoFixedReminderTime": "No fixed reminder time",
-  "@ancNoFixedReminderTime": { "description": "Shown when supplement has no fixed dose time" },
+  "@ancNoFixedReminderTime": {
+    "description": "Shown when supplement has no fixed dose time"
+  },
   "ancReminderEnabledLabel": "On",
-  "@ancReminderEnabledLabel": { "description": "Supplement reminder enabled label" },
+  "@ancReminderEnabledLabel": {
+    "description": "Supplement reminder enabled label"
+  },
   "ancReminderDisabledLabel": "Off",
-  "@ancReminderDisabledLabel": { "description": "Supplement reminder disabled label" },
+  "@ancReminderDisabledLabel": {
+    "description": "Supplement reminder disabled label"
+  },
   "ancReminderOn": "Supplement reminder turned on",
-  "@ancReminderOn": { "description": "Snackbar when supplement reminder is enabled" },
+  "@ancReminderOn": {
+    "description": "Snackbar when supplement reminder is enabled"
+  },
   "ancReminderOff": "Supplement reminder turned off",
-  "@ancReminderOff": { "description": "Snackbar when supplement reminder is disabled" },
+  "@ancReminderOff": {
+    "description": "Snackbar when supplement reminder is disabled"
+  },
   "ancReminderToggleFailed": "Could not update supplement reminder",
-  "@ancReminderToggleFailed": { "description": "Snackbar when supplement reminder toggle fails" },
+  "@ancReminderToggleFailed": {
+    "description": "Snackbar when supplement reminder toggle fails"
+  },
   "ancReminderScheduleFailed": "Reminder saved, but no fixed local notification could be scheduled.",
-  "@ancReminderScheduleFailed": { "description": "Snackbar when backend toggle saved but local notification scheduling is unavailable" },
+  "@ancReminderScheduleFailed": {
+    "description": "Snackbar when backend toggle saved but local notification scheduling is unavailable"
+  },
   "ancAdviceCategoryDangerSigns": "Danger signs",
-  "@ancAdviceCategoryDangerSigns": { "description": "ANC advice category label" },
+  "@ancAdviceCategoryDangerSigns": {
+    "description": "ANC advice category label"
+  },
   "ancAdviceCategoryFetalMovement": "Baby movements",
-  "@ancAdviceCategoryFetalMovement": { "description": "ANC advice category label" },
+  "@ancAdviceCategoryFetalMovement": {
+    "description": "ANC advice category label"
+  },
   "ancAdviceCategoryFoodsToAvoid": "Foods to avoid",
-  "@ancAdviceCategoryFoodsToAvoid": { "description": "ANC advice category label" },
+  "@ancAdviceCategoryFoodsToAvoid": {
+    "description": "ANC advice category label"
+  },
   "ancAdviceCategoryWhenToContact": "When to contact us",
-  "@ancAdviceCategoryWhenToContact": { "description": "ANC advice category label" },
+  "@ancAdviceCategoryWhenToContact": {
+    "description": "ANC advice category label"
+  },
   "ancFrequencyOnceDaily": "Once daily",
-  "@ancFrequencyOnceDaily": { "description": "Supplement frequency label" },
+  "@ancFrequencyOnceDaily": {
+    "description": "Supplement frequency label"
+  },
   "ancFrequencyTwiceDaily": "Twice daily",
-  "@ancFrequencyTwiceDaily": { "description": "Supplement frequency label" },
+  "@ancFrequencyTwiceDaily": {
+    "description": "Supplement frequency label"
+  },
   "ancFrequencyThriceDaily": "Three times daily",
-  "@ancFrequencyThriceDaily": { "description": "Supplement frequency label" },
+  "@ancFrequencyThriceDaily": {
+    "description": "Supplement frequency label"
+  },
   "ancFrequencyWeekly": "Weekly",
-  "@ancFrequencyWeekly": { "description": "Supplement frequency label" },
+  "@ancFrequencyWeekly": {
+    "description": "Supplement frequency label"
+  },
   "ancFrequencyAsNeeded": "As needed",
-  "@ancFrequencyAsNeeded": { "description": "Supplement frequency label" },
+  "@ancFrequencyAsNeeded": {
+    "description": "Supplement frequency label"
+  },
   "recordAccessTitle": "Record access",
   "recordAccessSettingsSubtitle": "Control who can see your released records",
   "recordAccessLoadFailed": "Could not load record access",
@@ -1775,5 +2284,1619 @@
   "recordAccessContinueButton": "Continue",
   "recordAccessProxyFallback": "Proxy",
   "recordAccessStatusActive": "Active",
-  "recordAccessStatusRevoked": "Revoked"
+  "recordAccessStatusRevoked": "Revoked",
+  "commonRetryButton": "Retry",
+  "@commonRetryButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonContinueButton": "Continue",
+  "@commonContinueButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonBackButton": "Back",
+  "@commonBackButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonOkButton": "OK",
+  "@commonOkButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "navigationHome": "Home",
+  "@navigationHome": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "notificationsTitle": "Notifications",
+  "@notificationsTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsBookTab": "Book",
+  "@appointmentsBookTab": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsMyAppointmentsTab": "My Appointments",
+  "@appointmentsMyAppointmentsTab": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyOrderTab": "Order",
+  "@pharmacyOrderTab": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyMyOrdersTab": "My Orders",
+  "@pharmacyMyOrdersTab": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyFileTooLarge": "File too large. Maximum size is 10 MB.",
+  "@pharmacyFileTooLarge": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyPrescriptionOrDescriptionRequired": "Please upload a prescription or describe your order",
+  "@pharmacyPrescriptionOrDescriptionRequired": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyOrderPlacedToast": "Order placed! {orderNumber}",
+  "@pharmacyOrderPlacedToast": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "orderNumber": {
+        "type": "String",
+        "example": "PH-1234"
+      }
+    }
+  },
+  "pharmacyOrderNumber": "Order Number: {orderNumber}",
+  "@pharmacyOrderNumber": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "orderNumber": {
+        "type": "String",
+        "example": "PH-1234"
+      }
+    }
+  },
+  "pharmacyPlaceOrderFailed": "Failed to place order",
+  "@pharmacyPlaceOrderFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyPlaceOrderError": "Error: {error}",
+  "@pharmacyPlaceOrderError": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Network timeout"
+      }
+    }
+  },
+  "billsTitle": "Bills",
+  "@billsTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billsLoadFailed": "Unable to load bills. Please pull down to retry.",
+  "@billsLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billsEmptyTitle": "No bills yet",
+  "@billsEmptyTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billsEmptySubtitle": "Bills issued by the hospital will appear here. Pull to refresh.",
+  "@billsEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billsInvoiceFallback": "Invoice #{id}",
+  "@billsInvoiceFallback": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "id": {
+        "type": "int",
+        "example": "42"
+      }
+    }
+  },
+  "billsTotal": "Total",
+  "@billsTotal": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billsPaid": "Paid",
+  "@billsPaid": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billsDue": "Due",
+  "@billsDue": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimsTitle": "Insurance claims",
+  "@tpaClaimsTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimsLoadFailed": "Unable to load insurance claims. Please pull down to retry.",
+  "@tpaClaimsLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimsEmptyTitle": "No insurance claims yet",
+  "@tpaClaimsEmptyTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimFallback": "Claim",
+  "@tpaClaimFallback": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimClaimed": "Claimed",
+  "@tpaClaimClaimed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimApproved": "Approved",
+  "@tpaClaimApproved": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimPaidByInsurer": "Paid by insurer",
+  "@tpaClaimPaidByInsurer": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimBreakdownTitle": "Claim breakdown",
+  "@tpaClaimBreakdownTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimNoData": "No data",
+  "@tpaClaimNoData": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimDocumentsLoadFailed": "Could not load claim documents",
+  "@tpaClaimDocumentsLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimLoadFailed": "Unable to load claim. Please pull down to retry.",
+  "@tpaClaimLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimDocumentDownloadFailed": "Could not download document",
+  "@tpaClaimDocumentDownloadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimSummary": "Summary",
+  "@tpaClaimSummary": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimHospitalBilled": "Hospital billed",
+  "@tpaClaimHospitalBilled": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimTpaClaimed": "TPA claimed",
+  "@tpaClaimTpaClaimed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimTpaApproved": "TPA approved",
+  "@tpaClaimTpaApproved": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimTpaDisallowed": "TPA disallowed",
+  "@tpaClaimTpaDisallowed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimNonPayableItems": "Non-payable items",
+  "@tpaClaimNonPayableItems": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimPolicyCopay": "Policy co-pay",
+  "@tpaClaimPolicyCopay": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimYouPaid": "You paid",
+  "@tpaClaimYouPaid": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimDocuments": "Claim documents",
+  "@tpaClaimDocuments": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimDocumentFallback": "Document",
+  "@tpaClaimDocumentFallback": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimDownloadTooltip": "Download",
+  "@tpaClaimDownloadTooltip": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimLatestInsurerMessage": "Latest insurer message",
+  "@tpaClaimLatestInsurerMessage": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimWhyDisallowed": "Why an amount was disallowed",
+  "@tpaClaimWhyDisallowed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimInvoiceBreakdown": "Invoice breakdown",
+  "@tpaClaimInvoiceBreakdown": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimTotal": "Total",
+  "@tpaClaimTotal": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimCorrespondence": "Correspondence",
+  "@tpaClaimCorrespondence": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentTitle": "Add a dependent",
+  "@addDependentTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentHeading": "Link a minor patient",
+  "@addDependentHeading": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentIntro": "Enter the phone number or VH Health UID of the minor patient. The minor must already be registered, typically at reception during their first visit.",
+  "@addDependentIntro": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentIdentifierLabel": "Phone number or UID",
+  "@addDependentIdentifierLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentIdentifierHint": "+91 9876543210 or a-uuid-from-reception",
+  "@addDependentIdentifierHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentIdentifierRequired": "Phone or UID is required",
+  "@addDependentIdentifierRequired": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentIdentifierInvalid": "Enter a phone (10-15 digits) or a UID",
+  "@addDependentIdentifierInvalid": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipLabel": "Your relationship to them",
+  "@addDependentRelationshipLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipParent": "Parent",
+  "@addDependentRelationshipParent": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipMother": "Mother",
+  "@addDependentRelationshipMother": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipFather": "Father",
+  "@addDependentRelationshipFather": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipLegalGuardian": "Legal guardian",
+  "@addDependentRelationshipLegalGuardian": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipGrandparent": "Grandparent",
+  "@addDependentRelationshipGrandparent": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipSibling": "Sibling",
+  "@addDependentRelationshipSibling": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipSpouse": "Spouse",
+  "@addDependentRelationshipSpouse": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentRelationshipOther": "Other",
+  "@addDependentRelationshipOther": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentLinkedTitle": "Dependent linked",
+  "@addDependentLinkedTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentLinkedBody": "{name} is now linked under your account. Switch to their profile now?",
+  "@addDependentLinkedBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Ananya"
+      }
+    }
+  },
+  "addDependentNotYetButton": "Not yet",
+  "@addDependentNotYetButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentSwitchProfileButton": "Switch profile",
+  "@addDependentSwitchProfileButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentLinkedToast": "Linked {name}",
+  "@addDependentLinkedToast": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Ananya"
+      }
+    }
+  },
+  "addDependentLinkFailed": "Failed to link dependent. Please try again.",
+  "@addDependentLinkFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentLinkingButton": "Linking...",
+  "@addDependentLinkingButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentLinkButton": "Link dependent",
+  "@addDependentLinkButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "addDependentReceptionHint": "Do not see the dependent? Ask reception to register them first. They need a VH Health UID before you can link them.",
+  "@addDependentReceptionHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationFrequencyOnceDaily": "Once Daily",
+  "@medicationFrequencyOnceDaily": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationFrequencyTwiceDaily": "Twice Daily",
+  "@medicationFrequencyTwiceDaily": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationFrequencyThriceDaily": "Thrice Daily",
+  "@medicationFrequencyThriceDaily": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationFrequencyAsNeeded": "As Needed",
+  "@medicationFrequencyAsNeeded": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationRemindersLoadFailed": "Unable to load medication reminders. Please pull down to retry.",
+  "@medicationRemindersLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationRemindersRetryButton": "Retry reminders",
+  "@medicationRemindersRetryButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderAncSupplement": "ANC supplement",
+  "@medicationReminderAncSupplement": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderDeleteTooltip": "Delete reminder",
+  "@medicationReminderDeleteTooltip": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderDosageLine": "Dosage: {dosage}",
+  "@medicationReminderDosageLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "dosage": {
+        "type": "String",
+        "example": "1 tablet"
+      }
+    }
+  },
+  "medicationReminderFrequencyLine": "Frequency: {frequency}",
+  "@medicationReminderFrequencyLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "frequency": {
+        "type": "String",
+        "example": "Once Daily"
+      }
+    }
+  },
+  "medicationReminderTimesLine": "Times: {times}",
+  "@medicationReminderTimesLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "times": {
+        "type": "String",
+        "example": "08:00, 20:00"
+      }
+    }
+  },
+  "medicationReminderNotesLine": "Notes: {notes}",
+  "@medicationReminderNotesLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "notes": {
+        "type": "String",
+        "example": "After food"
+      }
+    }
+  },
+  "medicationReminderStartLine": "Start: {date}",
+  "@medicationReminderStartLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "2026-07-04"
+      }
+    }
+  },
+  "medicationReminderEndLine": "End: {date}",
+  "@medicationReminderEndLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "2026-08-04"
+      }
+    }
+  },
+  "medicationReminderNoEndDate": "End: No end date",
+  "@medicationReminderNoEndDate": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "medicationReminderNotesOptional": "Notes (optional)",
+  "@medicationReminderNotesOptional": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationSlotMorning": "Morning (9 AM - 12 PM)",
+  "@bookInvestigationSlotMorning": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationSlotAfternoon": "Afternoon (12 PM - 3 PM)",
+  "@bookInvestigationSlotAfternoon": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationSlotEvening": "Evening (3 PM - 6 PM)",
+  "@bookInvestigationSlotEvening": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationBookingFailed": "Booking failed",
+  "@bookInvestigationBookingFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationBookingError": "Unable to book the investigation. Please try again.",
+  "@bookInvestigationBookingError": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationBookNowButton": "Book Now",
+  "@bookInvestigationBookNowButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationBookingButton": "Booking...",
+  "@bookInvestigationBookingButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationSelectedCount": "{count} selected",
+  "@bookInvestigationSelectedCount": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "bookInvestigationSearchHint": "Search tests...",
+  "@bookInvestigationSearchHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCostFasting": "₹{cost} • Fasting required",
+  "@bookInvestigationCostFasting": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "cost": {
+        "type": "String",
+        "example": "250"
+      }
+    }
+  },
+  "bookInvestigationCustomTestHint": "e.g. CBC, Sugar test, Thyroid",
+  "@bookInvestigationCustomTestHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCameraButton": "Camera",
+  "@bookInvestigationCameraButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationGalleryButton": "Gallery",
+  "@bookInvestigationGalleryButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationPhotoSelected": "Photo selected",
+  "@bookInvestigationPhotoSelected": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCollectionAddressLabel": "Collection Address *",
+  "@bookInvestigationCollectionAddressLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCollectionAddressHint": "Enter your full address",
+  "@bookInvestigationCollectionAddressHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationLandmarkLabel": "Landmark",
+  "@bookInvestigationLandmarkLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationLandmarkHint": "Near/opposite...",
+  "@bookInvestigationLandmarkHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationPreferredDate": "Preferred Date",
+  "@bookInvestigationPreferredDate": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationNotesOptional": "Notes (optional)",
+  "@bookInvestigationNotesOptional": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationNotesHint": "Any special instructions...",
+  "@bookInvestigationNotesHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsInvalidValue": "Invalid",
+  "@vitalsInvalidValue": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsHeartRateRange": "Enter 30-250 bpm",
+  "@vitalsHeartRateRange": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsTemperatureRange": "Enter 90-110 °F",
+  "@vitalsTemperatureRange": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsBloodSugarRange": "Enter 20-600 mg/dL",
+  "@vitalsBloodSugarRange": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsWeightRange": "Enter 1-300 kg",
+  "@vitalsWeightRange": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsSpo2Range": "Enter 50-100%",
+  "@vitalsSpo2Range": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "vitalsHistoryHeading": "History",
+  "@vitalsHistoryHeading": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTabTimeline": "Timeline",
+  "@yourHealthTabTimeline": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTabMyUploads": "My Uploads",
+  "@yourHealthTabMyUploads": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTabPrescriptions": "Prescriptions",
+  "@yourHealthTabPrescriptions": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyOrderNoteHint": "e.g., Dolo 650 - 2 strips, Pan 40 - 1 strip...",
+  "@pharmacyOrderNoteHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyHomeDelivery": "Home Delivery",
+  "@pharmacyHomeDelivery": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyPickup": "Pickup",
+  "@pharmacyPickup": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyLandmarkOptional": "Landmark (optional)",
+  "@pharmacyLandmarkOptional": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyLandmarkHint": "Near...",
+  "@pharmacyLandmarkHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonCouldNotOpenLink": "Could not open the link",
+  "@commonCouldNotOpenLink": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonCloseButton": "Close",
+  "@commonCloseButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonOpenButton": "Open",
+  "@commonOpenButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "commonRefreshButton": "Refresh",
+  "@commonRefreshButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "guestSignInDefaultFeature": "this feature",
+  "@guestSignInDefaultFeature": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "guestSignInTitle": "Sign in required",
+  "@guestSignInTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "guestSignInBody": "Sign in to use {feature}.",
+  "@guestSignInBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "feature": {
+        "type": "String",
+        "example": "appointments"
+      }
+    }
+  },
+  "guestSignInKeepBrowsing": "Keep browsing",
+  "@guestSignInKeepBrowsing": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "guestSignInAndReturn": "Sign in and return",
+  "@guestSignInAndReturn": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardOpenStepChallenge": "Open step challenge",
+  "@dashboardOpenStepChallenge": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardRecentActivity": "Recent activity",
+  "@dashboardRecentActivity": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardOpenHealthPoints": "Open health points",
+  "@dashboardOpenHealthPoints": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardHealthConnectSynced": "Health data synced - activity and vitals updated",
+  "@dashboardHealthConnectSynced": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardHealthConnectNoSamples": "No new samples to sync",
+  "@dashboardHealthConnectNoSamples": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardHealthConnectOpenFailed": "Could not open Health Connect",
+  "@dashboardHealthConnectOpenFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardExploreSection": "Explore",
+  "@dashboardExploreSection": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardTodaySection": "Today",
+  "@dashboardTodaySection": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherSelfName": "You",
+  "@profileSwitcherSelfName": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherTitle": "Profiles",
+  "@profileSwitcherTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherSubtitle": "Switch between your profile and linked dependents",
+  "@profileSwitcherSubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherYourProfile": "Your profile",
+  "@profileSwitcherYourProfile": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherNoDependents": "No dependents linked yet",
+  "@profileSwitcherNoDependents": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherRemoveDependentTitle": "Remove dependent?",
+  "@profileSwitcherRemoveDependentTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherRemoveDependentBody": "Remove {name} from your linked profiles?",
+  "@profileSwitcherRemoveDependentBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Ananya"
+      }
+    }
+  },
+  "profileSwitcherRemoveButton": "Remove",
+  "@profileSwitcherRemoveButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "profileSwitcherRemovedToast": "Removed {name}",
+  "@profileSwitcherRemovedToast": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Ananya"
+      }
+    }
+  },
+  "profileSwitcherRemoveFailed": "Could not remove dependent. Please try again.",
+  "@profileSwitcherRemoveFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerMarkStartedToday": "Mark started today",
+  "@periodTrackerMarkStartedToday": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerEnterStartDate": "Enter start date",
+  "@periodTrackerEnterStartDate": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerOpen": "Open tracker",
+  "@periodTrackerOpen": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerCycleStartRecorded": "Cycle start recorded",
+  "@periodTrackerCycleStartRecorded": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerCycleStartSaveFailed": "Could not save cycle start",
+  "@periodTrackerCycleStartSaveFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerSavedToast": "Cycle tracker saved",
+  "@periodTrackerSavedToast": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerLastPeriodStart": "Last period start",
+  "@periodTrackerLastPeriodStart": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerTitle": "Period Tracker",
+  "@periodTrackerTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerCycleDetails": "Cycle details",
+  "@periodTrackerCycleDetails": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerCycleLength": "Cycle length",
+  "@periodTrackerCycleLength": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerDays": "days",
+  "@periodTrackerDays": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerPeriodLength": "Period length",
+  "@periodTrackerPeriodLength": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerSaving": "Saving",
+  "@periodTrackerSaving": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerSaveTracker": "Save tracker",
+  "@periodTrackerSaveTracker": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerAddFirstDay": "Add the first day of your last period.",
+  "@periodTrackerAddFirstDay": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerPregnancyCaution": "This is not a diagnosis. Consider a pregnancy test or clinician review.",
+  "@periodTrackerPregnancyCaution": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerCycleDay": "Cycle day {cycleDay}",
+  "@periodTrackerCycleDay": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "cycleDay": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "periodTrackerStartedToday": "Started today",
+  "@periodTrackerStartedToday": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerAddDate": "Add date",
+  "@periodTrackerAddDate": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerEnterDate": "Enter date",
+  "@periodTrackerEnterDate": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerStartTracking": "Start tracking",
+  "@periodTrackerStartTracking": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerMayBePregnant": "You may be pregnant",
+  "@periodTrackerMayBePregnant": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerCycleDelayed": "Cycle delayed by {days} days",
+  "@periodTrackerCycleDelayed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "days": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "periodTrackerCycleDueToday": "Cycle due today",
+  "@periodTrackerCycleDueToday": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerDaysToNextCycle": "{days} days to next cycle",
+  "@periodTrackerDaysToNextCycle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "days": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "periodTrackerLastRecordedPeriod": "Last recorded period",
+  "@periodTrackerLastRecordedPeriod": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerEstimatedFertileWindow": "Estimated fertile window",
+  "@periodTrackerEstimatedFertileWindow": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerExpectedPeriodDate": "Expected period date",
+  "@periodTrackerExpectedPeriodDate": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerExpectedNextPeriod": "Expected next period",
+  "@periodTrackerExpectedNextPeriod": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "periodTrackerPrivacyNote": "Saved locally on this device for now. Hospital sync can be added after consent, retention, and clinical review rules are finalized.",
+  "@periodTrackerPrivacyNote": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailLoadFailed": "Unable to load bill. Please retry.",
+  "@billDetailLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailPaymentLinkFailed": "Could not generate payment link",
+  "@billDetailPaymentLinkFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailSubtotal": "Subtotal",
+  "@billDetailSubtotal": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailDiscount": "Discount",
+  "@billDetailDiscount": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailPayViaUpi": "Pay {amount} via UPI",
+  "@billDetailPayViaUpi": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "₹1,250.00"
+      }
+    }
+  },
+  "billDetailPayViaUpiBody": "Tap to open your UPI app with the amount pre-filled.",
+  "@billDetailPayViaUpiBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailGenerating": "Generating...",
+  "@billDetailGenerating": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailPayNow": "Pay now",
+  "@billDetailPayNow": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailPaymentLinkReference": "Payment link reference: {token}...",
+  "@billDetailPaymentLinkReference": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "token": {
+        "type": "String",
+        "example": "abc123def456"
+      }
+    }
+  },
+  "billDetailInsuranceBreakdown": "Insurance / TPA breakdown",
+  "@billDetailInsuranceBreakdown": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailClaimNumber": "Claim {claimNumber}",
+  "@billDetailClaimNumber": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "claimNumber": {
+        "type": "String",
+        "example": "CLM-42"
+      }
+    }
+  },
+  "billDetailTotalBilled": "Total billed",
+  "@billDetailTotalBilled": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailTpaPaid": "TPA paid",
+  "@billDetailTpaPaid": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailPatientShare": "Patient share",
+  "@billDetailPatientShare": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailWhatWasNotCovered": "What was not covered",
+  "@billDetailWhatWasNotCovered": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailLatestInsurerNote": "Latest insurer note",
+  "@billDetailLatestInsurerNote": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailViewFullInsuranceClaim": "View full insurance claim",
+  "@billDetailViewFullInsuranceClaim": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailItems": "Items",
+  "@billDetailItems": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "billDetailPaymentHistory": "Payment history",
+  "@billDetailPaymentHistory": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersLoadFailed": "Unable to load lab orders. Please pull down to retry.",
+  "@labOrdersLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersDownloadFailed": "Could not download report",
+  "@labOrdersDownloadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersTitle": "Lab Orders",
+  "@labOrdersTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersEmptyTitle": "No lab orders",
+  "@labOrdersEmptyTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersEmptySubtitle": "Lab tests ordered by your doctor will appear here with collection instructions and reports.",
+  "@labOrdersEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersOrderedBy": "Ordered by {doctorName}",
+  "@labOrdersOrderedBy": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "doctorName": {
+        "type": "String",
+        "example": "Dr. Rao"
+      }
+    }
+  },
+  "labOrdersWhere": "Where",
+  "@labOrdersWhere": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersBy": "By",
+  "@labOrdersBy": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersScheduled": "Scheduled",
+  "@labOrdersScheduled": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersNoCollectionInstructions": "Your doctor has not provided collection instructions yet. Please ask staff for the lab location and timing.",
+  "@labOrdersNoCollectionInstructions": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersCompleted": "Completed",
+  "@labOrdersCompleted": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersDownloading": "Downloading...",
+  "@labOrdersDownloading": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersDownloadReport": "Download report",
+  "@labOrdersDownloadReport": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "labOrdersRequestedOn": "Requested {date}",
+  "@labOrdersRequestedOn": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "4 Jul 2026"
+      }
+    }
+  },
+  "labOrdersFastingRequired": "Fasting required",
+  "@labOrdersFastingRequired": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryGeneral": "General",
+  "@messagesCategoryGeneral": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryAppointment": "Appointment",
+  "@messagesCategoryAppointment": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryPrescription": "Prescription",
+  "@messagesCategoryPrescription": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryLabResult": "Lab result",
+  "@messagesCategoryLabResult": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryBilling": "Billing",
+  "@messagesCategoryBilling": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryDischarge": "Discharge",
+  "@messagesCategoryDischarge": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryOther": "Other",
+  "@messagesCategoryOther": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesLoadFailed": "Unable to load messages. Please retry.",
+  "@messagesLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesTitle": "Messages",
+  "@messagesTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesNewMessage": "New message",
+  "@messagesNewMessage": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesEmptyTitle": "No messages yet",
+  "@messagesEmptyTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesEmptySubtitle": "Start a secure conversation with the hospital using the New Message button below.",
+  "@messagesEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesUrgent": "URGENT",
+  "@messagesUrgent": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesSubjectBodyRequired": "Subject and message body are required.",
+  "@messagesSubjectBodyRequired": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesSendFailed": "Failed to send message. Please try again.",
+  "@messagesSendFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesCategoryLabel": "Category",
+  "@messagesCategoryLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesSubjectLabel": "Subject",
+  "@messagesSubjectLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesBodyLabel": "Message",
+  "@messagesBodyLabel": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesSending": "Sending...",
+  "@messagesSending": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "messagesSendButton": "Send",
+  "@messagesSendButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordsPickFile": "Please pick a file",
+  "@recordsPickFile": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsDeletingAccount": "Deleting account...",
+  "@settingsDeletingAccount": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsDeleteAccountFailed": "Could not delete account. Please try again.",
+  "@settingsDeleteAccountFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsDeleteAccountTitle": "Delete account",
+  "@settingsDeleteAccountTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsDeleteAccountConsequences": "This will remove your login access and clear your personal identity details from your account. Clinical, billing, and audit records are retained where the hospital is legally required to keep them. You cannot delete the account while an active admission is open.",
+  "@settingsDeleteAccountConsequences": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsEnterOtp": "Enter the 6-digit OTP.",
+  "@settingsEnterOtp": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsOtpNotReady": "OTP is not ready yet. Resend code.",
+  "@settingsOtpNotReady": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsOtpVerificationFailed": "OTP verification failed. Please try again.",
+  "@settingsOtpVerificationFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsVerifyPhoneTitle": "Verify your phone",
+  "@settingsVerifyPhoneTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsFreshOtpSent": "We sent a fresh OTP to {phone}.",
+  "@settingsFreshOtpSent": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "phone": {
+        "type": "String",
+        "example": "+919876543210"
+      }
+    }
+  },
+  "settingsSendingOtp": "Sending OTP...",
+  "@settingsSendingOtp": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsResendOtp": "Resend",
+  "@settingsResendOtp": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsVerifyButton": "Verify",
+  "@settingsVerifyButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsConfirmDeletionTitle": "Confirm deletion",
+  "@settingsConfirmDeletionTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsConfirmDeletionBody": "This action cannot be undone. You will be logged out on this device and all other sessions will be revoked.",
+  "@settingsConfirmDeletionBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsDeleteAccountButton": "Delete account",
+  "@settingsDeleteAccountButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsActiveAdmissionBlocksDeletion": "Account deletion is blocked while an active admission is open.",
+  "@settingsActiveAdmissionBlocksDeletion": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsHospitalIdLine": "{name} - Hospital ID {hospitalNumber}",
+  "@settingsHospitalIdLine": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Suba"
+      },
+      "hospitalNumber": {
+        "type": "String",
+        "example": "VH123"
+      }
+    }
+  },
+  "settingsManageDependents": "Manage dependents",
+  "@settingsManageDependents": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsManageDependentsSubtitle": "Link or remove a minor under your account",
+  "@settingsManageDependentsSubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsHealthDataSynced": "Health data synced - activity and vitals updated",
+  "@settingsHealthDataSynced": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsNoNewSamplesToSync": "No new samples to sync",
+  "@settingsNoNewSamplesToSync": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsDeleteAccountSubtitle": "Re-authenticate with OTP before deletion",
+  "@settingsDeleteAccountSubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsLegalSection": "Legal",
+  "@settingsLegalSection": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsOpenTermsInBrowser": "Open the current terms in your browser",
+  "@settingsOpenTermsInBrowser": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "settingsOpenPrivacyInBrowser": "Open the current privacy policy in your browser",
+  "@settingsOpenPrivacyInBrowser": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "splashUseStandardPhone": "Please use a standard, unmodified phone.",
+  "@splashUseStandardPhone": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "splashAuthenticateToContinue": "Please authenticate to continue",
+  "@splashAuthenticateToContinue": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "splashUpdateRequired": "Update required",
+  "@splashUpdateRequired": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "splashUpdateBody": "This version of VH Health is no longer supported. Please install the latest version to continue.",
+  "@splashUpdateBody": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "splashUpdateButton": "Update VH Health",
+  "@splashUpdateButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilterAll": "All",
+  "@yourHealthTimelineFilterAll": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilterVisits": "Visits",
+  "@yourHealthTimelineFilterVisits": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilterPrescriptions": "Prescriptions",
+  "@yourHealthTimelineFilterPrescriptions": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilterLabs": "Labs",
+  "@yourHealthTimelineFilterLabs": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilterUploads": "Uploads",
+  "@yourHealthTimelineFilterUploads": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilterHospital": "Hospital Docs",
+  "@yourHealthTimelineFilterHospital": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineReady": "Your health timeline is ready",
+  "@yourHealthTimelineReady": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineUpdateCount": "{count} health updates in one timeline",
+  "@yourHealthTimelineUpdateCount": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "yourHealthTimelineRxPill": "Rx",
+  "@yourHealthTimelineRxPill": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineVisitsPill": "Visits",
+  "@yourHealthTimelineVisitsPill": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineUploadsPill": "Uploads",
+  "@yourHealthTimelineUploadsPill": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineDatePending": "Date pending",
+  "@yourHealthTimelineDatePending": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilteredEmpty": "No {filter} yet",
+  "@yourHealthTimelineFilteredEmpty": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "filter": {
+        "type": "String",
+        "example": "uploads"
+      }
+    }
+  },
+  "yourHealthTimelineEmptyTitle": "No timeline items yet",
+  "@yourHealthTimelineEmptyTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineFilteredEmptySubtitle": "Try another filter or refresh the latest hospital records.",
+  "@yourHealthTimelineFilteredEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "yourHealthTimelineEmptySubtitle": "Prescriptions, consultations, hospital docs, and uploads will collect here automatically.",
+  "@yourHealthTimelineEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionMissingRecordId": "Record ID is missing",
+  "@recordExtractionMissingRecordId": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionUnavailable": "Extraction is not available yet",
+  "@recordExtractionUnavailable": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionProcessFailed": "Extraction could not be processed",
+  "@recordExtractionProcessFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionUploadedRecord": "Uploaded record",
+  "@recordExtractionUploadedRecord": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionMessageSent": "Message sent to the hospital team",
+  "@recordExtractionMessageSent": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionMessageFailed": "Message could not be sent. Please try again.",
+  "@recordExtractionMessageFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionMessageHospital": "Message hospital",
+  "@recordExtractionMessageHospital": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionRefresh": "Refresh extraction",
+  "@recordExtractionRefresh": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionUploadedFile": "Uploaded file",
+  "@recordExtractionUploadedFile": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionFilePreviewUnavailable": "File preview unavailable",
+  "@recordExtractionFilePreviewUnavailable": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionOpenFileToCompare": "Open the file to compare it",
+  "@recordExtractionOpenFileToCompare": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionImagePreviewUnavailable": "Image preview unavailable",
+  "@recordExtractionImagePreviewUnavailable": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionReviewFlags": "Review flags",
+  "@recordExtractionReviewFlags": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionPatientIdentifiers": "Patient identifiers",
+  "@recordExtractionPatientIdentifiers": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionDiagnoses": "Diagnoses",
+  "@recordExtractionDiagnoses": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionMedications": "Medications",
+  "@recordExtractionMedications": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionTestsReports": "Tests & Reports",
+  "@recordExtractionTestsReports": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionFollowUp": "Follow up",
+  "@recordExtractionFollowUp": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionOtherFields": "Other extracted fields",
+  "@recordExtractionOtherFields": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionDates": "Dates",
+  "@recordExtractionDates": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionCitations": "Citations",
+  "@recordExtractionCitations": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionOcrText": "OCR text",
+  "@recordExtractionOcrText": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionReviewed": "Extraction reviewed: {status}",
+  "@recordExtractionReviewed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "status": {
+        "type": "String",
+        "example": "Approved"
+      }
+    }
+  },
+  "recordExtractionDraftWarning": "AI draft - cross-check every extracted value against the original document before relying on it.",
+  "@recordExtractionDraftWarning": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionDocument": "Document",
+  "@recordExtractionDocument": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionProcessing": "Processing",
+  "@recordExtractionProcessing": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionNoValues": "No extracted values",
+  "@recordExtractionNoValues": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "recordExtractionProcessButton": "Process extraction",
+  "@recordExtractionProcessButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardHealthConnectPermissionDenied": "Health Connect permission was not granted. In-app walk tracking still works.",
+  "@dashboardHealthConnectPermissionDenied": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessBandExcellent": "You're doing great",
+  "@dashboardWellnessBandExcellent": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessBandGood": "Keep it up",
+  "@dashboardWellnessBandGood": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessBandNeedsAttention": "Some attention needed",
+  "@dashboardWellnessBandNeedsAttention": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessShowBreakdown": "Show breakdown",
+  "@dashboardWellnessShowBreakdown": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessHideBreakdown": "Hide breakdown",
+  "@dashboardWellnessHideBreakdown": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessBreakdownTitle": "Wellness breakdown",
+  "@dashboardWellnessBreakdownTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessNoSplit": "No wellness split is available yet.",
+  "@dashboardWellnessNoSplit": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessMedicationStatus": "Medication status",
+  "@dashboardWellnessMedicationStatus": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessMedicationProxy": "Prescription-status proxy, not dose adherence",
+  "@dashboardWellnessMedicationProxy": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessNoPrescriptions": "No prescriptions to track yet",
+  "@dashboardWellnessNoPrescriptions": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardWellnessPrescriptionsActive": "{active} of {total} prescriptions active/unexpired",
+  "@dashboardWellnessPrescriptionsActive": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "active": {
+        "type": "int",
+        "example": "3"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "healthPointsCentralStats": "Central stats",
+  "@healthPointsCentralStats": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsRefreshingActivity": "Refreshing your activity",
+  "@healthPointsRefreshingActivity": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsCentralStatsSubtitle": "Walking, points, wellness, and sleep readiness",
+  "@healthPointsCentralStatsSubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsCentralStatsFromSource": "Walking, sleep, and points from {source}",
+  "@healthPointsCentralStatsFromSource": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "source": {
+        "type": "String",
+        "example": "Health Connect"
+      }
+    }
+  },
+  "healthPointsRefreshStatsTooltip": "Refresh stats",
+  "@healthPointsRefreshStatsTooltip": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsWalking": "Walking",
+  "@healthPointsWalking": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsGoalStepCaption": "{goal}-step goal",
+  "@healthPointsGoalStepCaption": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "goal": {
+        "type": "int",
+        "example": "8000"
+      }
+    }
+  },
+  "healthPointsActivitySourceCaption": "{activity} - {source}",
+  "@healthPointsActivitySourceCaption": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "activity": {
+        "type": "String",
+        "example": "Moderate"
+      },
+      "source": {
+        "type": "String",
+        "example": "Health Connect"
+      }
+    }
+  },
+  "healthPointsDistance": "Distance",
+  "@healthPointsDistance": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsToday": "today",
+  "@healthPointsToday": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsSleep": "Sleep",
+  "@healthPointsSleep": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsNoData": "No data",
+  "@healthPointsNoData": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsConnectHealthData": "Connect Health data",
+  "@healthPointsConnectHealthData": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsSyncSource": "{source} sync",
+  "@healthPointsSyncSource": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.",
+    "placeholders": {
+      "source": {
+        "type": "String",
+        "example": "Health Connect"
+      }
+    }
+  },
+  "healthPointsWellness": "Wellness",
+  "@healthPointsWellness": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsOutOfHundred": "out of 100",
+  "@healthPointsOutOfHundred": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsPoints": "Points",
+  "@healthPointsPoints": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsCurrentBalance": "current balance",
+  "@healthPointsCurrentBalance": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsGoal": "Goal",
+  "@healthPointsGoal": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "healthPointsStepsToday": "steps today",
+  "@healthPointsStepsToday": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "dashboardHealthConnectPrompt": "Allow Health Connect so VH Health can sync steps counted while the app is closed.",
+  "@dashboardHealthConnectPrompt": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  }
 }

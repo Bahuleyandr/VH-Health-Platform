@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class _Bill {
   _Bill.fromJson(Map<String, dynamic> j)
@@ -72,6 +73,7 @@ class _BillsScreenState extends State<BillsScreen> {
   }
 
   Future<void> _fetch() async {
+    final l = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -90,14 +92,14 @@ class _BillsScreenState extends State<BillsScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load bills';
+          _error = response.message ?? l.billsLoadFailed;
           _loading = false;
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = l.billsLoadFailed;
         _loading = false;
       });
     }
@@ -105,8 +107,9 @@ class _BillsScreenState extends State<BillsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Bills',
+      title: l.billsTitle,
       icon: Icons.receipt_long,
       color: const Color(0xFFB3E5FC),
       child: RefreshIndicator(
@@ -117,9 +120,8 @@ class _BillsScreenState extends State<BillsScreen> {
           data: _bills,
           onRetry: _fetch,
           emptyIcon: Icons.receipt_long_outlined,
-          emptyTitle: 'No bills yet',
-          emptySubtitle:
-              'Bills issued by the hospital will appear here. Pull to refresh.',
+          emptyTitle: l.billsEmptyTitle,
+          emptySubtitle: l.billsEmptySubtitle,
           builder: (context, bills) {
             return ListView.separated(
               padding: const EdgeInsets.all(16),
@@ -141,6 +143,7 @@ class _BillCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final statusColour =
         _statusColours[bill.status] ?? theme.colorScheme.outline;
     final hasDue = bill.due > 0.01;
@@ -157,7 +160,7 @@ class _BillCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      bill.number ?? 'Invoice #${bill.id}',
+                      bill.number ?? l.billsInvoiceFallback(bill.id),
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
@@ -190,11 +193,16 @@ class _BillCard extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  _amountBlock(theme, 'Total', _inr(bill.total)),
+                  _amountBlock(theme, l.billsTotal, _inr(bill.total)),
                   const SizedBox(width: 12),
-                  _amountBlock(theme, 'Paid', _inr(bill.paid)),
+                  _amountBlock(theme, l.billsPaid, _inr(bill.paid)),
                   const SizedBox(width: 12),
-                  _amountBlock(theme, 'Due', _inr(bill.due), highlight: hasDue),
+                  _amountBlock(
+                    theme,
+                    l.billsDue,
+                    _inr(bill.due),
+                    highlight: hasDue,
+                  ),
                 ],
               ),
             ],

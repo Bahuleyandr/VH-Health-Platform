@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class TpaClaimsScreen extends StatefulWidget {
   const TpaClaimsScreen({super.key});
@@ -36,6 +37,7 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
   }
 
   Future<void> _fetch() async {
+    final l = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -51,14 +53,14 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load claims';
+          _error = response.message ?? l.tpaClaimsLoadFailed;
           _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Unable to load claims';
+          _error = l.tpaClaimsLoadFailed;
           _loading = false;
         });
       }
@@ -68,8 +70,9 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: const Text('Insurance claims')),
+      appBar: AppBar(title: Text(l.tpaClaimsTitle)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -81,13 +84,13 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
                   const SizedBox(height: 12),
                   FilledButton.tonal(
                     onPressed: _fetch,
-                    child: const Text('Retry'),
+                    child: Text(l.commonRetryButton),
                   ),
                 ],
               ),
             )
           : _claims.isEmpty
-          ? const Center(child: Text('No insurance claims yet'))
+          ? Center(child: Text(l.tpaClaimsEmptyTitle))
           : RefreshIndicator(
               onRefresh: _fetch,
               child: ListView.builder(
@@ -109,6 +112,7 @@ class _TpaClaimCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final status = (claim['status'] ?? '').toString();
     final type = (claim['claim_type'] ?? '').toString();
     final claimed = _toNum(claim['claimed_amount']);
@@ -131,7 +135,7 @@ class _TpaClaimCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      claim['claim_number']?.toString() ?? 'Claim',
+                      claim['claim_number']?.toString() ?? l.tpaClaimFallback,
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
@@ -149,9 +153,9 @@ class _TpaClaimCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              _kv(theme, 'Claimed', _inr(claimed)),
-              _kv(theme, 'Approved', _inr(approved)),
-              _kv(theme, 'Paid by insurer', _inr(paid)),
+              _kv(theme, l.tpaClaimClaimed, _inr(claimed)),
+              _kv(theme, l.tpaClaimApproved, _inr(approved)),
+              _kv(theme, l.tpaClaimPaidByInsurer, _inr(paid)),
             ],
           ),
         ),
@@ -199,6 +203,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
   }
 
   Future<void> _fetch() async {
+    final l = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -220,7 +225,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
               .whereType<Map<String, dynamic>>()
               .toList();
         } else {
-          docsError = docsResp.message ?? 'Could not load claim documents';
+          docsError = docsResp.message ?? l.tpaClaimDocumentsLoadFailed;
         }
         setState(() {
           _data = resp.dataAsMap();
@@ -230,14 +235,14 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         });
       } else {
         setState(() {
-          _error = resp.message ?? 'Failed to load claim';
+          _error = resp.message ?? l.tpaClaimLoadFailed;
           _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Unable to load claim';
+          _error = l.tpaClaimLoadFailed;
           _loading = false;
         });
       }
@@ -245,6 +250,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
   }
 
   Future<void> _downloadDocument(Map<String, dynamic> doc) async {
+    final l = AppLocalizations.of(context)!;
     final docId = _toInt(doc['id']);
     if (docId == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -260,12 +266,12 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
       );
       if (!mounted) return;
       if (!resp.isSuccess) {
-        throw Exception(resp.message ?? 'Download URL request failed');
+        throw Exception(resp.message ?? l.tpaClaimDocumentDownloadFailed);
       }
       final data = resp.dataAsMap();
       final url = data['url']?.toString();
       if (url == null || url.isEmpty) {
-        throw Exception('Download URL missing');
+        throw Exception(l.tpaClaimDocumentDownloadFailed);
       }
       final returnedDoc = (data['document'] as Map?)?.cast<String, dynamic>();
       final fileName =
@@ -277,7 +283,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
       final file = await CacheFileUtils.downloadAndCacheFile(cacheKey, url);
       if (!mounted) return;
       if (file == null) {
-        throw Exception('Could not save document');
+        throw Exception(l.tpaClaimDocumentDownloadFailed);
       }
       await CacheFileUtils.openCachedFile(file.path);
     } catch (e) {
@@ -285,7 +291,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('Could not download document'),
+          content: Text(l.tpaClaimDocumentDownloadFailed),
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -302,22 +308,23 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: const Text('Claim breakdown')),
+      appBar: AppBar(title: Text(l.tpaClaimBreakdownTitle)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(child: Text(_error!))
           : _data == null
-          ? const Center(child: Text('No data'))
+          ? Center(child: Text(l.tpaClaimNoData))
           : ListView(
               padding: const EdgeInsets.all(16),
-              children: _buildContent(theme),
+              children: _buildContent(theme, l),
             ),
     );
   }
 
-  List<Widget> _buildContent(ThemeData theme) {
+  List<Widget> _buildContent(ThemeData theme, AppLocalizations l) {
     final data = _data!;
     final claim = (data['claim'] as Map?)?.cast<String, dynamic>() ?? {};
     final summary = (data['summary'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -330,7 +337,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
 
     widgets.add(
       Text(
-        claim['claim_number']?.toString() ?? 'Claim',
+        claim['claim_number']?.toString() ?? l.tpaClaimFallback,
         style: theme.textTheme.titleLarge,
       ),
     );
@@ -345,7 +352,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
     );
     widgets.add(const SizedBox(height: 16));
 
-    widgets.add(_summaryCard(theme, summary));
+    widgets.add(_summaryCard(theme, l, summary));
 
     if (latest != null) {
       widgets.add(const SizedBox(height: 16));
@@ -367,7 +374,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
 
     if (_documents.isNotEmpty || _documentsError != null) {
       widgets.add(const SizedBox(height: 16));
-      widgets.add(_claimDocumentsCard(theme));
+      widgets.add(_claimDocumentsCard(theme, l));
     }
 
     if (correspondence.isNotEmpty) {
@@ -377,7 +384,11 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
     return widgets;
   }
 
-  Widget _summaryCard(ThemeData theme, Map<String, dynamic> s) {
+  Widget _summaryCard(
+    ThemeData theme,
+    AppLocalizations l,
+    Map<String, dynamic> s,
+  ) {
     final hospital = _toNum(s['hospital_billed']);
     final claimed = _toNum(s['tpa_claimed']);
     final approved = _toNum(s['tpa_approved']);
@@ -392,24 +403,26 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Summary', style: theme.textTheme.titleMedium),
+            Text(l.tpaClaimSummary, style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
-            _row(theme, 'Hospital billed', hospital),
-            _row(theme, 'TPA claimed', claimed),
-            _row(theme, 'TPA approved', approved),
-            _row(theme, 'Paid by insurer', paid, highlight: true),
-            if (disallowed > 0) _row(theme, 'TPA disallowed', disallowed),
-            if (nonPayable > 0) _row(theme, 'Non-payable items', nonPayable),
-            if (copay > 0) _row(theme, 'Policy co-pay', copay),
+            _row(theme, l.tpaClaimHospitalBilled, hospital),
+            _row(theme, l.tpaClaimTpaClaimed, claimed),
+            _row(theme, l.tpaClaimTpaApproved, approved),
+            _row(theme, l.tpaClaimPaidByInsurer, paid, highlight: true),
+            if (disallowed > 0)
+              _row(theme, l.tpaClaimTpaDisallowed, disallowed),
+            if (nonPayable > 0)
+              _row(theme, l.tpaClaimNonPayableItems, nonPayable),
+            if (copay > 0) _row(theme, l.tpaClaimPolicyCopay, copay),
             const Divider(),
-            _row(theme, 'You paid', patient, highlight: true),
+            _row(theme, l.tpaClaimYouPaid, patient, highlight: true),
           ],
         ),
       ),
     );
   }
 
-  Widget _claimDocumentsCard(ThemeData theme) {
+  Widget _claimDocumentsCard(ThemeData theme, AppLocalizations l) {
     final dateFmt = DateFormat('dd MMM yyyy');
     return Card(
       child: Padding(
@@ -417,7 +430,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Claim documents', style: theme.textTheme.titleMedium),
+            Text(l.tpaClaimDocuments, style: theme.textTheme.titleMedium),
             if (_documentsError != null) ...[
               const SizedBox(height: 8),
               Text(
@@ -462,7 +475,8 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              doc['file_name']?.toString() ?? 'Document',
+                              doc['file_name']?.toString() ??
+                                  l.tpaClaimDocumentFallback,
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
@@ -480,7 +494,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
-                        tooltip: 'Download',
+                        tooltip: l.tpaClaimDownloadTooltip,
                         onPressed: downloading || id == null
                             ? null
                             : () => _downloadDocument(doc),
@@ -520,7 +534,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Latest insurer message',
+                    AppLocalizations.of(context)!.tpaClaimLatestInsurerMessage,
                     style: theme.textTheme.titleSmall,
                   ),
                 ),
@@ -559,7 +573,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Why an amount was disallowed',
+                    AppLocalizations.of(context)!.tpaClaimWhyDisallowed,
                     style: theme.textTheme.titleSmall,
                   ),
                   const SizedBox(height: 4),
@@ -584,7 +598,10 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Invoice breakdown', style: theme.textTheme.titleMedium),
+            Text(
+              AppLocalizations.of(context)!.tpaClaimInvoiceBreakdown,
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             ...lines.map((l) {
               final m = (l as Map).cast<String, dynamic>();
@@ -606,9 +623,9 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Total',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                Text(
+                  AppLocalizations.of(context)!.tpaClaimTotal,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 Text(
                   _inr(_toNum(breakdown['total'])),
@@ -630,7 +647,10 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Correspondence', style: theme.textTheme.titleMedium),
+            Text(
+              AppLocalizations.of(context)!.tpaClaimCorrespondence,
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             ...rows.map((r) {
               final m = (r as Map).cast<String, dynamic>();

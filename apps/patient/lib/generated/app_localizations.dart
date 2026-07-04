@@ -3722,10 +3722,10 @@ abstract class AppLocalizations {
   /// **'Setting up...'**
   String get permissionGateSettingUp;
 
-  /// Action button on Your Health screen to open upload sheet
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
-  /// **'Upload Record'**
+  /// **'Upload record'**
   String get yourHealthUploadRecord;
 
   /// Heading for the care-plan next steps section in Your Health
@@ -4459,6 +4459,2094 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Revoked'**
   String get recordAccessStatusRevoked;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get commonRetryButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get commonContinueButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get commonBackButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get commonOkButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get navigationHome;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get notificationsTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Book'**
+  String get appointmentsBookTab;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'My Appointments'**
+  String get appointmentsMyAppointmentsTab;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Order'**
+  String get pharmacyOrderTab;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'My Orders'**
+  String get pharmacyMyOrdersTab;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'File too large. Maximum size is 10 MB.'**
+  String get pharmacyFileTooLarge;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Please upload a prescription or describe your order'**
+  String get pharmacyPrescriptionOrDescriptionRequired;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Order placed! {orderNumber}'**
+  String pharmacyOrderPlacedToast(String orderNumber);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Order Number: {orderNumber}'**
+  String pharmacyOrderNumber(String orderNumber);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to place order'**
+  String get pharmacyPlaceOrderFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Error: {error}'**
+  String pharmacyPlaceOrderError(String error);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Bills'**
+  String get billsTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load bills. Please pull down to retry.'**
+  String get billsLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No bills yet'**
+  String get billsEmptyTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Bills issued by the hospital will appear here. Pull to refresh.'**
+  String get billsEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Invoice #{id}'**
+  String billsInvoiceFallback(int id);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get billsTotal;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Paid'**
+  String get billsPaid;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get billsDue;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Insurance claims'**
+  String get tpaClaimsTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load insurance claims. Please pull down to retry.'**
+  String get tpaClaimsLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No insurance claims yet'**
+  String get tpaClaimsEmptyTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim'**
+  String get tpaClaimFallback;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Claimed'**
+  String get tpaClaimClaimed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Approved'**
+  String get tpaClaimApproved;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Paid by insurer'**
+  String get tpaClaimPaidByInsurer;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim breakdown'**
+  String get tpaClaimBreakdownTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No data'**
+  String get tpaClaimNoData;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load claim documents'**
+  String get tpaClaimDocumentsLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load claim. Please pull down to retry.'**
+  String get tpaClaimLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not download document'**
+  String get tpaClaimDocumentDownloadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Summary'**
+  String get tpaClaimSummary;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital billed'**
+  String get tpaClaimHospitalBilled;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'TPA claimed'**
+  String get tpaClaimTpaClaimed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'TPA approved'**
+  String get tpaClaimTpaApproved;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'TPA disallowed'**
+  String get tpaClaimTpaDisallowed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Non-payable items'**
+  String get tpaClaimNonPayableItems;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Policy co-pay'**
+  String get tpaClaimPolicyCopay;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'You paid'**
+  String get tpaClaimYouPaid;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim documents'**
+  String get tpaClaimDocuments;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Document'**
+  String get tpaClaimDocumentFallback;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get tpaClaimDownloadTooltip;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest insurer message'**
+  String get tpaClaimLatestInsurerMessage;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Why an amount was disallowed'**
+  String get tpaClaimWhyDisallowed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Invoice breakdown'**
+  String get tpaClaimInvoiceBreakdown;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get tpaClaimTotal;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Correspondence'**
+  String get tpaClaimCorrespondence;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a dependent'**
+  String get addDependentTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Link a minor patient'**
+  String get addDependentHeading;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the phone number or VH Health UID of the minor patient. The minor must already be registered, typically at reception during their first visit.'**
+  String get addDependentIntro;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone number or UID'**
+  String get addDependentIdentifierLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'+91 9876543210 or a-uuid-from-reception'**
+  String get addDependentIdentifierHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone or UID is required'**
+  String get addDependentIdentifierRequired;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a phone (10-15 digits) or a UID'**
+  String get addDependentIdentifierInvalid;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Your relationship to them'**
+  String get addDependentRelationshipLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent'**
+  String get addDependentRelationshipParent;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Mother'**
+  String get addDependentRelationshipMother;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Father'**
+  String get addDependentRelationshipFather;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Legal guardian'**
+  String get addDependentRelationshipLegalGuardian;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Grandparent'**
+  String get addDependentRelationshipGrandparent;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sibling'**
+  String get addDependentRelationshipSibling;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Spouse'**
+  String get addDependentRelationshipSpouse;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get addDependentRelationshipOther;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Dependent linked'**
+  String get addDependentLinkedTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} is now linked under your account. Switch to their profile now?'**
+  String addDependentLinkedBody(String name);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get addDependentNotYetButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch profile'**
+  String get addDependentSwitchProfileButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Linked {name}'**
+  String addDependentLinkedToast(String name);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to link dependent. Please try again.'**
+  String get addDependentLinkFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Linking...'**
+  String get addDependentLinkingButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Link dependent'**
+  String get addDependentLinkButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not see the dependent? Ask reception to register them first. They need a VH Health UID before you can link them.'**
+  String get addDependentReceptionHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Once Daily'**
+  String get medicationFrequencyOnceDaily;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Twice Daily'**
+  String get medicationFrequencyTwiceDaily;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Thrice Daily'**
+  String get medicationFrequencyThriceDaily;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'As Needed'**
+  String get medicationFrequencyAsNeeded;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load medication reminders. Please pull down to retry.'**
+  String get medicationRemindersLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry reminders'**
+  String get medicationRemindersRetryButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'ANC supplement'**
+  String get medicationReminderAncSupplement;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete reminder'**
+  String get medicationReminderDeleteTooltip;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Dosage: {dosage}'**
+  String medicationReminderDosageLine(String dosage);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Frequency: {frequency}'**
+  String medicationReminderFrequencyLine(String frequency);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Times: {times}'**
+  String medicationReminderTimesLine(String times);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes: {notes}'**
+  String medicationReminderNotesLine(String notes);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Start: {date}'**
+  String medicationReminderStartLine(String date);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'End: {date}'**
+  String medicationReminderEndLine(String date);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'End: No end date'**
+  String get medicationReminderNoEndDate;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes (optional)'**
+  String get medicationReminderNotesOptional;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Morning (9 AM - 12 PM)'**
+  String get bookInvestigationSlotMorning;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Afternoon (12 PM - 3 PM)'**
+  String get bookInvestigationSlotAfternoon;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Evening (3 PM - 6 PM)'**
+  String get bookInvestigationSlotEvening;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Booking failed'**
+  String get bookInvestigationBookingFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to book the investigation. Please try again.'**
+  String get bookInvestigationBookingError;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Book Now'**
+  String get bookInvestigationBookNowButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Booking...'**
+  String get bookInvestigationBookingButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String bookInvestigationSelectedCount(int count);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tests...'**
+  String get bookInvestigationSearchHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'₹{cost} • Fasting required'**
+  String bookInvestigationCostFasting(String cost);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. CBC, Sugar test, Thyroid'**
+  String get bookInvestigationCustomTestHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera'**
+  String get bookInvestigationCameraButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get bookInvestigationGalleryButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo selected'**
+  String get bookInvestigationPhotoSelected;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Collection Address *'**
+  String get bookInvestigationCollectionAddressLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your full address'**
+  String get bookInvestigationCollectionAddressHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Landmark'**
+  String get bookInvestigationLandmarkLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Near/opposite...'**
+  String get bookInvestigationLandmarkHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferred Date'**
+  String get bookInvestigationPreferredDate;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes (optional)'**
+  String get bookInvestigationNotesOptional;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Any special instructions...'**
+  String get bookInvestigationNotesHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid'**
+  String get vitalsInvalidValue;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 30-250 bpm'**
+  String get vitalsHeartRateRange;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 90-110 °F'**
+  String get vitalsTemperatureRange;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 20-600 mg/dL'**
+  String get vitalsBloodSugarRange;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 1-300 kg'**
+  String get vitalsWeightRange;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 50-100%'**
+  String get vitalsSpo2Range;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get vitalsHistoryHeading;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Timeline'**
+  String get yourHealthTabTimeline;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'My Uploads'**
+  String get yourHealthTabMyUploads;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Prescriptions'**
+  String get yourHealthTabPrescriptions;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g., Dolo 650 - 2 strips, Pan 40 - 1 strip...'**
+  String get pharmacyOrderNoteHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Home Delivery'**
+  String get pharmacyHomeDelivery;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get pharmacyPickup;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Landmark (optional)'**
+  String get pharmacyLandmarkOptional;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Near...'**
+  String get pharmacyLandmarkHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the link'**
+  String get commonCouldNotOpenLink;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get commonCloseButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get commonOpenButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get commonRefreshButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'this feature'**
+  String get guestSignInDefaultFeature;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in required'**
+  String get guestSignInTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to use {feature}.'**
+  String guestSignInBody(String feature);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep browsing'**
+  String get guestSignInKeepBrowsing;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in and return'**
+  String get guestSignInAndReturn;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open step challenge'**
+  String get dashboardOpenStepChallenge;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent activity'**
+  String get dashboardRecentActivity;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open health points'**
+  String get dashboardOpenHealthPoints;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Health data synced - activity and vitals updated'**
+  String get dashboardHealthConnectSynced;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No new samples to sync'**
+  String get dashboardHealthConnectNoSamples;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open Health Connect'**
+  String get dashboardHealthConnectOpenFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Explore'**
+  String get dashboardExploreSection;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get dashboardTodaySection;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get profileSwitcherSelfName;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Profiles'**
+  String get profileSwitcherTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch between your profile and linked dependents'**
+  String get profileSwitcherSubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Your profile'**
+  String get profileSwitcherYourProfile;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No dependents linked yet'**
+  String get profileSwitcherNoDependents;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove dependent?'**
+  String get profileSwitcherRemoveDependentTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {name} from your linked profiles?'**
+  String profileSwitcherRemoveDependentBody(String name);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get profileSwitcherRemoveButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed {name}'**
+  String profileSwitcherRemovedToast(String name);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not remove dependent. Please try again.'**
+  String get profileSwitcherRemoveFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark started today'**
+  String get periodTrackerMarkStartedToday;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter start date'**
+  String get periodTrackerEnterStartDate;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open tracker'**
+  String get periodTrackerOpen;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle start recorded'**
+  String get periodTrackerCycleStartRecorded;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save cycle start'**
+  String get periodTrackerCycleStartSaveFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle tracker saved'**
+  String get periodTrackerSavedToast;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Last period start'**
+  String get periodTrackerLastPeriodStart;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Period Tracker'**
+  String get periodTrackerTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle details'**
+  String get periodTrackerCycleDetails;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle length'**
+  String get periodTrackerCycleLength;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'days'**
+  String get periodTrackerDays;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Period length'**
+  String get periodTrackerPeriodLength;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving'**
+  String get periodTrackerSaving;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Save tracker'**
+  String get periodTrackerSaveTracker;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Add the first day of your last period.'**
+  String get periodTrackerAddFirstDay;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'This is not a diagnosis. Consider a pregnancy test or clinician review.'**
+  String get periodTrackerPregnancyCaution;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle day {cycleDay}'**
+  String periodTrackerCycleDay(int cycleDay);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Started today'**
+  String get periodTrackerStartedToday;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Add date'**
+  String get periodTrackerAddDate;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter date'**
+  String get periodTrackerEnterDate;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Start tracking'**
+  String get periodTrackerStartTracking;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'You may be pregnant'**
+  String get periodTrackerMayBePregnant;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle delayed by {days} days'**
+  String periodTrackerCycleDelayed(int days);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle due today'**
+  String get periodTrackerCycleDueToday;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{days} days to next cycle'**
+  String periodTrackerDaysToNextCycle(int days);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Last recorded period'**
+  String get periodTrackerLastRecordedPeriod;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated fertile window'**
+  String get periodTrackerEstimatedFertileWindow;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Expected period date'**
+  String get periodTrackerExpectedPeriodDate;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Expected next period'**
+  String get periodTrackerExpectedNextPeriod;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved locally on this device for now. Hospital sync can be added after consent, retention, and clinical review rules are finalized.'**
+  String get periodTrackerPrivacyNote;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load bill. Please retry.'**
+  String get billDetailLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not generate payment link'**
+  String get billDetailPaymentLinkFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtotal'**
+  String get billDetailSubtotal;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Discount'**
+  String get billDetailDiscount;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Pay {amount} via UPI'**
+  String billDetailPayViaUpi(String amount);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to open your UPI app with the amount pre-filled.'**
+  String get billDetailPayViaUpiBody;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Generating...'**
+  String get billDetailGenerating;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Pay now'**
+  String get billDetailPayNow;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Payment link reference: {token}...'**
+  String billDetailPaymentLinkReference(String token);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Insurance / TPA breakdown'**
+  String get billDetailInsuranceBreakdown;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim {claimNumber}'**
+  String billDetailClaimNumber(String claimNumber);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Total billed'**
+  String get billDetailTotalBilled;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'TPA paid'**
+  String get billDetailTpaPaid;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Patient share'**
+  String get billDetailPatientShare;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'What was not covered'**
+  String get billDetailWhatWasNotCovered;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest insurer note'**
+  String get billDetailLatestInsurerNote;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'View full insurance claim'**
+  String get billDetailViewFullInsuranceClaim;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Items'**
+  String get billDetailItems;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Payment history'**
+  String get billDetailPaymentHistory;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load lab orders. Please pull down to retry.'**
+  String get labOrdersLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not download report'**
+  String get labOrdersDownloadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Lab Orders'**
+  String get labOrdersTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No lab orders'**
+  String get labOrdersEmptyTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Lab tests ordered by your doctor will appear here with collection instructions and reports.'**
+  String get labOrdersEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Ordered by {doctorName}'**
+  String labOrdersOrderedBy(String doctorName);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Where'**
+  String get labOrdersWhere;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'By'**
+  String get labOrdersBy;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled'**
+  String get labOrdersScheduled;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Your doctor has not provided collection instructions yet. Please ask staff for the lab location and timing.'**
+  String get labOrdersNoCollectionInstructions;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get labOrdersCompleted;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading...'**
+  String get labOrdersDownloading;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Download report'**
+  String get labOrdersDownloadReport;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Requested {date}'**
+  String labOrdersRequestedOn(String date);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting required'**
+  String get labOrdersFastingRequired;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'General'**
+  String get messagesCategoryGeneral;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment'**
+  String get messagesCategoryAppointment;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Prescription'**
+  String get messagesCategoryPrescription;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Lab result'**
+  String get messagesCategoryLabResult;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Billing'**
+  String get messagesCategoryBilling;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Discharge'**
+  String get messagesCategoryDischarge;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get messagesCategoryOther;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load messages. Please retry.'**
+  String get messagesLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages'**
+  String get messagesTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get messagesNewMessage;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet'**
+  String get messagesEmptyTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Start a secure conversation with the hospital using the New Message button below.'**
+  String get messagesEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'URGENT'**
+  String get messagesUrgent;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Subject and message body are required.'**
+  String get messagesSubjectBodyRequired;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to send message. Please try again.'**
+  String get messagesSendFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Category'**
+  String get messagesCategoryLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Subject'**
+  String get messagesSubjectLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get messagesBodyLabel;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending...'**
+  String get messagesSending;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get messagesSendButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Please pick a file'**
+  String get recordsPickFile;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting account...'**
+  String get settingsDeletingAccount;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not delete account. Please try again.'**
+  String get settingsDeleteAccountFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete account'**
+  String get settingsDeleteAccountTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'This will remove your login access and clear your personal identity details from your account. Clinical, billing, and audit records are retained where the hospital is legally required to keep them. You cannot delete the account while an active admission is open.'**
+  String get settingsDeleteAccountConsequences;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 6-digit OTP.'**
+  String get settingsEnterOtp;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'OTP is not ready yet. Resend code.'**
+  String get settingsOtpNotReady;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'OTP verification failed. Please try again.'**
+  String get settingsOtpVerificationFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your phone'**
+  String get settingsVerifyPhoneTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a fresh OTP to {phone}.'**
+  String settingsFreshOtpSent(String phone);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending OTP...'**
+  String get settingsSendingOtp;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend'**
+  String get settingsResendOtp;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify'**
+  String get settingsVerifyButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm deletion'**
+  String get settingsConfirmDeletionTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'This action cannot be undone. You will be logged out on this device and all other sessions will be revoked.'**
+  String get settingsConfirmDeletionBody;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete account'**
+  String get settingsDeleteAccountButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Account deletion is blocked while an active admission is open.'**
+  String get settingsActiveAdmissionBlocksDeletion;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} - Hospital ID {hospitalNumber}'**
+  String settingsHospitalIdLine(String name, String hospitalNumber);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage dependents'**
+  String get settingsManageDependents;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Link or remove a minor under your account'**
+  String get settingsManageDependentsSubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Health data synced - activity and vitals updated'**
+  String get settingsHealthDataSynced;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No new samples to sync'**
+  String get settingsNoNewSamplesToSync;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-authenticate with OTP before deletion'**
+  String get settingsDeleteAccountSubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Legal'**
+  String get settingsLegalSection;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the current terms in your browser'**
+  String get settingsOpenTermsInBrowser;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the current privacy policy in your browser'**
+  String get settingsOpenPrivacyInBrowser;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Please use a standard, unmodified phone.'**
+  String get splashUseStandardPhone;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Please authenticate to continue'**
+  String get splashAuthenticateToContinue;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Update required'**
+  String get splashUpdateRequired;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'This version of VH Health is no longer supported. Please install the latest version to continue.'**
+  String get splashUpdateBody;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Update VH Health'**
+  String get splashUpdateButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get yourHealthTimelineFilterAll;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Visits'**
+  String get yourHealthTimelineFilterVisits;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Prescriptions'**
+  String get yourHealthTimelineFilterPrescriptions;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Labs'**
+  String get yourHealthTimelineFilterLabs;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploads'**
+  String get yourHealthTimelineFilterUploads;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital Docs'**
+  String get yourHealthTimelineFilterHospital;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Your health timeline is ready'**
+  String get yourHealthTimelineReady;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} health updates in one timeline'**
+  String yourHealthTimelineUpdateCount(int count);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Rx'**
+  String get yourHealthTimelineRxPill;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Visits'**
+  String get yourHealthTimelineVisitsPill;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploads'**
+  String get yourHealthTimelineUploadsPill;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Date pending'**
+  String get yourHealthTimelineDatePending;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No {filter} yet'**
+  String yourHealthTimelineFilteredEmpty(String filter);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No timeline items yet'**
+  String get yourHealthTimelineEmptyTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another filter or refresh the latest hospital records.'**
+  String get yourHealthTimelineFilteredEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Prescriptions, consultations, hospital docs, and uploads will collect here automatically.'**
+  String get yourHealthTimelineEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Record ID is missing'**
+  String get recordExtractionMissingRecordId;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Extraction is not available yet'**
+  String get recordExtractionUnavailable;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Extraction could not be processed'**
+  String get recordExtractionProcessFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded record'**
+  String get recordExtractionUploadedRecord;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Message sent to the hospital team'**
+  String get recordExtractionMessageSent;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Message could not be sent. Please try again.'**
+  String get recordExtractionMessageFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Message hospital'**
+  String get recordExtractionMessageHospital;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh extraction'**
+  String get recordExtractionRefresh;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded file'**
+  String get recordExtractionUploadedFile;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'File preview unavailable'**
+  String get recordExtractionFilePreviewUnavailable;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the file to compare it'**
+  String get recordExtractionOpenFileToCompare;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Image preview unavailable'**
+  String get recordExtractionImagePreviewUnavailable;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Review flags'**
+  String get recordExtractionReviewFlags;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Patient identifiers'**
+  String get recordExtractionPatientIdentifiers;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnoses'**
+  String get recordExtractionDiagnoses;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Medications'**
+  String get recordExtractionMedications;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Tests & Reports'**
+  String get recordExtractionTestsReports;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow up'**
+  String get recordExtractionFollowUp;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Other extracted fields'**
+  String get recordExtractionOtherFields;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Dates'**
+  String get recordExtractionDates;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Citations'**
+  String get recordExtractionCitations;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'OCR text'**
+  String get recordExtractionOcrText;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Extraction reviewed: {status}'**
+  String recordExtractionReviewed(String status);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'AI draft - cross-check every extracted value against the original document before relying on it.'**
+  String get recordExtractionDraftWarning;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Document'**
+  String get recordExtractionDocument;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Processing'**
+  String get recordExtractionProcessing;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No extracted values'**
+  String get recordExtractionNoValues;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Process extraction'**
+  String get recordExtractionProcessButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Health Connect permission was not granted. In-app walk tracking still works.'**
+  String get dashboardHealthConnectPermissionDenied;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re doing great'**
+  String get dashboardWellnessBandExcellent;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep it up'**
+  String get dashboardWellnessBandGood;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Some attention needed'**
+  String get dashboardWellnessBandNeedsAttention;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Show breakdown'**
+  String get dashboardWellnessShowBreakdown;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide breakdown'**
+  String get dashboardWellnessHideBreakdown;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Wellness breakdown'**
+  String get dashboardWellnessBreakdownTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No wellness split is available yet.'**
+  String get dashboardWellnessNoSplit;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Medication status'**
+  String get dashboardWellnessMedicationStatus;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Prescription-status proxy, not dose adherence'**
+  String get dashboardWellnessMedicationProxy;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No prescriptions to track yet'**
+  String get dashboardWellnessNoPrescriptions;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{active} of {total} prescriptions active/unexpired'**
+  String dashboardWellnessPrescriptionsActive(int active, int total);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Central stats'**
+  String get healthPointsCentralStats;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Refreshing your activity'**
+  String get healthPointsRefreshingActivity;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Walking, points, wellness, and sleep readiness'**
+  String get healthPointsCentralStatsSubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Walking, sleep, and points from {source}'**
+  String healthPointsCentralStatsFromSource(String source);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh stats'**
+  String get healthPointsRefreshStatsTooltip;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Walking'**
+  String get healthPointsWalking;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{goal}-step goal'**
+  String healthPointsGoalStepCaption(int goal);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{activity} - {source}'**
+  String healthPointsActivitySourceCaption(String activity, String source);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Distance'**
+  String get healthPointsDistance;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'today'**
+  String get healthPointsToday;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep'**
+  String get healthPointsSleep;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No data'**
+  String get healthPointsNoData;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect Health data'**
+  String get healthPointsConnectHealthData;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'{source} sync'**
+  String healthPointsSyncSource(String source);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Wellness'**
+  String get healthPointsWellness;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'out of 100'**
+  String get healthPointsOutOfHundred;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Points'**
+  String get healthPointsPoints;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'current balance'**
+  String get healthPointsCurrentBalance;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Goal'**
+  String get healthPointsGoal;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'steps today'**
+  String get healthPointsStepsToday;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow Health Connect so VH Health can sync steps counted while the app is closed.'**
+  String get dashboardHealthConnectPrompt;
 }
 
 class _AppLocalizationsDelegate

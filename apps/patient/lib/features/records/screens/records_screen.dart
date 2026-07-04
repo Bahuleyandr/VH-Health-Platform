@@ -251,9 +251,9 @@ class _RecordsScreenState extends State<RecordsScreen>
 
           Future<void> upload() async {
             if (pickedFilePath == null) {
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(content: Text('Please pick a file')),
-              );
+              ScaffoldMessenger.of(
+                ctx,
+              ).showSnackBar(SnackBar(content: Text(lInner.recordsPickFile)));
               return;
             }
             setSheet(() => uploading = true);

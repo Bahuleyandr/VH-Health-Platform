@@ -151,7 +151,9 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             const SizedBox(height: 4),
             Text(
               l.vitalsLogSubheading,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -164,15 +166,17 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                   child: TextFormField(
                     controller: _systolicCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Systolic',
+                    decoration: InputDecoration(
+                      labelText: l.vitalsSystolic,
                       suffixText: 'mmHg',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (v) {
                       if (v != null && v.isNotEmpty) {
                         final n = int.tryParse(v);
-                        if (n == null || n < 50 || n > 300) return 'Invalid';
+                        if (n == null || n < 50 || n > 300) {
+                          return l.vitalsInvalidValue;
+                        }
                       }
                       return null;
                     },
@@ -183,15 +187,17 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                   child: TextFormField(
                     controller: _diastolicCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Diastolic',
+                    decoration: InputDecoration(
+                      labelText: l.vitalsDiastolic,
                       suffixText: 'mmHg',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (v) {
                       if (v != null && v.isNotEmpty) {
                         final n = int.tryParse(v);
-                        if (n == null || n < 20 || n > 200) return 'Invalid';
+                        if (n == null || n < 20 || n > 200) {
+                          return l.vitalsInvalidValue;
+                        }
                       }
                       return null;
                     },
@@ -205,16 +211,18 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             TextFormField(
               controller: _heartRateCtrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Heart Rate',
+              decoration: InputDecoration(
+                labelText: l.vitalsHeartRate,
                 suffixText: 'bpm',
-                prefixIcon: Icon(Icons.favorite_border),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.favorite_border),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = int.tryParse(v);
-                  if (n == null || n < 30 || n > 250) return 'Enter 30-250 bpm';
+                  if (n == null || n < 30 || n > 250) {
+                    return l.vitalsHeartRateRange;
+                  }
                 }
                 return null;
               },
@@ -227,17 +235,17 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: const InputDecoration(
-                labelText: 'Temperature',
+              decoration: InputDecoration(
+                labelText: l.vitalsTemperature,
                 suffixText: '°F',
-                prefixIcon: Icon(Icons.thermostat),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.thermostat),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = double.tryParse(v);
                   if (n == null || n < 90 || n > 110) {
-                    return 'Enter 90-110 °F';
+                    return l.vitalsTemperatureRange;
                   }
                 }
                 return null;
@@ -249,17 +257,17 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             TextFormField(
               controller: _bloodSugarCtrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Blood Sugar',
+              decoration: InputDecoration(
+                labelText: l.vitalsBloodSugar,
                 suffixText: 'mg/dL',
-                prefixIcon: Icon(Icons.water_drop_outlined),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.water_drop_outlined),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = int.tryParse(v);
                   if (n == null || n < 20 || n > 600) {
-                    return 'Enter 20-600 mg/dL';
+                    return l.vitalsBloodSugarRange;
                   }
                 }
                 return null;
@@ -273,16 +281,18 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: const InputDecoration(
-                labelText: 'Weight',
+              decoration: InputDecoration(
+                labelText: l.vitalsWeight,
                 suffixText: 'kg',
-                prefixIcon: Icon(Icons.monitor_weight_outlined),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.monitor_weight_outlined),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = double.tryParse(v);
-                  if (n == null || n < 1 || n > 300) return 'Enter 1-300 kg';
+                  if (n == null || n < 1 || n > 300) {
+                    return l.vitalsWeightRange;
+                  }
                 }
                 return null;
               },
@@ -293,16 +303,18 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
             TextFormField(
               controller: _spo2Ctrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'SpO2',
+              decoration: InputDecoration(
+                labelText: l.vitalsSpO2,
                 suffixText: '%',
-                prefixIcon: Icon(Icons.air),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.air),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = int.tryParse(v);
-                  if (n == null || n < 50 || n > 100) return 'Enter 50-100%';
+                  if (n == null || n < 50 || n > 100) {
+                    return l.vitalsSpo2Range;
+                  }
                 }
                 return null;
               },
@@ -319,7 +331,9 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.check),
-              label: Text(_submitting ? 'Submitting...' : 'Record Vitals'),
+              label: Text(
+                _submitting ? l.vitalsSubmitting : l.vitalsRecordButton,
+              ),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFE57373),
                 padding: const EdgeInsets.symmetric(vertical: 14),

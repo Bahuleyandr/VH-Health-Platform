@@ -49,7 +49,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
         // Search
         TextField(
           decoration: InputDecoration(
-            hintText: 'Search tests...',
+            hintText: l.bookInvestigationSearchHint,
             prefixIcon: const Icon(Icons.search),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             isDense: true,
@@ -85,7 +85,9 @@ class BookInvestigationStepChoose extends StatelessWidget {
                     onChanged: (v) => onTestToggle(id, v),
                     title: Text(test['name'] ?? ''),
                     subtitle: Text(
-                      '₹$cost${test['requires_fasting'] == true ? ' • Fasting required' : ''}',
+                      test['requires_fasting'] == true
+                          ? l.bookInvestigationCostFasting(cost.toString())
+                          : '₹$cost',
                       style: TextStyle(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -108,7 +110,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
         TextField(
           controller: customTestController,
           decoration: InputDecoration(
-            hintText: 'e.g. CBC, Sugar test, Thyroid',
+            hintText: l.bookInvestigationCustomTestHint,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             isDense: true,
           ),
@@ -129,13 +131,13 @@ class BookInvestigationStepChoose extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onPickCamera,
               icon: const Icon(Icons.camera_alt),
-              label: const Text('Camera'),
+              label: Text(l.bookInvestigationCameraButton),
             ),
             const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: onPickGallery,
               icon: const Icon(Icons.photo_library),
-              label: const Text('Gallery'),
+              label: Text(l.bookInvestigationGalleryButton),
             ),
           ],
         ),
@@ -147,7 +149,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  slipPhotoName ?? 'Photo selected',
+                  slipPhotoName ?? l.bookInvestigationPhotoSelected,
                   style: theme.textTheme.bodySmall,
                   overflow: TextOverflow.ellipsis,
                 ),

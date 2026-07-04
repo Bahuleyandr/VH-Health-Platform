@@ -28,6 +28,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
   }
 
   Future<void> _fetchHistory() async {
+    final l = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -50,7 +51,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load vitals history';
+          _error = response.message ?? l.vitalsHistoryFailed;
           _loading = false;
         });
       }
@@ -58,7 +59,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
       if (kDebugMode) debugPrint('VitalsHistoryTab: fetch error: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to load vitals history';
+          _error = l.vitalsHistoryFailed;
           _loading = false;
         });
       }
@@ -68,6 +69,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -83,7 +85,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
             OutlinedButton.icon(
               onPressed: _fetchHistory,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(l.commonRetryButton),
             ),
           ],
         ),
@@ -100,14 +102,13 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
-            Text(
-              AppLocalizations.of(context)!.vitalsNoHistory,
-              style: theme.textTheme.bodyMedium,
-            ),
+            Text(l.vitalsNoHistory, style: theme.textTheme.bodyMedium),
             const SizedBox(height: 8),
             Text(
-              AppLocalizations.of(context)!.vitalsNoHistoryHint,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+              l.vitalsNoHistoryHint,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -123,7 +124,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
             _VitalsTrendSummary(latest: _entries[0], previous: _entries[1]),
           if (_entries.length >= 2) const SizedBox(height: 16),
           Text(
-            'History',
+            l.vitalsHistoryHeading,
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),

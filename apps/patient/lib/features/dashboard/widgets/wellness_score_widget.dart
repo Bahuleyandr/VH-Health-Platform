@@ -75,20 +75,21 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
     }
   }
 
-  String _bandLabel(String band) {
+  String _bandLabel(AppLocalizations l, String band) {
     switch (band) {
       case 'excellent':
-        return "You're doing great";
+        return l.dashboardWellnessBandExcellent;
       case 'good':
-        return 'Keep it up';
+        return l.dashboardWellnessBandGood;
       default:
-        return 'Some attention needed';
+        return l.dashboardWellnessBandNeedsAttention;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     if (_loading) {
       return _skeleton(theme);
@@ -165,7 +166,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _bandLabel(band),
+                        _bandLabel(l, band),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.hintColor,
                         ),
@@ -180,7 +181,9 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            _expanded ? 'Hide breakdown' : 'Show breakdown',
+                            _expanded
+                                ? l.dashboardWellnessHideBreakdown
+                                : l.dashboardWellnessShowBreakdown,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.hintColor,
                             ),
@@ -194,7 +197,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
             ),
             if (_expanded) ...[
               const Divider(height: 24),
-              for (final dim in dims) _dimensionBar(theme, dim as Map),
+              for (final dim in dims) _dimensionBar(theme, dim as Map, l),
             ],
           ],
         ),
@@ -202,9 +205,9 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
     );
   }
 
-  Widget _dimensionBar(ThemeData theme, Map dim) {
-    final label = _wellnessDimensionLabel(dim);
-    final caption = _wellnessDimensionCaption(dim);
+  Widget _dimensionBar(ThemeData theme, Map dim, AppLocalizations l) {
+    final label = _wellnessDimensionLabel(dim, l);
+    final caption = _wellnessDimensionCaption(dim, l);
     final s = (dim['score'] as num?)?.toInt() ?? 0;
     final m = (dim['max'] as num?)?.toInt() ?? 20;
     final ratio = m > 0 ? (s / m).clamp(0.0, 1.0) : 0.0;
@@ -342,20 +345,21 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
     }
   }
 
-  String _bandLabel(String band) {
+  String _bandLabel(AppLocalizations l, String band) {
     switch (band) {
       case 'excellent':
-        return "You're doing great";
+        return l.dashboardWellnessBandExcellent;
       case 'good':
-        return 'Keep it up';
+        return l.dashboardWellnessBandGood;
       default:
-        return 'Some attention needed';
+        return l.dashboardWellnessBandNeedsAttention;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     if (_loading) {
       return _skeleton(theme);
@@ -410,14 +414,14 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Wellness breakdown',
+                      l.dashboardWellnessBreakdownTitle,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _bandLabel(band),
+                      _bandLabel(l, band),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -437,21 +441,22 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
           const SizedBox(height: 12),
           if (dims.isEmpty)
             Text(
-              'No wellness split is available yet.',
+              l.dashboardWellnessNoSplit,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             )
           else
-            for (final dim in dims.whereType<Map>()) _dimensionBar(theme, dim),
+            for (final dim in dims.whereType<Map>())
+              _dimensionBar(theme, dim, l),
         ],
       ),
     );
   }
 
-  Widget _dimensionBar(ThemeData theme, Map dim) {
-    final label = _wellnessDimensionLabel(dim);
-    final caption = _wellnessDimensionCaption(dim);
+  Widget _dimensionBar(ThemeData theme, Map dim, AppLocalizations l) {
+    final label = _wellnessDimensionLabel(dim, l);
+    final caption = _wellnessDimensionCaption(dim, l);
     final s = (dim['score'] as num?)?.toInt() ?? 0;
     final m = (dim['max'] as num?)?.toInt() ?? 20;
     final ratio = m > 0 ? (s / m).clamp(0.0, 1.0) : 0.0;
@@ -544,21 +549,21 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
   }
 }
 
-String _wellnessDimensionLabel(Map dim) {
+String _wellnessDimensionLabel(Map dim, AppLocalizations l) {
   final key = dim['key']?.toString();
-  if (key == 'medication') return 'Medication status';
+  if (key == 'medication') return l.dashboardWellnessMedicationStatus;
   return dim['label']?.toString() ?? '';
 }
 
-String? _wellnessDimensionCaption(Map dim) {
+String? _wellnessDimensionCaption(Map dim, AppLocalizations l) {
   if (dim['key']?.toString() != 'medication') return null;
   final detail = dim['detail'];
-  if (detail is! Map) return 'Prescription-status proxy, not dose adherence';
+  if (detail is! Map) return l.dashboardWellnessMedicationProxy;
 
   final active = _wellnessInt(detail['active']) ?? 0;
   final total = _wellnessInt(detail['total']) ?? 0;
-  if (total == 0) return 'No prescriptions to track yet';
-  return '$active of $total prescriptions active/unexpired';
+  if (total == 0) return l.dashboardWellnessNoPrescriptions;
+  return l.dashboardWellnessPrescriptionsActive(active, total);
 }
 
 int? _wellnessInt(dynamic value) {

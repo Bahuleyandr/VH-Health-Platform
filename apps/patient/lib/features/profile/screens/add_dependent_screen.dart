@@ -15,6 +15,7 @@ import 'package:provider/provider.dart';
 
 import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class AddDependentScreen extends StatefulWidget {
   const AddDependentScreen({super.key});
@@ -33,16 +34,29 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
   // Mirror the backend `VALID_LINK_RELATIONSHIPS` allowlist in
   // dependentsService.js. Keep these two in sync — a value that doesn't
   // match the backend allowlist returns INVALID_RELATIONSHIP.
-  static const _relationships = <String, String>{
-    'parent': 'Parent',
-    'mother': 'Mother',
-    'father': 'Father',
-    'legal_guardian': 'Legal guardian',
-    'grandparent': 'Grandparent',
-    'sibling': 'Sibling',
-    'spouse': 'Spouse',
-    'other': 'Other',
-  };
+  static const _relationships = <String>[
+    'parent',
+    'mother',
+    'father',
+    'legal_guardian',
+    'grandparent',
+    'sibling',
+    'spouse',
+    'other',
+  ];
+
+  String _relationshipLabel(AppLocalizations l, String value) {
+    return switch (value) {
+      'parent' => l.addDependentRelationshipParent,
+      'mother' => l.addDependentRelationshipMother,
+      'father' => l.addDependentRelationshipFather,
+      'legal_guardian' => l.addDependentRelationshipLegalGuardian,
+      'grandparent' => l.addDependentRelationshipGrandparent,
+      'sibling' => l.addDependentRelationshipSibling,
+      'spouse' => l.addDependentRelationshipSpouse,
+      _ => l.addDependentRelationshipOther,
+    };
+  }
 
   @override
   void dispose() {
@@ -51,6 +65,7 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
   }
 
   Future<void> _submit() async {
+    final l = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _submitting = true;
@@ -70,19 +85,16 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
       final shouldSwitch = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Dependent linked'),
-          content: Text(
-            '${dep.name} is now linked under your account. '
-            'Switch to their profile now?',
-          ),
+          title: Text(l.addDependentLinkedTitle),
+          content: Text(l.addDependentLinkedBody(dep.name)),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Not yet'),
+              child: Text(l.addDependentNotYetButton),
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Switch profile'),
+              child: Text(l.addDependentSwitchProfileButton),
             ),
           ],
         ),
@@ -91,7 +103,9 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
       if (shouldSwitch == true) {
         provider.switchTo(dep);
       }
-      messenger.showSnackBar(SnackBar(content: Text('Linked ${dep.name}')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(l.addDependentLinkedToast(dep.name))),
+      );
       if (mounted) context.pop();
     } on DependentApiException catch (e) {
       setState(() {
@@ -101,7 +115,7 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
     } catch (e) {
       if (kDebugMode) debugPrint('AddDependentScreen.submit: $e');
       setState(() {
-        _serverError = 'Failed to link dependent. Please try again.';
+        _serverError = l.addDependentLinkFailed;
         _submitting = false;
       });
     }
@@ -111,8 +125,9 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Add a dependent',
+      title: l.addDependentTitle,
       icon: Icons.escalator_warning,
       color: cs.tertiary,
       child: Form(
@@ -121,16 +136,14 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Link a minor patient',
+              l.addDependentHeading,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              'Enter the phone number or VH Health UID of the minor patient. '
-              'The minor must already be registered (typically at reception '
-              'during their first visit).',
+              l.addDependentIntro,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurface.withValues(alpha: 0.7),
               ),
@@ -140,15 +153,15 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
               controller: _identifierCtrl,
               keyboardType: TextInputType.text,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Phone number or UID',
-                hintText: '+91 9876543210 or a-uuid-from-reception',
-                prefixIcon: Icon(Icons.contact_phone_outlined),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.addDependentIdentifierLabel,
+                hintText: l.addDependentIdentifierHint,
+                prefixIcon: const Icon(Icons.contact_phone_outlined),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 final value = v?.trim() ?? '';
-                if (value.isEmpty) return 'Phone or UID is required';
+                if (value.isEmpty) return l.addDependentIdentifierRequired;
                 final isUuid = RegExp(
                   r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                   caseSensitive: false,
@@ -157,7 +170,7 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
                   r'^[+]?[0-9]{10,15}$',
                 ).hasMatch(value.replaceAll(RegExp(r'\s'), ''));
                 if (!isUuid && !isPhone) {
-                  return 'Enter a phone (10–15 digits) or a UID';
+                  return l.addDependentIdentifierInvalid;
                 }
                 return null;
               },
@@ -165,14 +178,17 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _relationship,
-              decoration: const InputDecoration(
-                labelText: 'Your relationship to them',
-                prefixIcon: Icon(Icons.family_restroom_outlined),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.addDependentRelationshipLabel,
+                prefixIcon: const Icon(Icons.family_restroom_outlined),
+                border: const OutlineInputBorder(),
               ),
-              items: _relationships.entries
+              items: _relationships
                   .map(
-                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    (value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(_relationshipLabel(l, value)),
+                    ),
                   )
                   .toList(growable: false),
               onChanged: _submitting
@@ -215,15 +231,18 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.link),
-              label: Text(_submitting ? 'Linking…' : 'Link dependent'),
+              label: Text(
+                _submitting
+                    ? l.addDependentLinkingButton
+                    : l.addDependentLinkButton,
+              ),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
             const SizedBox(height: 12),
             Text(
-              "Don't see the dependent? Ask reception to register them "
-              'first — they need a VH Health UID before you can link them.',
+              l.addDependentReceptionHint,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurface.withValues(alpha: 0.6),
               ),

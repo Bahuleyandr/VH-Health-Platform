@@ -192,9 +192,9 @@ class MyUploadsTabState extends State<MyUploadsTab> {
           Future<void> upload() async {
             final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null) {
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(content: Text('Please pick a file')),
-              );
+              ScaffoldMessenger.of(
+                ctx,
+              ).showSnackBar(SnackBar(content: Text(lInner.recordsPickFile)));
               return;
             }
             setSheet(() => uploading = true);

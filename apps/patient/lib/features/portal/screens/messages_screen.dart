@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class _Thread {
   _Thread.fromJson(Map<String, dynamic> j)
@@ -30,15 +31,35 @@ class _Thread {
   final int patientUnread;
 }
 
-const _categoryLabels = <String, String>{
-  'general': 'General',
-  'appointment': 'Appointment',
-  'prescription': 'Prescription',
-  'lab_result': 'Lab result',
-  'billing': 'Billing',
-  'discharge': 'Discharge',
-  'other': 'Other',
-};
+String _categoryLabel(AppLocalizations l, String category) {
+  switch (category) {
+    case 'appointment':
+      return l.messagesCategoryAppointment;
+    case 'prescription':
+      return l.messagesCategoryPrescription;
+    case 'lab_result':
+      return l.messagesCategoryLabResult;
+    case 'billing':
+      return l.messagesCategoryBilling;
+    case 'discharge':
+      return l.messagesCategoryDischarge;
+    case 'other':
+      return l.messagesCategoryOther;
+    case 'general':
+    default:
+      return l.messagesCategoryGeneral;
+  }
+}
+
+const _composeCategories = <String>[
+  'general',
+  'appointment',
+  'prescription',
+  'lab_result',
+  'billing',
+  'discharge',
+  'other',
+];
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -76,8 +97,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
           _loading = false;
         });
       } else {
+        final l = AppLocalizations.of(context)!;
         setState(() {
-          _error = response.message ?? 'Failed to load messages';
+          _error = response.message ?? l.messagesLoadFailed;
           _loading = false;
         });
       }
@@ -103,14 +125,15 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Messages',
+      title: l.messagesTitle,
       icon: Icons.forum,
       color: const Color(0xFFFFE082),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCompose,
         icon: const Icon(Icons.edit),
-        label: const Text('New message'),
+        label: Text(l.messagesNewMessage),
       ),
       child: RefreshIndicator(
         onRefresh: _fetch,
@@ -120,15 +143,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
           data: _threads,
           onRetry: _fetch,
           emptyIcon: Icons.forum_outlined,
-          emptyTitle: 'No messages yet',
-          emptySubtitle:
-              'Start a secure conversation with the hospital using the New Message button below.',
+          emptyTitle: l.messagesEmptyTitle,
+          emptySubtitle: l.messagesEmptySubtitle,
           builder: (context, threads) {
             return ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: threads.length,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (_, i) => _ThreadCard(thread: threads[i]),
+              itemBuilder: (_, i) => _ThreadCard(thread: threads[i], l: l),
             );
           },
         ),
@@ -138,8 +160,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
 }
 
 class _ThreadCard extends StatelessWidget {
-  const _ThreadCard({required this.thread});
+  const _ThreadCard({required this.thread, required this.l});
   final _Thread thread;
+  final AppLocalizations l;
 
   @override
   Widget build(BuildContext context) {
@@ -179,7 +202,7 @@ class _ThreadCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          _categoryLabels[thread.category] ?? thread.category,
+                          _categoryLabel(l, thread.category),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.outline,
                           ),
@@ -202,7 +225,7 @@ class _ThreadCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              'URGENT',
+                              l.messagesUrgent,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: theme.colorScheme.onErrorContainer,
                                 fontWeight: FontWeight.w700,
@@ -262,10 +285,11 @@ class _ComposeSheetState extends State<_ComposeSheet> {
   }
 
   Future<void> _send() async {
+    final l = AppLocalizations.of(context)!;
     if (_subjectController.text.trim().isEmpty ||
         _bodyController.text.trim().isEmpty) {
       setState(() {
-        _error = 'Subject and message body are required.';
+        _error = l.messagesSubjectBodyRequired;
       });
       return;
     }
@@ -288,14 +312,14 @@ class _ComposeSheetState extends State<_ComposeSheet> {
       } else {
         setState(() {
           _sending = false;
-          _error = response.message ?? 'Failed to send';
+          _error = response.message ?? l.messagesSendFailed;
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = e.toString();
+        _error = l.messagesSendFailed;
       });
     }
   }
@@ -303,6 +327,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final inset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.only(bottom: inset),
@@ -324,18 +349,20 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('New message', style: theme.textTheme.titleLarge),
+              Text(l.messagesNewMessage, style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: _category,
-                decoration: const InputDecoration(
-                  labelText: 'Category',
+                decoration: InputDecoration(
+                  labelText: l.messagesCategoryLabel,
                   border: OutlineInputBorder(),
                 ),
-                items: _categoryLabels.entries
+                items: _composeCategories
                     .map(
-                      (e) =>
-                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                      (category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(_categoryLabel(l, category)),
+                      ),
                     )
                     .toList(),
                 onChanged: (v) => setState(() => _category = v ?? 'general'),
@@ -343,16 +370,16 @@ class _ComposeSheetState extends State<_ComposeSheet> {
               const SizedBox(height: 12),
               TextField(
                 controller: _subjectController,
-                decoration: const InputDecoration(
-                  labelText: 'Subject',
+                decoration: InputDecoration(
+                  labelText: l.messagesSubjectLabel,
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _bodyController,
-                decoration: const InputDecoration(
-                  labelText: 'Message',
+                decoration: InputDecoration(
+                  labelText: l.messagesBodyLabel,
                   border: OutlineInputBorder(),
                   alignLabelWithHint: true,
                 ),
@@ -377,7 +404,9 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.send),
-                label: Text(_sending ? 'Sending…' : 'Send'),
+                label: Text(
+                  _sending ? l.messagesSending : l.messagesSendButton,
+                ),
               ),
             ],
           ),
