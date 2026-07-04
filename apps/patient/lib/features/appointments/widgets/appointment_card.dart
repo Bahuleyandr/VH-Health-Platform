@@ -21,6 +21,7 @@ class AppointmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final statusCol = _statusColor(appt.status);
+    final statusLabel = _statusLabel(appt.status);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -39,21 +40,26 @@ class AppointmentCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusCol.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _statusLabel(appt.status),
-                    style: TextStyle(
-                      color: statusCol,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                Semantics(
+                  container: true,
+                  label: statusLabel,
+                  excludeSemantics: true,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusCol.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusCol,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
