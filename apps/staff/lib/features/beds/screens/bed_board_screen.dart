@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/role_config.dart';
@@ -489,24 +490,34 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       );
     }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
-        border: Border(
-          left: BorderSide(color: AppTheme.divider.withValues(alpha: 0.35)),
-        ),
-      ),
-      child: _BedDetailSheet(
-        bed: bed,
-        wardName: _selectedWardName ?? '',
-        role: _role,
-        embedded: true,
-        onClose: () => setState(() => _selectedBed = null),
-        onChanged: () async {
-          await _fetchWards(showLoading: false);
-          final wardId = _selectedWardId;
-          if (wardId != null) await _fetchBeds(wardId);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          setState(() => _selectedBed = null);
         },
+      },
+      child: Focus(
+        autofocus: true,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            border: Border(
+              left: BorderSide(color: AppTheme.divider.withValues(alpha: 0.35)),
+            ),
+          ),
+          child: _BedDetailSheet(
+            bed: bed,
+            wardName: _selectedWardName ?? '',
+            role: _role,
+            embedded: true,
+            onClose: () => setState(() => _selectedBed = null),
+            onChanged: () async {
+              await _fetchWards(showLoading: false);
+              final wardId = _selectedWardId;
+              if (wardId != null) await _fetchBeds(wardId);
+            },
+          ),
+        ),
       ),
     );
   }

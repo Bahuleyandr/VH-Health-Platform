@@ -118,6 +118,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Future<void> _submitLeave() async {
+    if (_submitting) return;
     final s = AppStrings.of(context);
     if (_startDate == null || _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -168,6 +169,16 @@ class _LeaveScreenState extends State<LeaveScreen>
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  void _submitLeaveWhenNewline(String value) {
+    if (!value.contains('\n')) return;
+    final cleaned = value.replaceAll(RegExp(r'\s*\n\s*'), ' ');
+    _reasonCtrl.value = TextEditingValue(
+      text: cleaned,
+      selection: TextSelection.collapsed(offset: cleaned.length),
+    );
+    _submitLeave();
   }
 
   @override
@@ -326,200 +337,207 @@ class _LeaveScreenState extends State<LeaveScreen>
     ];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Leave type
-          Text(
-            s.leaveLeaveTypeLabel,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            initialValue: _leaveType,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-            items: leaveTypes
-                .map(
-                  (t) => DropdownMenuItem(value: t.code, child: Text(t.label)),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => _leaveType = v!),
-          ),
-          const SizedBox(height: 16),
-
-          // Date range
-          Text(
-            s.leaveDatesLabel,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _datePicker(
-                  s.leaveStartDate,
-                  _startDate,
-                  (d) => setState(() => _startDate = d),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _datePicker(
-                  s.leaveEndDate,
-                  _endDate,
-                  (d) => setState(() => _endDate = d),
-                ),
-              ),
-            ],
-          ),
-          if (_startDate != null && _endDate != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                s.leaveDayCount(_endDate!.difference(_startDate!).inDays + 1),
-                style: const TextStyle(
-                  color: AppTheme.primaryBlue,
-                  fontSize: 12,
-                ),
-              ),
+      child: FocusTraversalGroup(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Leave type
+            Text(
+              s.leaveLeaveTypeLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-          const SizedBox(height: 16),
-
-          // Reason
-          Text(
-            s.leaveReasonLabel,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _reasonCtrl,
-            decoration: InputDecoration(
-              hintText: s.leaveReasonHint,
-              border: const OutlineInputBorder(),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: _leaveType,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+              items: leaveTypes
+                  .map(
+                    (t) =>
+                        DropdownMenuItem(value: t.code, child: Text(t.label)),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _leaveType = v!),
             ),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-          // Replacement staff
-          Text(
-            s.leaveReplacementStaffLabel,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            s.leaveReplacementStaffHint,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 8),
-          InkWell(
-            onTap: () => _showStaffPicker(),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade400),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.person_add_outlined,
-                    size: 18,
-                    color: Colors.grey,
+            // Date range
+            Text(
+              s.leaveDatesLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _datePicker(
+                    s.leaveStartDate,
+                    _startDate,
+                    (d) => setState(() => _startDate = d),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _selectedReplacementName ?? s.leaveReplacementStaffPick,
-                      style: TextStyle(
-                        color: _selectedReplacementName != null
-                            ? Colors.black
-                            : Colors.grey.shade600,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _datePicker(
+                    s.leaveEndDate,
+                    _endDate,
+                    (d) => setState(() => _endDate = d),
+                  ),
+                ),
+              ],
+            ),
+            if (_startDate != null && _endDate != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  s.leaveDayCount(_endDate!.difference(_startDate!).inDays + 1),
+                  style: const TextStyle(
+                    color: AppTheme.primaryBlue,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
+
+            // Reason
+            Text(
+              s.leaveReasonLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _reasonCtrl,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submitLeave(),
+              onChanged: _submitLeaveWhenNewline,
+              decoration: InputDecoration(
+                hintText: s.leaveReasonHint,
+                border: const OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+
+            // Replacement staff
+            Text(
+              s.leaveReplacementStaffLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              s.leaveReplacementStaffHint,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () => _showStaffPicker(),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade400),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.person_add_outlined,
+                      size: 18,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedReplacementName ?? s.leaveReplacementStaffPick,
+                        style: TextStyle(
+                          color: _selectedReplacementName != null
+                              ? Colors.black
+                              : Colors.grey.shade600,
+                        ),
                       ),
                     ),
-                  ),
-                  if (_selectedReplacementName != null)
-                    GestureDetector(
-                      onTap: () => setState(() {
-                        _selectedReplacementId = null;
-                        _selectedReplacementName = null;
-                      }),
-                      child: const Icon(
-                        Icons.clear,
-                        size: 16,
-                        color: Colors.grey,
+                    if (_selectedReplacementName != null)
+                      GestureDetector(
+                        onTap: () => setState(() {
+                          _selectedReplacementId = null;
+                          _selectedReplacementName = null;
+                        }),
+                        child: const Icon(
+                          Icons.clear,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _submitting ? null : _submitLeave,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryBlue,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  ],
                 ),
               ),
-              child: _submitting
-                  ? const CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    )
-                  : Text(
-                      s.leaveSubmitButton,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+            ),
+            const SizedBox(height: 24),
+
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _submitting ? null : _submitLeave,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: _submitting
+                    ? const CircularProgressIndicator(
                         color: Colors.white,
+                        strokeWidth: 2,
+                      )
+                    : Text(
+                        s.leaveSubmitButton,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(
-                Icons.timer_outlined,
-                color: Color(0xFF007A64),
-              ),
-              title: Text(
-                s.leaveOvertimeTitle,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(s.leaveOvertimeSubtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const OvertimeScreen()),
               ),
             ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(
-                Icons.report_problem_outlined,
-                color: Colors.orange,
-              ),
-              title: Text(
-                s.leaveDisputeTitle,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(s.leaveDisputeSubtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DisputeScreen()),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(
+                  Icons.timer_outlined,
+                  color: Color(0xFF007A64),
+                ),
+                title: Text(
+                  s.leaveOvertimeTitle,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(s.leaveOvertimeSubtitle),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const OvertimeScreen()),
+                ),
               ),
             ),
-          ),
-        ],
+            Card(
+              child: ListTile(
+                leading: const Icon(
+                  Icons.report_problem_outlined,
+                  color: Colors.orange,
+                ),
+                title: Text(
+                  s.leaveDisputeTitle,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(s.leaveDisputeSubtitle),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DisputeScreen()),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

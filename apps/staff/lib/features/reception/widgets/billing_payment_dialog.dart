@@ -26,7 +26,26 @@ Future<bool> showBillingPaymentDialog({
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (context, setDialogState) {
+          void focusNextField() {
+            FocusScope.of(context).nextFocus();
+          }
+
+          void handleNewline(
+            TextEditingController controller,
+            String value,
+            VoidCallback action,
+          ) {
+            if (!value.contains('\n')) return;
+            final cleaned = value.replaceAll(RegExp(r'\s*\n\s*'), ' ');
+            controller.value = TextEditingValue(
+              text: cleaned,
+              selection: TextSelection.collapsed(offset: cleaned.length),
+            );
+            action();
+          }
+
           Future<void> collect() async {
+            if (saving) return;
             final amount = num.tryParse(amountCtrl.text.trim());
             final reference = referenceCtrl.text.trim();
             final shift = shiftCtrl.text.trim();
@@ -84,126 +103,136 @@ Future<bool> showBillingPaymentDialog({
             }
           }
 
-          return AlertDialog(
-            title: const Text('Collect Payment'),
-            content: SizedBox(
-              width: 520,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.receipt_long_outlined),
-                      title: Text(
-                        (invoice['invoice_number'] ?? '#$id').toString(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+          return FocusTraversalGroup(
+            child: AlertDialog(
+              title: const Text('Collect Payment'),
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.receipt_long_outlined),
+                        title: Text(
+                          (invoice['invoice_number'] ?? '#$id').toString(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text('Outstanding ${billingMoney(due)}'),
                       ),
-                      subtitle: Text('Outstanding ${billingMoney(due)}'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: amountCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount',
-                        prefixIcon: Icon(Icons.currency_rupee),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: mode,
-                      decoration: const InputDecoration(
-                        labelText: 'Mode',
-                        prefixIcon: Icon(Icons.payments_outlined),
-                      ),
-                      items:
-                          const [
-                                'UPI',
-                                'CARD',
-                                'NETBANKING',
-                                'CHEQUE',
-                                'DD',
-                                'WALLET',
-                                'CASH',
-                              ]
-                              .map(
-                                (value) => DropdownMenuItem(
-                                  value: value,
-                                  child: Text(value),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: saving
-                          ? null
-                          : (value) =>
-                                setDialogState(() => mode = value ?? mode),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: referenceCtrl,
-                      textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
-                        labelText: mode == 'CASH'
-                            ? 'Reference (optional)'
-                            : 'Transaction reference',
-                        prefixIcon: const Icon(Icons.numbers_outlined),
-                      ),
-                    ),
-                    if (mode == 'CASH') ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       TextField(
-                        controller: shiftCtrl,
+                        controller: amountCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => focusNextField(),
                         decoration: const InputDecoration(
-                          labelText: 'Cashier shift',
-                          prefixIcon: Icon(Icons.point_of_sale_outlined),
+                          labelText: 'Amount',
+                          prefixIcon: Icon(Icons.currency_rupee),
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: notesCtrl,
-                      minLines: 2,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes',
-                        prefixIcon: Icon(Icons.notes_outlined),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: mode,
+                        decoration: const InputDecoration(
+                          labelText: 'Mode',
+                          prefixIcon: Icon(Icons.payments_outlined),
+                        ),
+                        items:
+                            const [
+                                  'UPI',
+                                  'CARD',
+                                  'NETBANKING',
+                                  'CHEQUE',
+                                  'DD',
+                                  'WALLET',
+                                  'CASH',
+                                ]
+                                .map(
+                                  (value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(value),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: saving
+                            ? null
+                            : (value) =>
+                                  setDialogState(() => mode = value ?? mode),
                       ),
-                    ),
-                    if (dialogError != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        dialogError!,
-                        style: TextStyle(color: AppTheme.errorOnSurface),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: referenceCtrl,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => focusNextField(),
+                        decoration: InputDecoration(
+                          labelText: mode == 'CASH'
+                              ? 'Reference (optional)'
+                              : 'Transaction reference',
+                          prefixIcon: const Icon(Icons.numbers_outlined),
+                        ),
                       ),
+                      if (mode == 'CASH') ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: shiftCtrl,
+                          textInputAction: TextInputAction.next,
+                          onSubmitted: (_) => focusNextField(),
+                          decoration: const InputDecoration(
+                            labelText: 'Cashier shift',
+                            prefixIcon: Icon(Icons.point_of_sale_outlined),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: notesCtrl,
+                        keyboardType: TextInputType.text,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => collect(),
+                        onChanged: (value) =>
+                            handleNewline(notesCtrl, value, collect),
+                        minLines: 2,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Notes',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                      if (dialogError != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          dialogError!,
+                          style: TextStyle(color: AppTheme.errorOnSurface),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: saving ? null : collect,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.payments_outlined),
+                  label: const Text('Collect'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: saving ? null : () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              FilledButton.icon(
-                onPressed: saving ? null : collect,
-                icon: saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.payments_outlined),
-                label: const Text('Collect'),
-              ),
-            ],
           );
         },
       );

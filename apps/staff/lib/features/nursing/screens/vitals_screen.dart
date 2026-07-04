@@ -139,6 +139,25 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     super.dispose();
   }
 
+  void _focusNextField() {
+    FocusScope.of(context).nextFocus();
+  }
+
+  void _submitFromField() {
+    if (_submitting) return;
+    _submit();
+  }
+
+  void _submitWhenNewline(TextEditingController controller, String value) {
+    if (!value.contains('\n')) return;
+    final cleaned = value.replaceAll(RegExp(r'\s*\n\s*'), ' ');
+    controller.value = TextEditingValue(
+      text: cleaned,
+      selection: TextSelection.collapsed(offset: cleaned.length),
+    );
+    _submitFromField();
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
@@ -286,258 +305,278 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
           ),
           const SizedBox(height: 24),
 
-          Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Patient ID
-                TextFormField(
-                  controller: _patientIdCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: s.vitalsPatientIdLabel,
-                    hintText: s.vitalsPatientIdHint,
-                    prefixIcon: const ExcludeSemantics(
-                      child: Icon(Icons.person_outlined),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return s.vitalsPatientIdRequired;
-                    }
-                    if (int.tryParse(v.trim()) == null) {
-                      return s.vitalsPatientIdInvalid;
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-
-                // Blood Pressure
-                _SectionHeader(
-                  icon: Icons.favorite,
-                  label: s.vitalsBpHeader,
-                  color: const Color(0xFFC62828),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _bpSysCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: s.vitalsBpSystolic,
-                          hintText: s.vitalsBpSystolicHint,
-                          suffixText: VitalUnit.bp,
-                        ),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return null;
-                          final n = int.tryParse(
-                            normalizeVitalValue(v, VitalUnit.bp),
-                          );
-                          if (n == null || n < 60 || n > 300) {
-                            return s.vitalsValidationInvalid;
-                          }
-                          return null;
-                        },
+          FocusTraversalGroup(
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Patient ID
+                  TextFormField(
+                    controller: _patientIdCtrl,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => _focusNextField(),
+                    decoration: InputDecoration(
+                      labelText: s.vitalsPatientIdLabel,
+                      hintText: s.vitalsPatientIdHint,
+                      prefixIcon: const ExcludeSemantics(
+                        child: Icon(Icons.person_outlined),
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 10),
-                      child: Text('/', style: TextStyle(fontSize: 24)),
-                    ),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _bpDiaCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: s.vitalsBpDiastolic,
-                          hintText: s.vitalsBpDiastolicHint,
-                          suffixText: VitalUnit.bp,
-                        ),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return null;
-                          final n = int.tryParse(
-                            normalizeVitalValue(v, VitalUnit.bp),
-                          );
-                          if (n == null || n < 30 || n > 200) {
-                            return s.vitalsValidationInvalid;
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Temperature
-                _SectionHeader(
-                  icon: Icons.thermostat,
-                  label: s.vitalsTemperatureHeader,
-                  color: const Color(0xFFE65100),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _tempCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) {
+                        return s.vitalsPatientIdRequired;
+                      }
+                      if (int.tryParse(v.trim()) == null) {
+                        return s.vitalsPatientIdInvalid;
+                      }
+                      return null;
+                    },
                   ),
-                  decoration: InputDecoration(
-                    labelText: s.vitalsTemperatureHeader,
-                    hintText: s.vitalsTemperatureHint,
-                    suffixText: VitalUnit.temperature,
-                    prefixIcon: const ExcludeSemantics(
-                      child: Icon(Icons.thermostat_outlined),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return null;
-                    final n = double.tryParse(
-                      normalizeVitalValue(v, VitalUnit.temperature),
-                    );
-                    if (n == null || n < 90 || n > 115) {
-                      return s.vitalsValidationInvalid;
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
+                  const SizedBox(height: 20),
 
-                // Pulse & SpO2
-                _SectionHeader(
-                  icon: Icons.speed,
-                  label: s.vitalsPulseSpo2Header,
-                  color: const Color(0xFF0097A7),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _pulseCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: s.vitalsPulseLabel,
-                          hintText: s.vitalsPulseHint,
-                          suffixText: VitalUnit.pulse,
-                          prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.speed_outlined),
+                  // Blood Pressure
+                  _SectionHeader(
+                    icon: Icons.favorite,
+                    label: s.vitalsBpHeader,
+                    color: const Color(0xFFC62828),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _bpSysCtrl,
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) => _focusNextField(),
+                          decoration: InputDecoration(
+                            labelText: s.vitalsBpSystolic,
+                            hintText: s.vitalsBpSystolicHint,
+                            suffixText: VitalUnit.bp,
                           ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            final n = int.tryParse(
+                              normalizeVitalValue(v, VitalUnit.bp),
+                            );
+                            if (n == null || n < 60 || n > 300) {
+                              return s.vitalsValidationInvalid;
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return null;
-                          final n = int.tryParse(
-                            normalizeVitalValue(v, VitalUnit.pulse),
-                          );
-                          if (n == null || n < 20 || n > 250) {
-                            return s.vitalsValidationInvalid;
-                          }
-                          return null;
-                        },
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10),
+                        child: Text('/', style: TextStyle(fontSize: 24)),
+                      ),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _bpDiaCtrl,
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) => _focusNextField(),
+                          decoration: InputDecoration(
+                            labelText: s.vitalsBpDiastolic,
+                            hintText: s.vitalsBpDiastolicHint,
+                            suffixText: VitalUnit.bp,
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            final n = int.tryParse(
+                              normalizeVitalValue(v, VitalUnit.bp),
+                            );
+                            if (n == null || n < 30 || n > 200) {
+                              return s.vitalsValidationInvalid;
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Temperature
+                  _SectionHeader(
+                    icon: Icons.thermostat,
+                    label: s.vitalsTemperatureHeader,
+                    color: const Color(0xFFE65100),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _tempCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => _focusNextField(),
+                    decoration: InputDecoration(
+                      labelText: s.vitalsTemperatureHeader,
+                      hintText: s.vitalsTemperatureHint,
+                      suffixText: VitalUnit.temperature,
+                      prefixIcon: const ExcludeSemantics(
+                        child: Icon(Icons.thermostat_outlined),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _spo2Ctrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: s.vitalsSpo2Label,
-                          hintText: s.vitalsSpo2Hint,
-                          suffixText: VitalUnit.spo2,
-                          prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.air_outlined),
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return null;
+                      final n = double.tryParse(
+                        normalizeVitalValue(v, VitalUnit.temperature),
+                      );
+                      if (n == null || n < 90 || n > 115) {
+                        return s.vitalsValidationInvalid;
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Pulse & SpO2
+                  _SectionHeader(
+                    icon: Icons.speed,
+                    label: s.vitalsPulseSpo2Header,
+                    color: const Color(0xFF0097A7),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _pulseCtrl,
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) => _focusNextField(),
+                          decoration: InputDecoration(
+                            labelText: s.vitalsPulseLabel,
+                            hintText: s.vitalsPulseHint,
+                            suffixText: VitalUnit.pulse,
+                            prefixIcon: const ExcludeSemantics(
+                              child: Icon(Icons.speed_outlined),
+                            ),
                           ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            final n = int.tryParse(
+                              normalizeVitalValue(v, VitalUnit.pulse),
+                            );
+                            if (n == null || n < 20 || n > 250) {
+                              return s.vitalsValidationInvalid;
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return null;
-                          final n = double.tryParse(
-                            normalizeVitalValue(v, VitalUnit.spo2),
-                          );
-                          if (n == null || n < 50 || n > 100) {
-                            return s.vitalsValidationInvalid;
-                          }
-                          return null;
-                        },
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _spo2Ctrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) => _focusNextField(),
+                          decoration: InputDecoration(
+                            labelText: s.vitalsSpo2Label,
+                            hintText: s.vitalsSpo2Hint,
+                            suffixText: VitalUnit.spo2,
+                            prefixIcon: const ExcludeSemantics(
+                              child: Icon(Icons.air_outlined),
+                            ),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            final n = double.tryParse(
+                              normalizeVitalValue(v, VitalUnit.spo2),
+                            );
+                            if (n == null || n < 50 || n > 100) {
+                              return s.vitalsValidationInvalid;
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Weight
+                  _SectionHeader(
+                    icon: Icons.monitor_weight,
+                    label: s.vitalsWeightHeader,
+                    color: const Color(0xFF2E7D32),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _weightCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => _focusNextField(),
+                    decoration: InputDecoration(
+                      labelText: s.vitalsWeightHeader,
+                      hintText: s.vitalsWeightHint,
+                      suffixText: VitalUnit.weight,
+                      prefixIcon: const ExcludeSemantics(
+                        child: Icon(Icons.monitor_weight_outlined),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Weight
-                _SectionHeader(
-                  icon: Icons.monitor_weight,
-                  label: s.vitalsWeightHeader,
-                  color: const Color(0xFF2E7D32),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _weightCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return null;
+                      final n = double.tryParse(
+                        normalizeVitalValue(v, VitalUnit.weight),
+                      );
+                      if (n == null || n < 1 || n > 500) {
+                        return s.vitalsValidationInvalid;
+                      }
+                      return null;
+                    },
                   ),
-                  decoration: InputDecoration(
-                    labelText: s.vitalsWeightHeader,
-                    hintText: s.vitalsWeightHint,
-                    suffixText: VitalUnit.weight,
-                    prefixIcon: const ExcludeSemantics(
-                      child: Icon(Icons.monitor_weight_outlined),
+                  const SizedBox(height: 20),
+
+                  // Notes
+                  TextFormField(
+                    controller: _notesCtrl,
+                    keyboardType: TextInputType.text,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _submitFromField(),
+                    onChanged: (value) => _submitWhenNewline(_notesCtrl, value),
+                    decoration: InputDecoration(
+                      labelText: s.vitalsNurseNotesLabel,
+                      hintText: s.vitalsNurseNotesHint,
+                      prefixIcon: const ExcludeSemantics(
+                        child: Icon(Icons.notes_outlined),
+                      ),
+                      alignLabelWithHint: true,
+                    ),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 24),
+
+                  ElevatedButton.icon(
+                    onPressed: _submitting ? null : _submit,
+                    icon: _submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.save, color: Colors.white),
+                    label: Text(
+                      _submitting ? s.bedSheetSavingLabel : s.vitalsSaveButton,
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFC62828),
                     ),
                   ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return null;
-                    final n = double.tryParse(
-                      normalizeVitalValue(v, VitalUnit.weight),
-                    );
-                    if (n == null || n < 1 || n > 500) {
-                      return s.vitalsValidationInvalid;
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-
-                // Notes
-                TextFormField(
-                  controller: _notesCtrl,
-                  decoration: InputDecoration(
-                    labelText: s.vitalsNurseNotesLabel,
-                    hintText: s.vitalsNurseNotesHint,
-                    prefixIcon: const ExcludeSemantics(
-                      child: Icon(Icons.notes_outlined),
-                    ),
-                    alignLabelWithHint: true,
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 24),
-
-                ElevatedButton.icon(
-                  onPressed: _submitting ? null : _submit,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(Icons.save, color: Colors.white),
-                  label: Text(
-                    _submitting ? s.bedSheetSavingLabel : s.vitalsSaveButton,
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFC62828),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],

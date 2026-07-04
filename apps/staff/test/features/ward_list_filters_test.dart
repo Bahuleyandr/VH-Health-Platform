@@ -299,6 +299,11 @@ void main() {
     expect(find.text('Select a bed to view details'), findsNothing);
     expect(find.text('Hospital ID'), findsOneWidget);
     expect(find.text('H123'), findsAtLeastNWidgets(1));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Select a bed to view details'), findsOneWidget);
   });
 
   testWidgets(
