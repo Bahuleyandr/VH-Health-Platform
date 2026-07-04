@@ -46,9 +46,17 @@ class OfflineQueue {
 
   /// SQLite filename, tenant-namespaced for stamped builds (default ⇒ unchanged).
   @visibleForTesting
-  static String get dbFileName => TenantConfig.isDefaultTenant
-      ? 'offline_queue.db'
-      : 'offline_queue_${TenantConfig.cacheNamespace}.db';
+  static String? debugDbFileNameOverride;
+
+  /// SQLite filename, tenant-namespaced for stamped builds (default ⇒ unchanged).
+  @visibleForTesting
+  static String get dbFileName {
+    final override = debugDbFileNameOverride;
+    if (override != null) return override;
+    return TenantConfig.isDefaultTenant
+        ? 'offline_queue.db'
+        : 'offline_queue_${TenantConfig.cacheNamespace}.db';
+  }
 
   static encrypt.Key? _aesKey;
 

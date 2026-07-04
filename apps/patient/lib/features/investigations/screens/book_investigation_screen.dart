@@ -182,6 +182,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   }
 
   Future<void> _submitBooking() async {
+    if (_isSubmitting) return;
+
     setState(() => _isSubmitting = true);
     try {
       final fields = <String, String>{};
@@ -310,7 +312,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                 }
               },
               onStepCancel: _currentStep > 0
-                  ? () => setState(() => _currentStep--)
+                  ? (_isSubmitting
+                        ? null
+                        : () => setState(() => _currentStep--))
                   : null,
               controlsBuilder: (context, details) {
                 return Padding(

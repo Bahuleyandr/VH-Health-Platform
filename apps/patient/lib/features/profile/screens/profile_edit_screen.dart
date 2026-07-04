@@ -139,6 +139,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   // ───────────────────────────────── Submit ─────────────────────────────────
   Future<void> _submit() async {
+    if (_isSubmitting) return;
+
     final messenger = ScaffoldMessenger.of(context);
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
