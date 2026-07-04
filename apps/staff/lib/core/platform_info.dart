@@ -73,8 +73,8 @@ AppDeviceMode appDeviceModeForContext(BuildContext context) =>
 /// backend echoes back into the JWT). Drives:
 ///   * `requireDeviceType('mobile')` on `/staff/attendance` - tablet/desktop
 ///     staff workstations are blocked from marking attendance.
-///   * UI gating - the dashboard hides the attendance tile on non-mobile so
-///     users don't get a 403 surprise.
+///   * UI gating - the dashboard disables the attendance tile on non-mobile
+///     and explains why users cannot mark attendance there.
 ///
 /// Values: 'mobile' | 'tablet' | 'desktop' | 'web' - matches the backend's
 /// `deviceTypeValidator` allow-list.

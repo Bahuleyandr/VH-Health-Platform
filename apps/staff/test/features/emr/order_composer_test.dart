@@ -301,6 +301,7 @@ void main() {
         isTrue,
       );
       expect(isDeviceWriteGate({'code': 'DEVICE_TYPE_MISSING'}), isTrue);
+      expect(isDeviceWriteGate({'error_code': 'DEVICE_TYPE_MISSING'}), isTrue);
     });
 
     test('everything else is not the device gate', () {

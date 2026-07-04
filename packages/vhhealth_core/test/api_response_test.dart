@@ -39,6 +39,30 @@ void main() {
       expect(resp.message, 'Invalid API Key');
     });
 
+    test('captures structured error codes', () {
+      final body = jsonEncode({
+        'success': false,
+        'message': 'Forbidden',
+        'code': 'CLINICAL_WRITE_DESKTOP_ONLY',
+      });
+      final resp = ApiResponse.parse(403, body);
+
+      expect(resp.isSuccess, isFalse);
+      expect(resp.code, 'CLINICAL_WRITE_DESKTOP_ONLY');
+    });
+
+    test('captures legacy error_code aliases', () {
+      final body = jsonEncode({
+        'success': false,
+        'error': 'Device type missing',
+        'error_code': 'DEVICE_TYPE_MISSING',
+      });
+      final resp = ApiResponse.parse(403, body);
+
+      expect(resp.message, 'Device type missing');
+      expect(resp.code, 'DEVICE_TYPE_MISSING');
+    });
+
     test('parses 500 as server error', () {
       final body = jsonEncode({
         'success': false,
@@ -150,6 +174,7 @@ void main() {
         'Failed to refresh · ref cached-r',
       );
       expect(cached.requestId, 'cached-ref-123456');
+      expect(cached.code, isNull);
     });
   });
 

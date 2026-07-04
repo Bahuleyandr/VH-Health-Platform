@@ -10,6 +10,7 @@ class ApiResponse {
   final dynamic data;
   final dynamic raw;
   final String? message;
+  final String? code;
   final String? requestId;
 
   bool get isUnauthorized => statusCode == 401;
@@ -20,6 +21,7 @@ class ApiResponse {
     this.data,
     this.raw,
     this.message,
+    this.code,
     this.requestId,
   });
 
@@ -47,6 +49,7 @@ class ApiResponse {
     dynamic decoded;
     dynamic data;
     String? message;
+    String? code;
     String? parsedRequestId = requestId?.trim();
 
     try {
@@ -54,6 +57,7 @@ class ApiResponse {
       if (decoded is Map<String, dynamic>) {
         data = decoded['data'];
         message = (decoded['message'] ?? decoded['error'])?.toString();
+        code = (decoded['code'] ?? decoded['error_code'])?.toString().trim();
         parsedRequestId = (parsedRequestId == null || parsedRequestId.isEmpty)
             ? decoded['requestId']?.toString().trim()
             : parsedRequestId;
@@ -74,6 +78,7 @@ class ApiResponse {
       data: data,
       raw: decoded,
       message: message,
+      code: code?.isEmpty == true ? null : code,
       requestId: parsedRequestId?.isEmpty == true ? null : parsedRequestId,
     );
   }
@@ -127,6 +132,7 @@ class CachedApiResponse {
   bool get isSuccess => response.isSuccess;
   dynamic get data => response.data;
   String? get message => response.message;
+  String? get code => response.code;
   String? get requestId => response.requestId;
   String failureMessage([String? fallback]) =>
       response.failureMessage(fallback);
