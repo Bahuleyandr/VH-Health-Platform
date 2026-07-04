@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -25,8 +26,15 @@ String? _nonEmptyString(dynamic value) {
   return text == null || text.isEmpty ? null : text;
 }
 
+typedef LabBookingsLoader = Future<dynamic> Function();
+typedef RealtimeEventStreamFactory =
+    Stream<RealtimeEvent> Function(String channel);
+
 class LabBookingsScreen extends StatefulWidget {
-  const LabBookingsScreen({super.key});
+  final LabBookingsLoader? loadBookings;
+  final RealtimeEventStreamFactory? realtimeEvents;
+
+  const LabBookingsScreen({super.key, this.loadBookings, this.realtimeEvents});
 
   @override
   State<LabBookingsScreen> createState() => _LabBookingsScreenState();
@@ -41,21 +49,49 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   // Collection tracking
   Timer? _locationTimer;
+  Timer? _refreshDebounce;
   int? _trackingBookingId;
   bool _sharingLocation = false;
+  StreamSubscription<RealtimeEvent>? _labEventSub;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _fetchBookings();
+    _attachRealtime();
   }
 
   @override
   void dispose() {
+    _labEventSub?.cancel();
+    _refreshDebounce?.cancel();
     _stopLocationSharing(notify: false);
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _attachRealtime() async {
+    final injectedEvents = widget.realtimeEvents;
+    if (injectedEvents != null) {
+      _labEventSub = injectedEvents('staff:lab').listen(_handleRealtimeNudge);
+      return;
+    }
+
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    if (!mounted) return;
+    _labEventSub = rt.events('staff:lab').listen(_handleRealtimeNudge);
+  }
+
+  void _handleRealtimeNudge(RealtimeEvent _) => _debouncedRefresh();
+
+  void _debouncedRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _fetchBookings(showLoading: false);
+    });
   }
 
   void _startLocationSharing(int bookingId) {
@@ -111,19 +147,26 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     }
   }
 
-  Future<void> _fetchBookings() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _fetchBookings({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final result = await MedicalApiService.getInvestigationBookingQueue();
+      final result =
+          await (widget.loadBookings ??
+              MedicalApiService.getInvestigationBookingQueue)();
       final data = (result['data'] ?? result);
+      if (!mounted) return;
       setState(() {
         _bookings = data is List ? data : [];
+        _error = null;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
