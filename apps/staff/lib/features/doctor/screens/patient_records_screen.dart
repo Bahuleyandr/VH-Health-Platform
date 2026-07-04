@@ -12,6 +12,7 @@ import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -1187,7 +1188,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     final s = AppStrings.of(context);
     return StaffScaffold(
       title: _isIpContext ? 'IP Patient Records' : s.patientRecordsTitle,
-      body: _isIpContext ? _buildIpRecordsBody() : _buildStandardRecordsBody(s),
+      body: ConstrainedContent(
+        child: _isIpContext
+            ? _buildIpRecordsBody()
+            : _buildStandardRecordsBody(s),
+      ),
     );
   }
 

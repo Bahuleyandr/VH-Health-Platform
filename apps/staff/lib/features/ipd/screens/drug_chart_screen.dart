@@ -8,6 +8,7 @@ import '../../../core/models/composition_alternatives.dart';
 import '../../../core/platform_info.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -334,7 +335,9 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
               label: Text(s.drugChartAddRow),
             )
           : null,
-      body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
+      body: ConstrainedContent(
+        child: RefreshIndicator(onRefresh: _load, child: _buildBody()),
+      ),
     );
   }
 

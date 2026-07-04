@@ -4,6 +4,7 @@ import 'package:vhhealth_core/services/mar_offline_cache.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -181,51 +182,53 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
     final routeOptions = dueMedsRouteFilterOptions(_rows);
     return StaffScaffold(
       title: s.dueMedsTitle,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: s.dueMedsSearchHint,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                decoration: InputDecoration(
+                  hintText: s.dueMedsSearchHint,
+                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: AppTheme.surfaceWhite,
                 ),
-                filled: true,
-                fillColor: AppTheme.surfaceWhite,
+                onChanged: (v) => setState(() => _searchQuery = v),
               ),
-              onChanged: (v) => setState(() => _searchQuery = v),
             ),
-          ),
-          WardListFilterBar(
-            keyPrefix: 'due-meds',
-            wardOptions: _wardOptions,
-            selectedWardValue: _selectedWardValue,
-            onWardChanged: (value) {
-              setState(() => _selectedWardValue = value);
-              _load();
-            },
-            filterLabel: 'Route',
-            filterOptions: routeOptions,
-            selectedFilterValue: _selectedRouteValue,
-            onFilterChanged: (value) =>
-                setState(() => _selectedRouteValue = value),
-            hasActiveFilters:
-                _selectedWardValue != _dueMedsAllWards ||
-                _selectedRouteValue != _dueMedsAllRoutes,
-            onClear: () {
-              setState(() {
-                _selectedWardValue = _dueMedsAllWards;
-                _selectedRouteValue = _dueMedsAllRoutes;
-              });
-              _load();
-            },
-          ),
-          Expanded(
-            child: RefreshIndicator(onRefresh: _load, child: _buildBody()),
-          ),
-        ],
+            WardListFilterBar(
+              keyPrefix: 'due-meds',
+              wardOptions: _wardOptions,
+              selectedWardValue: _selectedWardValue,
+              onWardChanged: (value) {
+                setState(() => _selectedWardValue = value);
+                _load();
+              },
+              filterLabel: 'Route',
+              filterOptions: routeOptions,
+              selectedFilterValue: _selectedRouteValue,
+              onFilterChanged: (value) =>
+                  setState(() => _selectedRouteValue = value),
+              hasActiveFilters:
+                  _selectedWardValue != _dueMedsAllWards ||
+                  _selectedRouteValue != _dueMedsAllRoutes,
+              onClear: () {
+                setState(() {
+                  _selectedWardValue = _dueMedsAllWards;
+                  _selectedRouteValue = _dueMedsAllRoutes;
+                });
+                _load();
+              },
+            ),
+            Expanded(
+              child: RefreshIndicator(onRefresh: _load, child: _buildBody()),
+            ),
+          ],
+        ),
       ),
     );
   }

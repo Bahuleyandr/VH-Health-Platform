@@ -18,6 +18,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/prescription_payloads.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -65,33 +66,35 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
     final s = AppStrings.of(context);
     return StaffScaffold(
       title: s.prescriptionsTitle,
-      body: Column(
-        children: [
-          Container(
-            color: AppTheme.cardSurface,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: const Color(0xFF00838F),
-              unselectedLabelColor: AppTheme.textSecondary,
-              indicatorColor: const Color(0xFF00838F),
-              tabs: [
-                Tab(text: s.prescriptionsTabNew),
-                Tab(text: s.prescriptionsTabRecent),
-              ],
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            Container(
+              color: AppTheme.cardSurface,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: const Color(0xFF00838F),
+                unselectedLabelColor: AppTheme.textSecondary,
+                indicatorColor: const Color(0xFF00838F),
+                tabs: [
+                  Tab(text: s.prescriptionsTabNew),
+                  Tab(text: s.prescriptionsTabRecent),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _NewEPrescriptionTab(
-                  prefilledAppointment: widget.prefilledAppointment,
-                ),
-                const _RecentEPrescriptionsTab(),
-              ],
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _NewEPrescriptionTab(
+                    prefilledAppointment: widget.prefilledAppointment,
+                  ),
+                  const _RecentEPrescriptionsTab(),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
