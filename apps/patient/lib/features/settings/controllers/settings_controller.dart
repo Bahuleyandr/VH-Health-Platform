@@ -489,14 +489,6 @@ class SettingsController {
   }
 
   Future<void> triggerSOS() async {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(loc.authSosTriggered),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    }
-    await SOSService.triggerSOS();
+    await SOSService.triggerWithFeedback(context);
   }
 }

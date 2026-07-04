@@ -52,6 +52,14 @@ class DeepLinkService {
     '/portal/messages/',
   ];
 
+  @visibleForTesting
+  static Set<String> get debugAllowedRoutes =>
+      Set<String>.unmodifiable(_allowedRoutes);
+
+  @visibleForTesting
+  static List<String> get debugNumericIdPrefixes =>
+      List<String>.unmodifiable(_numericIdPrefixes);
+
   /// Returns true if [route] is on the allowlist (exact or parameterised).
   static bool _isAllowed(String route) {
     // Exact match

@@ -23,16 +23,7 @@ class AboutUsScreen extends StatelessWidget {
   static const _hospitalLng = 80.24409;
 
   Future<void> _triggerSOS(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.authSosTriggered),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    await SOSService.triggerSOS();
+    await SOSService.triggerWithFeedback(context);
   }
 
   Future<void> _launchUrl(String url) async {

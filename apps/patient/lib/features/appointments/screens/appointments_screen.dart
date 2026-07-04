@@ -36,15 +36,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   }
 
   Future<void> _triggerSOS() async {
-    final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.authSosTriggered),
-        backgroundColor: Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    await SOSService.triggerSOS();
+    await SOSService.triggerWithFeedback(context);
   }
 
   @override
