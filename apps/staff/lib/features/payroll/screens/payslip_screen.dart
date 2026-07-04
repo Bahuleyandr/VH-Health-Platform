@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../payroll_amounts.dart';
 import 'payslip_detail_screen.dart';
 import 'tax_summary_screen.dart';
 import 'investment_declaration_screen.dart';
 import 'payslip_query_screen.dart';
 
+typedef PayrollPayslipListLoader = Future<List<dynamic>> Function({int months});
+
 class PayslipScreen extends StatefulWidget {
-  const PayslipScreen({super.key});
+  final PayrollPayslipListLoader? loadPayslips;
+
+  const PayslipScreen({super.key, this.loadPayslips});
 
   @override
   State<PayslipScreen> createState() => _PayslipScreenState();
@@ -32,7 +38,8 @@ class _PayslipScreenState extends State<PayslipScreen> {
       _error = null;
     });
     try {
-      final list = await HrApiService.getMyPayslips(months: 3);
+      final loader = widget.loadPayslips ?? HrApiService.getMyPayslips;
+      final list = await loader(months: 3);
       if (mounted) setState(() => _payslips = list);
     } catch (e) {
       if (mounted) {
@@ -81,155 +88,165 @@ class _PayslipScreenState extends State<PayslipScreen> {
           const LogoutAction(),
         ],
       ),
-      body: Column(
-        children: [
-          // Annual Tax Summary navigation card
-          InkWell(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const TaxSummaryScreen()),
-            ),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF007A64),
-                    const Color(0xFF007A64).withValues(alpha: 0.8),
-                  ],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ),
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            // Annual Tax Summary navigation card
+            InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const TaxSummaryScreen()),
               ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.summarize_outlined,
-                    color: Colors.white,
-                    size: 20,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF007A64),
+                      const Color(0xFF007A64).withValues(alpha: 0.8),
+                    ],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      s.payrollPayslipBannerTax,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.summarize_outlined,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        s.payrollPayslipBannerTax,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                  ),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
-                    size: 20,
-                  ),
-                ],
+                    const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white70,
+                      size: 20,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          // Tax Declaration quick-action card
-          _QuickActionBanner(
-            icon: Icons.receipt_long_outlined,
-            label: '📋 ${s.payrollPayslipBannerDeclaration}',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const InvestmentDeclarationScreen(),
+            // Tax Declaration quick-action card
+            _QuickActionBanner(
+              icon: Icons.receipt_long_outlined,
+              label: '📋 ${s.payrollPayslipBannerDeclaration}',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const InvestmentDeclarationScreen(),
+                ),
               ),
+              color: const Color(0xFF1565C0),
             ),
-            color: const Color(0xFF1565C0),
-          ),
-          // Payslip Queries quick-action card
-          _QuickActionBanner(
-            icon: Icons.chat_bubble_outline,
-            label: '💬 ${s.payrollPayslipBannerQueries}',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const PayslipQueryScreen()),
+            // Payslip Queries quick-action card
+            _QuickActionBanner(
+              icon: Icons.chat_bubble_outline,
+              label: '💬 ${s.payrollPayslipBannerQueries}',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PayslipQueryScreen()),
+              ),
+              color: const Color(0xFF6A1B9A),
             ),
-            color: const Color(0xFF6A1B9A),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF007A64)),
-                  )
-                : _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF007A64),
+                      ),
+                    )
+                  : _error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.red.shade300,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _load,
+                              icon: const Icon(Icons.refresh),
+                              label: Text(s.actionRetry),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF007A64),
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _payslips.isEmpty
+                  ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red.shade300,
+                            Icons.receipt_long_outlined,
+                            size: 64,
+                            color: Colors.grey.shade300,
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.red),
+                            s.payrollPayslipEmptyTitle,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            onPressed: _load,
-                            icon: const Icon(Icons.refresh),
-                            label: Text(s.actionRetry),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF007A64),
-                              foregroundColor: Colors.white,
+                          const SizedBox(height: 6),
+                          Text(
+                            s.payrollPayslipEmptyBody,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade400,
                             ),
                           ),
                         ],
                       ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _payslips.length,
+                        itemBuilder: (ctx, i) {
+                          final p = _payslips[i] as Map<String, dynamic>;
+                          return _PayslipCard(
+                            payslip: p,
+                            monthName: _monthName,
+                          );
+                        },
+                      ),
                     ),
-                  )
-                : _payslips.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.receipt_long_outlined,
-                          size: 64,
-                          color: Colors.grey.shade300,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          s.payrollPayslipEmptyTitle,
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          s.payrollPayslipEmptyBody,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _payslips.length,
-                      itemBuilder: (ctx, i) {
-                        final p = _payslips[i] as Map<String, dynamic>;
-                        return _PayslipCard(payslip: p, monthName: _monthName);
-                      },
-                    ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -246,9 +263,9 @@ class _PayslipCard extends StatelessWidget {
     final s = AppStrings.of(context);
     final month = payslip['month'] as int? ?? 0;
     final year = payslip['year'] as int? ?? 0;
-    final net = (payslip['net_salary'] as num?)?.toDouble() ?? 0;
-    final gross = (payslip['gross_salary'] as num?)?.toDouble() ?? 0;
-    final deductions = (payslip['total_deductions'] as num?)?.toDouble() ?? 0;
+    final net = payrollAmount(payslip['net_salary']);
+    final gross = payrollAmount(payslip['gross_salary']);
+    final deductions = payrollAmount(payslip['total_deductions']);
     final status = payslip['status'] as String? ?? 'issued';
     final isNew = status == 'issued';
 

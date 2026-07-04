@@ -1,10 +1,27 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../payroll_amounts.dart';
+
+typedef PayrollQueriesLoader = Future<List<dynamic>> Function();
+typedef PayrollQueryPayslipsLoader =
+    Future<List<dynamic>> Function({int months});
+typedef RaisePayslipQueryAction =
+    Future<Object?> Function(Map<String, dynamic> data);
 
 class PayslipQueryScreen extends StatefulWidget {
-  const PayslipQueryScreen({super.key});
+  final PayrollQueriesLoader? loadQueries;
+  final PayrollQueryPayslipsLoader? loadPayslips;
+  final RaisePayslipQueryAction? raiseQuery;
+
+  const PayslipQueryScreen({
+    super.key,
+    this.loadQueries,
+    this.loadPayslips,
+    this.raiseQuery,
+  });
 
   @override
   State<PayslipQueryScreen> createState() => _PayslipQueryScreenState();
@@ -49,7 +66,17 @@ class _PayslipQueryScreenState extends State<PayslipQueryScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [_MyQueriesTab(), _RaiseQueryTab()],
+        children: [
+          ConstrainedContent(
+            child: _MyQueriesTab(loadQueries: widget.loadQueries),
+          ),
+          ConstrainedContent(
+            child: _RaiseQueryTab(
+              loadPayslips: widget.loadPayslips,
+              raiseQuery: widget.raiseQuery,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -58,7 +85,9 @@ class _PayslipQueryScreenState extends State<PayslipQueryScreen>
 // ─── Tab 1: My Queries ────────────────────────────────────────────────────────
 
 class _MyQueriesTab extends StatefulWidget {
-  const _MyQueriesTab();
+  final PayrollQueriesLoader? loadQueries;
+
+  const _MyQueriesTab({this.loadQueries});
 
   @override
   State<_MyQueriesTab> createState() => _MyQueriesTabState();
@@ -82,7 +111,8 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
       _error = null;
     });
     try {
-      final list = await HrApiService.getMyPayslipQueries();
+      final loader = widget.loadQueries ?? HrApiService.getMyPayslipQueries;
+      final list = await loader();
       if (mounted) setState(() => _queries = list);
     } catch (e) {
       if (mounted) {
@@ -296,7 +326,10 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
 // ─── Tab 2: Raise Query ───────────────────────────────────────────────────────
 
 class _RaiseQueryTab extends StatefulWidget {
-  const _RaiseQueryTab();
+  final PayrollQueryPayslipsLoader? loadPayslips;
+  final RaisePayslipQueryAction? raiseQuery;
+
+  const _RaiseQueryTab({this.loadPayslips, this.raiseQuery});
 
   @override
   State<_RaiseQueryTab> createState() => _RaiseQueryTabState();
@@ -341,7 +374,8 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
   Future<void> _loadPayslips() async {
     setState(() => _loading = true);
     try {
-      final list = await HrApiService.getMyPayslips(months: 3);
+      final loader = widget.loadPayslips ?? HrApiService.getMyPayslips;
+      final list = await loader(months: 3);
       if (mounted) setState(() => _payslips = list);
     } catch (e) {
       debugPrint('payslip_query_screen.dart: $e');
@@ -368,6 +402,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
 
   Future<void> _submit() async {
     final s = AppStrings.of(context);
+    if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
     if (_selectedPayslipId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -380,7 +415,8 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
     }
     setState(() => _submitting = true);
     try {
-      await HrApiService.raisePayslipQuery({
+      final submitter = widget.raiseQuery ?? HrApiService.raisePayslipQuery;
+      await submitter({
         'payslip_id': _selectedPayslipId,
         'subject': _subject.text.trim(),
         'description': _description.text.trim(),
@@ -458,7 +494,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                 return DropdownMenuItem(
                   value: p['id'] as int,
                   child: Text(
-                    '${_months[m]} $y — ₹${(double.tryParse(p['net_salary']?.toString() ?? '0') ?? 0).toStringAsFixed(0)}',
+                    '${_months[m]} $y — ${payrollCurrency(p['net_salary'], decimals: false)}',
                   ),
                 );
               }).toList(),
