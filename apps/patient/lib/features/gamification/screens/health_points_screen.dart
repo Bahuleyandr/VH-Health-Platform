@@ -263,7 +263,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         _fetchSummary();
         _fetchHubStats();
       } else {
-        _showError(resp.message ?? 'Failed to claim milestone');
+        _showError(resp.failureMessage('Failed to claim milestone'));
       }
     } catch (e) {
       debugPrint('claimMilestone error: $e');

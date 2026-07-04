@@ -27,7 +27,9 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
   Future<DischargeSummariesPage> listSummaries() async {
     final result = await ApiClient.cachedGet('/portal/discharge-summaries');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load discharge summaries');
+      throw Exception(
+        result.failureMessage('Failed to load discharge summaries'),
+      );
     }
 
     return DischargeSummariesPage(
@@ -35,7 +37,7 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
       staleLabel: result.staleLabel,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
-          throw Exception(fresh.message ?? 'Failed to refresh summaries');
+          throw Exception(fresh.failureMessage('Failed to refresh summaries'));
         }
         return _parseSummaries(fresh.data);
       }),
@@ -46,7 +48,9 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
   Future<DischargeSummary> getSummary(int id) async {
     final result = await ApiClient.cachedGet('/portal/discharge-summaries/$id');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load discharge summary');
+      throw Exception(
+        result.failureMessage('Failed to load discharge summary'),
+      );
     }
     final data = result.data;
     if (data is Map<String, dynamic>) {

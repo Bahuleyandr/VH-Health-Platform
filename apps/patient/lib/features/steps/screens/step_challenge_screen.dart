@@ -253,7 +253,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
         await _fetchProfile();
         _showSuccess('Profile saved');
       } else {
-        _showError(resp.message ?? 'Failed to save profile');
+        _showError(resp.failureMessage('Failed to save profile'));
       }
     } catch (e) {
       _showError('Failed to save profile');
@@ -280,7 +280,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
     try {
       final resp = await ApiClient.post('/steps/session/start');
       if (!resp.isSuccess) {
-        _showError(resp.message ?? 'Failed to start session');
+        _showError(resp.failureMessage('Failed to start session'));
         return;
       }
       final sessionId = (resp.data['sessionId'] as num?)?.toInt();
@@ -377,7 +377,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
         _showSuccess('Walk done! $steps steps • ${distKm}km');
         await Future.wait([_fetchHistory(), _fetchLeaderboard()]);
       } else {
-        _showError(resp.message ?? 'Failed to save walk data');
+        _showError(resp.failureMessage('Failed to save walk data'));
       }
     } catch (e) {
       _showError('Failed to save walk data');

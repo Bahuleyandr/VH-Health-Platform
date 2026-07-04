@@ -47,7 +47,7 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load records';
+          _error = response.failureMessage('Failed to load records');
           _isLoading = false;
         });
       }

@@ -31,7 +31,9 @@ class SosApiService {
       return response.raw as Map<String, dynamic>;
     }
     throw SosException(
-      response.message ?? 'Failed to send SOS alert (${response.statusCode})',
+      response.failureMessage(
+        'Failed to send SOS alert (${response.statusCode})',
+      ),
     );
   }
 
@@ -45,7 +47,7 @@ class SosApiService {
       }
       if (response.statusCode == 404) return null;
       throw SosException(
-        response.message ?? 'Failed to fetch emergency contact',
+        response.failureMessage('Failed to fetch emergency contact'),
       );
     } catch (e) {
       if (e is SosException) rethrow;
@@ -58,7 +60,7 @@ class SosApiService {
   static Future<void> cancelAlert(String alertId) async {
     final response = await ApiClient.post('/sos/cancel/$alertId');
     if (!response.isSuccess) {
-      throw SosException(response.message ?? 'Failed to cancel SOS alert');
+      throw SosException(response.failureMessage('Failed to cancel SOS alert'));
     }
   }
 

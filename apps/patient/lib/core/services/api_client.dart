@@ -33,10 +33,12 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     Duration? timeout,
-  }) => VHHttpClient.get(
-    path,
-    queryParameters: queryParameters,
-    timeout: timeout,
+  }) async => _withFailureReference(
+    await VHHttpClient.get(
+      path,
+      queryParameters: queryParameters,
+      timeout: timeout,
+    ),
   );
 
   static Future<ApiResponse> post(
@@ -44,11 +46,13 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) => VHHttpClient.post(
-    path,
-    body: body,
-    timeout: timeout,
-    idempotencyKey: idempotencyKey,
+  }) async => _withFailureReference(
+    await VHHttpClient.post(
+      path,
+      body: body,
+      timeout: timeout,
+      idempotencyKey: idempotencyKey,
+    ),
   );
 
   static Future<ApiResponse> put(
@@ -56,11 +60,13 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) => VHHttpClient.put(
-    path,
-    body: body,
-    timeout: timeout,
-    idempotencyKey: idempotencyKey,
+  }) async => _withFailureReference(
+    await VHHttpClient.put(
+      path,
+      body: body,
+      timeout: timeout,
+      idempotencyKey: idempotencyKey,
+    ),
   );
 
   static Future<ApiResponse> patch(
@@ -68,11 +74,13 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) => VHHttpClient.patch(
-    path,
-    body: body,
-    timeout: timeout,
-    idempotencyKey: idempotencyKey,
+  }) async => _withFailureReference(
+    await VHHttpClient.patch(
+      path,
+      body: body,
+      timeout: timeout,
+      idempotencyKey: idempotencyKey,
+    ),
   );
 
   static Future<ApiResponse> delete(
@@ -80,11 +88,13 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) => VHHttpClient.delete(
-    path,
-    body: body,
-    timeout: timeout,
-    idempotencyKey: idempotencyKey,
+  }) async => _withFailureReference(
+    await VHHttpClient.delete(
+      path,
+      body: body,
+      timeout: timeout,
+      idempotencyKey: idempotencyKey,
+    ),
   );
 
   static Future<ApiResponse> multipart(
@@ -93,13 +103,19 @@ class ApiClient {
     List<http.MultipartFile> files = const [],
     Future<List<http.MultipartFile>> Function()? fileBuilder,
     Duration? timeout,
-  }) => VHHttpClient.multipart(
-    path,
-    fields: fields,
-    files: files,
-    fileBuilder: fileBuilder,
-    timeout: timeout,
+  }) async => _withFailureReference(
+    await VHHttpClient.multipart(
+      path,
+      fields: fields,
+      files: files,
+      fileBuilder: fileBuilder,
+      timeout: timeout,
+    ),
   );
+
+  static String failureMessage(ApiResponse response, String fallback) {
+    return response.failureMessage(fallback);
+  }
 
   // ── Patient-specific: cache-first GET ─────────────────────────────────────
 
@@ -217,5 +233,24 @@ class ApiClient {
       }
       rethrow;
     }
+  }
+
+  static ApiResponse _withFailureReference(ApiResponse response) {
+    if (response.isSuccess) return response;
+
+    final message = response.message;
+    if (message == null || message.trim().isEmpty) return response;
+
+    final displayMessage = response.failureMessage();
+    if (displayMessage == message) return response;
+
+    return ApiResponse(
+      statusCode: response.statusCode,
+      isSuccess: response.isSuccess,
+      data: response.data,
+      raw: response.raw,
+      message: displayMessage,
+      requestId: response.requestId,
+    );
   }
 }

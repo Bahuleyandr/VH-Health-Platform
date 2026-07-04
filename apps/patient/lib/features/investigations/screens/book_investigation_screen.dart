@@ -103,8 +103,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         });
       } else {
         setState(() {
-          _catalogError =
-              response.message ?? l.bookInvestigationCatalogLoadFailed;
+          _catalogError = response.failureMessage(
+            l.bookInvestigationCatalogLoadFailed,
+          );
           _loadingCatalog = false;
         });
       }
@@ -252,8 +253,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         });
       } else {
         _showError(
-          response.message ??
-              AppLocalizations.of(context)!.bookInvestigationBookingFailed,
+          response.failureMessage(
+            AppLocalizations.of(context)!.bookInvestigationBookingFailed,
+          ),
         );
       }
     } catch (e) {

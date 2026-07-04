@@ -25,7 +25,9 @@ class ApiConsultationNotesRepository implements ConsultationNotesRepository {
   Future<ConsultationNotesPage> listNotes() async {
     final result = await ApiClient.cachedGet('/portal/clinical-notes');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load consultation notes');
+      throw Exception(
+        result.failureMessage('Failed to load consultation notes'),
+      );
     }
 
     return ConsultationNotesPage(
@@ -33,7 +35,7 @@ class ApiConsultationNotesRepository implements ConsultationNotesRepository {
       staleLabel: result.staleLabel,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
-          throw Exception(fresh.message ?? 'Failed to refresh notes');
+          throw Exception(fresh.failureMessage('Failed to refresh notes'));
         }
         return _parseNotes(fresh.data);
       }),
@@ -44,7 +46,9 @@ class ApiConsultationNotesRepository implements ConsultationNotesRepository {
   Future<ConsultationNote> getNote(int id) async {
     final result = await ApiClient.cachedGet('/portal/clinical-notes/$id');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load consultation note');
+      throw Exception(
+        result.failureMessage('Failed to load consultation note'),
+      );
     }
 
     final data = result.data;

@@ -95,7 +95,7 @@ class _BillsScreenState extends State<BillsScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? l.billsLoadFailed;
+          _error = response.failureMessage(l.billsLoadFailed);
           _loading = false;
         });
       }

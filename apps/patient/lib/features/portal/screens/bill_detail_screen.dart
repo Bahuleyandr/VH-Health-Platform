@@ -59,7 +59,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
       } else {
         final l = AppLocalizations.of(context)!;
         setState(() {
-          _error = response.message ?? l.billDetailLoadFailed;
+          _error = response.failureMessage(l.billDetailLoadFailed);
           _loading = false;
         });
       }
@@ -100,7 +100,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
         final l = AppLocalizations.of(context)!;
         setState(() {
           _generatingLink = false;
-          _error = response.message ?? l.billDetailPaymentLinkFailed;
+          _error = response.failureMessage(l.billDetailPaymentLinkFailed);
         });
       }
     } catch (e) {

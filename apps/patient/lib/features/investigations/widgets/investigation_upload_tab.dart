@@ -213,7 +213,7 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
           _fileName = null;
         });
       } else {
-        final msg = (apiRes.message ?? l10n.investigationsFailed).toString();
+        final msg = apiRes.failureMessage(l10n.investigationsFailed);
         messenger.showSnackBar(
           SnackBar(
             content: Text(msg),

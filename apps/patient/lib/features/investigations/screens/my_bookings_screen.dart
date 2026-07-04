@@ -72,7 +72,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load bookings';
+          _error = response.failureMessage('Failed to load bookings');
           _loading = false;
         });
       }

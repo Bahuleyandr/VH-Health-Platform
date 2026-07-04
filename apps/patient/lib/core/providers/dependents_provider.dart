@@ -126,7 +126,7 @@ class DependentsProvider extends ChangeNotifier {
           _active = match.isEmpty ? null : match.first;
         }
       } else {
-        _error = response.message ?? 'Failed to load dependents';
+        _error = response.failureMessage('Failed to load dependents');
       }
     } catch (e) {
       if (_disposed) return;
@@ -175,7 +175,7 @@ class DependentsProvider extends ChangeNotifier {
 
     if (!response.isSuccess) {
       throw DependentApiException(
-        response.message ?? 'Failed to link dependent',
+        response.failureMessage('Failed to link dependent'),
       );
     }
 
@@ -217,7 +217,7 @@ class DependentsProvider extends ChangeNotifier {
     if (_disposed) return;
     if (!response.isSuccess) {
       throw DependentApiException(
-        response.message ?? 'Failed to unlink dependent',
+        response.failureMessage('Failed to unlink dependent'),
       );
     }
     await PatientCacheInvalidation.afterDependentMutation();

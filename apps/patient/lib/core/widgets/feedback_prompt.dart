@@ -73,7 +73,9 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
         context.pop();
       } else {
         _showSnackBar(
-          response.message ?? 'Failed to submit feedback. Please try again.',
+          response.failureMessage(
+            'Failed to submit feedback. Please try again.',
+          ),
         );
       }
     } on TimeoutException catch (e) {

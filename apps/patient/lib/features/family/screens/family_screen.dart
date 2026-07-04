@@ -45,9 +45,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
       } else {
         if (!mounted) return;
         setState(() {
-          _error =
-              response.message ??
-              AppLocalizations.of(context)!.familyLoadFailed;
+          _error = response.failureMessage(
+            AppLocalizations.of(context)!.familyLoadFailed,
+          );
           _loading = false;
         });
       }
@@ -126,7 +126,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
         _fetchMembers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? l.familyRemoveFailed)),
+          SnackBar(
+            content: Text(response.failureMessage(l.familyRemoveFailed)),
+          ),
         );
       }
     } catch (e) {
@@ -397,7 +399,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
       } else {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? l.familyAddFailed)),
+          SnackBar(content: Text(response.failureMessage(l.familyAddFailed))),
         );
       }
     } catch (e) {

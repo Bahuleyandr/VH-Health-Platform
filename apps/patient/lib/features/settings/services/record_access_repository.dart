@@ -21,7 +21,7 @@ class ApiRecordAccessRepository implements RecordAccessRepository {
   Future<RecordAccessGrantsPage> listGrants() async {
     final result = await ApiClient.cachedGet('/portal/proxy/grants');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load record access');
+      throw Exception(result.failureMessage('Failed to load record access'));
     }
     final snapshot = _parseSnapshot(result.data);
     return RecordAccessGrantsPage(
@@ -30,7 +30,9 @@ class ApiRecordAccessRepository implements RecordAccessRepository {
       staleLabel: result.staleLabel,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
-          throw Exception(fresh.message ?? 'Failed to refresh record access');
+          throw Exception(
+            fresh.failureMessage('Failed to refresh record access'),
+          );
         }
         return _parseSnapshot(fresh.data);
       }),
@@ -54,7 +56,7 @@ class ApiRecordAccessRepository implements RecordAccessRepository {
       },
     );
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Could not grant record access');
+      throw Exception(response.failureMessage('Could not grant record access'));
     }
     final data = response.data;
     if (data is Map<String, dynamic>) return RecordAccessGrant.fromJson(data);
@@ -73,7 +75,9 @@ class ApiRecordAccessRepository implements RecordAccessRepository {
       },
     );
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Could not revoke record access');
+      throw Exception(
+        response.failureMessage('Could not revoke record access'),
+      );
     }
   }
 }

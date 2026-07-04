@@ -116,7 +116,7 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
       } else {
         final l = AppLocalizations.of(context)!;
         setState(() {
-          _error = response.message ?? l.labOrdersLoadFailed;
+          _error = response.failureMessage(l.labOrdersLoadFailed);
           _loading = false;
         });
       }

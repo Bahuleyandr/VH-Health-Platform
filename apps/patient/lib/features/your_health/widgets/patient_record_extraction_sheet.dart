@@ -79,9 +79,9 @@ class _PatientRecordExtractionSheetState
 
       setState(() {
         _loading = false;
-        _error =
-            response.message ??
-            AppLocalizations.of(context)!.recordExtractionUnavailable;
+        _error = response.failureMessage(
+          AppLocalizations.of(context)!.recordExtractionUnavailable,
+        );
       });
     } catch (e) {
       if (!mounted) return;
@@ -112,9 +112,9 @@ class _PatientRecordExtractionSheetState
       } else {
         setState(() {
           _processing = false;
-          _error =
-              response.message ??
-              AppLocalizations.of(context)!.recordExtractionProcessFailed;
+          _error = response.failureMessage(
+            AppLocalizations.of(context)!.recordExtractionProcessFailed,
+          );
         });
       }
     } catch (e) {
@@ -241,7 +241,9 @@ class _PatientRecordExtractionSheetState
           ),
         );
       } else {
-        throw Exception(response.message ?? l.recordExtractionMessageFailed);
+        throw Exception(
+          response.failureMessage(l.recordExtractionMessageFailed),
+        );
       }
     } catch (e) {
       if (!mounted) return;

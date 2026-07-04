@@ -55,7 +55,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
         });
       } else {
         setState(() {
-          _error = response.message ?? l.vitalsHistoryFailed;
+          _error = response.failureMessage(l.vitalsHistoryFailed);
           _loading = false;
         });
       }

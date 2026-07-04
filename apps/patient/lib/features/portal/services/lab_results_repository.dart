@@ -22,7 +22,7 @@ class ApiLabResultsRepository implements LabResultsRepository {
   Future<LabResultsPage> listResults() async {
     final result = await ApiClient.cachedGet('/portal/lab-results');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load lab results');
+      throw Exception(result.failureMessage('Failed to load lab results'));
     }
 
     return LabResultsPage(
@@ -30,7 +30,9 @@ class ApiLabResultsRepository implements LabResultsRepository {
       staleLabel: result.staleLabel,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
-          throw Exception(fresh.message ?? 'Failed to refresh lab results');
+          throw Exception(
+            fresh.failureMessage('Failed to refresh lab results'),
+          );
         }
         return _parseResults(fresh.data);
       }),
@@ -41,7 +43,7 @@ class ApiLabResultsRepository implements LabResultsRepository {
   Future<LabResult> getResult(int id) async {
     final result = await ApiClient.cachedGet('/portal/lab-results/$id');
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Failed to load lab result');
+      throw Exception(result.failureMessage('Failed to load lab result'));
     }
     final data = result.data;
     if (data is Map<String, dynamic>) return LabResult.fromJson(data);
@@ -62,7 +64,7 @@ class ApiLabResultsRepository implements LabResultsRepository {
       queryParameters: {key: value, 'months': months.toString()},
     );
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Failed to load lab trend');
+      throw Exception(response.failureMessage('Failed to load lab trend'));
     }
     final data = response.data;
     if (data is Map<String, dynamic>) return LabResultTrend.fromJson(data);

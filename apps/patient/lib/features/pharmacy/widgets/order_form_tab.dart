@@ -216,7 +216,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
         widget.onOrderPlaced();
       } else {
         _showSnack(
-          response.message ?? l.pharmacyPlaceOrderFailed,
+          response.failureMessage(l.pharmacyPlaceOrderFailed),
           isError: true,
         );
       }

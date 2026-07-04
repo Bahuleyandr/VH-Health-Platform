@@ -66,7 +66,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load records';
+          _error = response.failureMessage('Failed to load records');
           _isLoading = false;
         });
       }
@@ -127,7 +127,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.message ?? 'Failed to delete record'),
+              content: Text(response.failureMessage('Failed to delete record')),
               backgroundColor: Colors.red,
             ),
           );
@@ -237,7 +237,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                   }
                 }
               } else {
-                throw Exception(response.message ?? 'Upload failed');
+                throw Exception(response.failureMessage('Upload failed'));
               }
             } catch (e) {
               if (ctx.mounted) {

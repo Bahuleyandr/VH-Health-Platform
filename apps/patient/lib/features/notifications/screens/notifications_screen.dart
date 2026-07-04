@@ -70,7 +70,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       } else {
         setState(() {
-          _error = result.message ?? 'Failed to fetch notifications';
+          _error = result.failureMessage('Failed to fetch notifications');
           loading = false;
         });
       }

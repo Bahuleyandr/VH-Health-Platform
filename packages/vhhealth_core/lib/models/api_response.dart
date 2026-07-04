@@ -127,6 +127,9 @@ class CachedApiResponse {
   bool get isSuccess => response.isSuccess;
   dynamic get data => response.data;
   String? get message => response.message;
+  String? get requestId => response.requestId;
+  String failureMessage([String? fallback]) =>
+      response.failureMessage(fallback);
   List<dynamic> dataAsList([String? key]) => response.dataAsList(key);
   Map<String, dynamic> dataAsMap() => response.dataAsMap();
 }

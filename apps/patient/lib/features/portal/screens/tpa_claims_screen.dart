@@ -58,7 +58,7 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? l.tpaClaimsLoadFailed;
+          _error = response.failureMessage(l.tpaClaimsLoadFailed);
           _loading = false;
         });
       }
@@ -232,7 +232,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
               .whereType<Map<String, dynamic>>()
               .toList();
         } else {
-          docsError = docsResp.message ?? l.tpaClaimDocumentsLoadFailed;
+          docsError = docsResp.failureMessage(l.tpaClaimDocumentsLoadFailed);
         }
         setState(() {
           _data = resp.dataAsMap();
@@ -242,7 +242,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         });
       } else {
         setState(() {
-          _error = resp.message ?? l.tpaClaimLoadFailed;
+          _error = resp.failureMessage(l.tpaClaimLoadFailed);
           _loading = false;
         });
       }
@@ -273,7 +273,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
       );
       if (!mounted) return;
       if (!resp.isSuccess) {
-        throw Exception(resp.message ?? l.tpaClaimDocumentDownloadFailed);
+        throw Exception(resp.failureMessage(l.tpaClaimDocumentDownloadFailed));
       }
       final data = resp.dataAsMap();
       final url = data['url']?.toString();

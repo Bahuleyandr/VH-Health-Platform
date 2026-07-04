@@ -47,7 +47,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
       if (response.isSuccess) {
         setState(() => _prescriptions = response.dataAsList());
       } else {
-        setState(() => _error = response.message ?? 'Failed');
+        setState(() => _error = response.failureMessage('Failed'));
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -642,8 +642,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                          response.message ??
-                                              'Failed to place order',
+                                          response.failureMessage(
+                                            'Failed to place order',
+                                          ),
                                         ),
                                         backgroundColor: Colors.red,
                                       ),

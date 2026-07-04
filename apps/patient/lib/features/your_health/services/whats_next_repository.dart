@@ -14,7 +14,7 @@ class ApiWhatsNextRepository implements WhatsNextRepository {
   Future<WhatsNextBundle> getWhatsNext() async {
     final response = await ApiClient.get('/portal/care-plans/whats-next');
     if (!response.isSuccess) {
-      throw Exception(response.message ?? 'Failed to load care plan');
+      throw Exception(response.failureMessage('Failed to load care plan'));
     }
 
     return WhatsNextBundle.fromJson(response.dataAsMap());

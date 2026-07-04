@@ -27,7 +27,7 @@ class ApiMaternityRepository implements MaternityRepository {
     final timelineResponse = timelineResult.response;
     if (!timelineResponse.isSuccess) {
       throw MaternityRepositoryException(
-        timelineResponse.message ?? 'Failed to load ANC timeline',
+        timelineResponse.failureMessage('Failed to load ANC timeline'),
       );
     }
 
@@ -119,7 +119,7 @@ class ApiMaternityRepository implements MaternityRepository {
     );
     if (!response.isSuccess) {
       throw MaternityRepositoryException(
-        response.message ?? 'Could not save kick count',
+        response.failureMessage('Could not save kick count'),
       );
     }
     return AncFetalKick.fromJson(asStringMap(response.data) ?? const {});
@@ -136,7 +136,7 @@ class ApiMaternityRepository implements MaternityRepository {
     );
     if (!response.isSuccess) {
       throw MaternityRepositoryException(
-        response.message ?? 'Could not update reminder',
+        response.failureMessage('Could not update reminder'),
       );
     }
     return supplement.mergeServerUpdate(asStringMap(response.data) ?? const {});

@@ -43,7 +43,7 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
       if (resp.isSuccess) {
         setState(() => _result = resp.dataAsMap());
       } else {
-        setState(() => _error = resp.message ?? 'Triage failed');
+        setState(() => _error = resp.failureMessage('Triage failed'));
       }
     } catch (e) {
       setState(() => _error = 'Triage service unavailable');
