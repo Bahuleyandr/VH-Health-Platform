@@ -129,12 +129,16 @@ class ApiCacheManager {
   /// PHI is never served back under the guardian's profile on a shared device.
   /// A null acting-as uid (guardian on their own profile) keeps the legacy
   /// un-prefixed key, so existing cache files stay valid.
-  static String _keyForPath(String path) {
-    final base = path
+  static String _baseKeyForPath(String path) {
+    return path
         .replaceAll('/', '_')
         .replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '')
         .replaceAll(RegExp(r'_+'), '_')
         .replaceFirst(RegExp(r'^_'), '');
+  }
+
+  static String _keyForPath(String path) {
+    final base = _baseKeyForPath(path);
     final actingAs = VHHttpClient.actingAsUidProvider?.call();
     if (actingAs == null || actingAs.isEmpty) return base;
     final safeUid = actingAs.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
@@ -195,6 +199,48 @@ class ApiCacheManager {
     } catch (e) {
       if (kDebugMode) debugPrint('ApiCacheManager.invalidate failed: $e');
     }
+  }
+
+  /// Delete cached data whose sanitized key starts with [pathPrefix].
+  ///
+  /// By default this only clears the active acting-as profile namespace. Set
+  /// [allProfiles] when a mutation changes profile membership itself, such as
+  /// linking or unlinking a dependent.
+  static Future<void> invalidateByPrefix(
+    String pathPrefix, {
+    bool allProfiles = false,
+  }) async {
+    try {
+      final dir = await _getCacheDir();
+      final directory = Directory(dir);
+      if (!await directory.exists()) return;
+
+      final prefix = allProfiles
+          ? _baseKeyForPath(pathPrefix)
+          : _keyForPath(pathPrefix);
+      await for (final entity in directory.list()) {
+        if (entity is! File || !entity.path.endsWith('.json')) continue;
+        final fileName = entity.path.split(Platform.pathSeparator).last;
+        final key = fileName.substring(0, fileName.length - '.json'.length);
+        final candidate = allProfiles ? _stripProfileNamespace(key) : key;
+        if (_matchesPrefix(candidate, prefix)) {
+          await entity.delete();
+        }
+      }
+    } catch (_) {
+      if (kDebugMode) debugPrint('ApiCacheManager.invalidateByPrefix failed');
+    }
+  }
+
+  static bool _matchesPrefix(String key, String prefix) {
+    return key == prefix || key.startsWith('${prefix}_');
+  }
+
+  static String _stripProfileNamespace(String key) {
+    if (!key.startsWith('as_')) return key;
+    final separator = key.indexOf('__');
+    if (separator == -1) return key;
+    return key.substring(separator + 2);
   }
 
   /// Clear all cached API data.

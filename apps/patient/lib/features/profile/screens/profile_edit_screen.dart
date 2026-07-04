@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
@@ -199,6 +200,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     }
 
     if (!mounted) return;
+    if (success) {
+      await PatientCacheInvalidation.afterProfileMutation();
+      if (!mounted) return;
+    }
 
     messenger.showSnackBar(
       SnackBar(

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 
@@ -84,6 +85,8 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
       if (!mounted) return;
 
       if (response.isSuccess) {
+        await PatientCacheInvalidation.afterVitalsMutation();
+        if (!mounted) return;
         // Mirror into HealthKit / Health Connect so the entry shows up alongside
         // wearable data. Fire-and-forget; backend is the source of truth.
         unawaited(

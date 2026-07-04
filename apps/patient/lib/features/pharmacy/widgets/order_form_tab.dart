@@ -5,6 +5,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_status_widgets.dart';
@@ -191,6 +192,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
       if (!mounted) return;
 
       if (response.isSuccess) {
+        await PatientCacheInvalidation.afterPharmacyOrderMutation();
+        if (!mounted) return;
         final orderNumber = response.data?['order_number'] ?? '';
 
         _showSnack(l.pharmacyOrderPlacedToast(orderNumber.toString()));

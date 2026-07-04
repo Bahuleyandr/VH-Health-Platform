@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
@@ -103,6 +104,8 @@ class _RefillScreenState extends State<RefillScreen> {
       if (!mounted) return;
 
       if (response.isSuccess) {
+        await PatientCacheInvalidation.afterRefillMutation();
+        if (!mounted) return;
         setState(() => _refillStatus[id] = 'submitted');
         ScaffoldMessenger.of(
           context,
