@@ -504,15 +504,20 @@ class _InvestmentDeclarationScreenState
 
               _section(s.payrollDeclarationSectionRent, [
                 _field(s.payrollDeclarationFieldRentMonthly, _rentMonthly),
-                SwitchListTile(
-                  value: _rentReceipt,
-                  onChanged: (v) => setState(() => _rentReceipt = v),
-                  title: Text(
-                    s.payrollDeclarationRentReceipts,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  activeThumbColor: const Color(0xFF007A64),
-                  contentPadding: EdgeInsets.zero,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        s.payrollDeclarationRentReceipts,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    Switch(
+                      value: _rentReceipt,
+                      onChanged: (v) => setState(() => _rentReceipt = v),
+                      activeThumbColor: const Color(0xFF007A64),
+                    ),
+                  ],
                 ),
               ]),
 
