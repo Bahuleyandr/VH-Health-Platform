@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 /// Install an in-memory fake for the flutter_secure_storage method channel
 /// so [AuthService] can be unit-tested without the native plugin.
@@ -129,5 +130,21 @@ void main() {
         expect(await AuthService.getStaffId(), isNull);
       },
     );
+  });
+
+  group('AuthService — staff owner id', () {
+    test('setStaffId writes both core and staff-app key spellings', () async {
+      await AuthService.setStaffId('staff-42');
+
+      expect(await AuthService.getStaffId(), 'staff-42');
+      expect(await VHSecureStorage.instance.read(key: 'staffId'), 'staff-42');
+      expect(await VHSecureStorage.instance.read(key: 'staff_id'), 'staff-42');
+    });
+
+    test('getStaffId falls back to legacy staff_id key', () async {
+      await VHSecureStorage.instance.write(key: 'staff_id', value: 'legacy-7');
+
+      expect(await AuthService.getStaffId(), 'legacy-7');
+    });
   });
 }

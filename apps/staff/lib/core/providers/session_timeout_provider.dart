@@ -20,33 +20,53 @@ Duration sessionTimeoutForDeviceMode(AppDeviceMode mode) => mode.isWorkbench
 class SessionTimeoutProvider extends ChangeNotifier {
   SessionTimeoutProvider({
     Duration timeoutDuration = const Duration(minutes: 15),
+    Duration warningDuration = const Duration(seconds: 60),
+    Duration countdownTickDuration = const Duration(seconds: 1),
     SessionTimeoutCleanup? onTimeoutCleanup,
   }) : _timeoutDuration = timeoutDuration,
+       _warningDuration = warningDuration,
+       _countdownTickDuration = countdownTickDuration,
        _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup;
 
   /// How long the user can be idle before automatic logout.
   Duration get timeoutDuration => _timeoutDuration;
+  Duration get warningDuration => _warningDuration;
 
   Duration _timeoutDuration;
+  final Duration _warningDuration;
+  final Duration _countdownTickDuration;
   final SessionTimeoutCleanup _onTimeoutCleanup;
 
   Timer? _timer;
+  Timer? _warningTimer;
+  Timer? _countdownTimer;
   bool _expired = false;
   bool _tracking = false;
+  bool _warningVisible = false;
+  Duration _warningRemaining = Duration.zero;
+  int _preservedOfflineWriteCount = 0;
 
   /// `true` after the idle timeout fires. Reset by [resetSession].
   bool get isSessionExpired => _expired;
 
   bool get isTracking => _tracking;
+  bool get isWarningVisible => _warningVisible;
+  Duration get warningRemaining => _warningRemaining;
+  int get warningSecondsRemaining =>
+      (_warningRemaining.inMilliseconds / 1000).ceil().clamp(0, 999999);
+  int get preservedOfflineWriteCount => _preservedOfflineWriteCount;
+  bool get hasPreservedOfflineWrites => _preservedOfflineWriteCount > 0;
 
   /// Call this on every user interaction (tap, scroll, keyboard).
   /// Resets the idle countdown.
   void recordActivity() {
     if (!_tracking) return;
-    if (_expired) return; // already expired — don't restart
-    _timer?.cancel();
-    _timer = Timer(_timeoutDuration, _onTimeout);
+    if (_expired) return; // already expired - don't restart
+    _scheduleIdleTimers();
   }
+
+  /// Explicit "I'm still here" action from the warning banner/dialog.
+  void extendSession() => recordActivity();
 
   void configureForDeviceMode(AppDeviceMode mode) {
     setTimeoutDuration(sessionTimeoutForDeviceMode(mode));
@@ -64,19 +84,22 @@ class SessionTimeoutProvider extends ChangeNotifier {
   void startTracking() {
     _tracking = true;
     _expired = false;
+    _preservedOfflineWriteCount = 0;
     recordActivity();
   }
 
   /// Stop tracking. Call on explicit logout to avoid double-clear.
   void stopTracking() {
     _tracking = false;
-    _timer?.cancel();
-    _timer = null;
+    _cancelTimers();
+    _clearWarningState();
   }
 
   /// Reset after re-login.
   void resetSession() {
     _expired = false;
+    _preservedOfflineWriteCount = 0;
+    _clearWarningState();
     notifyListeners();
     startTracking();
   }
@@ -84,7 +107,9 @@ class SessionTimeoutProvider extends ChangeNotifier {
   Future<void> _onTimeout() async {
     _tracking = false;
     _expired = true;
-    _timer = null;
+    _preservedOfflineWriteCount = await _pendingOfflineWriteCount();
+    _cancelTimers();
+    _clearWarningState();
     try {
       await _onTimeoutCleanup();
     } catch (e) {
@@ -93,22 +118,85 @@ class SessionTimeoutProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _scheduleIdleTimers() {
+    final shouldNotify = _warningVisible || _warningRemaining != Duration.zero;
+    _cancelTimers();
+    _clearWarningState();
+
+    if (_timeoutDuration <= Duration.zero) {
+      unawaited(_onTimeout());
+      return;
+    }
+
+    final effectiveWarningDuration = _timeoutDuration <= _warningDuration
+        ? _timeoutDuration
+        : _warningDuration;
+    final warningDelay = _timeoutDuration - effectiveWarningDuration;
+    if (effectiveWarningDuration > Duration.zero) {
+      if (warningDelay > Duration.zero) {
+        _warningTimer = Timer(
+          warningDelay,
+          () => _showWarning(effectiveWarningDuration),
+        );
+      } else {
+        scheduleMicrotask(() => _showWarning(effectiveWarningDuration));
+      }
+    }
+    _timer = Timer(_timeoutDuration, _onTimeout);
+    if (shouldNotify) notifyListeners();
+  }
+
+  void _showWarning(Duration remaining) {
+    if (!_tracking || _expired) return;
+    _warningVisible = true;
+    _warningRemaining = remaining;
+    _countdownTimer?.cancel();
+    if (_countdownTickDuration > Duration.zero) {
+      _countdownTimer = Timer.periodic(_countdownTickDuration, (_) {
+        final next = _warningRemaining - _countdownTickDuration;
+        _warningRemaining = next.isNegative ? Duration.zero : next;
+        if (_warningRemaining == Duration.zero) {
+          _countdownTimer?.cancel();
+          _countdownTimer = null;
+        }
+        notifyListeners();
+      });
+    }
+    notifyListeners();
+  }
+
+  void _cancelTimers() {
+    _timer?.cancel();
+    _timer = null;
+    _warningTimer?.cancel();
+    _warningTimer = null;
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+  }
+
+  void _clearWarningState() {
+    _warningVisible = false;
+    _warningRemaining = Duration.zero;
+  }
+
+  static Future<int> _pendingOfflineWriteCount() async {
+    try {
+      return await ConnectivitySyncService.instance
+          .pendingWriteCountForCurrentOwner();
+    } catch (e) {
+      debugPrint('SessionTimeout: offline queue count failed: $e');
+      return 0;
+    }
+  }
+
   static Future<void> _defaultTimeoutCleanup() async {
     await RecentPatientsService.clear();
-    // Drop the offline write-queue on idle-timeout too, so a walked-away
-    // ward tablet doesn't leave the previous user's queued clinical writes
-    // (vitals, nursing notes) for whoever logs in next.
-    try {
-      await ConnectivitySyncService.instance.clearQueue();
-    } catch (e) {
-      debugPrint('SessionTimeout: offline queue clear failed: $e');
-    }
-    await ApiConfig.clearAll();
+    await ApiConfig.clearSessionIdentity();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _cancelTimers();
     super.dispose();
   }
 }

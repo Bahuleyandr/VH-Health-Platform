@@ -32,6 +32,7 @@ class AuthService {
         data['staff']?['_id'] ?? data['staff']?['id'] ?? data['staff_id'];
     if (staffId != null) {
       await ApiConfig.saveStaffId(staffId.toString());
+      await core_auth.AuthService.setStaffId(staffId.toString());
     }
 
     final staffUid =
@@ -41,7 +42,10 @@ class AuthService {
         data['uid'];
     if (staffUid != null) {
       await ApiConfig.saveStaffUid(staffUid.toString());
-      if (staffId == null) await ApiConfig.saveStaffId(staffUid.toString());
+      if (staffId == null) {
+        await ApiConfig.saveStaffId(staffUid.toString());
+        await core_auth.AuthService.setStaffId(staffUid.toString());
+      }
     }
 
     final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
