@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/services/backend_api_service.dart';
@@ -108,6 +109,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     }
 
     if (!mounted) return;
+    if (success) {
+      await PatientCacheInvalidation.afterProfileMutation();
+      if (!mounted) return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

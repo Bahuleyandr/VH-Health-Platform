@@ -17,6 +17,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 
 @immutable
@@ -190,6 +191,10 @@ class DependentsProvider extends ChangeNotifier {
     if (depJson == null) {
       throw DependentApiException('Backend returned no dependent payload');
     }
+    await PatientCacheInvalidation.afterDependentMutation();
+    if (_disposed) {
+      throw const DependentApiException('Dependents provider is disposed');
+    }
     final dep = Dependent.fromJson(depJson);
 
     final existingIdx = _dependents.indexWhere((d) => d.uid == dep.uid);
@@ -215,6 +220,8 @@ class DependentsProvider extends ChangeNotifier {
         response.message ?? 'Failed to unlink dependent',
       );
     }
+    await PatientCacheInvalidation.afterDependentMutation();
+    if (_disposed) return;
     _dependents = _dependents
         .where((d) => d.id != dependentId)
         .toList(growable: false);

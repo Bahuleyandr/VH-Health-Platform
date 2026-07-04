@@ -9,6 +9,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/providers/websocket_provider.dart';
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -229,6 +230,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     try {
       final resp = await ApiClient.delete('/appointments/${appt.id}');
       if (resp.isSuccess) {
+        await PatientCacheInvalidation.afterAppointmentMutation();
+        if (!mounted) return;
         _showSuccess(l.appointmentsCancelledToast);
         _fetchAppointments();
       } else {

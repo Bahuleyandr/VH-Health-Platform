@@ -9,6 +9,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/features/appointments/models/appointment_models.dart';
@@ -176,6 +177,8 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
       setState(() => _submitting = false);
 
       if (resp.isSuccess) {
+        await PatientCacheInvalidation.afterAppointmentMutation();
+        if (!mounted) return;
         _showSuccess(l10n.appointmentConfirmationNote);
         _reasonController.clear();
 
