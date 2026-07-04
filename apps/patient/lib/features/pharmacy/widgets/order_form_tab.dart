@@ -31,6 +31,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
 
   File? _prescriptionPhoto;
   String? _prescriptionName;
+  String? _prescriptionError;
   bool _isSubmitting = false;
   String _deliveryType = 'delivery'; // 'delivery' | 'pickup'
 
@@ -38,10 +39,12 @@ class _OrderFormTabState extends State<OrderFormTab> {
   void initState() {
     super.initState();
     _phoneController.text = widget.phone;
+    _noteController.addListener(_clearPrescriptionErrorIfSatisfied);
   }
 
   @override
   void dispose() {
+    _noteController.removeListener(_clearPrescriptionErrorIfSatisfied);
     _noteController.dispose();
     _addressController.dispose();
     _landmarkController.dispose();
@@ -49,11 +52,21 @@ class _OrderFormTabState extends State<OrderFormTab> {
     super.dispose();
   }
 
+  void _clearPrescriptionErrorIfSatisfied() {
+    if (_prescriptionError == null) return;
+    if (_prescriptionPhoto == null && _noteController.text.trim().isEmpty) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _prescriptionError = null);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PICK PRESCRIPTION PHOTO
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _pickPrescription(ImageSource source) async {
+    final l = AppLocalizations.of(context)!;
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: source,
@@ -67,16 +80,14 @@ class _OrderFormTabState extends State<OrderFormTab> {
       const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
       if (sizeBytes > maxSizeBytes) {
         if (mounted) {
-          _showSnack(
-            AppLocalizations.of(context)!.pharmacyFileTooLarge,
-            isError: true,
-          );
+          setState(() => _prescriptionError = l.pharmacyFileTooLarge);
         }
         return;
       }
       setState(() {
         _prescriptionPhoto = file;
         _prescriptionName = picked.name;
+        _prescriptionError = null;
       });
     }
   }
@@ -118,13 +129,20 @@ class _OrderFormTabState extends State<OrderFormTab> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _placeOrder() async {
+    if (_isSubmitting) return;
+
     final l = AppLocalizations.of(context)!;
     if (_prescriptionPhoto == null && _noteController.text.trim().isEmpty) {
-      _showSnack(l.pharmacyPrescriptionOrDescriptionRequired, isError: true);
+      setState(() {
+        _prescriptionError = l.pharmacyPrescriptionOrDescriptionRequired;
+      });
       return;
     }
 
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _prescriptionError = null;
+    });
 
     try {
       // Build multipart files list
@@ -181,6 +199,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
         setState(() {
           _prescriptionPhoto = null;
           _prescriptionName = null;
+          _prescriptionError = null;
           _noteController.clear();
           _addressController.clear();
           _landmarkController.clear();
@@ -266,6 +285,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final hasPrescriptionError = _prescriptionError != null;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -287,7 +309,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 color: Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: const Color(0xFF7E57C2).withValues(alpha: 0.3),
+                  color: hasPrescriptionError
+                      ? theme.colorScheme.error
+                      : const Color(0xFF7E57C2).withValues(alpha: 0.3),
                   width: 2,
                   style: BorderStyle.solid,
                 ),
@@ -311,6 +335,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
                             onTap: () => setState(() {
                               _prescriptionPhoto = null;
                               _prescriptionName = null;
+                              _prescriptionError = null;
                             }),
                             child: Container(
                               padding: const EdgeInsets.all(4),
@@ -352,6 +377,15 @@ class _OrderFormTabState extends State<OrderFormTab> {
                     ),
             ),
           ),
+          if (hasPrescriptionError) ...[
+            const SizedBox(height: 8),
+            Text(
+              _prescriptionError!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+          ],
 
           const SizedBox(height: 16),
 

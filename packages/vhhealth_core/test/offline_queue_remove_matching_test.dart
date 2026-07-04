@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
@@ -39,6 +41,15 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    OfflineQueue.debugDbFileNameOverride =
+        'offline_queue_remove_matching_test.db';
+  });
+
+  tearDownAll(() async {
+    await OfflineQueue.resetForTesting();
+    final dbPath = await sqflite.getDatabasesPath();
+    await sqflite.deleteDatabase(p.join(dbPath, OfflineQueue.dbFileName));
+    OfflineQueue.debugDbFileNameOverride = null;
   });
 
   setUp(() async {
