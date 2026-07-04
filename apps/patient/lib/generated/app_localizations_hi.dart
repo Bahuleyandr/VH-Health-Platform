@@ -2307,7 +2307,7 @@ class AppLocalizationsHi extends AppLocalizations {
   String get recordAccessStatusRevoked => 'वापस लिया गया';
 
   @override
-  String get commonRetryButton => 'फिर कोशिश करें';
+  String get commonRetry => 'पुनः प्रयास करें';
 
   @override
   String get commonContinueButton => 'जारी रखें';

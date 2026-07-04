@@ -19,6 +19,8 @@ class OverviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     if (loading) {
       return const Center(
         child: Padding(
@@ -42,11 +44,11 @@ class OverviewTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              AppLocalizations.of(context)!.gamificationLoadFailed,
+              l10n.gamificationLoadFailed,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
-            TextButton(onPressed: onRefresh, child: const Text('Retry')),
+            TextButton(onPressed: onRefresh, child: Text(l10n.commonRetry)),
           ],
         ),
       );

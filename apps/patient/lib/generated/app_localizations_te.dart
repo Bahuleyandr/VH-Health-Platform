@@ -2335,7 +2335,7 @@ class AppLocalizationsTe extends AppLocalizations {
   String get recordAccessStatusRevoked => 'రద్దయింది';
 
   @override
-  String get commonRetryButton => 'మళ్లీ ప్రయత్నించండి';
+  String get commonRetry => 'మళ్లీ ప్రయత్నించండి';
 
   @override
   String get commonContinueButton => 'కొనసాగించండి';

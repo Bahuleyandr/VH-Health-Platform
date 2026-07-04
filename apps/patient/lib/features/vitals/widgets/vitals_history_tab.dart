@@ -83,7 +83,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
       emptyTitle: l.vitalsNoHistory,
       emptySubtitle: l.vitalsNoHistoryHint,
       errorTitle: l.genericError,
-      errorActionLabel: l.commonRetryButton,
+      errorActionLabel: l.commonRetry,
       emptyActionLabel: l.commonRefreshButton,
       builder: (context, entries) {
         return RefreshIndicator(

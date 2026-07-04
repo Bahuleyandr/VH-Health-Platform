@@ -60,6 +60,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -74,7 +75,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             Text(_error!, style: TextStyle(color: cs.onSurfaceVariant)),
             TextButton(
               onPressed: _fetchPrescriptions,
-              child: const Text('Retry'),
+              child: Text(l10n.commonRetry),
             ),
           ],
         ),
@@ -92,12 +93,12 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             ),
             const SizedBox(height: 16),
             Text(
-              AppLocalizations.of(context)!.yourHealthPrescriptionsEmpty,
+              l10n.yourHealthPrescriptionsEmpty,
               style: theme.textTheme.titleMedium?.copyWith(color: cs.onSurface),
             ),
             const SizedBox(height: 8),
             Text(
-              AppLocalizations.of(context)!.yourHealthPrescriptionsEmptyHint,
+              l10n.yourHealthPrescriptionsEmptyHint,
               style: TextStyle(color: cs.onSurfaceVariant),
             ),
           ],

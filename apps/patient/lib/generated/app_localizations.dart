@@ -4464,7 +4464,7 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'Retry'**
-  String get commonRetryButton;
+  String get commonRetry;
 
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///

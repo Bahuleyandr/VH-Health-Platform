@@ -2344,7 +2344,7 @@ class AppLocalizationsMl extends AppLocalizations {
   String get recordAccessStatusRevoked => 'പിൻവലിച്ചത്';
 
   @override
-  String get commonRetryButton => 'വീണ്ടും ശ്രമിക്കുക';
+  String get commonRetry => 'വീണ്ടും ശ്രമിക്കുക';
 
   @override
   String get commonContinueButton => 'തുടരുക';

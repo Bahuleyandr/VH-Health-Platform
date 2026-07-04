@@ -388,7 +388,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _fetchRecords,
-              child: const Text('Retry'),
+              child: Text(AppLocalizations.of(context)!.commonRetry),
             ),
           ],
         ),

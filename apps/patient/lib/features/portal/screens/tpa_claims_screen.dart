@@ -86,7 +86,7 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
         emptyTitle: l.tpaClaimsEmptyTitle,
         emptySubtitle: l.tpaClaimsEmptySubtitle,
         errorTitle: l.genericError,
-        errorActionLabel: l.commonRetryButton,
+        errorActionLabel: l.commonRetry,
         emptyActionLabel: l.commonRefreshButton,
         builder: (context, claims) {
           return RefreshIndicator(
@@ -327,7 +327,7 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
         emptyTitle: l.tpaClaimNoData,
         emptySubtitle: l.tpaClaimNoDataHint,
         errorTitle: l.genericError,
-        errorActionLabel: l.commonRetryButton,
+        errorActionLabel: l.commonRetry,
         emptyActionLabel: l.commonRefreshButton,
         builder: (context, _) {
           return RefreshIndicator(

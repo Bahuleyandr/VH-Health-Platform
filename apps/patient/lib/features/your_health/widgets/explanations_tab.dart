@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
@@ -78,13 +79,11 @@ class _ExplainerCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => PatientExplainerDetailScreen(
-                reviewId: explainer.reviewId,
-                initialExplainer: explainer,
-                repository: repository,
-              ),
+          context.push(
+            '/health/explanations/${explainer.reviewId}',
+            extra: PatientExplainerDetailRouteArgs(
+              initialExplainer: explainer,
+              repository: repository,
             ),
           );
         },
@@ -136,16 +135,26 @@ class _ExplainerCard extends StatelessWidget {
   }
 }
 
+class PatientExplainerDetailRouteArgs {
+  const PatientExplainerDetailRouteArgs({
+    this.initialExplainer,
+    this.repository,
+  });
+
+  final PatientExplainer? initialExplainer;
+  final PatientExplainersRepository? repository;
+}
+
 class PatientExplainerDetailScreen extends StatefulWidget {
   const PatientExplainerDetailScreen({
     super.key,
     required this.reviewId,
-    required this.initialExplainer,
-    required this.repository,
+    this.initialExplainer,
+    this.repository = const ApiPatientExplainersRepository(),
   });
 
   final int reviewId;
-  final PatientExplainer initialExplainer;
+  final PatientExplainer? initialExplainer;
   final PatientExplainersRepository repository;
 
   @override
@@ -187,9 +196,12 @@ class _PatientExplainerDetailScreenState
             return _ErrorState(onRetry: _retry);
           }
 
-          return _ExplainerDetailContent(
-            explainer: snapshot.data ?? widget.initialExplainer,
-          );
+          final explainer = snapshot.data ?? widget.initialExplainer;
+          if (explainer == null) {
+            return _ErrorState(onRetry: _retry);
+          }
+
+          return _ExplainerDetailContent(explainer: explainer);
         },
       ),
     );

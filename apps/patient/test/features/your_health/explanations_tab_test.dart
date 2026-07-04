@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
 import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/your_health/services/patient_explainers_repository.dart';
@@ -38,18 +39,37 @@ void main() {
   ) async {
     final explainer = _sampleExplainer();
     final repository = _FakeExplainersRepository([explainer]);
-
-    await tester.pumpWidget(
-      _LocalizedHarness(
-        child: Scaffold(
-          body: ExplanationsTab(
-            explainers: [explainer],
-            repository: repository,
-            onRefresh: () async {},
+    final router = GoRouter(
+      initialLocation: '/health',
+      routes: [
+        GoRoute(
+          path: '/health',
+          builder: (_, _) => Scaffold(
+            body: ExplanationsTab(
+              explainers: [explainer],
+              repository: repository,
+              onRefresh: () async {},
+            ),
           ),
         ),
-      ),
+        GoRoute(
+          path: '/health/explanations/:id',
+          builder: (_, state) {
+            final args = state.extra is PatientExplainerDetailRouteArgs
+                ? state.extra! as PatientExplainerDetailRouteArgs
+                : null;
+            return PatientExplainerDetailScreen(
+              reviewId: int.parse(state.pathParameters['id']!),
+              initialExplainer: args?.initialExplainer,
+              repository: args?.repository ?? repository,
+            );
+          },
+        ),
+      ],
     );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_RouterHarness(router: router));
 
     await tester.pumpAndSettle();
 
@@ -68,6 +88,21 @@ void main() {
     expect(find.text('Call the hospital if fever returns.'), findsOneWidget);
     expect(repository.detailRequests, 1);
   });
+}
+
+class _RouterHarness extends StatelessWidget {
+  const _RouterHarness({required this.router});
+
+  final GoRouter router;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      routerConfig: router,
+    );
+  }
 }
 
 class _LocalizedHarness extends StatelessWidget {

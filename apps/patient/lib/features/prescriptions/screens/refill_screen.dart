@@ -170,7 +170,7 @@ class _RefillScreenState extends State<RefillScreen> {
               OutlinedButton.icon(
                 onPressed: _fetchPrescriptions,
                 icon: const Icon(Icons.refresh),
-                label: Text(l.familyRetryButton),
+                label: Text(l.commonRetry),
               ),
             ],
           ),

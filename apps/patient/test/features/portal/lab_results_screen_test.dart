@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/features/portal/models/lab_result.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/services/lab_results_repository.dart';
@@ -13,10 +14,10 @@ void main() {
       detailResult: result,
       trend: _sampleTrend(),
     );
+    final router = _labResultsRouter(repository);
+    addTearDown(router.dispose);
 
-    await tester.pumpWidget(
-      _LocalizedHarness(child: LabResultsList(repository: repository)),
-    );
+    await tester.pumpWidget(_RouterHarness(router: router));
 
     await tester.pumpAndSettle();
 
@@ -48,10 +49,10 @@ void main() {
       detailResult: result,
       trend: _sampleTrend(points: const [12.4]),
     );
+    final router = _labResultsRouter(repository);
+    addTearDown(router.dispose);
 
-    await tester.pumpWidget(
-      _LocalizedHarness(child: LabResultsList(repository: repository)),
-    );
+    await tester.pumpWidget(_RouterHarness(router: router));
 
     await tester.pumpAndSettle();
     await tester.tap(find.text('Hemoglobin'));
@@ -89,6 +90,47 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+GoRouter _labResultsRouter(_FakeLabResultsRepository repository) {
+  return GoRouter(
+    initialLocation: '/portal/lab-results',
+    routes: [
+      GoRoute(
+        path: '/portal/lab-results',
+        builder: (_, _) =>
+            Scaffold(body: LabResultsList(repository: repository)),
+      ),
+      GoRoute(
+        path: '/portal/lab-results/:id',
+        builder: (_, state) {
+          final args = state.extra is LabResultDetailRouteArgs
+              ? state.extra! as LabResultDetailRouteArgs
+              : null;
+          return LabResultDetailScreen(
+            resultId: int.parse(state.pathParameters['id']!),
+            initialResult: args?.initialResult,
+            repository: args?.repository ?? repository,
+          );
+        },
+      ),
+    ],
+  );
+}
+
+class _RouterHarness extends StatelessWidget {
+  const _RouterHarness({required this.router});
+
+  final GoRouter router;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      routerConfig: router,
+    );
+  }
 }
 
 class _LocalizedHarness extends StatelessWidget {

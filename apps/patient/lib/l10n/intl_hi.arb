@@ -1517,7 +1517,10 @@
   "recordAccessProxyFallback": "प्रॉक्सी",
   "recordAccessStatusActive": "सक्रिय",
   "recordAccessStatusRevoked": "वापस लिया गया",
-  "commonRetryButton": "फिर कोशिश करें",
+  "commonRetry": "पुनः प्रयास करें",
+  "@commonRetry": {
+    "description": "Machine translated; review required. Generic retry button label"
+  },
   "commonContinueButton": "जारी रखें",
   "commonBackButton": "वापस",
   "commonOkButton": "ठीक है",

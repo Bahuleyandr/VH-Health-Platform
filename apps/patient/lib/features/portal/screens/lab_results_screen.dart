@@ -4,6 +4,7 @@
 // results on this portal surface; trend reads use the same release rules.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -100,13 +101,11 @@ class _LabResultsListState extends State<LabResultsList> {
   }
 
   Future<void> _openResult(LabResult result) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => LabResultDetailScreen(
-          resultId: result.id,
-          initialResult: result,
-          repository: widget.repository,
-        ),
+    await context.push(
+      '/portal/lab-results/${result.id}',
+      extra: LabResultDetailRouteArgs(
+        initialResult: result,
+        repository: widget.repository,
       ),
     );
   }
@@ -217,11 +216,18 @@ class _LabResultCard extends StatelessWidget {
   }
 }
 
+class LabResultDetailRouteArgs {
+  const LabResultDetailRouteArgs({this.initialResult, this.repository});
+
+  final LabResult? initialResult;
+  final LabResultsRepository? repository;
+}
+
 class LabResultDetailScreen extends StatefulWidget {
   const LabResultDetailScreen({
     super.key,
     required this.resultId,
-    required this.initialResult,
+    this.initialResult,
     this.repository = const ApiLabResultsRepository(),
   });
 

@@ -6,10 +6,19 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:vhhealth/features/investigations/widgets/investigation_bookings_tab.dart';
 import 'package:vhhealth/features/portal/models/discharge_summary.dart';
+import 'package:vhhealth/features/portal/models/lab_result.dart';
 import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
 import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart';
+import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
 import 'package:vhhealth/features/portal/services/discharge_summaries_repository.dart';
+import 'package:vhhealth/features/portal/services/lab_results_repository.dart';
+import 'package:vhhealth/features/your_health/models/consultation_note.dart';
+import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
+import 'package:vhhealth/features/your_health/services/consultation_notes_repository.dart';
+import 'package:vhhealth/features/your_health/services/patient_explainers_repository.dart';
+import 'package:vhhealth/features/your_health/widgets/consultation_notes_tab.dart';
+import 'package:vhhealth/features/your_health/widgets/explanations_tab.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 
@@ -138,6 +147,109 @@ void main() {
     expect(find.text('book investigation route'), findsOneWidget);
   });
 
+  testWidgets('lab result cards navigate through the declared detail route', (
+    tester,
+  ) async {
+    final repository = _FakeLabResultsRepository(
+      result: const LabResult(id: 31, testName: 'Glucose', valueNumeric: 98),
+    );
+
+    final router = GoRouter(
+      initialLocation: '/portal/lab-results',
+      routes: [
+        GoRoute(
+          path: '/portal/lab-results',
+          builder: (_, _) =>
+              Scaffold(body: LabResultsList(repository: repository)),
+        ),
+        GoRoute(
+          path: '/portal/lab-results/:id',
+          builder: (_, state) =>
+              Text('lab result route ${state.pathParameters['id']}'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_RouterHarness(router: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Glucose'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('lab result route 31'), findsOneWidget);
+  });
+
+  testWidgets('explanation cards navigate through the declared detail route', (
+    tester,
+  ) async {
+    final explainer = _explainer(44, 'Medication explainer');
+    final repository = _FakePatientExplainersRepository(explainer: explainer);
+
+    final router = GoRouter(
+      initialLocation: '/health',
+      routes: [
+        GoRoute(
+          path: '/health',
+          builder: (_, _) => Scaffold(
+            body: ExplanationsTab(
+              explainers: [explainer],
+              repository: repository,
+              onRefresh: () async {},
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/health/explanations/:id',
+          builder: (_, state) =>
+              Text('explanation route ${state.pathParameters['id']}'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_RouterHarness(router: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Medication explainer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('explanation route 44'), findsOneWidget);
+  });
+
+  testWidgets(
+    'consultation note cards navigate through the declared detail route',
+    (tester) async {
+      final note = _note(57, 'Follow-up note');
+      final repository = _FakeConsultationNotesRepository(note: note);
+
+      final router = GoRouter(
+        initialLocation: '/health',
+        routes: [
+          GoRoute(
+            path: '/health',
+            builder: (_, _) =>
+                Scaffold(body: ConsultationNotesTab(repository: repository)),
+          ),
+          GoRoute(
+            path: '/health/consultation-notes/:id',
+            builder: (_, state) =>
+                Text('consultation note route ${state.pathParameters['id']}'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_RouterHarness(router: router));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Follow-up note'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('consultation note route 57'), findsOneWidget);
+    },
+  );
+
   testWidgets(
     'discharge summaries preserve route extras on detail navigation',
     (tester) async {
@@ -234,6 +346,51 @@ class _FakeDischargeSummariesRepository
   }
 }
 
+class _FakeLabResultsRepository implements LabResultsRepository {
+  const _FakeLabResultsRepository({required this.result});
+
+  final LabResult result;
+
+  @override
+  Future<LabResultsPage> listResults() async {
+    return LabResultsPage(results: [result]);
+  }
+
+  @override
+  Future<LabResult> getResult(int id) async => result;
+
+  @override
+  Future<LabResultTrend> getTrend(LabResult result, {int months = 24}) {
+    throw UnimplementedError();
+  }
+}
+
+class _FakePatientExplainersRepository implements PatientExplainersRepository {
+  const _FakePatientExplainersRepository({required this.explainer});
+
+  final PatientExplainer explainer;
+
+  @override
+  Future<List<PatientExplainer>> listExplainers() async => [explainer];
+
+  @override
+  Future<PatientExplainer> getExplainer(int reviewId) async => explainer;
+}
+
+class _FakeConsultationNotesRepository implements ConsultationNotesRepository {
+  const _FakeConsultationNotesRepository({required this.note});
+
+  final ConsultationNote note;
+
+  @override
+  Future<ConsultationNotesPage> listNotes() async {
+    return ConsultationNotesPage(notes: [note]);
+  }
+
+  @override
+  Future<ConsultationNote> getNote(int id) async => note;
+}
+
 DischargeSummary _summary(int id, String diagnosis) {
   return DischargeSummary(
     id: id,
@@ -250,6 +407,36 @@ DischargeSummary _summary(int id, String diagnosis) {
         displayOrder: 1,
       ),
     ],
+  );
+}
+
+PatientExplainer _explainer(int id, String moduleName) {
+  return PatientExplainer(
+    reviewId: id,
+    generationId: id + 1000,
+    moduleKey: 'medication',
+    moduleName: moduleName,
+    publishedAt: DateTime(2026, 7, 4),
+    draft: const PatientExplainerDraft(
+      explanationSummary: 'Plain-language explanation',
+      keyPoints: [],
+      nextSteps: [],
+      whenToSeekHelp: [],
+      safetyFlags: [],
+    ),
+    sourceCitations: const [],
+    modelTier: 'standard',
+  );
+}
+
+ConsultationNote _note(int id, String title) {
+  return ConsultationNote(
+    id: id,
+    noteType: 'consultation_note',
+    title: title,
+    authorRole: 'doctor',
+    content: const {'summary': 'Continue current medication'},
+    signedAt: DateTime(2026, 7, 4),
   );
 }
 
