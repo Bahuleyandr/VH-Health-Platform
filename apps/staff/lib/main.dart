@@ -14,6 +14,7 @@ import 'firebase_options.dart';
 import 'core/platform_info.dart';
 import 'core/config/observability_config.dart';
 import 'core/navigation/app_router.dart';
+import 'core/providers/clinical_inbox_provider.dart';
 import 'core/providers/message_unread_provider.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/locale_provider.dart';
@@ -370,6 +371,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
           create: (_) => RealtimeProvider()..ensureConnected(),
         ),
         ChangeNotifierProvider(create: (_) => MessageUnreadProvider()..start()),
+        ChangeNotifierProvider(create: (_) => ClinicalInboxProvider()..start()),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: sessionTimeoutForDeviceMode(currentAppDeviceMode),

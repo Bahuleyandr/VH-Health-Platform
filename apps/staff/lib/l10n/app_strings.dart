@@ -1125,6 +1125,44 @@ class AppStrings {
   String get ordersTitlePrefix => _t('orders.title_prefix');
   String get vitalsChartTitlePrefix => _t('vitals_chart.title_prefix');
 
+  // ── Clinical inbox ────────────────────────────────────────────────
+  String get clinicalInboxTitle => _t('clinical_inbox.title');
+  String get clinicalInboxEmpty => _t('clinical_inbox.empty');
+  // REVIEW: clinical safety action
+  String get clinicalInboxAcknowledge => _t('clinical_inbox.acknowledge');
+  String get clinicalInboxAcknowledging => _t('clinical_inbox.acknowledging');
+  String get clinicalInboxAcknowledged => _t('clinical_inbox.acknowledged');
+  String clinicalInboxAckFailed(String reason) =>
+      '${_t('clinical_inbox.ack_failed_prefix')} $reason';
+  String get clinicalInboxPatient => _t('clinical_inbox.patient');
+  String get clinicalInboxUnknownPatient =>
+      _t('clinical_inbox.unknown_patient');
+  String get clinicalInboxSource => _t('clinical_inbox.source');
+  String get clinicalInboxSourceEvent => _t('clinical_inbox.source_event');
+  String get clinicalInboxPriority => _t('clinical_inbox.priority');
+  String get clinicalInboxStatus => _t('clinical_inbox.status');
+  String get clinicalInboxDue => _t('clinical_inbox.due');
+  String get clinicalInboxTaskDetail => _t('clinical_inbox.task_detail');
+  String get clinicalInboxTierHistory => _t('clinical_inbox.tier_history');
+  String get clinicalInboxNoTierHistory => _t('clinical_inbox.no_tier_history');
+  String clinicalInboxTierLine(String tier, String action) => _t(
+    'clinical_inbox.tier_line',
+  ).replaceAll('{tier}', tier).replaceAll('{action}', action);
+  String get clinicalInboxGroupOverdue => _t('clinical_inbox.group.overdue');
+  String get clinicalInboxGroupCritical => _t('clinical_inbox.group.critical');
+  String get clinicalInboxGroupHigh => _t('clinical_inbox.group.high');
+  String get clinicalInboxGroupNormal => _t('clinical_inbox.group.normal');
+  String get clinicalInboxGroupAcknowledged =>
+      _t('clinical_inbox.group.acknowledged');
+  String get clinicalInboxSlaOverdue => _t('clinical_inbox.sla.overdue');
+  String get clinicalInboxSlaNoDue => _t('clinical_inbox.sla.no_due');
+  String get clinicalInboxSlaDueNow => _t('clinical_inbox.sla.due_now');
+  String clinicalInboxSlaDueMinutes(int minutes) =>
+      _t('clinical_inbox.sla.due_minutes').replaceAll('{minutes}', '$minutes');
+  String clinicalInboxSlaDueHours(int hours, int minutes) => _t(
+    'clinical_inbox.sla.due_hours',
+  ).replaceAll('{hours}', '$hours').replaceAll('{minutes}', '$minutes');
+
   // ── Inpatient drug chart ───────────────────────────────────────────
   String get drugChartTitle => _t('drug_chart.title');
   // REVIEW: clinical action label
@@ -2936,6 +2974,33 @@ class AppStrings {
       'settings.font_size': 'Font size',
       'settings.font_size.subtitle':
           'Scales text on top of the system text size',
+      'clinical_inbox.title': 'Clinical Inbox',
+      'clinical_inbox.empty': 'No pending critical results',
+      'clinical_inbox.acknowledge': 'Acknowledge',
+      'clinical_inbox.acknowledging': 'Acknowledging...',
+      'clinical_inbox.acknowledged': 'Acknowledged',
+      'clinical_inbox.ack_failed_prefix': 'Could not acknowledge:',
+      'clinical_inbox.patient': 'Patient',
+      'clinical_inbox.unknown_patient': 'Unknown patient',
+      'clinical_inbox.source': 'Source',
+      'clinical_inbox.source_event': 'Source event',
+      'clinical_inbox.priority': 'Priority',
+      'clinical_inbox.status': 'Status',
+      'clinical_inbox.due': 'Due',
+      'clinical_inbox.task_detail': 'Task detail',
+      'clinical_inbox.tier_history': 'Tier history',
+      'clinical_inbox.no_tier_history': 'No escalation tiers yet',
+      'clinical_inbox.tier_line': 'Tier {tier}: {action}',
+      'clinical_inbox.group.overdue': 'Overdue',
+      'clinical_inbox.group.critical': 'Critical',
+      'clinical_inbox.group.high': 'High priority',
+      'clinical_inbox.group.normal': 'Normal priority',
+      'clinical_inbox.group.acknowledged': 'Acknowledged',
+      'clinical_inbox.sla.overdue': 'Overdue',
+      'clinical_inbox.sla.no_due': 'No SLA',
+      'clinical_inbox.sla.due_now': 'Due now',
+      'clinical_inbox.sla.due_minutes': '{minutes} min',
+      'clinical_inbox.sla.due_hours': '{hours}h {minutes}m',
       'drug_chart.title': 'Drug Chart',
       'drug_chart.stop_title': 'Stop medication',
       'drug_chart.stop_reason_label': 'Reason',
@@ -5139,6 +5204,34 @@ class AppStrings {
       'vitals_chart.section.previous_vitals': 'पिछले वाइटल्स',
       'vitals_chart.tab.previous_days': 'पिछले दिन',
       'vitals_chart.tab.today': 'आज',
+      // REVIEW: hi clinical inbox batch — clinical safety wording
+      'clinical_inbox.title': 'क्लिनिकल इनबॉक्स',
+      'clinical_inbox.empty': 'कोई लंबित गंभीर परिणाम नहीं',
+      'clinical_inbox.acknowledge': 'स्वीकार करें',
+      'clinical_inbox.acknowledging': 'स्वीकार किया जा रहा है...',
+      'clinical_inbox.acknowledged': 'स्वीकार किया गया',
+      'clinical_inbox.ack_failed_prefix': 'स्वीकार नहीं हो सका:',
+      'clinical_inbox.patient': 'रोगी',
+      'clinical_inbox.unknown_patient': 'अज्ञात रोगी',
+      'clinical_inbox.source': 'स्रोत',
+      'clinical_inbox.source_event': 'स्रोत घटना',
+      'clinical_inbox.priority': 'प्राथमिकता',
+      'clinical_inbox.status': 'स्थिति',
+      'clinical_inbox.due': 'देय',
+      'clinical_inbox.task_detail': 'कार्य विवरण',
+      'clinical_inbox.tier_history': 'एस्केलेशन इतिहास',
+      'clinical_inbox.no_tier_history': 'अभी कोई एस्केलेशन स्तर नहीं',
+      'clinical_inbox.tier_line': 'स्तर {tier}: {action}',
+      'clinical_inbox.group.overdue': 'देरी हो चुकी',
+      'clinical_inbox.group.critical': 'गंभीर',
+      'clinical_inbox.group.high': 'उच्च प्राथमिकता',
+      'clinical_inbox.group.normal': 'सामान्य प्राथमिकता',
+      'clinical_inbox.group.acknowledged': 'स्वीकार किए गए',
+      'clinical_inbox.sla.overdue': 'देरी',
+      'clinical_inbox.sla.no_due': 'कोई SLA नहीं',
+      'clinical_inbox.sla.due_now': 'अभी देय',
+      'clinical_inbox.sla.due_minutes': '{minutes} मिनट',
+      'clinical_inbox.sla.due_hours': '{hours}घं {minutes}मि',
       // REVIEW: hi drug chart batch — clinical wording
       'drug_chart.title': 'ड्रग चार्ट',
       'drug_chart.stop_title': 'दवा बंद करें',
@@ -7309,6 +7402,34 @@ class AppStrings {
       'vitals_chart.section.previous_vitals': 'முந்தைய வைட்டல்கள்',
       'vitals_chart.tab.previous_days': 'முந்தைய நாட்கள்',
       'vitals_chart.tab.today': 'இன்று',
+      // REVIEW: ta AI first-pass clinical inbox batch — clinical safety wording
+      'clinical_inbox.title': 'மருத்துவ இன்பாக்ஸ்',
+      'clinical_inbox.empty': 'நிலுவையில் முக்கிய முடிவுகள் இல்லை',
+      'clinical_inbox.acknowledge': 'ஏற்கவும்',
+      'clinical_inbox.acknowledging': 'ஏற்கப்படுகிறது...',
+      'clinical_inbox.acknowledged': 'ஏற்கப்பட்டது',
+      'clinical_inbox.ack_failed_prefix': 'ஏற்க முடியவில்லை:',
+      'clinical_inbox.patient': 'நோயாளர்',
+      'clinical_inbox.unknown_patient': 'அறியப்படாத நோயாளர்',
+      'clinical_inbox.source': 'மூலம்',
+      'clinical_inbox.source_event': 'மூல நிகழ்வு',
+      'clinical_inbox.priority': 'முன்னுரிமை',
+      'clinical_inbox.status': 'நிலை',
+      'clinical_inbox.due': 'நேரம்',
+      'clinical_inbox.task_detail': 'பணி விவரம்',
+      'clinical_inbox.tier_history': 'எஸ்கலேஷன் வரலாறு',
+      'clinical_inbox.no_tier_history': 'இன்னும் எஸ்கலேஷன் நிலைகள் இல்லை',
+      'clinical_inbox.tier_line': 'நிலை {tier}: {action}',
+      'clinical_inbox.group.overdue': 'காலாவதி',
+      'clinical_inbox.group.critical': 'முக்கியம்',
+      'clinical_inbox.group.high': 'அதிக முன்னுரிமை',
+      'clinical_inbox.group.normal': 'சாதாரண முன்னுரிமை',
+      'clinical_inbox.group.acknowledged': 'ஏற்கப்பட்டவை',
+      'clinical_inbox.sla.overdue': 'காலாவதி',
+      'clinical_inbox.sla.no_due': 'SLA இல்லை',
+      'clinical_inbox.sla.due_now': 'இப்போது நிலுவை',
+      'clinical_inbox.sla.due_minutes': '{minutes} நிமி',
+      'clinical_inbox.sla.due_hours': '{hours}ம {minutes}நி',
       // REVIEW: ta AI first-pass drug chart batch — clinical wording
       'drug_chart.title': 'மருந்து அட்டவணை',
       'drug_chart.stop_title': 'மருந்தை நிறுத்து',
@@ -9948,6 +10069,34 @@ class AppStrings {
       'vitals_chart.section.previous_vitals': 'మునుపటి వైటల్స్',
       'vitals_chart.tab.previous_days': 'మునుపటి రోజులు',
       'vitals_chart.tab.today': 'నేడు',
+      // REVIEW: te AI first-pass clinical inbox batch — clinical safety wording
+      'clinical_inbox.title': 'క్లినికల్ ఇన్‌బాక్స్',
+      'clinical_inbox.empty': 'పెండింగ్ ముఖ్య ఫలితాలు లేవు',
+      'clinical_inbox.acknowledge': 'అంగీకరించండి',
+      'clinical_inbox.acknowledging': 'అంగీకరిస్తోంది...',
+      'clinical_inbox.acknowledged': 'అంగీకరించబడింది',
+      'clinical_inbox.ack_failed_prefix': 'అంగీకరించలేకపోయాం:',
+      'clinical_inbox.patient': 'రోగి',
+      'clinical_inbox.unknown_patient': 'తెలియని రోగి',
+      'clinical_inbox.source': 'మూలం',
+      'clinical_inbox.source_event': 'మూల సంఘటన',
+      'clinical_inbox.priority': 'ప్రాధాన్యత',
+      'clinical_inbox.status': 'స్థితి',
+      'clinical_inbox.due': 'గడువు',
+      'clinical_inbox.task_detail': 'పని వివరాలు',
+      'clinical_inbox.tier_history': 'ఎస్కలేషన్ చరిత్ర',
+      'clinical_inbox.no_tier_history': 'ఇంకా ఎస్కలేషన్ స్థాయులు లేవు',
+      'clinical_inbox.tier_line': 'స్థాయి {tier}: {action}',
+      'clinical_inbox.group.overdue': 'గడువు దాటింది',
+      'clinical_inbox.group.critical': 'క్రిటికల్',
+      'clinical_inbox.group.high': 'అధిక ప్రాధాన్యత',
+      'clinical_inbox.group.normal': 'సాధారణ ప్రాధాన్యత',
+      'clinical_inbox.group.acknowledged': 'అంగీకరించినవి',
+      'clinical_inbox.sla.overdue': 'గడువు దాటింది',
+      'clinical_inbox.sla.no_due': 'SLA లేదు',
+      'clinical_inbox.sla.due_now': 'ఇప్పుడే గడువు',
+      'clinical_inbox.sla.due_minutes': '{minutes} నిమి',
+      'clinical_inbox.sla.due_hours': '{hours}గం {minutes}ని',
       // REVIEW: te AI first-pass drug chart batch — clinical wording
       'drug_chart.title': 'డ్రగ్ చార్ట్',
       'drug_chart.stop_title': 'మందు ఆపండి',

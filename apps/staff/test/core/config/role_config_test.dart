@@ -135,6 +135,7 @@ void main() {
         '/appointments?context=op&scope=my&workspace=doctor',
       );
       expect(ids, contains('patient_records'));
+      expect(ids, contains('clinical_inbox'));
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('op_ai_assist'));
       expect(ids, contains('ward_mode'));
@@ -161,6 +162,7 @@ void main() {
         expect(ids, isNot(contains('appointments')));
         expect(ids, isNot(contains('admissions')));
         expect(ids, contains('patient_command_board'));
+        expect(ids, contains('clinical_inbox'));
         expect(ids, contains('ward_mode'));
         expect(ids, isNot(contains('vitals')));
         expect(ids, contains('nursing_notes'));
@@ -605,6 +607,14 @@ void main() {
       expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.doctor), isFalse);
       expect(RoleFeatures.hasClinicalEntry(StaffRole.receptionist), isFalse);
       expect(RoleFeatures.hasClinicalEntry(StaffRole.doctor), isTrue);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.doctor), isTrue);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.nurse), isTrue);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.pharmacy), isTrue);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.admissionOfficer), isTrue);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.ipdCounsellor), isTrue);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.receptionist), isFalse);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.billingStaff), isFalse);
+      expect(RoleFeatures.hasClinicalInbox(StaffRole.lab), isFalse);
     });
 
     test('workbench navigation includes role-permitted destinations', () {
@@ -633,6 +643,7 @@ void main() {
       expect(admissionsLabel, 'IP Admissions');
       expect(receptionistRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, contains('/patient-records'));
+      expect(doctorRoutes, contains('/clinical-inbox'));
       expect(
         doctorRoutes,
         contains('/appointments?context=op&scope=my&workspace=doctor'),
@@ -654,10 +665,12 @@ void main() {
       expect(nurseRoutes, isNot(contains('/front-office')));
       expect(nurseRoutes, isNot(contains('/emr/admissions')));
       expect(nurseRoutes, contains('/patient-records'));
+      expect(nurseRoutes, contains('/clinical-inbox'));
 
       final opNurseRoutes = RoleFeatures.getWorkbenchNavForRole(
         StaffRole.opStaffNurse,
       ).map((item) => item.route).toSet();
+      expect(opNurseRoutes, contains('/clinical-inbox'));
       expect(opNurseRoutes, contains('/op/nursing-dashboard'));
       expect(opNurseRoutes, contains('/front-office'));
       expect(opNurseRoutes, isNot(contains('/emr/admissions')));
@@ -683,6 +696,11 @@ void main() {
           routes.contains('/billing-desk'),
           RoleFeatures.hasBillingDesk(role),
           reason: '$role billing side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/clinical-inbox'),
+          RoleFeatures.hasClinicalInbox(role),
+          reason: '$role clinical inbox side bar visibility drifted',
         );
         expect(
           routes.contains('/audit-logs'),

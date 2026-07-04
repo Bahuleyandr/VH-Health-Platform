@@ -7,6 +7,7 @@ import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import '../config/api_config.dart';
 import '../config/role_config.dart';
 import '../platform_info.dart';
+import '../providers/clinical_inbox_provider.dart';
 import '../providers/message_unread_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
@@ -126,6 +127,8 @@ class _MainScaffoldState extends State<MainScaffold> {
     context.read<SessionTimeoutProvider>().configureForDeviceMode(mode);
     final unreadMessages = context.watch<MessageUnreadProvider>().unreadCount;
     final unreadAlerts = context.watch<NotificationProvider>().unreadCount;
+    final pendingClinicalTasks =
+        context.watch<ClinicalInboxProvider?>()?.pendingCount ?? 0;
     if (mode.isWorkbench) {
       final navItems = RoleFeatures.getWorkbenchNavForRole(
         _role,
@@ -151,12 +154,14 @@ class _MainScaffoldState extends State<MainScaffold> {
                         item.route,
                         unreadMessages,
                         unreadAlerts,
+                        pendingClinicalTasks,
                       ),
                       selectedIcon: _badgeAwareIcon(
                         item.selectedIcon,
                         item.route,
                         unreadMessages,
                         unreadAlerts,
+                        pendingClinicalTasks,
                       ),
                       label: Text(item.label),
                     ),
@@ -203,7 +208,14 @@ class _MainScaffoldState extends State<MainScaffold> {
           if (currentRoute != targetRoute) context.go(targetRoute);
         },
         items: navItems
-            .map((n) => _badgeAwareBottomItem(n, unreadMessages, unreadAlerts))
+            .map(
+              (n) => _badgeAwareBottomItem(
+                n,
+                unreadMessages,
+                unreadAlerts,
+                pendingClinicalTasks,
+              ),
+            )
             .toList(),
       ),
     );
@@ -214,6 +226,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     String route,
     int unreadMessages,
     int unreadAlerts,
+    int pendingClinicalTasks,
   ) {
     final child = Icon(icon);
     if (route == '/messaging') {
@@ -226,6 +239,13 @@ class _MainScaffoldState extends State<MainScaffold> {
         child: child,
       );
     }
+    if (route == '/clinical-inbox') {
+      return MessageUnreadBadge(
+        unreadCount: pendingClinicalTasks,
+        semanticLabel: 'pending clinical tasks',
+        child: child,
+      );
+    }
     return child;
   }
 
@@ -233,14 +253,23 @@ class _MainScaffoldState extends State<MainScaffold> {
     BottomNavItem navItem,
     int unreadMessages,
     int unreadAlerts,
+    int pendingClinicalTasks,
   ) {
-    if (navItem.route != '/messaging' && navItem.route != '/notifications') {
+    if (navItem.route != '/messaging' &&
+        navItem.route != '/notifications' &&
+        navItem.route != '/clinical-inbox') {
       return navItem.item;
     }
-    final count = navItem.route == '/messaging' ? unreadMessages : unreadAlerts;
+    final count = navItem.route == '/messaging'
+        ? unreadMessages
+        : navItem.route == '/notifications'
+        ? unreadAlerts
+        : pendingClinicalTasks;
     final semanticLabel = navItem.route == '/messaging'
         ? 'unread messages'
-        : 'unread alerts';
+        : navItem.route == '/notifications'
+        ? 'unread alerts'
+        : 'pending clinical tasks';
     return BottomNavigationBarItem(
       icon: MessageUnreadBadge(
         unreadCount: count,
