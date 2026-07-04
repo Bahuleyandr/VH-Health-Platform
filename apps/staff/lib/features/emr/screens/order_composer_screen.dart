@@ -31,6 +31,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../../doctor/widgets/cds_blocker_modal.dart';
@@ -259,13 +260,15 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
       }
       // Failure paths — keep the basket so the doctor can adjust.
       final raw = resp.raw;
-      if (isDeviceWriteGate(raw)) {
+      if (isDeviceTypeWriteGateCode(apiErrorCodeFromRaw(raw))) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              (raw as Map)['code'] == 'DEVICE_TYPE_MISSING'
-                  ? s.composerRelogin
-                  : s.composerDesktopOnly,
+              localizedApiErrorFromRaw(
+                s,
+                raw,
+                fallback: s.composerSubmitFailed,
+              ),
             ),
             backgroundColor: AppTheme.errorRed,
           ),

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_staff/core/config/api_config.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
+import '../platform_info.dart';
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -124,6 +125,7 @@ import '../../features/messaging/screens/messaging_inbox_screen.dart';
 import '../../features/messaging/screens/messaging_thread_screen.dart';
 
 // Shell
+import '../widgets/blocked_feature_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -224,8 +226,12 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/attendance',
           name: 'attendance',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: AttendanceScreen()),
+          pageBuilder: (context, state) {
+            final child = appDeviceModeForContext(context).canMarkAttendance
+                ? const AttendanceScreen()
+                : BlockedFeatureScreen.attendance();
+            return NoTransitionPage(child: child);
+          },
         ),
         GoRoute(
           path: '/leave',

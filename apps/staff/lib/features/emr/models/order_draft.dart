@@ -7,6 +7,8 @@
 // plugin channels (test/features/emr/order_composer_test.dart), following
 // the vitals_chart_screen.dart pure-helper pattern.
 
+import '../../../core/utils/api_error_codes.dart';
+
 /// Mirrors MEDICATION_ORDER_WRITE_ROLES in apps/backend orderRoutes.js.
 /// Keep in sync — the server gate is canonical; this only shapes the UI.
 const kMedicationOrderWriteRoles = <String>{
@@ -280,11 +282,8 @@ parseCdsBlockerDetails(dynamic raw) {
 
 /// True when the error envelope is the phone-mode clinical-write gate
 /// (rejectMobileClinicalWriteMiddleware).
-bool isDeviceWriteGate(dynamic raw) {
-  if (raw is! Map) return false;
-  final code = raw['code']?.toString();
-  return code == 'CLINICAL_WRITE_DESKTOP_ONLY' || code == 'DEVICE_TYPE_MISSING';
-}
+bool isDeviceWriteGate(dynamic raw) =>
+    isDeviceTypeWriteGateCode(apiErrorCodeFromRaw(raw));
 
 /// Title + detail line for a persisted clinical_orders row. Canonical rows
 /// carry a nested `details` JSON object; very old rows (pre-nesting) may

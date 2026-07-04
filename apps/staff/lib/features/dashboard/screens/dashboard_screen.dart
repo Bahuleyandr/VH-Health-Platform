@@ -100,6 +100,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _role == StaffRole.nursingSuperintendent ||
       _role.isAdminTier;
 
+  bool get _roleHasAttendanceFeature => RoleFeatures.getFeaturesForRole(
+    _role,
+  ).any((feature) => feature.id == 'attendance');
+
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
@@ -290,6 +294,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? dailyFeatures.map((feature) => feature.id).toSet()
         : _clinicalServiceFeatureIdsForRole();
     final moreFeatures = _moreFeaturesForRole(features, promotedIds);
+    final hasAttendanceFeature = _roleHasAttendanceFeature;
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
@@ -432,16 +437,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Attendance status card — phone-only. The
-                          // backend rejects attendance marking from the
-                          // desktop app (`requireDeviceType('mobile')`),
-                          // so we hide the card on desktop too instead
-                          // of letting users tap into a 403.
-                          if (canMarkAttendance) ...[
+                          // Attendance marking is phone-only. Keep eligible
+                          // roles informed on workbench instead of hiding the
+                          // tile and making deep links feel broken.
+                          if (hasAttendanceFeature) ...[
                             _AttendanceStatusCard(
                               isCheckedIn: checkedIn,
                               checkInTime: _attendanceStatus?['checkInTime'],
-                              onTap: () => context.push('/attendance'),
+                              onTap: canMarkAttendance
+                                  ? () => context.push('/attendance')
+                                  : null,
+                              disabledReason: canMarkAttendance
+                                  ? null
+                                  : s.dashboardAvailableOnMobileApp,
                             ),
                             const SizedBox(height: 16),
                           ],
@@ -1660,15 +1668,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _role.isAdminTier;
 
     // Attendance — phone-only. The backend's requireDeviceType('mobile')
-    // gate rejects desktop attempts; hide the tile on desktop so the user
-    // doesn't get a 403 surprise.
-    if (appDeviceModeForContext(context).canMarkAttendance) {
+    // gate rejects desktop attempts; workbench keeps a disabled tile with
+    // the reason visible instead of making attendance disappear.
+    final mode = appDeviceModeForContext(context);
+    if (_roleHasAttendanceFeature) {
       actions.add(
         _QuickAction(
           icon: Icons.fingerprint,
           label: s.dashboardActionCheckInOut,
-          route: '/attendance',
+          route: mode.canMarkAttendance ? '/attendance' : null,
           color: const Color(0xFF1565C0),
+          disabledReason: mode.canMarkAttendance
+              ? null
+              : s.dashboardAvailableOnMobileApp,
         ),
       );
     }
@@ -1748,12 +1760,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       spacing: 10,
       runSpacing: 10,
       children: actions.map((a) {
-        return ActionChip(
-          avatar: Icon(a.icon, size: 18, color: a.color),
-          label: Text(a.label),
-          onPressed: () => context.push(a.route),
-          backgroundColor: a.color.withValues(alpha: 0.08),
-          side: BorderSide(color: a.color.withValues(alpha: 0.2)),
+        final disabled = a.disabledReason != null || a.route == null;
+        final foreground = disabled ? AppTheme.textSecondary : a.color;
+        final label = disabled ? '${a.label} · ${a.disabledReason}' : a.label;
+        return Tooltip(
+          message: disabled ? a.disabledReason! : a.label,
+          child: ActionChip(
+            avatar: Icon(a.icon, size: 18, color: foreground),
+            label: Text(label),
+            onPressed: disabled ? null : () => context.push(a.route!),
+            backgroundColor: a.color.withValues(alpha: 0.08),
+            disabledColor: AppTheme.backgroundGrey,
+            side: BorderSide(color: foreground.withValues(alpha: 0.25)),
+          ),
         );
       }).toList(),
     );
@@ -2017,13 +2036,16 @@ class _StatItem {
 class _QuickAction {
   final IconData icon;
   final String label;
-  final String route;
+  final String? route;
   final Color color;
+  final String? disabledReason;
+
   const _QuickAction({
     required this.icon,
     required this.label,
     required this.route,
     required this.color,
+    this.disabledReason,
   });
 }
 
@@ -2142,35 +2164,42 @@ class _ServiceEmptyState extends StatelessWidget {
 class _AttendanceStatusCard extends StatelessWidget {
   final bool isCheckedIn;
   final String? checkInTime;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final String? disabledReason;
 
   const _AttendanceStatusCard({
     required this.isCheckedIn,
     this.checkInTime,
     required this.onTap,
+    this.disabledReason,
   });
 
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final disabled = disabledReason != null || onTap == null;
+    final colors = disabled
+        ? [
+            AppTheme.textSecondary.withValues(alpha: 0.72),
+            AppTheme.textSecondary.withValues(alpha: 0.58),
+          ]
+        : isCheckedIn
+        ? [AppTheme.successGreen, const Color(0xFF43A047)]
+        : [AppTheme.warningAmber, const Color(0xFFFFA000)];
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: isCheckedIn
-                ? [AppTheme.successGreen, const Color(0xFF43A047)]
-                : [AppTheme.warningAmber, const Color(0xFFFFA000)],
+            colors: colors,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color:
-                  (isCheckedIn ? AppTheme.successGreen : AppTheme.warningAmber)
-                      .withValues(alpha: 0.3),
+              color: colors.first.withValues(alpha: 0.22),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -2185,7 +2214,11 @@ class _AttendanceStatusCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                isCheckedIn ? Icons.check_circle : Icons.radio_button_unchecked,
+                disabled
+                    ? Icons.lock_outline
+                    : isCheckedIn
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
                 color: Colors.white,
                 size: 28,
               ),
@@ -2196,7 +2229,9 @@ class _AttendanceStatusCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isCheckedIn
+                    disabled
+                        ? s.attendanceTitle
+                        : isCheckedIn
                         ? s.dashboardCheckedInTitle
                         : s.dashboardNotCheckedInTitle,
                     style: const TextStyle(
@@ -2205,7 +2240,16 @@ class _AttendanceStatusCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  if (checkInTime != null) ...[
+                  if (disabledReason != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      disabledReason!,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ] else if (checkInTime != null) ...[
                     const SizedBox(height: 2),
                     Text(
                       '${s.dashboardSinceTimePrefix} $checkInTime',
@@ -2225,7 +2269,10 @@ class _AttendanceStatusCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.white),
+            Icon(
+              disabled ? Icons.info_outline : Icons.chevron_right,
+              color: Colors.white,
+            ),
           ],
         ),
       ),
