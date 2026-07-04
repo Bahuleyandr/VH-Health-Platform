@@ -618,24 +618,29 @@ class _DeclarationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(
-          'FY ${d['financial_year']}',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          'Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}',
-        ),
-        trailing: Chip(
-          label: Text(
-            d['status'] ?? '—',
-            style: const TextStyle(fontSize: 11, color: Colors.white),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          title: Text(
+            'FY ${d['financial_year']}',
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          backgroundColor: _statusColor,
-          padding: EdgeInsets.zero,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          subtitle: Text(
+            'Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}',
+          ),
+          trailing: Chip(
+            label: Text(
+              d['status'] ?? '—',
+              style: const TextStyle(fontSize: 11, color: Colors.white),
+            ),
+            backgroundColor: _statusColor,
+            padding: EdgeInsets.zero,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ),
       ),
     );
