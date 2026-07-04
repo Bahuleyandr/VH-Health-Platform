@@ -138,6 +138,7 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
   }
 
   Future<void> _saveDraftRow(_DrugChartDraftRow row) async {
+    if (row.saving) return;
     final drug = row.drugCtrl.text.trim();
     final dose = row.doseCtrl.text.trim().isNotEmpty
         ? row.doseCtrl.text.trim()
@@ -1039,7 +1040,7 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                             : const Icon(Icons.save_outlined),
                         label: Text(
                           row.saving
-                              ? AppStrings.of(context).bedSheetSavingLabel
+                              ? AppStrings.of(context).drugChartSaving
                               : AppStrings.of(context).actionSave,
                         ),
                       ),

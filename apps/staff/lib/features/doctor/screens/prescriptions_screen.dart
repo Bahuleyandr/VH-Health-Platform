@@ -29,6 +29,7 @@ import '../../ipd/utils/drug_chart_utils.dart';
 import '../../pharmacy/widgets/composition_alternatives_panel.dart';
 import '../prescription_offline_rx.dart';
 import '../widgets/cds_blocker_modal.dart';
+import '../widgets/prescription_submit_button.dart';
 
 /// E-Prescriptions screen — structured prescription entry with medicine type-ahead.
 class PrescriptionsScreen extends StatefulWidget {
@@ -929,6 +930,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
     if (_patientId == null || _doctorId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2995,23 +2997,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         : _appointmentPrescriptionId != null
         ? 'Update prescription'
         : s.prescriptionsCreate;
-    final submitButton = ElevatedButton.icon(
-      onPressed: _submitting || _appointmentPrescriptionLocked ? null : _submit,
-      icon: _submitting
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 2,
-              ),
-            )
-          : const Icon(Icons.save, color: Colors.white),
-      label: Text(_submitting ? s.prescriptionsCreating : submitLabel),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF00838F),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      ),
+    final submitButton = PrescriptionSubmitButton(
+      submitting: _submitting,
+      locked: _appointmentPrescriptionLocked,
+      submitLabel: submitLabel,
+      onSubmit: _submit,
     );
     return Card(
       margin: EdgeInsets.zero,
