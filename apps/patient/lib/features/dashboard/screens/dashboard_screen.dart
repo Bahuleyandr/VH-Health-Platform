@@ -692,11 +692,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _triggerSOS() async {
-    final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.authSosTriggered)));
-    await SOSService.triggerSOS();
+    await SOSService.triggerWithFeedback(context);
   }
 
   /// Pull-to-refresh handler. Re-runs the dashboard fetch + the smart

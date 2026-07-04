@@ -6,6 +6,8 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth/core/services/sos_api_service.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/widgets/sos_button.dart' as core;
 
 export 'package:vhhealth_core/widgets/sos_button.dart'
@@ -14,6 +16,46 @@ export 'package:vhhealth_core/widgets/sos_button.dart'
 /// Legacy wrapper — existing patient screens call [SOSService.triggerSOS].
 class SOSService {
   static const String emergencyNumber = core.kSosEmergencyNumber;
+  static SosTrigger? _debugTriggerOverride;
 
-  static Future<void> triggerSOS([BuildContext? ctx]) => core.triggerSOS(ctx);
+  @visibleForTesting
+  static void debugSetTriggerOverride(SosTrigger? trigger) {
+    _debugTriggerOverride = trigger;
+  }
+
+  static Future<void> triggerSOS([BuildContext? ctx]) {
+    final trigger = _debugTriggerOverride ?? core.triggerSOS;
+    return trigger(ctx);
+  }
+
+  static Future<void> triggerWithFeedback(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    _showSnackBar(context, l10n.authSosTriggered);
+
+    try {
+      await triggerSOS(context);
+    } on SosException catch (e) {
+      if (!context.mounted) return;
+      _showSnackBar(context, e.message);
+    } catch (_) {
+      if (!context.mounted) return;
+      _showSnackBar(context, l10n.networkError);
+    }
+  }
+
+  static void _showSnackBar(BuildContext context, String message) {
+    if (!context.mounted) return;
+    final colorScheme = Theme.of(context).colorScheme;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 }
+
+typedef SosTrigger = Future<void> Function([BuildContext? ctx]);

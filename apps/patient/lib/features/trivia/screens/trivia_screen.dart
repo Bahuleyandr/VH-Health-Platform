@@ -62,16 +62,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
   }
 
   Future<void> _triggerSOS() async {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.authSosTriggered),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    await SOSService.triggerSOS();
+    await SOSService.triggerWithFeedback(context);
   }
 
   @override
