@@ -870,196 +870,234 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
     widget.row.applyDerivedDose(drug: drug, overwrite: overwrite);
   }
 
+  void _focusNextField() {
+    FocusScope.of(context).nextFocus();
+  }
+
+  void _saveFromField() {
+    if (widget.row.saving) return;
+    widget.onSave();
+  }
+
+  void _handleNewline(
+    TextEditingController controller,
+    String value,
+    VoidCallback action,
+  ) {
+    if (!value.contains('\n')) return;
+    final cleaned = value.replaceAll(RegExp(r'\s*\n\s*'), ' ');
+    controller.value = TextEditingValue(
+      text: cleaned,
+      selection: TextSelection.collapsed(offset: cleaned.length),
+    );
+    action();
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     final row = widget.row;
-    return Container(
-      width: _chartWidth,
-      height: _draftRowHeight,
-      decoration: BoxDecoration(
-        color: AppTheme.primaryTeal.withValues(alpha: 0.06),
-        border: Border(bottom: BorderSide(color: AppTheme.divider)),
-      ),
-      child: Row(
-        children: [
-          _tableCell(
-            width: _drugCol,
-            height: _draftRowHeight,
-            child: _DrugAutocompleteField(
-              controller: row.drugCtrl,
-              onTextChanged: (value) => setState(() {
-                row.clearCatalogIdentity();
-                _applyDerivedDose(value);
-              }),
-              onSelected: (catalogRow) => setState(() {
-                row.applyCatalogRow(catalogRow);
-                row.applyDerivedDose(overwrite: true);
-              }),
-            ),
-          ),
-          _tableCell(
-            width: _doseCol,
-            height: _draftRowHeight,
-            child: TextField(
-              controller: row.doseCtrl,
-              minLines: 1,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: s.drugChartColumnDose,
-                hintText: s.drugChartDoseHint,
-                helperText: s.drugChartDoseHelper,
-                isDense: true,
-              ),
-            ),
-          ),
-          _tableCell(
-            width: _routeCol,
-            height: _draftRowHeight,
-            child: DropdownButtonFormField<String>(
-              initialValue: row.route,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: s.drugChartColumnRoute,
-                isDense: true,
-              ),
-              items: _routeOptions.entries
-                  .map(
-                    (entry) => DropdownMenuItem(
-                      value: entry.key,
-                      child: Text(_routeLabel(s, entry.key)),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => row.route = v ?? row.route),
-            ),
-          ),
-          _tableCell(
-            width: _startedCol,
-            height: _draftRowHeight,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Starts today',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Active until stopped',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          ..._doseSlots.map(
-            (slot) => _tableCell(
-              width: _timeCol,
+    return FocusTraversalGroup(
+      child: Container(
+        width: _chartWidth,
+        height: _draftRowHeight,
+        decoration: BoxDecoration(
+          color: AppTheme.primaryTeal.withValues(alpha: 0.06),
+          border: Border(bottom: BorderSide(color: AppTheme.divider)),
+        ),
+        child: Row(
+          children: [
+            _tableCell(
+              width: _drugCol,
               height: _draftRowHeight,
-              child: Center(
-                child: Checkbox(
-                  value: row.selectedTimes.contains(slot.time),
-                  onChanged: (value) {
-                    setState(() {
-                      if (value == true) {
-                        row.selectedTimes.add(slot.time);
-                      } else {
-                        row.selectedTimes.remove(slot.time);
-                      }
-                    });
-                  },
+              child: _DrugAutocompleteField(
+                controller: row.drugCtrl,
+                onTextChanged: (value) => setState(() {
+                  row.clearCatalogIdentity();
+                  _applyDerivedDose(value);
+                }),
+                onSelected: (catalogRow) => setState(() {
+                  row.applyCatalogRow(catalogRow);
+                  row.applyDerivedDose(overwrite: true);
+                }),
+              ),
+            ),
+            _tableCell(
+              width: _doseCol,
+              height: _draftRowHeight,
+              child: TextField(
+                controller: row.doseCtrl,
+                keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => _focusNextField(),
+                onChanged: (value) =>
+                    _handleNewline(row.doseCtrl, value, _focusNextField),
+                minLines: 1,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: s.drugChartColumnDose,
+                  hintText: s.drugChartDoseHint,
+                  helperText: s.drugChartDoseHelper,
+                  isDense: true,
                 ),
               ),
             ),
-          ),
-          _tableCell(
-            width: _foodCol,
-            height: _draftRowHeight,
-            child: DropdownButtonFormField<String>(
-              initialValue: row.foodTiming,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: s.drugChartColumnFood,
-                isDense: true,
+            _tableCell(
+              width: _routeCol,
+              height: _draftRowHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: row.route,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: s.drugChartColumnRoute,
+                  isDense: true,
+                ),
+                items: _routeOptions.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(_routeLabel(s, entry.key)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => row.route = v ?? row.route),
               ),
-              items: _foodOptions.entries
-                  .map(
-                    (entry) => DropdownMenuItem(
-                      value: entry.key,
-                      child: Text(_foodLabel(s, entry.key)),
+            ),
+            _tableCell(
+              width: _startedCol,
+              height: _draftRowHeight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Starts today',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
                     ),
-                  )
-                  .toList(),
-              onChanged: (v) =>
-                  setState(() => row.foodTiming = v ?? row.foodTiming),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Active until stopped',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          _tableCell(
-            width: _actionCol,
-            height: _draftRowHeight,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: row.notesCtrl,
-                  minLines: 1,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes',
-                    hintText: 'Dilution, PRN reason, hold rules',
-                    isDense: true,
+            ..._doseSlots.map(
+              (slot) => _tableCell(
+                width: _timeCol,
+                height: _draftRowHeight,
+                child: Center(
+                  child: Checkbox(
+                    value: row.selectedTimes.contains(slot.time),
+                    onChanged: (value) {
+                      setState(() {
+                        if (value == true) {
+                          row.selectedTimes.add(slot.time);
+                        } else {
+                          row.selectedTimes.remove(slot.time);
+                        }
+                      });
+                    },
                   ),
                 ),
-                const SizedBox(height: 6),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilterChip(
-                    visualDensity: VisualDensity.compact,
-                    label: const Text('DAW'),
-                    selected: row.daw,
-                    onSelected: row.saving
-                        ? null
-                        : (value) => setState(() => row.daw = value),
-                  ),
+              ),
+            ),
+            _tableCell(
+              width: _foodCol,
+              height: _draftRowHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: row.foodTiming,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: s.drugChartColumnFood,
+                  isDense: true,
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: row.saving ? null : widget.onSave,
-                        icon: row.saving
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.save_outlined),
-                        label: Text(
-                          row.saving
-                              ? AppStrings.of(context).drugChartSaving
-                              : AppStrings.of(context).actionSave,
+                items: _foodOptions.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(_foodLabel(s, entry.key)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) =>
+                    setState(() => row.foodTiming = v ?? row.foodTiming),
+              ),
+            ),
+            _tableCell(
+              width: _actionCol,
+              height: _draftRowHeight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: row.notesCtrl,
+                    keyboardType: TextInputType.text,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _saveFromField(),
+                    onChanged: (value) =>
+                        _handleNewline(row.notesCtrl, value, _saveFromField),
+                    minLines: 1,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      hintText: 'Dilution, PRN reason, hold rules',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterChip(
+                      visualDensity: VisualDensity.compact,
+                      label: const Text('DAW'),
+                      selected: row.daw,
+                      onSelected: row.saving
+                          ? null
+                          : (value) => setState(() => row.daw = value),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: row.saving ? null : widget.onSave,
+                          icon: row.saving
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined),
+                          label: Text(
+                            row.saving
+                                ? AppStrings.of(context).drugChartSaving
+                                : AppStrings.of(context).actionSave,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: AppStrings.of(context).drugChartRemoveRow,
-                      onPressed: row.saving ? null : widget.onRemove,
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: AppStrings.of(context).drugChartRemoveRow,
+                        onPressed: row.saving ? null : widget.onRemove,
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1161,6 +1199,11 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
           controller: controller,
           focusNode: focusNode,
           onChanged: _onChanged,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) {
+            onSubmitted();
+            FocusScope.of(context).nextFocus();
+          },
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             labelText: 'Drug',
