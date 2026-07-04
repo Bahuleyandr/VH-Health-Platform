@@ -147,6 +147,11 @@ class AppStrings {
   String get loginPortalSubtitle => _t('login.portal_subtitle');
   String get loginScreenTitle => _t('login.screen_title');
   String get loginScreenSubtitle => _t('login.screen_subtitle');
+  String sessionTimeoutWarning(int seconds) =>
+      _t('session_timeout.warning').replaceAll('{seconds}', '$seconds');
+  String get sessionTimeoutStillHere => _t('session_timeout.still_here');
+  String sessionTimeoutPreservedQueue(int count) =>
+      _t('session_timeout.preserved_queue').replaceAll('{count}', '$count');
   String get loginEmployeeIdHint => _t('login.employee_id_hint');
   String get loginEmployeeIdRequired => _t('login.employee_id_required');
   String get loginEmployeeIdNumbersOnly => _t('login.employee_id_numbers_only');
@@ -2826,6 +2831,11 @@ class AppStrings {
       'login.screen_title': 'Sign In',
       'login.screen_subtitle':
           'Use your employee credentials to access the portal',
+      'session_timeout.warning':
+          'Session expires in {seconds}s. Confirm you are still here to stay signed in.',
+      'session_timeout.still_here': "I'm still here",
+      'session_timeout.preserved_queue':
+          '{count} queued item(s) for this user are preserved on this device and will sync after your next login.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'Employee number is required',
       'login.employee_id_numbers_only': 'Numbers only (1–6 digits)',
@@ -5032,6 +5042,11 @@ class AppStrings {
       'login.screen_title': 'साइन इन करें',
       'login.screen_subtitle':
           'पोर्टल तक पहुँचने के लिए अपने कर्मचारी क्रेडेंशियल का उपयोग करें',
+      'session_timeout.warning':
+          'सत्र {seconds}s में समाप्त होगा। साइन इन रहने के लिए पुष्टि करें कि आप अभी भी यहाँ हैं।',
+      'session_timeout.still_here': 'मैं अभी भी यहाँ हूँ',
+      'session_timeout.preserved_queue':
+          'इस उपयोगकर्ता के लिए {count} कतारबद्ध आइटम इस डिवाइस पर सुरक्षित हैं और आपके अगले लॉगिन के बाद सिंक होंगे।',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'कर्मचारी संख्या आवश्यक है',
       'login.employee_id_numbers_only': 'केवल अंक (1–6 अंक)',
@@ -7235,6 +7250,11 @@ class AppStrings {
       'login.screen_title': 'உள்நுழை',
       'login.screen_subtitle':
           'வாயிலை அணுக உங்கள் ஊழியர் சான்றுகளைப் பயன்படுத்தவும்',
+      'session_timeout.warning':
+          'அமர்வு {seconds}s-இல் முடியும். உள்நுழைந்தே இருக்க நீங்கள் இன்னும் இருக்கிறீர்கள் என்பதை உறுதிப்படுத்தவும்.',
+      'session_timeout.still_here': 'நான் இன்னும் இருக்கிறேன்',
+      'session_timeout.preserved_queue':
+          'இந்த பயனருக்கான {count} வரிசைப்படுத்தப்பட்ட உருப்படி(கள்) இந்த சாதனத்தில் பாதுகாக்கப்பட்டுள்ளன; அடுத்த உள்நுழைவுக்குப் பிறகு சிங்க் ஆகும்.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'ஊழியர் எண் தேவை',
       'login.employee_id_numbers_only': 'எண்கள் மட்டும் (1–6 இலக்கங்கள்)',
@@ -9913,6 +9933,11 @@ class AppStrings {
       'login.screen_title': 'సైన్ ఇన్',
       'login.screen_subtitle':
           'పోర్టల్‌ని యాక్సెస్ చేయడానికి మీ ఉద్యోగి ఆధారాలను ఉపయోగించండి',
+      'session_timeout.warning':
+          'సెషన్ {seconds}sలో ముగుస్తుంది. సైన్ ఇన్‌గా ఉండటానికి మీరు ఇంకా ఇక్కడే ఉన్నారని నిర్ధారించండి.',
+      'session_timeout.still_here': 'నేను ఇంకా ఇక్కడే ఉన్నాను',
+      'session_timeout.preserved_queue':
+          'ఈ వినియోగదారుడి కోసం {count} క్యూ చేసిన అంశం(లు) ఈ పరికరంలో భద్రపరచబడ్డాయి మరియు మీ తదుపరి లాగిన్ తర్వాత సింక్ అవుతాయి.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'ఉద్యోగి సంఖ్య అవసరం',
       'login.employee_id_numbers_only': 'సంఖ్యలు మాత్రమే (1–6 అంకెలు)',
@@ -12563,6 +12588,11 @@ class AppStrings {
       'login.screen_title': 'സൈൻ ഇൻ',
       'login.screen_subtitle':
           'പോർട്ടലിൽ പ്രവേശിക്കാൻ നിങ്ങളുടെ എംപ്ലോയീ വിവരങ്ങൾ ഉപയോഗിക്കുക',
+      'session_timeout.warning':
+          'സെഷൻ {seconds}s-ൽ അവസാനിക്കും. സൈൻ ഇൻ നിലനിർത്താൻ നിങ്ങൾ ഇപ്പോഴും ഇവിടെയുണ്ടെന്ന് സ്ഥിരീകരിക്കുക.',
+      'session_timeout.still_here': 'ഞാൻ ഇപ്പോഴും ഇവിടെയുണ്ട്',
+      'session_timeout.preserved_queue':
+          'ഈ ഉപയോക്താവിനുള്ള {count} ക്യൂ ചെയ്ത ഇനം(കൾ) ഈ ഉപകരണത്തിൽ സൂക്ഷിച്ചിട്ടുണ്ട്; അടുത്ത ലോഗിനിന് ശേഷം സിങ്ക് ചെയ്യും.',
       'login.employee_id_hint': '1001',
       'login.employee_id_required': 'എംപ്ലോയീ നമ്പർ നിർബന്ധമാണ്',
       'login.employee_id_numbers_only': 'അക്കങ്ങൾ മാത്രം (1–6 അക്കം)',

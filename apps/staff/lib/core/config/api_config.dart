@@ -85,6 +85,27 @@ class ApiConfig {
     return await _storage.read(key: 'staff_phone');
   }
 
+  static Future<void> clearSessionIdentity() async {
+    const keys = [
+      // Shared core auth keys.
+      'jwt',
+      'refreshToken',
+      'userPhone',
+      'userRole',
+      'employeeId',
+      'staffId',
+      // Staff-app auth/profile keys.
+      'staff_id',
+      'staff_uid',
+      'employee_id',
+      'staff_role',
+      'staff_phone',
+    ];
+    for (final key in keys) {
+      await _storage.delete(key: key);
+    }
+  }
+
   static Future<void> clearAll() async {
     await _storage.deleteAll();
   }

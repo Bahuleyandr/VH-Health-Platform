@@ -1,17 +1,44 @@
 import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart' as sqflite;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
+import 'package:vhhealth_core/services/offline_queue.dart';
 import 'package:vhhealth_staff/core/platform_info.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    OfflineQueue.debugDbFileNameOverride =
+        'staff_session_timeout_provider_test.db';
+  });
+
+  tearDownAll(() async {
+    await OfflineQueue.resetForTesting();
+    final dbPath = await sqflite.getDatabasesPath();
+    await sqflite.deleteDatabase(p.join(dbPath, OfflineQueue.dbFileName));
+    OfflineQueue.debugDbFileNameOverride = null;
+  });
+
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
+    await OfflineQueue.resetForTesting();
+    await OfflineQueue.clearAll();
+  });
+
+  tearDown(() async {
+    await OfflineQueue.clearAll();
+    await OfflineQueue.resetForTesting();
   });
 
   group('SessionTimeoutProvider', () {
@@ -32,6 +59,44 @@ void main() {
         );
       },
     );
+
+    test('shows the 60-second warning window and still-here extends', () {
+      fakeAsync((async) {
+        var cleanupCount = 0;
+        final provider = SessionTimeoutProvider(
+          timeoutDuration: const Duration(milliseconds: 90),
+          warningDuration: const Duration(milliseconds: 30),
+          countdownTickDuration: const Duration(milliseconds: 10),
+          onTimeoutCleanup: () async {
+            cleanupCount += 1;
+          },
+        );
+        addTearDown(provider.dispose);
+
+        provider.startTracking();
+        async.elapse(const Duration(milliseconds: 59));
+        expect(provider.isWarningVisible, isFalse);
+        expect(provider.isSessionExpired, isFalse);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(provider.isWarningVisible, isTrue);
+        expect(provider.warningRemaining, const Duration(milliseconds: 30));
+
+        async.elapse(const Duration(milliseconds: 10));
+        expect(provider.warningRemaining, const Duration(milliseconds: 20));
+
+        provider.extendSession();
+        expect(provider.isWarningVisible, isFalse);
+        expect(provider.isSessionExpired, isFalse);
+
+        async.elapse(const Duration(milliseconds: 89));
+        expect(provider.isSessionExpired, isFalse);
+        async.elapse(const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        expect(provider.isSessionExpired, isTrue);
+        expect(cleanupCount, 1);
+      });
+    });
 
     test(
       'marks the session expired and runs privacy cleanup on idle timeout',
@@ -56,17 +121,28 @@ void main() {
     );
 
     test(
-      'default idle cleanup clears current staff recents before credentials',
+      'default idle cleanup clears recents and credentials but preserves owner-scoped queue',
       () async {
         FlutterSecureStorage.setMockInitialValues({
           'jwt': 'header.payload.signature',
           'staff_id': 'staff-unindexed',
+          'staffId': 'staff-unindexed',
         });
+        await core_auth.AuthService.setStaffId('staff-unindexed');
         SharedPreferences.setMockInitialValues({
           'recent_patients:staff:staff-unindexed': jsonEncode([
             {'uid': 'patient-a', 'name': 'Alice'},
           ]),
         });
+        await OfflineQueue.enqueue(
+          endpoint: '/health/records',
+          method: 'POST',
+          body: {
+            'patient_uid': 'patient-a',
+            'vital_signs': {'pulse': 88},
+          },
+          contextLabel: 'Vitals for patient-a',
+        );
 
         final provider = SessionTimeoutProvider(
           timeoutDuration: const Duration(milliseconds: 10),
@@ -84,7 +160,17 @@ void main() {
           isNull,
         );
         expect(await storage.read(key: 'staff_id'), isNull);
+        expect(await storage.read(key: 'staffId'), isNull);
         expect(await storage.read(key: 'jwt'), isNull);
+        expect(provider.preservedOfflineWriteCount, 1);
+
+        await core_auth.AuthService.setStaffId('staff-unindexed');
+        final pending = await OfflineQueue.getPending();
+        expect(pending, hasLength(1));
+        final decoded = await OfflineQueue.decodeBody(
+          pending.single['body'] as String,
+        );
+        expect(decoded['patient_uid'], 'patient-a');
       },
     );
 

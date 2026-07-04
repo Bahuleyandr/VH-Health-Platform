@@ -30,6 +30,7 @@ import 'core/services/phi_scrubber.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
+import 'core/widgets/session_timeout_warning_layer.dart';
 import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
@@ -484,7 +485,9 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                         ),
                         child: StaffMessageAlertListener(
                           child: SessionRevocationListener(
-                            child: child ?? const SizedBox.shrink(),
+                            child: SessionTimeoutWarningLayer(
+                              child: child ?? const SizedBox.shrink(),
+                            ),
                           ),
                         ),
                       );

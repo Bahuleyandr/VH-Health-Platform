@@ -40,5 +40,37 @@ void main() {
       expect(await storage.read(key: 'staff_uid'), uid);
       expect(await storage.read(key: 'staff_id'), '97');
     });
+
+    test(
+      'clearSessionIdentity preserves queue encryption and device keys',
+      () async {
+        FlutterSecureStorage.setMockInitialValues({
+          'jwt': 'header.payload.signature',
+          'refreshToken': 'refresh',
+          'staff_id': 'staff-snake',
+          'staffId': 'staff-camel',
+          'staff_uid': 'staff-uid',
+          'employee_id': 'EMP-1001',
+          'staff_role': 'NURSE',
+          'staff_phone': '9999999999',
+          'offline_queue_aes_key': 'queue-key',
+          'device_token': 'registered-device',
+        });
+
+        await ApiConfig.clearSessionIdentity();
+
+        const storage = FlutterSecureStorage();
+        expect(await storage.read(key: 'jwt'), isNull);
+        expect(await storage.read(key: 'refreshToken'), isNull);
+        expect(await storage.read(key: 'staff_id'), isNull);
+        expect(await storage.read(key: 'staffId'), isNull);
+        expect(await storage.read(key: 'staff_uid'), isNull);
+        expect(await storage.read(key: 'employee_id'), isNull);
+        expect(await storage.read(key: 'staff_role'), isNull);
+        expect(await storage.read(key: 'staff_phone'), isNull);
+        expect(await storage.read(key: 'offline_queue_aes_key'), 'queue-key');
+        expect(await storage.read(key: 'device_token'), 'registered-device');
+      },
+    );
   });
 }

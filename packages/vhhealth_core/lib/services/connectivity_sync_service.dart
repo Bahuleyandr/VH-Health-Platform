@@ -105,6 +105,16 @@ class ConnectivitySyncService extends ChangeNotifier {
     if (changed) notifyListeners();
   }
 
+  /// Count pending writes scoped to the currently authenticated staff owner.
+  ///
+  /// Used by session-timeout cleanup before credentials are cleared so the UI
+  /// can truthfully say whether owner-scoped writes were preserved for the
+  /// same staff member's next login.
+  Future<int> pendingWriteCountForCurrentOwner() async {
+    final pending = await OfflineQueue.getPending();
+    return pending.length;
+  }
+
   /// Queue a write and update counts. Prefer this over calling
   /// [OfflineQueue.enqueue] directly so the badge stays accurate.
   Future<int> enqueue({

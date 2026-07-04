@@ -141,6 +141,10 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final sessionTimeout = context.watch<SessionTimeoutProvider>();
+    final preservedQueueCount = sessionTimeout.isSessionExpired
+        ? sessionTimeout.preservedOfflineWriteCount
+        : 0;
     return Scaffold(
       backgroundColor: AppTheme.primaryBlue,
       body: SafeArea(
@@ -217,6 +221,48 @@ class _LoginScreenState extends State<LoginScreen> {
                           s.loginScreenSubtitle,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
+                        if (preservedQueueCount > 0) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.warningAmber.withValues(
+                                alpha: 0.12,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: AppTheme.warningAmber.withValues(
+                                  alpha: 0.45,
+                                ),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.sync_problem_outlined,
+                                  color: AppTheme.warningOnSurface,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    s.sessionTimeoutPreservedQueue(
+                                      preservedQueueCount,
+                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppTheme.textPrimary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
 
                         // Employee ID — `EMP-` is a non-editable prefix; the
