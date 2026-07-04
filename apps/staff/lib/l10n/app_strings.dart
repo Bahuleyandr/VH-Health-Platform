@@ -761,6 +761,14 @@ class AppStrings {
       _t('front_office.queue.following_day_op_queue');
   String frontOfficeQueueDatedOp(String date) =>
       '$date ${_t('front_office.queue.op_queue_suffix')}';
+  String get frontOfficeWalkInRegisterButton =>
+      _t('front_office.walk_in.register_button');
+  String get frontOfficeWalkInRegisteringButton =>
+      _t('front_office.walk_in.registering_button');
+
+  // ── Billing ────────────────────────────────────────────────────────
+  String get billingCollectButton => _t('billing.collect_button');
+  String get billingCollectingButton => _t('billing.collecting_button');
 
   // ── Prescriptions screen ───────────────────────────────────────────
   String get prescriptionsTitle => _t('prescriptions.title');
@@ -1175,6 +1183,7 @@ class AppStrings {
   String get drugChartAddFirstRow => _t('drug_chart.add_first_row');
   String get drugChartRemoveRow => _t('drug_chart.remove_row');
   String get drugChartScan => _t('drug_chart.scan');
+  String get drugChartSaving => _t('drug_chart.saving');
   // REVIEW: clinical-action confirmation
   String get drugChartSavedToast => _t('drug_chart.saved_toast');
   String get drugChartEmpty => _t('drug_chart.empty');
@@ -3011,6 +3020,7 @@ class AppStrings {
       'drug_chart.add_first_row': 'Add first row',
       'drug_chart.remove_row': 'Remove row',
       'drug_chart.scan': 'Scan',
+      'drug_chart.saving': 'Saving...',
       'drug_chart.saved_toast': 'Drug order saved and pharmacy intimated',
       'drug_chart.empty': 'No inpatient drugs charted',
       'drug_chart.given': 'Given',
@@ -3412,6 +3422,10 @@ class AppStrings {
       'front_office.queue.tomorrow_op_queue': 'Tomorrow OP Queue',
       'front_office.queue.following_day_op_queue': 'Following Day OP Queue',
       'front_office.queue.op_queue_suffix': 'OP Queue',
+      'front_office.walk_in.register_button': 'Register',
+      'front_office.walk_in.registering_button': 'Registering...',
+      'billing.collect_button': 'Collect',
+      'billing.collecting_button': 'Collecting...',
       // Prescriptions
       'prescriptions.title': 'E-Prescriptions',
       'prescriptions.tab.new': 'New Prescription',
@@ -5243,6 +5257,7 @@ class AppStrings {
       'drug_chart.add_first_row': 'पहली पंक्ति जोड़ें',
       'drug_chart.remove_row': 'पंक्ति हटाएँ',
       'drug_chart.scan': 'स्कैन',
+      'drug_chart.saving': 'सहेजा जा रहा है...',
       'drug_chart.saved_toast':
           'दवा आदेश सहेजा गया और फ़ार्मेसी को सूचित किया गया',
       'drug_chart.empty': 'कोई इनपेशेंट दवा चार्ट नहीं',
@@ -5647,6 +5662,10 @@ class AppStrings {
       'front_office.queue.tomorrow_op_queue': 'कल की OP कतार',
       'front_office.queue.following_day_op_queue': 'परसों की OP कतार',
       'front_office.queue.op_queue_suffix': 'OP कतार',
+      'front_office.walk_in.register_button': 'पंजीकृत करें',
+      'front_office.walk_in.registering_button': 'पंजीकृत हो रहा है...',
+      'billing.collect_button': 'भुगतान लें',
+      'billing.collecting_button': 'भुगतान लिया जा रहा है...',
       // Prescriptions
       'prescriptions.title': 'ई-प्रिस्क्रिप्शन',
       'prescriptions.tab.new': 'नया प्रिस्क्रिप्शन',
@@ -7441,6 +7460,7 @@ class AppStrings {
       'drug_chart.add_first_row': 'முதல் வரிசையைச் சேர்',
       'drug_chart.remove_row': 'வரிசையை நீக்கு',
       'drug_chart.scan': 'ஸ்கேன்',
+      'drug_chart.saving': 'சேமிக்கிறது...',
       'drug_chart.saved_toast':
           'மருந்து ஆர்டர் சேமிக்கப்பட்டு பார்மசிக்கு அறிவிக்கப்பட்டது',
       'drug_chart.empty': 'உள்நோயாளி மருந்துகள் எதுவும் பதிவில் இல்லை',
@@ -7839,6 +7859,10 @@ class AppStrings {
       'queue.no_phone_number': 'தொலைபேசி எண் இல்லை',
       'queue.record_fallback': 'பதிவு',
       'queue.unknown_patient': 'தெரியாதது',
+      'front_office.walk_in.register_button': 'பதிவு செய்',
+      'front_office.walk_in.registering_button': 'பதிவு செய்கிறது...',
+      'billing.collect_button': 'வசூலிக்கவும்',
+      'billing.collecting_button': 'வசூலிக்கிறது...',
       // Prescriptions - REVIEW
       'prescriptions.title': 'ஈ-மருந்துச்சீட்டுகள்',
       'prescriptions.tab.new': 'புதிய மருந்துச்சீட்டு',
@@ -10108,6 +10132,7 @@ class AppStrings {
       'drug_chart.add_first_row': 'మొదటి వరుస చేర్చు',
       'drug_chart.remove_row': 'వరుస తొలగించు',
       'drug_chart.scan': 'స్కాన్',
+      'drug_chart.saving': 'సేవ్ అవుతోంది...',
       'drug_chart.saved_toast':
           'మందు ఆర్డర్ సేవ్ చేయబడింది, ఫార్మసీకి తెలియజేయబడింది',
       'drug_chart.empty': 'ఇన్‌పేషెంట్ మందులు చార్ట్ చేయలేదు',
@@ -10502,6 +10527,10 @@ class AppStrings {
       'queue.no_phone_number': 'ఫోన్ నంబర్ అందుబాటులో లేదు',
       'queue.record_fallback': 'రికార్డు',
       'queue.unknown_patient': 'తెలియదు',
+      'front_office.walk_in.register_button': 'నమోదు చేయండి',
+      'front_office.walk_in.registering_button': 'నమోదు అవుతోంది...',
+      'billing.collect_button': 'వసూలు చేయండి',
+      'billing.collecting_button': 'వసూలు అవుతోంది...',
       // Prescriptions - REVIEW
       'prescriptions.title': 'ఈ-ప్రిస్క్రిప్షన్‌లు',
       'prescriptions.tab.new': 'కొత్త ప్రిస్క్రిప్షన్',

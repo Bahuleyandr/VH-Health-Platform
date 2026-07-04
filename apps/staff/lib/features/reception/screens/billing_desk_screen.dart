@@ -7,6 +7,7 @@ import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../widgets/billing_collect_button.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
@@ -160,6 +161,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final patient = _selectedPatient;
     final uid = patient?['uid']?.toString();
     if (uid == null || uid.isEmpty) return;
+    if (_actionBusy) return;
     setState(() => _actionBusy = true);
     try {
       await BillingApiService.createDraftInvoice(
@@ -186,6 +188,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   Future<void> _issueInvoice(Map<String, dynamic> invoice) async {
     final id = int.tryParse(invoice['id']?.toString() ?? '');
     if (id == null) return;
+    if (_actionBusy) return;
     setState(() => _actionBusy = true);
     try {
       await BillingApiService.issueInvoice(id);
@@ -203,22 +206,29 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   }
 
   Future<void> _collectInvoicePayment(Map<String, dynamic> invoice) async {
-    final collected = await showBillingPaymentDialog(
-      context: context,
-      invoice: invoice,
-    );
-    if (!collected || !mounted) return;
-    await _loadInvoices();
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Payment collected')));
+    if (_actionBusy) return;
+    setState(() => _actionBusy = true);
+    try {
+      final collected = await showBillingPaymentDialog(
+        context: context,
+        invoice: invoice,
+      );
+      if (!collected || !mounted) return;
+      await _loadInvoices();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Payment collected')));
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
+    }
   }
 
   Future<void> _printInvoiceDocument(
     Map<String, dynamic> invoice,
     BillingDocumentType type,
   ) async {
+    if (_actionBusy) return;
     setState(() => _actionBusy = true);
     try {
       await printBillingDocument(
@@ -472,15 +482,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           ),
         ),
       if (canCollect)
-        SizedBox(
-          height: 34,
-          child: FilledButton.icon(
-            onPressed: _actionBusy
-                ? null
-                : () => _collectInvoicePayment(invoice),
-            icon: const Icon(Icons.payments_outlined, size: 16),
-            label: const Text('Collect'),
-          ),
+        BillingCollectButton(
+          busy: _actionBusy,
+          onPressed: () => _collectInvoicePayment(invoice),
         ),
     ];
 

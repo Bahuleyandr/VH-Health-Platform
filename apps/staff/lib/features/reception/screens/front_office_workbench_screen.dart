@@ -16,6 +16,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../widgets/billing_collect_button.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
@@ -1021,6 +1022,7 @@ class _FrontOfficeWorkbenchScreenState
       );
       return;
     }
+    if (_billingActionBusy) return;
 
     setState(() {
       _billingActionBusy = true;
@@ -1054,6 +1056,7 @@ class _FrontOfficeWorkbenchScreenState
   Future<void> _issueInvoice(Map<String, dynamic> invoice) async {
     final id = _intFrom(invoice['id']);
     if (!_canBilling || id == null) return;
+    if (_billingActionBusy) return;
 
     setState(() {
       _billingActionBusy = true;
@@ -1078,27 +1081,38 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _collectInvoicePayment(Map<String, dynamic> invoice) async {
-    if (!_canBilling) return;
-    final collected = await showBillingPaymentDialog(
-      context: context,
-      invoice: invoice,
-    );
-    if (!collected || !mounted) return;
-    await _loadInvoicesFor(_selectedPatient);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Payment collected'),
-        backgroundColor: AppTheme.successGreen,
-      ),
-    );
+    if (!_canBilling || _billingActionBusy) return;
+    setState(() {
+      _billingActionBusy = true;
+      _error = null;
+    });
+    try {
+      final collected = await showBillingPaymentDialog(
+        context: context,
+        invoice: invoice,
+      );
+      if (!collected || !mounted) return;
+      await _loadInvoicesFor(_selectedPatient);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment collected'),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _billingActionBusy = false);
+    }
   }
 
   Future<void> _printInvoiceDocument(
     Map<String, dynamic> invoice,
     BillingDocumentType type,
   ) async {
-    if (!_canBilling) return;
+    if (!_canBilling || _billingActionBusy) return;
     setState(() => _billingActionBusy = true);
     try {
       await printBillingDocument(
@@ -1488,7 +1502,9 @@ class _FrontOfficeWorkbenchScreenState
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final s = AppStrings.of(context);
             Future<void> register() async {
+              if (saving) return;
               final patientId = _intFrom(patient['id']);
               final patientPhone = _text(patient['phone']);
               final reason = reasonCtrl.text.trim();
@@ -1845,7 +1861,11 @@ class _FrontOfficeWorkbenchScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.how_to_reg_outlined),
-                  label: const Text('Register'),
+                  label: Text(
+                    saving
+                        ? s.frontOfficeWalkInRegisteringButton
+                        : s.frontOfficeWalkInRegisterButton,
+                  ),
                 ),
               ],
             );
@@ -3892,15 +3912,9 @@ class _FrontOfficeWorkbenchScreenState
           ),
         ),
       if (canCollect)
-        SizedBox(
-          height: 34,
-          child: FilledButton.icon(
-            onPressed: _billingActionBusy
-                ? null
-                : () => _collectInvoicePayment(invoice),
-            icon: const Icon(Icons.payments_outlined, size: 16),
-            label: const Text('Collect'),
-          ),
+        BillingCollectButton(
+          busy: _billingActionBusy,
+          onPressed: () => _collectInvoicePayment(invoice),
         ),
     ];
 

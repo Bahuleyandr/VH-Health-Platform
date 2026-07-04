@@ -140,6 +140,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {

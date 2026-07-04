@@ -109,6 +109,7 @@ class _HandoverScreenState extends State<HandoverScreen>
   }
 
   Future<void> _submitNote() async {
+    if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
