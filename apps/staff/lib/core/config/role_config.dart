@@ -596,6 +596,13 @@ class RoleFeatures {
     route: '/clinical-ai/queue',
     color: Color(0xFF00838F),
   );
+  static const DashboardFeature _clinicalInbox = DashboardFeature(
+    id: 'clinical_inbox',
+    title: 'Clinical Inbox',
+    icon: Icons.assignment_late_outlined,
+    route: '/clinical-inbox',
+    color: Color(0xFFC62828),
+  );
   static const DashboardFeature _opAiAssist = DashboardFeature(
     id: 'op_ai_assist',
     title: 'OP AI Assist',
@@ -746,6 +753,7 @@ class RoleFeatures {
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
         _opDoctorWorkspace,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
         _patientRecords,
@@ -764,6 +772,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _patientRecords,
         _investigationResults,
@@ -783,6 +792,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _patientRecords,
         _pharmacyOrders,
@@ -810,6 +820,7 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _opNursingRoster,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _patientRecords,
         _nursingNotes,
@@ -832,6 +843,7 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _opNursingRoster,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _patientRecords,
         _nursingNotes,
@@ -854,6 +866,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _opNursingDashboard,
+        _clinicalInbox,
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
@@ -874,6 +887,7 @@ class RoleFeatures {
         _dutyPreference,
         _opNursingRoster,
         _opNursingDashboard,
+        _clinicalInbox,
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
@@ -892,6 +906,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _nursingRoster,
+        _clinicalInbox,
         _theatre,
         _patientRecords,
         _investigationResults,
@@ -907,6 +922,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _clinicalInbox,
         _cathLab,
         _patientRecords,
         _investigationResults,
@@ -940,6 +956,7 @@ class RoleFeatures {
         _appointments,
         _admissions,
         _opDoctorWorkspace,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
         _patientRecords,
@@ -973,6 +990,7 @@ class RoleFeatures {
         _appointments,
         _admissions,
         _opDoctorWorkspace,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _patientRecords,
         _prescriptions,
@@ -1014,6 +1032,7 @@ class RoleFeatures {
         _patientCommandBoard,
         _bedBoard,
         _dischargeHub,
+        _clinicalInbox,
         _clinicalAiReviewQueue,
         _leave,
         _staffDirectory,
@@ -1130,6 +1149,7 @@ class RoleFeatures {
         _billingDesk,
         _appointments,
         _admissions,
+        if (role != StaffRole.insuranceCoordinator) _clinicalInbox,
         _patientRecords,
         _staffDirectory,
         _messaging,
@@ -2009,6 +2029,33 @@ class RoleFeatures {
     };
   }
 
+  static bool hasClinicalInbox(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.anaesthetist ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge ||
+      StaffRole.otNurse ||
+      StaffRole.otIncharge ||
+      StaffRole.cathLabStaff ||
+      StaffRole.cathLabIncharge ||
+      StaffRole.pharmacy ||
+      StaffRole.pharmacyIncharge ||
+      StaffRole.admissionOfficer ||
+      StaffRole.ipdCounsellor => true,
+      _ => false,
+    };
+  }
+
   static bool hasOpAiAssist(StaffRole role) {
     return switch (role) {
       StaffRole.doctor ||
@@ -2129,6 +2176,17 @@ class RoleFeatures {
           selectedIcon: Icons.manage_accounts,
           route: '/staff-management',
           featureId: 'staff_management',
+        ),
+      );
+    }
+
+    if (hasClinicalInbox(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Clinical Inbox',
+          icon: Icons.assignment_late_outlined,
+          selectedIcon: Icons.assignment_late,
+          route: '/clinical-inbox',
         ),
       );
     }

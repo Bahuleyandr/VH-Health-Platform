@@ -39,6 +39,7 @@ import '../../features/clinical_ai/screens/clinical_ai_compose_runs_screen.dart'
 import '../../features/clinical_ai/screens/clinical_ai_compose_run_detail_screen.dart';
 import '../../features/clinical_ai/screens/clinical_ai_voice_notes_screen.dart';
 import '../../features/clinical_ai/screens/op_ai_assist_screen.dart';
+import '../../features/clinical_inbox/screens/clinical_inbox_screen.dart';
 
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
@@ -468,6 +469,12 @@ final GoRouter appRouter = GoRouter(
           name: 'clinical-ai-queue',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: ClinicalAiReviewQueueScreen()),
+        ),
+        GoRoute(
+          path: '/clinical-inbox',
+          name: 'clinical-inbox',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ClinicalInboxScreen()),
         ),
         GoRoute(
           path: '/clinical-ai/review/:reviewId',
