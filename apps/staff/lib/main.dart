@@ -28,7 +28,6 @@ import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
 import 'core/services/sentry_crash_reporter.dart';
-import 'core/services/websocket_service.dart';
 import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
 import 'features/emr/widgets/patient_summary_sheet.dart';
@@ -346,13 +345,10 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
-      // Save battery: disconnect WebSocket when app is backgrounded
-      WebSocketService.instance.disconnect();
       ConnectivitySyncService.instance.stopListening();
     } else if (state == AppLifecycleState.resumed) {
-      // Reconnect when the app comes back to foreground
       ConnectivitySyncService.instance.startListening();
-      WebSocketService.instance.connect();
+      unawaited(context.read<RealtimeProvider>().ensureConnected());
     }
   }
 
@@ -363,12 +359,16 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
-        ChangeNotifierProvider(create: (_) => WebSocketProvider()..init()),
         // Realtime fabric lifecycle owner. Widgets should listen via
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
         ChangeNotifierProvider(
           create: (_) => RealtimeProvider()..ensureConnected(),
+        ),
+        ChangeNotifierProxyProvider<RealtimeProvider, WebSocketProvider>(
+          create: (_) => WebSocketProvider(),
+          update: (_, realtime, provider) =>
+              (provider ?? WebSocketProvider())..bind(realtime),
         ),
         ChangeNotifierProvider(create: (_) => MessageUnreadProvider()..start()),
         ChangeNotifierProvider(create: (_) => ClinicalInboxProvider()..start()),

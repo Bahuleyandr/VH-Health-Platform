@@ -27,7 +27,7 @@ const double tabletShortestSideBreakpoint = 600;
 /// `firebase_crashlytics` platform implementation, so every FCM /
 /// Crashlytics call site must gate on this. Desktop staff workstations
 /// still get realtime delivery (Code Blue, etc.) over the WebSocket
-/// fabric via `WebSocketService` / `RealtimeProvider`.
+/// fabric via `RealtimeProvider`.
 ///
 /// `kIsWeb` short-circuits before `Platform` is touched, so this is safe
 /// to evaluate on web too (where it is always false).
