@@ -21,10 +21,11 @@ class RecordAccessScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l10n.recordAccessTitle,
       icon: Icons.manage_accounts_outlined,
-      color: const Color(0xFF80CBC4),
+      color: colors.primary,
       child: RecordAccessBody(repository: repository),
     );
   }

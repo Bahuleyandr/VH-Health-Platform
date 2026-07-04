@@ -14,10 +14,11 @@ class DischargeSummariesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l10n.dischargeSummariesTitle,
       icon: Icons.assignment_returned_outlined,
-      color: const Color(0xFFFFCC80),
+      color: colors.tertiary,
       child: const DischargeSummariesList(),
     );
   }
@@ -292,6 +293,7 @@ class _DischargeSummaryDetailScreenState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     final current = _summary ?? widget.initialSummary;
     final title = current?.primaryDiagnosis.isNotEmpty == true
         ? current!.primaryDiagnosis
@@ -300,7 +302,7 @@ class _DischargeSummaryDetailScreenState
     return FeatureScreenScaffold(
       title: title,
       icon: Icons.assignment_returned_outlined,
-      color: const Color(0xFFFFCC80),
+      color: colors.tertiary,
       child: DataStateBuilder<DischargeSummary>(
         isLoading: _isLoading,
         error: _error,

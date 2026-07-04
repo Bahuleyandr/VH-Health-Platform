@@ -240,6 +240,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
           return RefreshIndicator(
             onRefresh: _loadReminders,
             child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               itemCount: reminders.length,
               itemBuilder: (context, index) {

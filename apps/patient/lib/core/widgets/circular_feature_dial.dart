@@ -130,7 +130,6 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   }
 
   void _onCenterDoubleTap() {
-    if (widget.enableHaptics) HapticFeedback.mediumImpact();
     widget.onCenterDoubleTap?.call();
   }
 
@@ -154,7 +153,6 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   void _startDrag(DragStartDetails details, double diameter) {
     _snapController.stop();
     _lastPanAngle = _angleForLocalPosition(details.localPosition, diameter);
-    if (widget.enableHaptics) HapticFeedback.lightImpact();
   }
 
   void _updateDrag(DragUpdateDetails details, double diameter) {
@@ -193,7 +191,6 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
       animation.removeListener(listener);
       if (mounted) setState(() => _rotation = 0);
     });
-    if (widget.enableHaptics) HapticFeedback.selectionClick();
   }
 
   @override
@@ -325,7 +322,6 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
               onTap: () => _onFeatureTap(index, feature),
               onLongPress: widget.enableAccessibility
                   ? () {
-                      if (widget.enableHaptics) HapticFeedback.mediumImpact();
                       _showFeatureDescription(feature);
                     }
                   : null,
@@ -767,5 +763,3 @@ Color _strongColor(Color color, bool isLight) {
       .withLightness(0.38)
       .toColor();
 }
-
-enum HapticType { light, selection, medium }

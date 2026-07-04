@@ -158,7 +158,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
-    const color = Color(0xFF00695C); // fallback accent color
+    final colors = Theme.of(context).colorScheme;
+    final color = colors.primary;
 
     return FeatureScreenScaffold(
       title: loc.notifications,
@@ -196,8 +197,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       background: Container(
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        color: Colors.teal,
-                        child: const Icon(Icons.done, color: Colors.white),
+                        color: colors.primary,
+                        child: Icon(Icons.done, color: colors.onPrimary),
                       ),
                       onDismissed: (_) async {
                         await _markAsRead(notif['id']);
@@ -219,18 +220,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               DateFormat(
                                 'dd-MM-yyyy hh:mm a',
                               ).format(created.toLocal()),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
-                                color: Colors.grey,
+                                color: colors.onSurfaceVariant,
                               ),
                             ),
                           ],
                         ),
                         trailing: isRead
                             ? null
-                            : const Icon(
+                            : Icon(
                                 Icons.circle,
-                                color: Colors.teal,
+                                color: colors.primary,
                                 size: 10,
                               ),
                         onTap: () async {
@@ -241,7 +242,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           });
                           _handleNotificationTap(notif);
                         },
-                        tileColor: isRead ? null : Colors.teal.withAlpha(20),
+                        tileColor: isRead ? null : colors.primary.withAlpha(20),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),

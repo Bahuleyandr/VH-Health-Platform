@@ -41,17 +41,18 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.pharmacy,
       icon: Icons.local_pharmacy,
-      color: const Color(0xFFD1C4E9),
+      color: colors.secondary,
       child: Column(
         children: [
           TabBar(
             controller: _tabController,
-            labelColor: const Color(0xFF7E57C2),
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: const Color(0xFF7E57C2),
+            labelColor: colors.secondary,
+            unselectedLabelColor: colors.onSurfaceVariant,
+            indicatorColor: colors.secondary,
             tabs: [
               Tab(
                 icon: const Icon(Icons.add_shopping_cart),

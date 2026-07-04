@@ -120,6 +120,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final l = AppLocalizations.of(context)!;
     final due = _invoice == null ? 0.0 : _toDouble(_invoice!['amount_due']);
     final hasDue = due > 0.01;
@@ -129,7 +130,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
           _invoice?['invoice_number']?.toString() ??
           l.billsInvoiceFallback(widget.invoiceId),
       icon: Icons.receipt_long,
-      color: const Color(0xFFB3E5FC),
+      color: colors.primary,
       scrollable: true,
       child: _loading
           ? const Center(

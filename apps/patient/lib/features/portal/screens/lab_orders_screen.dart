@@ -183,10 +183,11 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.labOrdersTitle,
       icon: Icons.science,
-      color: const Color(0xFFB2DFDB),
+      color: colors.secondary,
       child: RefreshIndicator(
         onRefresh: _fetch,
         child: DataStateBuilder<_LabOrder>(

@@ -1,5 +1,6 @@
 // lib/core/widgets/main_scaffold_go_router.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:badges/badges.dart' as badges;
@@ -70,6 +71,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
   }
 
   void _onItemTapped(int index) {
+    HapticFeedback.selectionClick();
     final isGuest = context.read<UserProvider>().isGuest;
     final l = AppLocalizations.of(context)!;
     switch (index) {

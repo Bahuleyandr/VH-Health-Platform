@@ -111,10 +111,11 @@ class _BillsScreenState extends State<BillsScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.billsTitle,
       icon: Icons.receipt_long,
-      color: const Color(0xFFB3E5FC),
+      color: colors.primary,
       child: RefreshIndicator(
         onRefresh: _fetch,
         child: DataStateBuilder<_Bill>(

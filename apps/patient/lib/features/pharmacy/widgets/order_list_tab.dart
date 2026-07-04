@@ -60,6 +60,7 @@ class OrderListTabState extends State<OrderListTab> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _showOrderDetail(Map<String, dynamic> order) {
+    final theme = Theme.of(context);
     final items = order['items_list'];
     final List<dynamic> itemsList = items is List
         ? items
@@ -88,7 +89,7 @@ class OrderListTabState extends State<OrderListTab> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: theme.colorScheme.outlineVariant,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -112,7 +113,10 @@ class OrderListTabState extends State<OrderListTab> {
               const SizedBox(height: 8),
               Text(
                 _formatDate(order['created_at']),
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                ),
               ),
 
               const SizedBox(height: 20),
@@ -340,6 +344,7 @@ class OrderListTabState extends State<OrderListTab> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     if (_isLoadingOrders) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -349,20 +354,27 @@ class OrderListTabState extends State<OrderListTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade300),
+            Icon(
+              Icons.receipt_long,
+              size: 64,
+              color: theme.colorScheme.outlineVariant,
+            ),
             const SizedBox(height: 16),
             Text(
               AppLocalizations.of(context)!.pharmacyOrdersEmpty,
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey.shade500,
+                color: theme.colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               AppLocalizations.of(context)!.pharmacyOrdersEmptyHint,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

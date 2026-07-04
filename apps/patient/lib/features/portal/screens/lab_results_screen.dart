@@ -25,10 +25,11 @@ class LabResultsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l10n.labResultsTitle,
       icon: Icons.biotech,
-      color: const Color(0xFF80DEEA),
+      color: colors.secondary,
       child: LabResultsList(repository: repository),
     );
   }
@@ -273,6 +274,7 @@ class _LabResultDetailScreenState extends State<LabResultDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     final current = _result ?? widget.initialResult;
     final title = (current?.testName ?? '').isNotEmpty
         ? current!.testName
@@ -281,7 +283,7 @@ class _LabResultDetailScreenState extends State<LabResultDetailScreen> {
     return FeatureScreenScaffold(
       title: title,
       icon: Icons.biotech,
-      color: const Color(0xFF80DEEA),
+      color: colors.secondary,
       child: DataStateBuilder<LabResult>(
         isLoading: _loading,
         error: _error,

@@ -104,7 +104,10 @@ class _FamilyScreenState extends State<FamilyScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
             child: Text(l.familyRemoveButton),
           ),
         ],
@@ -139,13 +142,15 @@ class _FamilyScreenState extends State<FamilyScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.familyTitle,
       icon: Icons.family_restroom,
-      color: const Color(0xFFCE93D8),
+      color: colors.tertiary,
       floatingActionButton: FloatingActionButton(
         onPressed: _addMember,
-        backgroundColor: const Color(0xFFCE93D8),
+        backgroundColor: colors.tertiary,
+        foregroundColor: colors.onTertiary,
         child: const Icon(Icons.person_add),
       ),
       child: _buildBody(),
@@ -169,38 +174,42 @@ class _FamilyScreenState extends State<FamilyScreen> {
       errorTitle: l.genericError,
       errorActionLabel: l.commonRetryButton,
       builder: (context, members) {
-        return ListView.separated(
-          itemCount: members.length + 1,
-          separatorBuilder: (_, index) => index == 0
-              ? const SizedBox(height: 16)
-              : const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l.familyYourFamily,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+        return RefreshIndicator(
+          onRefresh: _fetchMembers,
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: members.length + 1,
+            separatorBuilder: (_, index) => index == 0
+                ? const SizedBox(height: 16)
+                : const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.familyYourFamily,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    l.familyManageHint,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 4),
+                    Text(
+                      l.familyManageHint,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                );
+              }
+              final member = members[index - 1];
+              return _FamilyMemberCard(
+                member: member,
+                onRemove: () => _removeMember(member),
               );
-            }
-            final member = members[index - 1];
-            return _FamilyMemberCard(
-              member: member,
-              onRemove: () => _removeMember(member),
-            );
-          },
+            },
+          ),
         );
       },
     );
@@ -218,6 +227,7 @@ class _FamilyMemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final l = AppLocalizations.of(context)!;
     final name = member['name'] as String? ?? l.familyUnknown;
     final relationship = member['relationship'] as String? ?? '';
@@ -242,14 +252,14 @@ class _FamilyMemberCard extends StatelessWidget {
         child: Row(
           children: [
             CircleAvatar(
-              backgroundColor: const Color(0xFFCE93D8).withAlpha(51),
+              backgroundColor: colors.tertiaryContainer,
               radius: 24,
               child: Text(
                 name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFFCE93D8),
+                  color: colors.onTertiaryContainer,
                 ),
               ),
             ),
@@ -269,7 +279,7 @@ class _FamilyMemberCard extends StatelessWidget {
                     Text(
                       relationship,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFFCE93D8),
+                        color: colors.tertiary,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -279,7 +289,7 @@ class _FamilyMemberCard extends StatelessWidget {
                     Text(
                       phone,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -288,7 +298,7 @@ class _FamilyMemberCard extends StatelessWidget {
                     Text(
                       '${l.familyDobPrefix} $dob',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -297,7 +307,7 @@ class _FamilyMemberCard extends StatelessWidget {
             ),
             IconButton(
               onPressed: onRemove,
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              icon: Icon(Icons.delete_outline, color: colors.error),
               tooltip: l.familyRemoveTooltip,
             ),
           ],
@@ -404,6 +414,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
@@ -418,7 +429,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: colors.outlineVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -512,7 +523,8 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
                 _submitting ? l.familyAdding : l.familyAddMemberShort,
               ),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFCE93D8),
+                backgroundColor: colors.tertiary,
+                foregroundColor: colors.onTertiary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),

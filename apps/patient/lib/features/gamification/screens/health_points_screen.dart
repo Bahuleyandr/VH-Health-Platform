@@ -365,10 +365,11 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: 'Health Hub',
       icon: Icons.health_and_safety_outlined,
-      color: const Color(0xFF80CBC4),
+      color: colors.primary,
       heroTag: 'health-points',
       child: Column(
         children: [

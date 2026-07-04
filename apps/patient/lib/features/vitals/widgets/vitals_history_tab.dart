@@ -128,6 +128,7 @@ class _VitalsTrendSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final trends = <_TrendItem>[];
 
     void addTrend(
@@ -172,11 +173,7 @@ class _VitalsTrendSummary extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(
-                  Icons.trending_up,
-                  size: 18,
-                  color: Color(0xFFE57373),
-                ),
+                Icon(Icons.trending_up, size: 18, color: colors.error),
                 const SizedBox(width: 8),
                 Text(
                   AppLocalizations.of(context)!.vitalsTrendsHeading,
@@ -197,10 +194,10 @@ class _VitalsTrendSummary extends StatelessWidget {
                 final isBad =
                     (isUp && t.higherIsBad) || (isDown && !t.higherIsBad);
                 final color = diff == 0
-                    ? Colors.grey
+                    ? colors.onSurfaceVariant
                     : isBad
-                    ? Colors.red.shade400
-                    : Colors.green.shade400;
+                    ? colors.error
+                    : colors.tertiary;
                 final arrow = diff == 0
                     ? '→'
                     : isUp
@@ -214,7 +211,7 @@ class _VitalsTrendSummary extends StatelessWidget {
                     Text(
                       t.label,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.grey,
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                     Row(
@@ -323,13 +320,13 @@ class _VitalEntryCard extends StatelessWidget {
                 Icon(
                   Icons.calendar_today,
                   size: 14,
-                  color: Colors.grey.shade600,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   formattedDate,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.grey.shade600,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -346,21 +343,21 @@ class _VitalEntryCard extends StatelessWidget {
                     Text(
                       item.label,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.grey,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                     RichText(
                       text: TextSpan(
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: const Color(0xFFE57373),
+                          color: theme.colorScheme.error,
                         ),
                         children: [
                           TextSpan(text: item.value),
                           TextSpan(
                             text: ' ${item.unit}',
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.grey,
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
