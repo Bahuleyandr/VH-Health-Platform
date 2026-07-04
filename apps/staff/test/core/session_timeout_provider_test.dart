@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:fake_async/fake_async.dart';
@@ -218,10 +219,12 @@ void main() {
 
     test('changing timeout while tracking restarts the timer', () async {
       var cleanupCount = 0;
+      final cleanupCompleted = Completer<void>();
       final provider = SessionTimeoutProvider(
         timeoutDuration: const Duration(milliseconds: 80),
         onTimeoutCleanup: () async {
           cleanupCount += 1;
+          if (!cleanupCompleted.isCompleted) cleanupCompleted.complete();
         },
       );
       addTearDown(provider.dispose);
@@ -229,7 +232,7 @@ void main() {
       provider.startTracking();
       await Future<void>.delayed(const Duration(milliseconds: 20));
       provider.setTimeoutDuration(const Duration(milliseconds: 10));
-      await Future<void>.delayed(const Duration(milliseconds: 35));
+      await cleanupCompleted.future.timeout(const Duration(seconds: 2));
 
       expect(provider.isSessionExpired, isTrue);
       expect(provider.timeoutDuration, const Duration(milliseconds: 10));

@@ -1045,9 +1045,9 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                         _handleNewline(row.notesCtrl, value, _saveFromField),
                     minLines: 1,
                     maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes',
-                      hintText: 'Dilution, PRN reason, hold rules',
+                    decoration: InputDecoration(
+                      labelText: s.drugChartNotesLabel,
+                      hintText: s.drugChartNotesHint,
                       isDense: true,
                     ),
                   ),
@@ -1056,7 +1056,7 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                     alignment: Alignment.centerLeft,
                     child: FilterChip(
                       visualDensity: VisualDensity.compact,
-                      label: const Text('DAW'),
+                      label: Text(s.drugChartDawLabel),
                       selected: row.daw,
                       onSelected: row.saving
                           ? null

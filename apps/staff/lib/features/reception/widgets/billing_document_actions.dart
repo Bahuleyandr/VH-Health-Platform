@@ -3,6 +3,7 @@ import 'package:printing/printing.dart';
 
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../l10n/app_strings.dart';
 import 'billing_payment_dialog.dart';
 
 enum BillingDocumentType { taxInvoice, receipt }
@@ -12,22 +13,28 @@ Future<void> printBillingDocument({
   required Map<String, dynamic> invoice,
   required BillingDocumentType type,
 }) async {
+  final s = AppStrings.of(context);
   final invoiceId = billingInvoiceId(invoice);
   if (invoiceId == null) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Invoice ID is missing.')));
+    ).showSnackBar(SnackBar(content: Text(s.billingInvoiceIdMissing)));
     return;
   }
 
-  final label = type == BillingDocumentType.receipt ? 'receipt' : 'tax invoice';
+  final label = type == BillingDocumentType.receipt
+      ? s.billingReceiptLabel
+      : s.billingTaxInvoiceLabel;
+  final fileLabel = type == BillingDocumentType.receipt
+      ? 'receipt'
+      : 'tax invoice';
   try {
     final bytes = type == BillingDocumentType.receipt
         ? await BillingApiService.downloadReceiptPdf(invoiceId)
         : await BillingApiService.downloadTaxInvoicePdf(invoiceId);
     await Printing.layoutPdf(
-      name: '${label.replaceAll(' ', '_')}_$invoiceId.pdf',
+      name: '${fileLabel.replaceAll(' ', '_')}_$invoiceId.pdf',
       onLayout: (_) async => bytes,
     );
   } catch (e) {
@@ -35,7 +42,10 @@ Future<void> printBillingDocument({
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Could not open $label: ${e.toString().replaceFirst('Exception: ', '')}',
+          s.billingCouldNotOpenDocument(
+            label,
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
         ),
         backgroundColor: AppTheme.errorRed,
       ),

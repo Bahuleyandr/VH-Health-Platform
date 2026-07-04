@@ -43,6 +43,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
   bool _expired = false;
   bool _tracking = false;
   bool _warningVisible = false;
+  bool _disposed = false;
   Duration _warningRemaining = Duration.zero;
   int _preservedOfflineWriteCount = 0;
 
@@ -115,7 +116,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('SessionTimeout: failed to clear local session state: $e');
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   void _scheduleIdleTimers() {
@@ -143,7 +144,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
       }
     }
     _timer = Timer(_timeoutDuration, _onTimeout);
-    if (shouldNotify) notifyListeners();
+    if (shouldNotify && !_disposed) notifyListeners();
   }
 
   void _showWarning(Duration remaining) {
@@ -159,10 +160,10 @@ class SessionTimeoutProvider extends ChangeNotifier {
           _countdownTimer?.cancel();
           _countdownTimer = null;
         }
-        notifyListeners();
+        if (!_disposed) notifyListeners();
       });
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   void _cancelTimers() {
@@ -196,6 +197,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _cancelTimers();
     super.dispose();
   }

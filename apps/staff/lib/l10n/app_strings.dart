@@ -58,6 +58,10 @@ class AppStrings {
     return AppStrings._(Localizations.localeOf(context));
   }
 
+  static AppStrings forLocale(Locale locale) {
+    return AppStrings._(locale);
+  }
+
   /// Locales the app ships translations for. Wire this list into
   /// `MaterialApp.supportedLocales`.
   ///
@@ -249,6 +253,18 @@ class AppStrings {
   String get bedBoardLegendOccupied => _t('bed.status.occupied');
   String get bedBoardLegendMaintenance => _t('bed.status.maintenance');
   String get bedBoardFilterAll => _t('bed_board.filter.all');
+  String get bedBoardFilterAllStatuses => _t('bed_board.filter.all_statuses');
+  String get bedBoardFilterAvailable => _t('bed_board.filter.available');
+  String get bedBoardFilterOccupied => _t('bed_board.filter.occupied');
+  String get bedBoardFilterMaintenance => _t('bed_board.filter.maintenance');
+  String get bedBoardFilterCleaning => _t('bed_board.filter.cleaning');
+  String get bedBoardFilterStatusLabel => _t('bed_board.filter.status_label');
+  String bedBoardFloorLabel(String floor) =>
+      '${_t('bed_board.floor_prefix')} $floor';
+  String get bedBoardMarkReady => _t('bed_board.mark_ready');
+  String get bedBoardMarkReadyTitle => _t('bed_board.mark_ready_title');
+  String get bedBoardMarkReadyBody => _t('bed_board.mark_ready_body');
+  String get bedBoardDischargeHub => _t('bed_board.discharge_hub');
   String get bedBoardNoWardsYet => _t('bed_board.no_wards_yet');
   String get bedBoardWardStatTotal => _t('bed_board.ward_stat.total');
   String get bedBoardWardStatFree => _t('bed_board.ward_stat.free');
@@ -776,6 +792,32 @@ class AppStrings {
       _t('front_office.queue.following_day_op_queue');
   String frontOfficeQueueDatedOp(String date) =>
       '$date ${_t('front_office.queue.op_queue_suffix')}';
+  String frontOfficeQueueMine(String queueLabel) =>
+      '${_t('front_office.queue.mine_prefix')} $queueLabel';
+  String frontOfficeAppointmentStatusLabel(String status) {
+    switch (status.trim().toUpperCase()) {
+      case 'NO_SHOW':
+        return _t('front_office.appointment_status.no_show');
+      case 'RESCHEDULED':
+        return _t('front_office.appointment_status.rescheduled');
+      case 'IN_PROGRESS':
+        return _t('front_office.appointment_status.in_progress');
+      case 'COMPLETED':
+        return _t('front_office.appointment_status.completed');
+      case 'CANCELLED':
+        return _t('front_office.appointment_status.cancelled');
+      case 'CONFIRMED':
+        return _t('front_office.appointment_status.confirmed');
+      case 'SCHEDULED':
+        return _t('front_office.appointment_status.scheduled');
+      default:
+        final cleaned = status.trim();
+        return cleaned.isEmpty
+            ? _t('front_office.appointment_status.scheduled')
+            : cleaned;
+    }
+  }
+
   String get frontOfficeWalkInRegisterButton =>
       _t('front_office.walk_in.register_button');
   String get frontOfficeWalkInRegisteringButton =>
@@ -784,6 +826,25 @@ class AppStrings {
   // ── Billing ────────────────────────────────────────────────────────
   String get billingCollectButton => _t('billing.collect_button');
   String get billingCollectingButton => _t('billing.collecting_button');
+  String get billingCollectPaymentTitle => _t('billing.collect_payment_title');
+  String billingOutstandingAmount(String amount) =>
+      '${_t('billing.outstanding_prefix')} $amount';
+  String get billingAmountLabel => _t('billing.amount_label');
+  String get billingModeLabel => _t('billing.mode_label');
+  String get billingReferenceOptional => _t('billing.reference_optional');
+  String get billingTransactionReference => _t('billing.transaction_reference');
+  String get billingCashierShiftLabel => _t('billing.cashier_shift_label');
+  String get billingNotesLabel => _t('billing.notes_label');
+  String get billingPaymentAmountError => _t('billing.payment_amount_error');
+  String billingPaymentExceedsDue(String amount) =>
+      '${_t('billing.payment_exceeds_prefix')} $amount.';
+  String get billingCashShiftRequired => _t('billing.cash_shift_required');
+  String get billingReferenceRequired => _t('billing.reference_required');
+  String get billingInvoiceIdMissing => _t('billing.invoice_id_missing');
+  String get billingReceiptLabel => _t('billing.receipt_label');
+  String get billingTaxInvoiceLabel => _t('billing.tax_invoice_label');
+  String billingCouldNotOpenDocument(String label, String reason) =>
+      '${_t('billing.could_not_open_prefix')} $label: $reason';
 
   // ── Prescriptions screen ───────────────────────────────────────────
   String get prescriptionsTitle => _t('prescriptions.title');
@@ -1210,6 +1271,9 @@ class AppStrings {
   String get drugChartColumnFood => _t('drug_chart.column.food');
   String get drugChartColumnSafetyMarActions =>
       _t('drug_chart.column.safety_mar_actions');
+  String get drugChartNotesLabel => _t('drug_chart.notes_label');
+  String get drugChartNotesHint => _t('drug_chart.notes_hint');
+  String get drugChartDawLabel => _t('drug_chart.daw_label');
   String get drugChartDoseHint => _t('drug_chart.dose_hint');
   String get drugChartDoseHelper => _t('drug_chart.dose_helper');
   String get drugChartRouteOral => _t('drug_chart.route.oral');
@@ -2064,6 +2128,9 @@ class AppStrings {
   String get dueMedsHeldBadge => _t('due_meds.held_badge');
   String get dueMedsUnknownPatient => _t('due_meds.unknown_patient');
   String get dueMedsUnnamedMedication => _t('due_meds.unnamed_medication');
+  String get dueMedsAllWards => _t('due_meds.filter.all_wards');
+  String get dueMedsAllRoutes => _t('due_meds.filter.all_routes');
+  String get dueMedsRouteFilterLabel => _t('due_meds.filter.route_label');
   String get marScanTitle => _t('mar_scan.title');
   // REVIEW: clinical-action / safety wording for medication 5-rights
   String get marScanStep1Prompt => _t('mar_scan.step1_prompt');
@@ -2914,6 +2981,18 @@ class AppStrings {
       'bed_board.empty_title': 'No beds in this ward',
       'bed_board.empty_body': 'Add beds via the admin portal.',
       'bed_board.filter.all': 'All',
+      'bed_board.filter.all_statuses': 'All statuses',
+      'bed_board.filter.available': 'Available',
+      'bed_board.filter.occupied': 'Occupied',
+      'bed_board.filter.maintenance': 'Maintenance',
+      'bed_board.filter.cleaning': 'Cleaning',
+      'bed_board.filter.status_label': 'Bed status',
+      'bed_board.floor_prefix': 'Floor',
+      'bed_board.mark_ready': 'Mark Ready',
+      'bed_board.mark_ready_title': 'Mark bed ready?',
+      'bed_board.mark_ready_body':
+          'This confirms housekeeping has completed cleaning and makes the bed available for the next patient.',
+      'bed_board.discharge_hub': 'Discharge Hub',
       // Bed sheet
       'bed_sheet.action.open_emr': 'Open EMR',
       'bed_sheet.action.record_vitals': 'Record Vitals',
@@ -3051,6 +3130,9 @@ class AppStrings {
       'drug_chart.column.started': 'Started',
       'drug_chart.column.food': 'Food',
       'drug_chart.column.safety_mar_actions': 'Safety / MAR / actions',
+      'drug_chart.notes_label': 'Notes',
+      'drug_chart.notes_hint': 'Dilution, PRN reason, hold rules',
+      'drug_chart.daw_label': 'DAW',
       'drug_chart.dose_hint': 'auto-filled from drug strength',
       'drug_chart.dose_helper': 'Edit only if dose differs',
       'drug_chart.route.oral': 'Oral',
@@ -3447,10 +3529,36 @@ class AppStrings {
       'front_office.queue.tomorrow_op_queue': 'Tomorrow OP Queue',
       'front_office.queue.following_day_op_queue': 'Following Day OP Queue',
       'front_office.queue.op_queue_suffix': 'OP Queue',
+      'front_office.queue.mine_prefix': 'My',
+      'front_office.appointment_status.no_show': 'No-show',
+      'front_office.appointment_status.rescheduled': 'Rescheduled',
+      'front_office.appointment_status.in_progress': 'In progress',
+      'front_office.appointment_status.completed': 'Complete',
+      'front_office.appointment_status.cancelled': 'Cancelled',
+      'front_office.appointment_status.confirmed': 'Confirmed',
+      'front_office.appointment_status.scheduled': 'Scheduled',
       'front_office.walk_in.register_button': 'Register',
       'front_office.walk_in.registering_button': 'Registering...',
       'billing.collect_button': 'Collect',
       'billing.collecting_button': 'Collecting...',
+      'billing.collect_payment_title': 'Collect Payment',
+      'billing.outstanding_prefix': 'Outstanding',
+      'billing.amount_label': 'Amount',
+      'billing.mode_label': 'Mode',
+      'billing.reference_optional': 'Reference (optional)',
+      'billing.transaction_reference': 'Transaction reference',
+      'billing.cashier_shift_label': 'Cashier shift',
+      'billing.notes_label': 'Notes',
+      'billing.payment_amount_error': 'Enter a payment amount greater than 0.',
+      'billing.payment_exceeds_prefix': 'Payment cannot exceed outstanding due',
+      'billing.cash_shift_required':
+          'Cash payments require a cashier shift for drawer reconciliation.',
+      'billing.reference_required':
+          'Enter a transaction reference for non-cash payments.',
+      'billing.invoice_id_missing': 'Invoice ID is missing.',
+      'billing.receipt_label': 'receipt',
+      'billing.tax_invoice_label': 'tax invoice',
+      'billing.could_not_open_prefix': 'Could not open',
       // Prescriptions
       'prescriptions.title': 'E-Prescriptions',
       'prescriptions.tab.new': 'New Prescription',
@@ -4475,6 +4583,9 @@ class AppStrings {
       'due_meds.held_badge': 'HELD',
       'due_meds.unknown_patient': 'Unknown patient',
       'due_meds.unnamed_medication': '(unnamed medication)',
+      'due_meds.filter.all_wards': 'All wards',
+      'due_meds.filter.all_routes': 'All routes',
+      'due_meds.filter.route_label': 'Route',
       'mar_scan.title': 'Administer Medication',
       'mar_scan.step1_prompt': 'Step 1 of 3 - Scan patient wristband',
       'mar_scan.step1_subtitle':
@@ -5126,6 +5237,18 @@ class AppStrings {
       'bed_board.empty_title': 'इस वार्ड में कोई बेड नहीं',
       'bed_board.empty_body': 'एडमिन पोर्टल से बेड जोड़ें।',
       'bed_board.filter.all': 'सभी',
+      'bed_board.filter.all_statuses': 'सभी स्थितियाँ',
+      'bed_board.filter.available': 'उपलब्ध',
+      'bed_board.filter.occupied': 'व्यस्त',
+      'bed_board.filter.maintenance': 'रखरखाव',
+      'bed_board.filter.cleaning': 'सफाई',
+      'bed_board.filter.status_label': 'बेड स्थिति',
+      'bed_board.floor_prefix': 'मंज़िल',
+      'bed_board.mark_ready': 'तैयार चिह्नित करें',
+      'bed_board.mark_ready_title': 'बेड तैयार चिह्नित करें?',
+      'bed_board.mark_ready_body':
+          'यह पुष्टि करता है कि हाउसकीपिंग ने सफाई पूरी कर दी है और बेड अगले मरीज़ के लिए उपलब्ध है।',
+      'bed_board.discharge_hub': 'डिस्चार्ज हब',
       // Bed sheet
       'bed_sheet.action.open_emr': 'EMR खोलें',
       'bed_sheet.action.record_vitals': 'वाइटल्स दर्ज करें',
@@ -5300,6 +5423,9 @@ class AppStrings {
       'drug_chart.column.started': 'शुरू',
       'drug_chart.column.food': 'भोजन',
       'drug_chart.column.safety_mar_actions': 'सुरक्षा / MAR / कार्रवाई',
+      'drug_chart.notes_label': 'नोट्स',
+      'drug_chart.notes_hint': 'डायल्यूशन, PRN कारण, रोकने के नियम',
+      'drug_chart.daw_label': 'DAW',
       'drug_chart.dose_hint': 'दवा की ताकत से अपने आप भरेगा',
       'drug_chart.dose_helper': 'खुराक अलग हो तो ही बदलें',
       'drug_chart.route.oral': 'मौखिक',
@@ -5698,10 +5824,37 @@ class AppStrings {
       'front_office.queue.tomorrow_op_queue': 'कल की OP कतार',
       'front_office.queue.following_day_op_queue': 'परसों की OP कतार',
       'front_office.queue.op_queue_suffix': 'OP कतार',
+      'front_office.queue.mine_prefix': 'मेरी',
+      'front_office.appointment_status.no_show': 'नहीं आया',
+      'front_office.appointment_status.rescheduled': 'फिर से तय',
+      'front_office.appointment_status.in_progress': 'चल रहा है',
+      'front_office.appointment_status.completed': 'पूर्ण',
+      'front_office.appointment_status.cancelled': 'रद्द',
+      'front_office.appointment_status.confirmed': 'पुष्टि',
+      'front_office.appointment_status.scheduled': 'निर्धारित',
       'front_office.walk_in.register_button': 'पंजीकृत करें',
       'front_office.walk_in.registering_button': 'पंजीकृत हो रहा है...',
       'billing.collect_button': 'भुगतान लें',
       'billing.collecting_button': 'भुगतान लिया जा रहा है...',
+      'billing.collect_payment_title': 'भुगतान लें',
+      'billing.outstanding_prefix': 'बकाया',
+      'billing.amount_label': 'राशि',
+      'billing.mode_label': 'मोड',
+      'billing.reference_optional': 'संदर्भ (वैकल्पिक)',
+      'billing.transaction_reference': 'लेन-देन संदर्भ',
+      'billing.cashier_shift_label': 'कैशियर शिफ्ट',
+      'billing.notes_label': 'नोट्स',
+      'billing.payment_amount_error': '0 से अधिक भुगतान राशि दर्ज करें।',
+      'billing.payment_exceeds_prefix':
+          'भुगतान बकाया राशि से अधिक नहीं हो सकता',
+      'billing.cash_shift_required':
+          'कैश भुगतान के लिए ड्रॉअर मिलान हेतु कैशियर शिफ्ट आवश्यक है।',
+      'billing.reference_required':
+          'गैर-नकद भुगतान के लिए लेन-देन संदर्भ दर्ज करें।',
+      'billing.invoice_id_missing': 'इनवॉइस ID गायब है।',
+      'billing.receipt_label': 'रसीद',
+      'billing.tax_invoice_label': 'टैक्स इनवॉइस',
+      'billing.could_not_open_prefix': 'नहीं खोल सके',
       // Prescriptions
       'prescriptions.title': 'ई-प्रिस्क्रिप्शन',
       'prescriptions.tab.new': 'नया प्रिस्क्रिप्शन',
@@ -6857,6 +7010,9 @@ class AppStrings {
       'due_meds.unknown_patient': 'अज्ञात मरीज़',
       // REVIEW: clinical-safety - unnamed med
       'due_meds.unnamed_medication': '(बेनाम दवा)',
+      'due_meds.filter.all_wards': 'सभी वार्ड',
+      'due_meds.filter.all_routes': 'सभी मार्ग',
+      'due_meds.filter.route_label': 'मार्ग',
       'mar_scan.title': 'दवा प्रशासित करें',
       // REVIEW: clinical-safety - 5 rights
       'mar_scan.step1_prompt': 'चरण 1 / 3 - मरीज़ का रिस्टबैंड स्कैन करें',
@@ -7337,6 +7493,18 @@ class AppStrings {
       'bed_board.empty_title': 'இந்த வார்டில் படுக்கைகள் இல்லை',
       'bed_board.empty_body': 'நிர்வாகி போர்டல் வழியாக படுக்கைகளைச் சேர்.',
       'bed_board.filter.all': 'அனைத்தும்',
+      'bed_board.filter.all_statuses': 'அனைத்து நிலைகளும்',
+      'bed_board.filter.available': 'கிடைக்கிறது',
+      'bed_board.filter.occupied': 'பிடிக்கப்பட்டது',
+      'bed_board.filter.maintenance': 'பராமரிப்பு',
+      'bed_board.filter.cleaning': 'சுத்தம் செய்கிறது',
+      'bed_board.filter.status_label': 'படுக்கை நிலை',
+      'bed_board.floor_prefix': 'தளம்',
+      'bed_board.mark_ready': 'தயார் என குறி',
+      'bed_board.mark_ready_title': 'படுக்கையை தயாராக குறிக்கவா?',
+      'bed_board.mark_ready_body':
+          'ஹவுஸ்கீப்பிங் சுத்தம் முடித்தது, படுக்கை அடுத்த நோயாளிக்கு கிடைக்கும் என்பதை இது உறுதிப்படுத்துகிறது.',
+      'bed_board.discharge_hub': 'டிஸ்சார்ஜ் ஹப்',
       'bed_sheet.action.open_emr': 'EMR திறக்க',
       'bed_sheet.action.record_vitals': 'உயிர் அளவீடுகள் பதிவு',
       'bed_sheet.action.add_note': 'குறிப்பு சேர்',
@@ -7510,6 +7678,9 @@ class AppStrings {
           'மருந்து ஆர்டர் சேமிக்கப்பட்டு பார்மசிக்கு அறிவிக்கப்பட்டது',
       'drug_chart.empty': 'உள்நோயாளி மருந்துகள் எதுவும் பதிவில் இல்லை',
       'drug_chart.given': 'கொடுக்கப்பட்டது',
+      'drug_chart.notes_label': 'குறிப்புகள்',
+      'drug_chart.notes_hint': 'கரைத்தல், PRN காரணம், நிறுத்த விதிகள்',
+      'drug_chart.daw_label': 'DAW',
       // REVIEW: ta AI first-pass patient-summary batch — clinical wording
       'summary.title': 'நோயாளர் சுருக்கம்',
       'summary.tooltip': 'நோயாளர் சுருக்கம்',
@@ -7908,10 +8079,45 @@ class AppStrings {
       'queue.no_phone_number': 'தொலைபேசி எண் இல்லை',
       'queue.record_fallback': 'பதிவு',
       'queue.unknown_patient': 'தெரியாதது',
+      'front_office.queue.today': 'இன்று',
+      'front_office.queue.tomorrow': 'நாளை',
+      'front_office.queue.following_day': 'அடுத்த நாள்',
+      'front_office.queue.today_op_queue': 'இன்றைய OP வரிசை',
+      'front_office.queue.tomorrow_op_queue': 'நாளைய OP வரிசை',
+      'front_office.queue.following_day_op_queue': 'அடுத்த நாள் OP வரிசை',
+      'front_office.queue.op_queue_suffix': 'OP வரிசை',
+      'front_office.queue.mine_prefix': 'என்',
+      'front_office.appointment_status.no_show': 'வரவில்லை',
+      'front_office.appointment_status.rescheduled':
+          'மீண்டும் திட்டமிடப்பட்டது',
+      'front_office.appointment_status.in_progress': 'நடந்து கொண்டிருக்கிறது',
+      'front_office.appointment_status.completed': 'முடிந்தது',
+      'front_office.appointment_status.cancelled': 'ரத்து செய்யப்பட்டது',
+      'front_office.appointment_status.confirmed': 'உறுதி செய்யப்பட்டது',
+      'front_office.appointment_status.scheduled': 'திட்டமிடப்பட்டது',
       'front_office.walk_in.register_button': 'பதிவு செய்',
       'front_office.walk_in.registering_button': 'பதிவு செய்கிறது...',
       'billing.collect_button': 'வசூலிக்கவும்',
       'billing.collecting_button': 'வசூலிக்கிறது...',
+      'billing.collect_payment_title': 'கட்டணம் வசூலிக்கவும்',
+      'billing.outstanding_prefix': 'நிலுவை',
+      'billing.amount_label': 'தொகை',
+      'billing.mode_label': 'முறை',
+      'billing.reference_optional': 'குறிப்பு (விருப்பம்)',
+      'billing.transaction_reference': 'பரிவர்த்தனை குறிப்பு',
+      'billing.cashier_shift_label': 'கேஷியர் ஷிப்ட்',
+      'billing.notes_label': 'குறிப்புகள்',
+      'billing.payment_amount_error':
+          '0-க்கு மேற்பட்ட கட்டணத் தொகையை உள்ளிடவும்.',
+      'billing.payment_exceeds_prefix': 'கட்டணம் நிலுவைத் தொகையை மீற முடியாது',
+      'billing.cash_shift_required':
+          'காசு கட்டணங்களுக்கு டிராயர் சமநிலைக்காக கேஷியர் ஷிப்ட் தேவை.',
+      'billing.reference_required':
+          'காசில்லா கட்டணங்களுக்கு பரிவர்த்தனை குறிப்பை உள்ளிடவும்.',
+      'billing.invoice_id_missing': 'இன்வாய்ஸ் ID இல்லை.',
+      'billing.receipt_label': 'ரசீது',
+      'billing.tax_invoice_label': 'வரி இன்வாய்ஸ்',
+      'billing.could_not_open_prefix': 'திறக்க முடியவில்லை',
       // Prescriptions - REVIEW
       'prescriptions.title': 'ஈ-மருந்துச்சீட்டுகள்',
       'prescriptions.tab.new': 'புதிய மருந்துச்சீட்டு',
@@ -9617,6 +9823,12 @@ class AppStrings {
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'due_meds.unnamed_medication': '(பெயரிடப்படாத மருந்து)',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
+      'due_meds.filter.all_wards': 'அனைத்து வார்டுகளும்',
+      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
+      'due_meds.filter.all_routes': 'அனைத்து வழிகளும்',
+      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
+      'due_meds.filter.route_label': 'வழி',
+      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'mar_scan.step1_prompt':
           'படி 1 இல் 3 - நோயாளியின் மணிக்கட்டை ஸ்கேன் செய்யவும்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -10025,6 +10237,18 @@ class AppStrings {
       'bed_board.empty_title': 'ఈ వార్డులో బెడ్‌లు లేవు',
       'bed_board.empty_body': 'అడ్మిన్ పోర్టల్ ద్వారా బెడ్‌లు జోడించండి.',
       'bed_board.filter.all': 'అన్నీ',
+      'bed_board.filter.all_statuses': 'అన్ని స్థితులు',
+      'bed_board.filter.available': 'అందుబాటులో',
+      'bed_board.filter.occupied': 'ఆక్రమించిన',
+      'bed_board.filter.maintenance': 'నిర్వహణ',
+      'bed_board.filter.cleaning': 'శుభ్రపరచడం',
+      'bed_board.filter.status_label': 'బెడ్ స్థితి',
+      'bed_board.floor_prefix': 'అంతస్తు',
+      'bed_board.mark_ready': 'సిద్ధంగా గుర్తించండి',
+      'bed_board.mark_ready_title': 'బెడ్ సిద్ధంగా గుర్తించాలా?',
+      'bed_board.mark_ready_body':
+          'హౌస్‌కీపింగ్ శుభ్రపరచడం పూర్తయిందని, బెడ్ తదుపరి రోగికి అందుబాటులో ఉందని ఇది నిర్ధారిస్తుంది.',
+      'bed_board.discharge_hub': 'డిశ్చార్జ్ హబ్',
       'bed_sheet.action.open_emr': 'EMR తెరువు',
       'bed_sheet.action.record_vitals': 'వైటల్స్ నమోదు',
       'bed_sheet.action.add_note': 'గమనిక జోడించు',
@@ -10199,6 +10423,9 @@ class AppStrings {
           'మందు ఆర్డర్ సేవ్ చేయబడింది, ఫార్మసీకి తెలియజేయబడింది',
       'drug_chart.empty': 'ఇన్‌పేషెంట్ మందులు చార్ట్ చేయలేదు',
       'drug_chart.given': 'ఇవ్వబడింది',
+      'drug_chart.notes_label': 'గమనికలు',
+      'drug_chart.notes_hint': 'డైల్యూషన్, PRN కారణం, నిలిపే నియమాలు',
+      'drug_chart.daw_label': 'DAW',
       // REVIEW: te AI first-pass patient-summary batch — clinical wording
       'summary.title': 'రోగి సారాంశం',
       'summary.tooltip': 'రోగి సారాంశం',
@@ -10593,10 +10820,44 @@ class AppStrings {
       'queue.no_phone_number': 'ఫోన్ నంబర్ అందుబాటులో లేదు',
       'queue.record_fallback': 'రికార్డు',
       'queue.unknown_patient': 'తెలియదు',
+      'front_office.queue.today': 'ఈ రోజు',
+      'front_office.queue.tomorrow': 'రేపు',
+      'front_office.queue.following_day': 'తరువాతి రోజు',
+      'front_office.queue.today_op_queue': 'ఈ రోజు OP క్యూలో',
+      'front_office.queue.tomorrow_op_queue': 'రేపటి OP క్యూ',
+      'front_office.queue.following_day_op_queue': 'తరువాతి రోజు OP క్యూ',
+      'front_office.queue.op_queue_suffix': 'OP క్యూ',
+      'front_office.queue.mine_prefix': 'నా',
+      'front_office.appointment_status.no_show': 'రాలేదు',
+      'front_office.appointment_status.rescheduled': 'మళ్లీ షెడ్యూల్ చేయబడింది',
+      'front_office.appointment_status.in_progress': 'జరుగుతోంది',
+      'front_office.appointment_status.completed': 'పూర్తి',
+      'front_office.appointment_status.cancelled': 'రద్దు చేయబడింది',
+      'front_office.appointment_status.confirmed': 'నిర్ధారించబడింది',
+      'front_office.appointment_status.scheduled': 'షెడ్యూల్ చేయబడింది',
       'front_office.walk_in.register_button': 'నమోదు చేయండి',
       'front_office.walk_in.registering_button': 'నమోదు అవుతోంది...',
       'billing.collect_button': 'వసూలు చేయండి',
       'billing.collecting_button': 'వసూలు అవుతోంది...',
+      'billing.collect_payment_title': 'చెల్లింపు వసూలు చేయండి',
+      'billing.outstanding_prefix': 'బకాయి',
+      'billing.amount_label': 'మొత్తం',
+      'billing.mode_label': 'మోడ్',
+      'billing.reference_optional': 'సూచన (ఐచ్ఛికం)',
+      'billing.transaction_reference': 'లావాదేవీ సూచన',
+      'billing.cashier_shift_label': 'క్యాషియర్ షిఫ్ట్',
+      'billing.notes_label': 'గమనికలు',
+      'billing.payment_amount_error':
+          '0 కంటే ఎక్కువ చెల్లింపు మొత్తాన్ని నమోదు చేయండి.',
+      'billing.payment_exceeds_prefix': 'చెల్లింపు బకాయిని మించకూడదు',
+      'billing.cash_shift_required':
+          'నగదు చెల్లింపులకు డ్రాయర్ సరిపోల్చడానికి క్యాషియర్ షిఫ్ట్ అవసరం.',
+      'billing.reference_required':
+          'నగదు కాని చెల్లింపులకు లావాదేవీ సూచనను నమోదు చేయండి.',
+      'billing.invoice_id_missing': 'ఇన్వాయిస్ ID లేదు.',
+      'billing.receipt_label': 'రసీదు',
+      'billing.tax_invoice_label': 'పన్ను ఇన్వాయిస్',
+      'billing.could_not_open_prefix': 'తెరవలేకపోయాం',
       // Prescriptions - REVIEW
       'prescriptions.title': 'ఈ-ప్రిస్క్రిప్షన్‌లు',
       'prescriptions.tab.new': 'కొత్త ప్రిస్క్రిప్షన్',
@@ -12273,6 +12534,12 @@ class AppStrings {
       'due_meds.unknown_patient': 'తెలియని రోగి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'due_meds.unnamed_medication': '(పేరులేని మందులు)',
+      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
+      'due_meds.filter.all_wards': 'అన్ని వార్డులు',
+      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
+      'due_meds.filter.all_routes': 'అన్ని మార్గాలు',
+      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
+      'due_meds.filter.route_label': 'మార్గం',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'mar_scan.step1_prompt': '3లో 1వ దశ - రోగి చేతిపట్టీని స్కాన్ చేయండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production

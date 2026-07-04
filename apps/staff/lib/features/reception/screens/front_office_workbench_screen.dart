@@ -27,13 +27,11 @@ String _dateParam(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
 
 @visibleForTesting
 String frontOfficeQueueDateLabel(DateTime date, {DateTime? now}) {
-  final today = _dateOnly(now ?? DateTime.now());
-  final day = _dateOnly(date);
-  final offset = day.difference(today).inDays;
-  if (offset == 0) return 'Today OP Queue';
-  if (offset == 1) return 'Tomorrow OP Queue';
-  if (offset == 2) return 'Following Day OP Queue';
-  return '${DateFormat('EEE, d MMM').format(day)} OP Queue';
+  return frontOfficeQueueDateLabelForStrings(
+    AppStrings.forLocale(const Locale('en')),
+    date,
+    now: now,
+  );
 }
 
 String frontOfficeQueueDateLabelForStrings(
@@ -70,25 +68,9 @@ bool frontOfficeAppointmentStatusIsTerminal(String status) {
 
 @visibleForTesting
 String frontOfficeAppointmentStatusLabel(String status) {
-  switch (status.trim().toUpperCase()) {
-    case 'NO_SHOW':
-      return 'No-show';
-    case 'RESCHEDULED':
-      return 'Rescheduled';
-    case 'IN_PROGRESS':
-      return 'In progress';
-    case 'COMPLETED':
-      return 'Complete';
-    case 'CANCELLED':
-      return 'Cancelled';
-    case 'CONFIRMED':
-      return 'Confirmed';
-    case 'SCHEDULED':
-      return 'Scheduled';
-    default:
-      final cleaned = status.trim();
-      return cleaned.isEmpty ? 'Scheduled' : cleaned;
-  }
+  return AppStrings.forLocale(
+    const Locale('en'),
+  ).frontOfficeAppointmentStatusLabel(status);
 }
 
 int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
@@ -2878,10 +2860,11 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _markQueueNoShow(Map<String, dynamic> row) async {
+    final s = AppStrings.of(context);
     final confirmed = await _confirmQueueAction(
       title: 'Mark no-show',
       message: 'Mark ${_queuePatientName(row)} as no-show?',
-      confirmLabel: 'No-show',
+      confirmLabel: s.frontOfficeAppointmentStatusLabel('NO_SHOW'),
       confirmColor: AppTheme.textSecondary,
     );
     if (!confirmed) return;
@@ -3654,7 +3637,9 @@ class _FrontOfficeWorkbenchScreenState
     final s = AppStrings.of(context);
     final queueScope = _queueScope;
     final title = queueScope == FrontOfficeQueueScope.mine
-        ? 'My ${frontOfficeQueueDateLabelForStrings(s, _queueDate)}'
+        ? s.frontOfficeQueueMine(
+            frontOfficeQueueDateLabelForStrings(s, _queueDate),
+          )
         : frontOfficeQueueDateLabelForStrings(s, _queueDate);
     final dateParam = _dateParam(_queueDate);
     return _Surface(
@@ -3709,6 +3694,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _queueTile(Map<String, dynamic> row) {
+    final s = AppStrings.of(context);
     final id = _appointmentId(row);
     final name = _queuePatientName(row);
     final patient = _patientFromQueueRow(row);
@@ -3748,7 +3734,7 @@ class _FrontOfficeWorkbenchScreenState
       if (canNoShow)
         _QueueActionButton(
           icon: Icons.person_off_outlined,
-          label: 'No-show',
+          label: s.frontOfficeAppointmentStatusLabel('NO_SHOW'),
           color: AppTheme.textSecondary,
           onPressed: busy ? null : () => _markQueueNoShow(row),
         ),
@@ -3829,7 +3815,7 @@ class _FrontOfficeWorkbenchScreenState
                     ),
                     const SizedBox(width: 8),
                     _StatusPill(
-                      label: frontOfficeAppointmentStatusLabel(status),
+                      label: s.frontOfficeAppointmentStatusLabel(status),
                       color: _appointmentStatusColor(status),
                     ),
                   ],
