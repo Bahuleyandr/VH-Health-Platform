@@ -7,7 +7,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
@@ -23,6 +22,8 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/providers/dependents_provider.dart';
+import 'package:vhhealth/core/providers/websocket_provider.dart';
+import 'package:vhhealth/features/dashboard/providers/dashboard_provider.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_header.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_section.dart';
 import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
@@ -56,18 +57,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Offline support
   String? _staleLabel;
   StreamSubscription<bool>? _connectivitySub;
-
-  // Real-time appointment polling
-  Timer? _appointmentPoller;
-  Map<String, dynamic>? _todayAppointment;
-  int _apptPollFailures = 0;
-
-  // Smart stat data
-  Timer? _smartWidgetPoller;
-  int _smartPollFailures = 0;
+  late final DashboardProvider _dashboardProvider;
 
   // Gamification data
-  Map<String, dynamic>? _nextAppointmentDetail;
   Map<String, dynamic>? _healthPoints;
   bool _commandCenterLoading = false;
   String? _commandCenterError;
@@ -77,14 +69,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   _DashboardStatPanel? _expandedStatPanel;
   String? _lastActingAsUid;
 
-  // Stats-strip data (lifted from individual widgets so the strip can
-  // render at the top with the same numbers without each widget
-  // duplicating its own fetch).
-  int? _wellnessScore;
-  int? _stepsToday;
-  int? _stepGoal;
-  double? _distanceTodayMeters;
-  String? _activityLevelLabel;
   CycleTrackerSnapshot? _cycleTrackerSnapshot;
   bool _stepsHealthSyncInFlight = false;
 
@@ -101,6 +85,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _isGuestSession = user.isGuest;
     _features = _initializeFeatures();
     cachedName = _name;
+    _dashboardProvider = DashboardProvider(isGuestSession: _isGuestSession)
+      ..addListener(_handleDashboardProviderChanged);
 
     _connectivitySub = ConnectivityService.onChange.listen((isOnline) {
       if (isOnline && mounted && !_isGuestSession) {
@@ -113,8 +99,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _loadCachedData();
         _loadCycleTrackerSnapshot();
         _maybeFetchFromBackend();
-        _startAppointmentPolling();
-        _startSmartWidgetPolling();
+        _attachRealtimeDashboardRefresh();
+        _dashboardProvider.start();
       }
       // Daily mood check-in prompt — only shows if not already done today.
       if (mounted && !_isGuestSession) {
@@ -126,170 +112,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _connectivitySub?.cancel();
-    _appointmentPoller?.cancel();
-    _smartWidgetPoller?.cancel();
+    _dashboardProvider.removeListener(_handleDashboardProviderChanged);
+    _dashboardProvider.dispose();
     super.dispose();
   }
 
-  // ── Appointment polling (30s, with backoff on consecutive failures) ──
-  void _startAppointmentPolling() {
-    _pollAppointments(); // immediate first poll
-    _scheduleNextApptPoll();
+  void _handleDashboardProviderChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _scheduleNextApptPoll() {
-    final backoff = _apptPollFailures > 0
-        ? Duration(seconds: 30 * (1 << _apptPollFailures.clamp(0, 4)))
-        : const Duration(seconds: 30);
-    _appointmentPoller?.cancel();
-    _appointmentPoller = Timer(backoff, () {
-      _pollAppointments();
-      if (mounted) _scheduleNextApptPoll();
-    });
-  }
-
-  Future<void> _pollAppointments() async {
-    if (_isGuestSession) return;
+  void _attachRealtimeDashboardRefresh() {
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null || uid.isEmpty) return;
-
-      final response = await ApiClient.get(
-        '/appointments/uid/$uid',
-        timeout: const Duration(seconds: 8),
+      _dashboardProvider.attachWebSocketProvider(
+        context.read<WebSocketProvider>(),
       );
-      if (!mounted) return;
-
-      if (response.isSuccess) {
-        final List<dynamic> appointments = response.data ?? [];
-
-        // Find today's appointment
-        final now = DateTime.now();
-        final todayStr = DateFormat('yyyy-MM-dd').format(now);
-
-        Map<String, dynamic>? todayAppt;
-        for (final appt in appointments) {
-          final dateStr = appt['appointment_date']?.toString() ?? '';
-          // Check if appointment is today
-          if (dateStr.startsWith(todayStr)) {
-            final status = appt['status']?.toString() ?? '';
-            if (status != 'CANCELLED' && status != 'NO_SHOW') {
-              todayAppt = Map<String, dynamic>.from(appt);
-              break;
-            }
-          }
-        }
-
-        if (mounted) {
-          setState(() {
-            _todayAppointment = todayAppt;
-          });
-        }
-      }
-      _apptPollFailures = 0; // reset on any successful response
     } catch (e) {
-      _apptPollFailures++;
       if (kDebugMode) {
-        debugPrint('Appointment poll failed (#$_apptPollFailures): $e');
-      }
-    }
-  }
-
-  // ── Smart widget polling (60s, with backoff on consecutive failures) ──
-  void _startSmartWidgetPolling() {
-    _fetchSmartWidgetData(); // immediate first fetch
-    _scheduleNextSmartPoll();
-  }
-
-  void _scheduleNextSmartPoll() {
-    final backoff = _smartPollFailures > 0
-        ? Duration(seconds: 60 * (1 << _smartPollFailures.clamp(0, 4)))
-        : const Duration(seconds: 60);
-    _smartWidgetPoller?.cancel();
-    _smartWidgetPoller = Timer(backoff, () {
-      _fetchSmartWidgetData();
-      if (mounted) _scheduleNextSmartPoll();
-    });
-  }
-
-  Future<void> _fetchSmartWidgetData() async {
-    if (_isGuestSession) return;
-    try {
-      // 1. Wellness score (for the stats strip header)
-      try {
-        final wsRes = await ApiClient.get(
-          '/gamification/wellness-score',
-          timeout: const Duration(seconds: 8),
-        );
-        if (mounted && wsRes.isSuccess) {
-          final data = wsRes.dataAsMap();
-          final score = data['score'];
-          if (mounted && score is num) {
-            setState(() => _wellnessScore = score.toInt());
-          }
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('Smart poll (wellness) failed: $e');
-      }
-
-      // 2. Steps profile (today + goal for the stats strip)
-      try {
-        final stepsRes = await ApiClient.get(
-          '/steps/profile',
-          timeout: const Duration(seconds: 8),
-        );
-        if (mounted && stepsRes.isSuccess) {
-          final data = stepsRes.dataAsMap();
-          final profile = data['profile'] is Map
-              ? data['profile'] as Map
-              : null;
-          final todayActivity = data['todayActivity'] is Map
-              ? data['todayActivity'] as Map
-              : null;
-          final activityLevel = data['activityLevel'] is Map
-              ? data['activityLevel'] as Map
-              : null;
-          final today =
-              data['steps_today'] ??
-              data['stepsToday'] ??
-              todayActivity?['steps'] ??
-              data['today'];
-          final goal =
-              data['daily_goal'] ??
-              data['dailyGoal'] ??
-              data['goal'] ??
-              profile?['daily_goal'] ??
-              profile?['dailyGoal'];
-          final distance =
-              data['distanceTodayMeters'] ??
-              data['distance_today_meters'] ??
-              todayActivity?['distanceMeters'];
-          final levelLabel =
-              activityLevel?['label']?.toString() ??
-              (todayActivity?['activityLevel'] is Map
-                  ? (todayActivity?['activityLevel'] as Map)['label']
-                        ?.toString()
-                  : null);
-          if (mounted) {
-            setState(() {
-              _stepsToday = today is num ? today.toInt() : _stepsToday;
-              _stepGoal = goal is num ? goal.toInt() : _stepGoal;
-              _distanceTodayMeters = distance is num
-                  ? distance.toDouble()
-                  : _distanceTodayMeters;
-              _activityLevelLabel = levelLabel ?? _activityLevelLabel;
-            });
-          }
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('Smart poll (steps) failed: $e');
-      }
-
-      _smartPollFailures = 0; // reset on any partial success
-    } catch (e) {
-      _smartPollFailures++;
-      if (kDebugMode) {
-        debugPrint('Smart poll failed (#$_smartPollFailures): $e');
+        debugPrint('Dashboard WS refresh attachment skipped: $e');
       }
     }
   }
@@ -501,6 +340,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final healthPoints = _asStringMap(services['health_points']);
 
     final nextAppointmentLabel = _appointmentSummary(nextAppointmentData);
+    _dashboardProvider.applyCommandCenterAppointment(
+      nextAppointmentData,
+      notify: false,
+    );
     setState(() {
       _staleLabel = staleLabel;
       _commandCenterLoading = false;
@@ -510,10 +353,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (profile['name']?.toString().trim().isNotEmpty == true) {
         cachedName = profile['name'].toString();
       }
-      _todayAppointment = nextAppointmentData.isEmpty
-          ? null
-          : nextAppointmentData;
-      _nextAppointmentDetail = nextAppointmentData;
       _healthPoints = healthPoints.isEmpty ? null : healthPoints;
       nextAppointment = nextAppointmentLabel;
     });
@@ -728,7 +567,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       if (!mounted) return;
 
-      await _fetchSmartWidgetData();
+      await _dashboardProvider.refreshSmartWidgets();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -767,10 +606,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       case _DashboardStatPanel.steps:
         return StepsBreakdownPanel(
-          stepsToday: _stepsToday,
-          stepGoal: _stepGoal,
-          distanceTodayMeters: _distanceTodayMeters,
-          activityLevelLabel: _activityLevelLabel,
+          stepsToday: _dashboardProvider.stepsToday,
+          stepGoal: _dashboardProvider.stepGoal,
+          distanceTodayMeters: _dashboardProvider.distanceTodayMeters,
+          activityLevelLabel: _dashboardProvider.activityLevelLabel,
           onOpenFull: () => _openFeature(context, '/steps'),
         );
       case _DashboardStatPanel.points:
@@ -866,8 +705,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_isGuestSession) return;
     await Future.wait([
       _fetchAndStoreDashboardFresh(),
-      _fetchSmartWidgetData(),
-      _pollAppointments(),
+      _dashboardProvider.refreshSmartWidgets(),
+      _dashboardProvider.refreshAppointments(),
       _loadCycleTrackerSnapshot(),
     ]);
   }
@@ -898,10 +737,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _expandedStatPanel = null;
           }
         });
+        _dashboardProvider.clearProfileScopedState();
         _loadCycleTrackerSnapshot();
         _fetchAndStoreDashboardFresh();
-        _fetchSmartWidgetData();
-        _pollAppointments();
+        _dashboardProvider.refreshSmartWidgets();
+        _dashboardProvider.refreshAppointments();
       });
     }
 
@@ -965,11 +805,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         if (hasStatsSection)
                           stagger(
                             StatsStrip(
-                              wellnessScore: _wellnessScore,
+                              wellnessScore: _dashboardProvider.wellnessScore,
                               healthPoints: healthPointsTotal,
                               healthTier: healthTierLabel,
-                              stepsToday: _stepsToday,
-                              stepGoal: _stepGoal,
+                              stepsToday: _dashboardProvider.stepsToday,
+                              stepGoal: _dashboardProvider.stepGoal,
                               cycleEstimate: _cycleTrackerSnapshot?.estimate(),
                               wellnessExpanded:
                                   activeStatPanel ==
@@ -1075,8 +915,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// the dashboard endpoint (which arrives as an ISO timestamp; we
   /// reformat to "in N days" for readability).
   String? _formatNextApptLabel() {
-    if (_todayAppointment != null) return 'Visit today';
-    final detail = _nextAppointmentDetail;
+    if (_dashboardProvider.todayAppointment != null) return 'Visit today';
+    final detail = _dashboardProvider.nextAppointmentDetail;
     if (detail != null) {
       final daysAway = detail['daysAway'] ?? detail['days_away'];
       if (daysAway is num) {
