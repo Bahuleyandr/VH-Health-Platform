@@ -89,6 +89,13 @@ Future<void> _chooseDropdownOption(
   await tester.pumpAndSettle();
 }
 
+void _setViewSize(WidgetTester tester, Size size) {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = size;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -235,6 +242,63 @@ void main() {
 
     expect(find.text('Bed A1'), findsOneWidget);
     expect(find.text('Bed A2'), findsOneWidget);
+  });
+
+  testWidgets('bed board desktop selects a bed into the detail pane', (
+    tester,
+  ) async {
+    _setViewSize(tester, const Size(1280, 800));
+    _installSecureStorageFake(role: 'NURSING_STAFF');
+    VHHttpClient.setClientForTesting(
+      MockClient((req) async {
+        if (req.url.path.endsWith('/wards')) {
+          return _jsonResponse({
+            'success': true,
+            'data': {
+              'wards': [
+                {'id': 1, 'name': 'ICU', 'bed_count': 2, 'occupied_count': 1},
+              ],
+            },
+          });
+        }
+        if (req.url.path.endsWith('/beds/ward/1')) {
+          return _jsonResponse({
+            'success': true,
+            'data': {
+              'beds': [
+                {'id': 1, 'bed_number': 'A1', 'status': 'available'},
+                {
+                  'id': 2,
+                  'bed_number': 'A2',
+                  'status': 'occupied',
+                  'patient_full_name': 'Bala Rao',
+                  'patient_hospital_number': 'H123',
+                  'patient_age': 42,
+                  'patient_gender': 'male',
+                  'patient_uid': 'patient-b',
+                  'admission_id': 'adm-2',
+                },
+              ],
+            },
+          });
+        }
+        return _jsonResponse({'success': true, 'data': {}});
+      }),
+    );
+
+    await _pumpStaffScreen(tester, const BedBoardScreen());
+    await tester.tap(find.text('ICU'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Select a bed to view details'), findsOneWidget);
+    expect(find.text('Bed A2'), findsOneWidget);
+
+    await tester.tap(find.text('Bed A2').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Select a bed to view details'), findsNothing);
+    expect(find.text('Hospital ID'), findsOneWidget);
+    expect(find.text('H123'), findsAtLeastNWidgets(1));
   });
 
   testWidgets(

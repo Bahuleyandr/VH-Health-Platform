@@ -240,6 +240,7 @@ class AppStrings {
   String get bedBoardSearchWardsHint => _t('bed_board.search_wards_hint');
   String get bedBoardSearchBedsHint => _t('bed_board.search_beds_hint');
   String get bedBoardSelectWardPrompt => _t('bed_board.select_ward_prompt');
+  String get bedBoardSelectBedPrompt => _t('bed_board.select_bed_prompt');
   String get bedBoardEmptyTitle => _t('bed_board.empty_title');
   String get bedBoardEmptyBody => _t('bed_board.empty_body');
   String get bedBoardLegendAvailable => _t('bed.status.available');
@@ -2897,6 +2898,7 @@ class AppStrings {
       'bed_board.search_wards_hint': 'Search wards…',
       'bed_board.search_beds_hint': 'Search by bed # or patient name…',
       'bed_board.select_ward_prompt': 'Select a ward to view its beds',
+      'bed_board.select_bed_prompt': 'Select a bed to view details',
       'bed_board.empty_title': 'No beds in this ward',
       'bed_board.empty_body': 'Add beds via the admin portal.',
       'bed_board.filter.all': 'All',
@@ -5098,6 +5100,7 @@ class AppStrings {
       'bed_board.search_wards_hint': 'वार्ड खोजें…',
       'bed_board.search_beds_hint': 'बेड नंबर या मरीज़ का नाम खोजें…',
       'bed_board.select_ward_prompt': 'बेड देखने के लिए वार्ड चुनें',
+      'bed_board.select_bed_prompt': 'विवरण देखने के लिए बेड चुनें',
       'bed_board.empty_title': 'इस वार्ड में कोई बेड नहीं',
       'bed_board.empty_body': 'एडमिन पोर्टल से बेड जोड़ें।',
       'bed_board.filter.all': 'सभी',
@@ -7297,6 +7300,8 @@ class AppStrings {
       'bed_board.search_beds_hint': 'படுக்கை எண் அல்லது நோயாளி பெயரால் தேடு…',
       'bed_board.select_ward_prompt':
           'படுக்கைகளைப் பார்க்க வார்டைத் தேர்ந்தெடு',
+      'bed_board.select_bed_prompt':
+          'விவரங்களைப் பார்க்க படுக்கையைத் தேர்ந்தெடு',
       'bed_board.empty_title': 'இந்த வார்டில் படுக்கைகள் இல்லை',
       'bed_board.empty_body': 'நிர்வாகி போர்டல் வழியாக படுக்கைகளைச் சேர்.',
       'bed_board.filter.all': 'அனைத்தும்',
@@ -9968,6 +9973,7 @@ class AppStrings {
       'bed_board.search_wards_hint': 'వార్డులను వెతకండి…',
       'bed_board.search_beds_hint': 'బెడ్ నం. లేదా రోగి పేరుతో వెతకండి…',
       'bed_board.select_ward_prompt': 'బెడ్‌లను చూడటానికి వార్డ్ ఎంచుకోండి',
+      'bed_board.select_bed_prompt': 'వివరాలను చూడటానికి బెడ్‌ను ఎంచుకోండి',
       'bed_board.empty_title': 'ఈ వార్డులో బెడ్‌లు లేవు',
       'bed_board.empty_body': 'అడ్మిన్ పోర్టల్ ద్వారా బెడ్‌లు జోడించండి.',
       'bed_board.filter.all': 'అన్నీ',
