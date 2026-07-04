@@ -26,6 +26,9 @@ constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
+constexpr int kMinimumWindowWidth = 1100;
+constexpr int kMinimumWindowHeight = 700;
+
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
 
@@ -35,6 +38,16 @@ using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
 // scale factor
 int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
+}
+
+void ApplyMinimumWindowSize(HWND hwnd, LPARAM lparam) {
+  auto minmax_info = reinterpret_cast<MINMAXINFO*>(lparam);
+  HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+  UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+  double scale_factor = dpi / 96.0;
+
+  minmax_info->ptMinTrackSize.x = Scale(kMinimumWindowWidth, scale_factor);
+  minmax_info->ptMinTrackSize.y = Scale(kMinimumWindowHeight, scale_factor);
 }
 
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
@@ -197,6 +210,11 @@ Win32Window::MessageHandler(HWND hwnd,
 
       return 0;
     }
+
+    case WM_GETMINMAXINFO:
+      ApplyMinimumWindowSize(hwnd, lparam);
+      return 0;
+
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
