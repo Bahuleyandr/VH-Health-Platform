@@ -707,18 +707,18 @@ class HrApiService {
 
   // ─── Payroll ──────────────────────────────────────────────────────────────
 
-  /// GET /staff/hr/payslips?months=N
+  /// GET /staff/hr/payroll/my-payslips?months=N
   static Future<List<dynamic>> getMyPayslips({int months = 3}) async {
     final result = await _get(
-      '/staff/hr/payslips',
+      '/staff/hr/payroll/my-payslips',
       query: {'months': months.toString()},
     );
     return result['data'] as List? ?? (result is List ? result as List : []);
   }
 
-  /// GET /staff/hr/payslips/:id
+  /// GET /staff/hr/payroll/my-payslips/:id
   static Future<Map<String, dynamic>> getPayslipDetail(String id) async {
-    final result = await _get('/staff/hr/payslips/$id');
+    final result = await _get('/staff/hr/payroll/my-payslips/$id');
     return (result['data'] as Map<String, dynamic>?) ?? result;
   }
 

@@ -2,11 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
+typedef PayrollDeclarationsLoader = Future<List<dynamic>> Function();
+typedef PayrollDeclarationSubmitter =
+    Future<Object?> Function(Map<String, dynamic> data);
+
 class InvestmentDeclarationScreen extends StatefulWidget {
-  const InvestmentDeclarationScreen({super.key});
+  final PayrollDeclarationsLoader? loadDeclarations;
+  final PayrollDeclarationSubmitter? submitDeclaration;
+
+  const InvestmentDeclarationScreen({
+    super.key,
+    this.loadDeclarations,
+    this.submitDeclaration,
+  });
 
   @override
   State<InvestmentDeclarationScreen> createState() =>
@@ -135,7 +147,8 @@ class _InvestmentDeclarationScreenState
       _loading = true;
     });
     try {
-      final list = await HrApiService.getMyDeclarations();
+      final loader = widget.loadDeclarations ?? HrApiService.getMyDeclarations;
+      final list = await loader();
       if (mounted) {
         setState(() {
           _declarations = list;
@@ -183,10 +196,13 @@ class _InvestmentDeclarationScreenState
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      await HrApiService.submitInvestmentDeclaration({
+      final submitter =
+          widget.submitDeclaration ?? HrApiService.submitInvestmentDeclaration;
+      await submitter({
         'financial_year': _selectedFY,
         'ppf': _val(_ppf),
         'epf_voluntary': _val(_epfVol),
@@ -381,162 +397,175 @@ class _InvestmentDeclarationScreenState
           const LogoutAction(),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Totals summary card
-            Container(
-              padding: const EdgeInsets.all(16),
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF007A64), Color(0xFF00A685)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      body: ConstrainedContent(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Totals summary card
+              Container(
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF007A64), Color(0xFF00A685)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    s.payrollDeclarationEstimatedDeductions,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _TotalChip(
-                        label: '80C (max ₹1.5L)',
-                        value: _fmtCurrency(_total80C),
-                        cap: _total80C >= 150000,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.payrollDeclarationEstimatedDeductions,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
                       ),
-                      _TotalChip(label: '80D', value: _fmtCurrency(_total80D)),
-                      _TotalChip(
-                        label: 'NPS',
-                        value: _fmtCurrency(_npsDeduction),
-                      ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white24, height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        s.payrollDeclarationTotalDeductions,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _TotalChip(
+                          label: '80C (max ₹1.5L)',
+                          value: _fmtCurrency(_total80C),
+                          cap: _total80C >= 150000,
                         ),
-                      ),
-                      Text(
-                        _fmtCurrency(_totalDeductions),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
+                        _TotalChip(
+                          label: '80D',
+                          value: _fmtCurrency(_total80D),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            _section(s.payrollDeclarationSection80c, [
-              _field(s.payrollDeclarationFieldPpf, _ppf),
-              _field(s.payrollDeclarationFieldEpf, _epfVol),
-              _field(s.payrollDeclarationFieldElss, _elss),
-              _field(s.payrollDeclarationFieldLic, _lic),
-              _field(s.payrollDeclarationFieldNsc, _nsc),
-              _field(
-                s.payrollDeclarationFieldHomeLoanPrincipal,
-                _homeLoanPrincipal,
-              ),
-              _field(s.payrollDeclarationFieldTuition, _tuition),
-              _field(s.payrollDeclarationFieldOther80c, _other80c),
-            ]),
-
-            _section(s.payrollDeclarationSection80d, [
-              _field(s.payrollDeclarationFieldHiSelf, _hiSelf, max: 25000),
-              _field(
-                s.payrollDeclarationFieldHiParents,
-                _hiParents,
-                max: 25000,
-              ),
-            ]),
-
-            _section(s.payrollDeclarationSectionOther, [
-              _field(s.payrollDeclarationFieldNps, _nps, max: 50000),
-              _field(
-                s.payrollDeclarationFieldHomeLoanInterest,
-                _homeLoanInterest,
-                max: 200000,
-              ),
-              _field(s.payrollDeclarationFieldEduLoan, _eduLoanInterest),
-            ]),
-
-            _section(s.payrollDeclarationSectionRent, [
-              _field(s.payrollDeclarationFieldRentMonthly, _rentMonthly),
-              SwitchListTile(
-                value: _rentReceipt,
-                onChanged: (v) => setState(() => _rentReceipt = v),
-                title: Text(
-                  s.payrollDeclarationRentReceipts,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                activeThumbColor: const Color(0xFF007A64),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ]),
-
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _submitting ? null : _submit,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF007A64),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: _submitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                        _TotalChip(
+                          label: 'NPS',
+                          value: _fmtCurrency(_npsDeduction),
                         ),
-                      )
-                    : Text(
-                        s.payrollDeclarationSubmitButton,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                      ],
+                    ),
+                    const Divider(color: Colors.white24, height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          s.payrollDeclarationTotalDeductions,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            if (_declarations.isNotEmpty) ...[
-              Text(
-                s.payrollDeclarationPastTitle,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
+                        Text(
+                          _fmtCurrency(_totalDeductions),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
+
+              _section(s.payrollDeclarationSection80c, [
+                _field(s.payrollDeclarationFieldPpf, _ppf),
+                _field(s.payrollDeclarationFieldEpf, _epfVol),
+                _field(s.payrollDeclarationFieldElss, _elss),
+                _field(s.payrollDeclarationFieldLic, _lic),
+                _field(s.payrollDeclarationFieldNsc, _nsc),
+                _field(
+                  s.payrollDeclarationFieldHomeLoanPrincipal,
+                  _homeLoanPrincipal,
+                ),
+                _field(s.payrollDeclarationFieldTuition, _tuition),
+                _field(s.payrollDeclarationFieldOther80c, _other80c),
+              ]),
+
+              _section(s.payrollDeclarationSection80d, [
+                _field(s.payrollDeclarationFieldHiSelf, _hiSelf, max: 25000),
+                _field(
+                  s.payrollDeclarationFieldHiParents,
+                  _hiParents,
+                  max: 25000,
+                ),
+              ]),
+
+              _section(s.payrollDeclarationSectionOther, [
+                _field(s.payrollDeclarationFieldNps, _nps, max: 50000),
+                _field(
+                  s.payrollDeclarationFieldHomeLoanInterest,
+                  _homeLoanInterest,
+                  max: 200000,
+                ),
+                _field(s.payrollDeclarationFieldEduLoan, _eduLoanInterest),
+              ]),
+
+              _section(s.payrollDeclarationSectionRent, [
+                _field(s.payrollDeclarationFieldRentMonthly, _rentMonthly),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        s.payrollDeclarationRentReceipts,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    Switch(
+                      value: _rentReceipt,
+                      onChanged: (v) => setState(() => _rentReceipt = v),
+                      activeThumbColor: const Color(0xFF007A64),
+                    ),
+                  ],
+                ),
+              ]),
+
               const SizedBox(height: 8),
-              ..._declarations.map((d) => _DeclarationCard(d: d)),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _submitting ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF007A64),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: _submitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          s.payrollDeclarationSubmitButton,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              if (_declarations.isNotEmpty) ...[
+                Text(
+                  s.payrollDeclarationPastTitle,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ..._declarations.map((d) => _DeclarationCard(d: d)),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -594,24 +623,29 @@ class _DeclarationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(
-          'FY ${d['financial_year']}',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          'Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}',
-        ),
-        trailing: Chip(
-          label: Text(
-            d['status'] ?? '—',
-            style: const TextStyle(fontSize: 11, color: Colors.white),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          title: Text(
+            'FY ${d['financial_year']}',
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          backgroundColor: _statusColor,
-          padding: EdgeInsets.zero,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          subtitle: Text(
+            'Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}',
+          ),
+          trailing: Chip(
+            label: Text(
+              d['status'] ?? '—',
+              style: const TextStyle(fontSize: 11, color: Colors.white),
+            ),
+            backgroundColor: _statusColor,
+            padding: EdgeInsets.zero,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ),
       ),
     );

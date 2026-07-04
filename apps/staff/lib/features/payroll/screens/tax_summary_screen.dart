@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../payroll_amounts.dart';
+
+typedef PayrollTaxSummaryLoader =
+    Future<Map<String, dynamic>> Function({String? fy});
 
 class TaxSummaryScreen extends StatefulWidget {
-  const TaxSummaryScreen({super.key});
+  final PayrollTaxSummaryLoader? loadTaxSummary;
+
+  const TaxSummaryScreen({super.key, this.loadTaxSummary});
 
   @override
   State<TaxSummaryScreen> createState() => _TaxSummaryScreenState();
@@ -43,7 +50,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
       _error = null;
     });
     try {
-      final data = await HrApiService.getMyTaxSummary(fy: _selectedFY);
+      final loader = widget.loadTaxSummary ?? HrApiService.getMyTaxSummary;
+      final data = await loader(fy: _selectedFY);
       if (mounted) setState(() => _summary = data);
     } catch (e) {
       if (mounted) {
@@ -92,90 +100,94 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           const LogoutAction(),
         ],
       ),
-      body: Column(
-        children: [
-          // FY Selector
-          Container(
-            color: const Color(0xFF007A64).withValues(alpha: 0.08),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: [
-                Text(
-                  str.payrollTaxSummaryFyLabel,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedFY,
-                      isDense: true,
-                      items: _fyOptions
-                          .map(
-                            (fy) => DropdownMenuItem(
-                              value: fy,
-                              child: Text('FY $fy'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (fy) {
-                        if (fy != null && fy != _selectedFY) {
-                          setState(() => _selectedFY = fy);
-                          _load();
-                        }
-                      },
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            // FY Selector
+            Container(
+              color: const Color(0xFF007A64).withValues(alpha: 0.08),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Text(
+                    str.payrollTaxSummaryFyLabel,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-
-          // Body
-          Expanded(
-            child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF007A64)),
-                  )
-                : _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red.shade300,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: _load,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF007A64),
-                              foregroundColor: Colors.white,
-                            ),
-                            child: Text(str.actionRetry),
-                          ),
-                        ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedFY,
+                        isDense: true,
+                        items: _fyOptions
+                            .map(
+                              (fy) => DropdownMenuItem(
+                                value: fy,
+                                child: Text('FY $fy'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (fy) {
+                          if (fy != null && fy != _selectedFY) {
+                            setState(() => _selectedFY = fy);
+                            _load();
+                          }
+                        },
                       ),
                     ),
-                  )
-                : _summary == null
-                ? Center(child: Text(str.labelNoData))
-                : _buildBody(),
-          ),
-        ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Body
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF007A64),
+                      ),
+                    )
+                  : _error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.red.shade300,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _load,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF007A64),
+                                foregroundColor: Colors.white,
+                              ),
+                              child: Text(str.actionRetry),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _summary == null
+                  ? Center(child: Text(str.labelNoData))
+                  : _buildBody(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -185,8 +197,7 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
     final summary = _summary!;
     final fmt = NumberFormat('#,##,##0.00');
 
-    String fmtAmt(dynamic v) =>
-        '₹${fmt.format(double.tryParse(v?.toString() ?? '0') ?? 0)}';
+    String fmtAmt(dynamic v) => payrollCurrency(v, format: fmt);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),

@@ -324,9 +324,42 @@ void main() {
       final ids = feats.map((f) => f.id).toSet();
       expect(ids, contains('housekeeping_hub'));
       expect(ids, contains('housekeeping_tasks'));
+      expect(ids, contains('payroll'));
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('hr_dashboard')));
       expect(ids, isNot(contains('clinical_ai_review_queue')));
+    });
+
+    test('payroll self-service mirrors backend staff HR route allowlist', () {
+      expect(RoleFeatures.hasPayrollSelfService(StaffRole.general), isTrue);
+      expect(
+        RoleFeatures.hasPayrollSelfService(StaffRole.billingStaff),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPayrollSelfService(StaffRole.billingIncharge),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPayrollSelfService(StaffRole.financeIncharge),
+        isFalse,
+      );
+
+      for (final role in StaffRole.values) {
+        final payrollFeatures = RoleFeatures.getFeaturesForRole(
+          role,
+        ).where((feature) => feature.id == 'payroll').toList();
+
+        expect(
+          payrollFeatures.isNotEmpty,
+          RoleFeatures.hasPayrollSelfService(role),
+          reason: '$role payroll self-service visibility drifted',
+        );
+        if (payrollFeatures.isNotEmpty) {
+          expect(payrollFeatures, hasLength(1));
+          expect(payrollFeatures.single.route, '/payroll');
+        }
+      }
     });
 
     test(
@@ -445,6 +478,11 @@ void main() {
           ids.contains('billing_desk'),
           RoleFeatures.hasBillingDesk(role),
           reason: '$role billing visibility drifted',
+        );
+        expect(
+          ids.contains('payroll'),
+          RoleFeatures.hasPayrollSelfService(role),
+          reason: '$role payroll visibility drifted',
         );
         expect(
           ids.contains('audit_logs'),
@@ -701,6 +739,11 @@ void main() {
           routes.contains('/clinical-inbox'),
           RoleFeatures.hasClinicalInbox(role),
           reason: '$role clinical inbox side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/payroll'),
+          RoleFeatures.hasPayrollSelfService(role),
+          reason: '$role payroll side bar visibility drifted',
         );
         expect(
           routes.contains('/audit-logs'),

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_staff/core/config/api_config.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
+import '../../l10n/app_strings.dart';
 import '../platform_info.dart';
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
@@ -57,6 +58,13 @@ import '../../features/hr/screens/staff_roster_hub_screen.dart';
 import '../../features/hr/screens/performance_screen.dart';
 import '../../features/reports/screens/reports_admin_queue_screen.dart';
 import '../../features/reports/screens/reports_hub_screen.dart';
+
+// Payroll
+import '../../features/payroll/screens/investment_declaration_screen.dart';
+import '../../features/payroll/screens/payslip_detail_screen.dart';
+import '../../features/payroll/screens/payslip_query_screen.dart';
+import '../../features/payroll/screens/payslip_screen.dart';
+import '../../features/payroll/screens/tax_summary_screen.dart';
 
 // Housekeeping
 import '../../features/housekeeping/screens/tasks_screen.dart';
@@ -666,6 +674,45 @@ final GoRouter appRouter = GoRouter(
           name: 'reports-grievances-admin',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: ReportsAdminQueueScreen()),
+        ),
+        GoRoute(
+          path: '/payroll',
+          name: 'payroll',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: PayslipScreen()),
+        ),
+        GoRoute(
+          path: '/payroll/payslips/:id',
+          name: 'payroll-payslip-detail',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: PayslipDetailScreen(
+                payslipId: state.pathParameters['id'] ?? '',
+                monthLabel:
+                    q['label'] ??
+                    AppStrings.of(context).payrollDetailTitlePrefix,
+              ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/payroll/queries',
+          name: 'payroll-queries',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: PayslipQueryScreen()),
+        ),
+        GoRoute(
+          path: '/payroll/declarations',
+          name: 'payroll-declarations',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: InvestmentDeclarationScreen()),
+        ),
+        GoRoute(
+          path: '/payroll/tax-summary',
+          name: 'payroll-tax-summary',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: TaxSummaryScreen()),
         ),
 
         // Housekeeping

@@ -449,6 +449,13 @@ class RoleFeatures {
     route: '/leave',
     color: Color(0xFF00796B),
   );
+  static const DashboardFeature _payroll = DashboardFeature(
+    id: 'payroll',
+    title: 'Payroll',
+    icon: Icons.payments_outlined,
+    route: '/payroll',
+    color: Color(0xFF00695C),
+  );
   static const DashboardFeature _leaveApprovals = DashboardFeature(
     id: 'leave_approvals',
     title: 'Leave Approvals',
@@ -1180,7 +1187,38 @@ class RoleFeatures {
         _settings,
       ],
     };
-    return [...features, _safetyCenter, _reportsGrievances];
+    return [
+      ..._withPayrollSelfService(role, features),
+      _safetyCenter,
+      _reportsGrievances,
+    ];
+  }
+
+  static List<DashboardFeature> _withPayrollSelfService(
+    StaffRole role,
+    List<DashboardFeature> features,
+  ) {
+    if (!hasPayrollSelfService(role) ||
+        features.any((feature) => feature.id == _payroll.id)) {
+      return features;
+    }
+    final result = [...features];
+    final leaveIndex = result.indexWhere((feature) => feature.id == _leave.id);
+    final dutyIndex = result.indexWhere(
+      (feature) => feature.id == _dutyPreference.id,
+    );
+    final scheduleIndex = result.indexWhere(
+      (feature) => feature.id == _schedule.id,
+    );
+    final insertAt = leaveIndex >= 0
+        ? leaveIndex + 1
+        : dutyIndex >= 0
+        ? dutyIndex + 1
+        : scheduleIndex >= 0
+        ? scheduleIndex + 1
+        : result.length;
+    result.insert(insertAt, _payroll);
+    return result;
   }
 
   /// Returns role-specific bottom nav items with their routes.
@@ -2143,6 +2181,48 @@ class RoleFeatures {
     };
   }
 
+  static bool hasPayrollSelfService(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.hr ||
+      StaffRole.housekeepingIncharge ||
+      StaffRole.nursingIncharge ||
+      StaffRole.opIncharge ||
+      StaffRole.ipIncharge ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.general ||
+      StaffRole.housekeeping ||
+      StaffRole.maintenance ||
+      StaffRole.nurse ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.opStaffNurse ||
+      StaffRole.otNurse ||
+      StaffRole.otIncharge ||
+      StaffRole.cathLabStaff ||
+      StaffRole.cathLabIncharge ||
+      StaffRole.doctor ||
+      StaffRole.anaesthetist ||
+      StaffRole.dutyDoctor ||
+      StaffRole.pharmacy ||
+      StaffRole.pharmacyIncharge ||
+      StaffRole.storesPurchaseIncharge ||
+      StaffRole.lab ||
+      StaffRole.radiologyStaff ||
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.billingStaff ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.admissionOfficer ||
+      StaffRole.ipdCounsellor ||
+      StaffRole.driver ||
+      StaffRole.security ||
+      StaffRole.emergencyResponder => true,
+      StaffRole.billingIncharge || StaffRole.financeIncharge => false,
+    };
+  }
+
   static List<WorkbenchNavItem> getWorkbenchNavForRole(
     StaffRole role, {
     Set<String>? policyFeatureIds,
@@ -2281,6 +2361,18 @@ class RoleFeatures {
           featureId: 'housekeeping_hub',
         ),
       ]);
+    }
+
+    if (hasPayrollSelfService(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Payroll',
+          icon: Icons.payments_outlined,
+          selectedIcon: Icons.payments,
+          route: '/payroll',
+          featureId: 'payroll',
+        ),
+      );
     }
 
     items.addAll(const [
