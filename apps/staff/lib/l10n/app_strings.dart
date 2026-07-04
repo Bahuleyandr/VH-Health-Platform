@@ -2168,17 +2168,6 @@ class AppStrings {
   String get overtimeEmpty => _t('overtime.empty');
   String get overtimeRejectedPrefix => _t('overtime.rejected_prefix');
 
-  // ── Telemedicine ──────────────────────────────────────────────────
-  String get telemedicineTitlePrefix => _t('telemedicine.title_prefix');
-  String get telemedicineSdkMissingTitle =>
-      _t('telemedicine.sdk_missing_title');
-  String get telemedicineSdkMissingBody => _t('telemedicine.sdk_missing_body');
-  String get telemedicineMute => _t('telemedicine.mute');
-  String get telemedicineUnmute => _t('telemedicine.unmute');
-  String get telemedicineCameraOff => _t('telemedicine.camera_off');
-  String get telemedicineCameraOn => _t('telemedicine.camera_on');
-  String get telemedicineEndCall => _t('telemedicine.end_call');
-
   // ── Clinical AI ───────────────────────────────────────────────────
   String get clinicalAiQueueTitle => _t('clinical_ai.queue.title');
   String get clinicalAiQueueComposeButton =>
@@ -4583,16 +4572,6 @@ class AppStrings {
       'overtime.submitted_success': '✅ Overtime request submitted',
       'overtime.empty': 'No overtime requests',
       'overtime.rejected_prefix': 'Rejected:',
-      // Telemedicine
-      'telemedicine.title_prefix': 'Video Call —',
-      'telemedicine.sdk_missing_title': 'Video SDK not yet integrated',
-      'telemedicine.sdk_missing_body':
-          'Add agora_rtc_engine or flutter_webrtc to enable.',
-      'telemedicine.mute': 'Mute',
-      'telemedicine.unmute': 'Unmute',
-      'telemedicine.camera_off': 'Camera Off',
-      'telemedicine.camera_on': 'Camera On',
-      'telemedicine.end_call': 'End Call',
       // Clinical AI
       'clinical_ai.queue.title': 'AI Review Queue',
       'clinical_ai.queue.compose_button': 'Compose runs',
@@ -6989,16 +6968,6 @@ class AppStrings {
       'overtime.empty': 'कोई ओवरटाइम अनुरोध नहीं',
       // REVIEW: HR rejection wording
       'overtime.rejected_prefix': 'अस्वीकृत:',
-      // Telemedicine
-      'telemedicine.title_prefix': 'वीडियो कॉल —',
-      'telemedicine.sdk_missing_title': 'वीडियो SDK अभी एकीकृत नहीं',
-      'telemedicine.sdk_missing_body':
-          'सक्षम करने के लिए agora_rtc_engine या flutter_webrtc जोड़ें।',
-      'telemedicine.mute': 'म्यूट',
-      'telemedicine.unmute': 'अनम्यूट',
-      'telemedicine.camera_off': 'कैमरा बंद',
-      'telemedicine.camera_on': 'कैमरा चालू',
-      'telemedicine.end_call': 'कॉल समाप्त',
       // Clinical AI
       'clinical_ai.queue.title': 'AI समीक्षा कतार',
       // REVIEW: clinical-AI - verify with reviewing clinician
@@ -8514,8 +8483,6 @@ class AppStrings {
       // REVIEW: HR confirmation
       'overtime.submitted_success':
           '✅ கூடுதல் நேர கோரிக்கை சமர்ப்பிக்கப்பட்டது',
-      // Telemedicine
-      'telemedicine.end_call': 'அழைப்பை முடி',
       // Clinical AI
       'clinical_ai.queue.title': 'AI மதிப்பாய்வு வரிசை',
       // REVIEW: clinical-action wording
@@ -9748,15 +9715,6 @@ class AppStrings {
       'overtime.empty': 'கூடுதல் நேர கோரிக்கைகள் இல்லை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'overtime.rejected_prefix': 'நிராகரிக்கப்பட்டது:',
-      'telemedicine.title_prefix': 'வீடியோ அழைப்பு -',
-      'telemedicine.sdk_missing_title':
-          'வீடியோ SDK இன்னும் ஒருங்கிணைக்கப்படவில்லை',
-      'telemedicine.sdk_missing_body':
-          'இயக்குவதற்கு agora_rtc_engine அல்லது flutter_webrtc ஐச் சேர்க்கவும்.',
-      'telemedicine.mute': 'முடக்கு',
-      'telemedicine.unmute': 'ஒலியடக்கவும்',
-      'telemedicine.camera_off': 'கேமரா ஆஃப்',
-      'telemedicine.camera_on': 'கேமரா ஆன்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'clinical_ai.queue.compose_button': 'ரன்களை எழுதுங்கள்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -11180,8 +11138,6 @@ class AppStrings {
       'overtime.submit_button': 'ఓవర్‌టైమ్ అభ్యర్థన సమర్పించు',
       // REVIEW: HR confirmation
       'overtime.submitted_success': '✅ ఓవర్‌టైమ్ అభ్యర్థన సమర్పించబడింది',
-      // Telemedicine
-      'telemedicine.end_call': 'కాల్ ముగించు',
       // Clinical AI
       'clinical_ai.queue.title': 'AI సమీక్ష క్యూ',
       // REVIEW: clinical-action wording
@@ -12398,14 +12354,6 @@ class AppStrings {
       'overtime.empty': 'ఓవర్ టైం అభ్యర్థనలు లేవు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'overtime.rejected_prefix': 'తిరస్కరించబడింది:',
-      'telemedicine.title_prefix': 'వీడియో కాల్ -',
-      'telemedicine.sdk_missing_title': 'వీడియో SDK ఇంకా సమగ్రపరచబడలేదు',
-      'telemedicine.sdk_missing_body':
-          'ఎనేబుల్ చేయడానికి agora_rtc_engine లేదా flutter_webrtcని జోడించండి.',
-      'telemedicine.mute': 'మ్యూట్ చేయండి',
-      'telemedicine.unmute': 'అన్‌మ్యూట్ చేయండి',
-      'telemedicine.camera_off': 'కెమెరా ఆఫ్',
-      'telemedicine.camera_on': 'కెమెరా ఆన్',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'clinical_ai.queue.compose_button': 'పరుగులు కంపోజ్ చేయండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
