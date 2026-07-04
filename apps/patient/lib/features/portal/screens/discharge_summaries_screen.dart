@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -25,17 +26,40 @@ class DischargeSummariesScreen extends StatelessWidget {
 }
 
 class DischargeSummaryDetailRouteScreen extends StatelessWidget {
-  const DischargeSummaryDetailRouteScreen({super.key, required this.summaryId});
+  const DischargeSummaryDetailRouteScreen({
+    super.key,
+    required this.summaryId,
+    this.initialSummary,
+    this.repository = const ApiDischargeSummariesRepository(),
+    this.pdfOpener = openDischargeSummaryPdf,
+  });
 
   final int summaryId;
+  final DischargeSummary? initialSummary;
+  final DischargeSummariesRepository repository;
+  final DischargeSummaryPdfOpener pdfOpener;
 
   @override
   Widget build(BuildContext context) {
     return DischargeSummaryDetailScreen(
       summaryId: summaryId,
-      initialSummary: null,
+      initialSummary: initialSummary,
+      repository: repository,
+      pdfOpener: pdfOpener,
     );
   }
+}
+
+class DischargeSummaryDetailRouteArgs {
+  const DischargeSummaryDetailRouteArgs({
+    this.initialSummary,
+    this.repository,
+    this.pdfOpener,
+  });
+
+  final DischargeSummary? initialSummary;
+  final DischargeSummariesRepository? repository;
+  final DischargeSummaryPdfOpener? pdfOpener;
 }
 
 class DischargeSummariesList extends StatefulWidget {
@@ -105,14 +129,12 @@ class _DischargeSummariesListState extends State<DischargeSummariesList> {
   }
 
   Future<void> _openSummary(DischargeSummary summary) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => DischargeSummaryDetailScreen(
-          summaryId: summary.id,
-          initialSummary: summary,
-          repository: widget.repository,
-          pdfOpener: widget.pdfOpener,
-        ),
+    await context.push(
+      '/portal/discharge-summaries/${summary.id}',
+      extra: DischargeSummaryDetailRouteArgs(
+        initialSummary: summary,
+        repository: widget.repository,
+        pdfOpener: widget.pdfOpener,
       ),
     );
   }

@@ -3,11 +3,11 @@
 // Bill detail — items + payments + "Pay now" UPI link.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
-import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class BillDetailScreen extends StatefulWidget {
@@ -394,11 +394,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                         ? claimId
                         : int.tryParse(claimId.toString());
                     if (id == null) return;
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => TpaClaimDetailScreen(claimId: id),
-                      ),
-                    );
+                    context.push('/portal/tpa/claims/$id');
                   },
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: Text(l.billDetailViewFullInsuranceClaim),

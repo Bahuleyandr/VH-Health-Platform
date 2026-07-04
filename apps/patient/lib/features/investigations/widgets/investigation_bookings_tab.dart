@@ -2,7 +2,7 @@
 // embedded MyBookingsScreen list. Extracted unchanged (the dead unused
 // `theme` local was dropped).
 import 'package:flutter/material.dart';
-import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/features/investigations/screens/my_bookings_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -20,11 +20,7 @@ class InvestigationBookingsTab extends StatelessWidget {
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const BookInvestigationScreen(),
-                  ),
-                );
+                await context.push('/book-investigation');
               },
               icon: const Icon(Icons.add),
               label: Text(

@@ -13,6 +13,7 @@
 // explanation. This surface fills that gap.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
@@ -119,11 +120,11 @@ class _TpaClaimCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TpaClaimDetailScreen(claimId: claim['id'] as int),
-          ),
-        ),
+        onTap: () {
+          final claimId = _toInt(claim['id']);
+          if (claimId == null) return;
+          context.push('/portal/tpa/claims/$claimId');
+        },
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(

@@ -42,6 +42,7 @@ import 'package:vhhealth/features/period_tracker/screens/period_tracker_screen.d
 import 'package:vhhealth/features/maternity/screens/anc_timeline_screen.dart';
 import 'package:vhhealth/features/portal/screens/bills_screen.dart';
 import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
+import 'package:vhhealth/features/portal/services/discharge_summaries_repository.dart';
 import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_orders_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
@@ -342,9 +343,17 @@ class AppRouter {
           final id = int.tryParse(state.pathParameters['id'] ?? '');
           return id == null ? '/portal/discharge-summaries' : null;
         },
-        builder: (context, state) => DischargeSummaryDetailRouteScreen(
-          summaryId: int.tryParse(state.pathParameters['id']!)!,
-        ),
+        builder: (context, state) {
+          final extra = state.extra;
+          final args = extra is DischargeSummaryDetailRouteArgs ? extra : null;
+          return DischargeSummaryDetailRouteScreen(
+            summaryId: int.tryParse(state.pathParameters['id']!)!,
+            initialSummary: args?.initialSummary,
+            repository:
+                args?.repository ?? const ApiDischargeSummariesRepository(),
+            pdfOpener: args?.pdfOpener ?? openDischargeSummaryPdf,
+          );
+        },
       ),
       GoRoute(
         path: '/portal/maternity/timeline',

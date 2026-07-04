@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/features/portal/models/discharge_summary.dart';
 import 'package:vhhealth/features/portal/screens/discharge_summaries_screen.dart';
 import 'package:vhhealth/features/portal/services/discharge_summaries_repository.dart';
@@ -12,17 +13,15 @@ void main() {
     final summary = _sampleSummary();
     final repository = _FakeDischargeSummariesRepository([summary]);
     var pdfOpens = 0;
-
-    await tester.pumpWidget(
-      _LocalizedHarness(
-        child: DischargeSummariesList(
-          repository: repository,
-          pdfOpener: (_) async {
-            pdfOpens += 1;
-          },
-        ),
-      ),
+    final router = _dischargeSummariesRouter(
+      repository: repository,
+      pdfOpener: (_) async {
+        pdfOpens += 1;
+      },
     );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_LocalizedHarness(router: router));
 
     await tester.pumpAndSettle();
 
@@ -49,13 +48,12 @@ void main() {
   testWidgets('shows localized empty state when no summaries are returned', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      _LocalizedHarness(
-        child: DischargeSummariesList(
-          repository: _FakeDischargeSummariesRepository(const []),
-        ),
-      ),
+    final router = _dischargeSummariesRouter(
+      repository: _FakeDischargeSummariesRepository(const []),
     );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_LocalizedHarness(router: router));
 
     await tester.pumpAndSettle();
 
@@ -70,18 +68,52 @@ void main() {
 }
 
 class _LocalizedHarness extends StatelessWidget {
-  const _LocalizedHarness({required this.child});
+  const _LocalizedHarness({required this.router});
 
-  final Widget child;
+  final GoRouter router;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: child),
+      routerConfig: router,
     );
   }
+}
+
+GoRouter _dischargeSummariesRouter({
+  required DischargeSummariesRepository repository,
+  DischargeSummaryPdfOpener? pdfOpener,
+}) {
+  final openPdf = pdfOpener ?? (_) async {};
+  return GoRouter(
+    initialLocation: '/portal/discharge-summaries',
+    routes: [
+      GoRoute(
+        path: '/portal/discharge-summaries',
+        builder: (_, _) => Scaffold(
+          body: DischargeSummariesList(
+            repository: repository,
+            pdfOpener: openPdf,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/portal/discharge-summaries/:id',
+        builder: (_, state) {
+          final extra = state.extra;
+          final args = extra is DischargeSummaryDetailRouteArgs ? extra : null;
+          return DischargeSummaryDetailRouteScreen(
+            summaryId: int.parse(state.pathParameters['id']!),
+            initialSummary: args?.initialSummary,
+            repository: args?.repository ?? repository,
+            pdfOpener: args?.pdfOpener ?? openPdf,
+          );
+        },
+      ),
+    ],
+  );
 }
 
 class _FakeDischargeSummariesRepository
