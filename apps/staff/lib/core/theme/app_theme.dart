@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class AppTheme {
@@ -56,6 +57,9 @@ class AppTheme {
   // 4.32:1 (AA) and still reads as a faded placeholder.
   static const Color _lightHint = Color(0xFF607D8B);
   static const Color _lightChipBg = Color(0xFFE3F2FD);
+  static const Color _lightHoverOverlay = Color(0x0F1565C0);
+  static const Color _lightFocusOverlay = Color(0x1A1565C0);
+  static const Color _lightPressedOverlay = Color(0x241565C0);
 
   // ── Dark-palette tokens (public const, also used by adaptive getters) ─
   static const Color darkSurface = Color(0xFF1E1E2C);
@@ -72,6 +76,9 @@ class AppTheme {
   static const Color _darkError = Color(0xFFEF5350);
   static const Color _darkButtonFg = Color(0xFF0D1B2A);
   static const Color _darkChipBg = Color(0xFF1A2744);
+  static const Color _darkHoverOverlay = Color(0x1A90CAF9);
+  static const Color _darkFocusOverlay = Color(0x2490CAF9);
+  static const Color _darkPressedOverlay = Color(0x3090CAF9);
 
   // ── Adaptive surface + text getters ───────────────────────────────────
   // Screens read these. Light values match the previous static const
@@ -116,6 +123,68 @@ class AppTheme {
       ? const Color(0xFFFFB74D) // Material Orange 300 — 6.92:1 on darkCard
       : warningAmber;
 
+  static bool get _persistentDesktopScrollbars {
+    if (kIsWeb) return true;
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+  }
+
+  static WidgetStateProperty<Color?> _overlay({
+    required Color hover,
+    required Color focus,
+    required Color pressed,
+  }) {
+    return WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.disabled)) return null;
+      if (states.contains(WidgetState.pressed)) return pressed;
+      if (states.contains(WidgetState.hovered)) return hover;
+      if (states.contains(WidgetState.focused)) return focus;
+      return null;
+    });
+  }
+
+  static WidgetStateProperty<MouseCursor?> get _interactiveCursor {
+    return WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.disabled)) {
+        return SystemMouseCursors.basic;
+      }
+      return SystemMouseCursors.click;
+    });
+  }
+
+  static ScrollbarThemeData _scrollbarTheme({
+    required Color thumbColor,
+    required Color trackColor,
+    required Color trackBorderColor,
+  }) {
+    final persistent = _persistentDesktopScrollbars;
+    return ScrollbarThemeData(
+      thumbVisibility: WidgetStatePropertyAll<bool?>(persistent ? true : null),
+      trackVisibility: WidgetStatePropertyAll<bool?>(persistent ? true : null),
+      interactive: persistent,
+      thickness: WidgetStatePropertyAll<double?>(persistent ? 10 : null),
+      radius: const Radius.circular(999),
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        final alpha = states.contains(WidgetState.dragged)
+            ? 0.72
+            : states.contains(WidgetState.hovered)
+            ? 0.64
+            : 0.48;
+        return thumbColor.withValues(alpha: alpha);
+      }),
+      trackColor: WidgetStatePropertyAll<Color?>(
+        persistent ? trackColor : null,
+      ),
+      trackBorderColor: WidgetStatePropertyAll<Color?>(
+        persistent ? trackBorderColor : null,
+      ),
+    );
+  }
+
   // ── Light theme ───────────────────────────────────────────────────────
   static ThemeData get lightTheme {
     final colorScheme = ColorScheme.fromSeed(
@@ -135,6 +204,15 @@ class AppTheme {
       fontFamily: 'Roboto',
       canvasColor: _lightBackground,
       cardColor: _lightCard,
+      hoverColor: _lightHoverOverlay,
+      focusColor: _lightFocusOverlay,
+      highlightColor: _lightPressedOverlay,
+      splashColor: _lightPressedOverlay,
+      scrollbarTheme: _scrollbarTheme(
+        thumbColor: primaryBlue,
+        trackColor: primaryBlue.withValues(alpha: 0.06),
+        trackBorderColor: primaryBlue.withValues(alpha: 0.16),
+      ),
       textTheme: const TextTheme(
         displayLarge: TextStyle(color: _lightTextPrimary),
         displayMedium: TextStyle(color: _lightTextPrimary),
@@ -197,26 +275,78 @@ class AppTheme {
         margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryBlue,
-          foregroundColor: Colors.white,
-          elevation: 2,
-          minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+        style:
+            ElevatedButton.styleFrom(
+              backgroundColor: primaryBlue,
+              foregroundColor: Colors.white,
+              elevation: 2,
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ).copyWith(
+              mouseCursor: _interactiveCursor,
+              overlayColor: _overlay(
+                hover: const Color(0x1AFFFFFF),
+                focus: const Color(0x24FFFFFF),
+                pressed: const Color(0x33FFFFFF),
+              ),
+            ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _interactiveCursor,
+          overlayColor: _overlay(
+            hover: const Color(0x1AFFFFFF),
+            focus: const Color(0x24FFFFFF),
+            pressed: const Color(0x33FFFFFF),
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: primaryBlue,
-          side: const BorderSide(color: primaryBlue, width: 1.5),
-          minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+        style:
+            OutlinedButton.styleFrom(
+              foregroundColor: primaryBlue,
+              side: const BorderSide(color: primaryBlue, width: 1.5),
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ).copyWith(
+              mouseCursor: _interactiveCursor,
+              overlayColor: _overlay(
+                hover: _lightHoverOverlay,
+                focus: _lightFocusOverlay,
+                pressed: _lightPressedOverlay,
+              ),
+            ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: primaryBlue).copyWith(
+          mouseCursor: _interactiveCursor,
+          overlayColor: _overlay(
+            hover: _lightHoverOverlay,
+            focus: _lightFocusOverlay,
+            pressed: _lightPressedOverlay,
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _interactiveCursor,
+          overlayColor: _overlay(
+            hover: _lightHoverOverlay,
+            focus: _lightFocusOverlay,
+            pressed: _lightPressedOverlay,
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -262,8 +392,9 @@ class AppTheme {
         thickness: 1,
         space: 1,
       ),
-      listTileTheme: const ListTileThemeData(
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      listTileTheme: ListTileThemeData(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        mouseCursor: _interactiveCursor,
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: _lightSurface,
@@ -295,6 +426,15 @@ class AppTheme {
       fontFamily: 'Roboto',
       canvasColor: darkBackground,
       cardColor: darkCard,
+      hoverColor: _darkHoverOverlay,
+      focusColor: _darkFocusOverlay,
+      highlightColor: _darkPressedOverlay,
+      splashColor: _darkPressedOverlay,
+      scrollbarTheme: _scrollbarTheme(
+        thumbColor: _darkPrimary,
+        trackColor: _darkPrimary.withValues(alpha: 0.08),
+        trackBorderColor: _darkPrimary.withValues(alpha: 0.18),
+      ),
       textTheme: const TextTheme(
         displayLarge: TextStyle(color: darkTextPrimary),
         displayMedium: TextStyle(color: darkTextPrimary),
@@ -354,26 +494,78 @@ class AppTheme {
         margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _darkPrimary,
-          foregroundColor: _darkButtonFg,
-          elevation: 2,
-          minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+        style:
+            ElevatedButton.styleFrom(
+              backgroundColor: _darkPrimary,
+              foregroundColor: _darkButtonFg,
+              elevation: 2,
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ).copyWith(
+              mouseCursor: _interactiveCursor,
+              overlayColor: _overlay(
+                hover: const Color(0x1A0D1B2A),
+                focus: const Color(0x240D1B2A),
+                pressed: const Color(0x330D1B2A),
+              ),
+            ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _interactiveCursor,
+          overlayColor: _overlay(
+            hover: const Color(0x1A0D1B2A),
+            focus: const Color(0x240D1B2A),
+            pressed: const Color(0x330D1B2A),
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: _darkPrimary,
-          side: const BorderSide(color: _darkPrimary, width: 1.5),
-          minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+        style:
+            OutlinedButton.styleFrom(
+              foregroundColor: _darkPrimary,
+              side: const BorderSide(color: _darkPrimary, width: 1.5),
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ).copyWith(
+              mouseCursor: _interactiveCursor,
+              overlayColor: _overlay(
+                hover: _darkHoverOverlay,
+                focus: _darkFocusOverlay,
+                pressed: _darkPressedOverlay,
+              ),
+            ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: _darkPrimary).copyWith(
+          mouseCursor: _interactiveCursor,
+          overlayColor: _overlay(
+            hover: _darkHoverOverlay,
+            focus: _darkFocusOverlay,
+            pressed: _darkPressedOverlay,
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _interactiveCursor,
+          overlayColor: _overlay(
+            hover: _darkHoverOverlay,
+            focus: _darkFocusOverlay,
+            pressed: _darkPressedOverlay,
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -419,8 +611,9 @@ class AppTheme {
         thickness: 1,
         space: 1,
       ),
-      listTileTheme: const ListTileThemeData(
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      listTileTheme: ListTileThemeData(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        mouseCursor: _interactiveCursor,
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: darkSurface,
