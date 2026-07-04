@@ -4,17 +4,25 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/your_health/widgets/patient_record_extraction_sheet.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
-enum _TimelineFilter {
-  all('All'),
-  visits('Visits'),
-  prescriptions('Prescriptions'),
-  labs('Labs'),
-  uploads('Uploads'),
-  hospital('Hospital Docs');
+enum _TimelineFilter { all, visits, prescriptions, labs, uploads, hospital }
 
-  const _TimelineFilter(this.label);
-  final String label;
+String _timelineFilterLabel(AppLocalizations l, _TimelineFilter filter) {
+  switch (filter) {
+    case _TimelineFilter.visits:
+      return l.yourHealthTimelineFilterVisits;
+    case _TimelineFilter.prescriptions:
+      return l.yourHealthTimelineFilterPrescriptions;
+    case _TimelineFilter.labs:
+      return l.yourHealthTimelineFilterLabs;
+    case _TimelineFilter.uploads:
+      return l.yourHealthTimelineFilterUploads;
+    case _TimelineFilter.hospital:
+      return l.yourHealthTimelineFilterHospital;
+    case _TimelineFilter.all:
+      return l.yourHealthTimelineFilterAll;
+  }
 }
 
 class HealthTimelineTab extends StatefulWidget {
@@ -263,6 +271,7 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -286,6 +295,7 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
             uploads: _items
                 .where((item) => item.kind == _TimelineKind.upload)
                 .length,
+            l: l,
           ),
           const SizedBox(height: 12),
           if (_error != null)
@@ -294,19 +304,21 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
               color: cs.error,
               text: _error!,
             ),
-          _buildFilterChips(),
+          _buildFilterChips(l),
           const SizedBox(height: 10),
           if (items.isEmpty)
             _TimelineEmptyState(
               filter: _filter,
               onUpload: widget.onUploadRecord,
               onRefresh: _loadTimeline,
+              l: l,
             )
           else
             ...items.map(
               (item) => _TimelineCard(
                 item: item,
                 dateFormat: DateFormat('dd MMM yyyy'),
+                l: l,
               ),
             ),
         ],
@@ -314,7 +326,7 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
     );
   }
 
-  Widget _buildFilterChips() {
+  Widget _buildFilterChips(AppLocalizations l) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -322,7 +334,7 @@ class _HealthTimelineTabState extends State<HealthTimelineTab> {
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ChoiceChip(
-              label: Text(filter.label),
+              label: Text(_timelineFilterLabel(l, filter)),
               selected: _filter == filter,
               onSelected: (_) => setState(() => _filter = filter),
             ),
@@ -338,12 +350,14 @@ class _TimelineSummary extends StatelessWidget {
   final int prescriptions;
   final int visits;
   final int uploads;
+  final AppLocalizations l;
 
   const _TimelineSummary({
     required this.total,
     required this.prescriptions,
     required this.visits,
     required this.uploads,
+    required this.l,
   });
 
   @override
@@ -365,18 +379,18 @@ class _TimelineSummary extends StatelessWidget {
           Expanded(
             child: Text(
               total == 0
-                  ? 'Your health timeline is ready'
-                  : '$total health updates in one timeline',
+                  ? l.yourHealthTimelineReady
+                  : l.yourHealthTimelineUpdateCount(total),
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
           ),
-          _CountPill(label: 'Rx', value: prescriptions),
+          _CountPill(label: l.yourHealthTimelineRxPill, value: prescriptions),
           const SizedBox(width: 6),
-          _CountPill(label: 'Visits', value: visits),
+          _CountPill(label: l.yourHealthTimelineVisitsPill, value: visits),
           const SizedBox(width: 6),
-          _CountPill(label: 'Uploads', value: uploads),
+          _CountPill(label: l.yourHealthTimelineUploadsPill, value: uploads),
         ],
       ),
     );
@@ -412,15 +426,20 @@ class _CountPill extends StatelessWidget {
 class _TimelineCard extends StatelessWidget {
   final _TimelineItem item;
   final DateFormat dateFormat;
+  final AppLocalizations l;
 
-  const _TimelineCard({required this.item, required this.dateFormat});
+  const _TimelineCard({
+    required this.item,
+    required this.dateFormat,
+    required this.l,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final date = item.date == null
-        ? 'Date pending'
+        ? l.yourHealthTimelineDatePending
         : dateFormat.format(item.date!);
 
     return Card(
@@ -566,11 +585,13 @@ class _TimelineEmptyState extends StatelessWidget {
   final _TimelineFilter filter;
   final VoidCallback? onUpload;
   final Future<void> Function() onRefresh;
+  final AppLocalizations l;
 
   const _TimelineEmptyState({
     required this.filter,
     required this.onUpload,
     required this.onRefresh,
+    required this.l,
   });
 
   @override
@@ -591,8 +612,10 @@ class _TimelineEmptyState extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             filtered
-                ? 'No ${filter.label.toLowerCase()} yet'
-                : 'No timeline items yet',
+                ? l.yourHealthTimelineFilteredEmpty(
+                    _timelineFilterLabel(l, filter).toLowerCase(),
+                  )
+                : l.yourHealthTimelineEmptyTitle,
             textAlign: TextAlign.center,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
@@ -601,8 +624,8 @@ class _TimelineEmptyState extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             filtered
-                ? 'Try another filter or refresh the latest hospital records.'
-                : 'Prescriptions, consultations, hospital docs, and uploads will collect here automatically.',
+                ? l.yourHealthTimelineFilteredEmptySubtitle
+                : l.yourHealthTimelineEmptySubtitle,
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: cs.onSurfaceVariant,
@@ -617,13 +640,13 @@ class _TimelineEmptyState extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: onRefresh,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Refresh'),
+                label: Text(l.commonRefreshButton),
               ),
               if (onUpload != null)
                 FilledButton.icon(
                   onPressed: onUpload,
                   icon: const Icon(Icons.upload_file),
-                  label: const Text('Upload record'),
+                  label: Text(l.yourHealthUploadRecord),
                 ),
             ],
           ),

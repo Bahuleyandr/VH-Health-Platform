@@ -8,6 +8,7 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/widgets/guest_sign_in_prompt.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class MainScaffoldGoRouter extends StatefulWidget {
   final Widget child;
@@ -70,20 +71,21 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
 
   void _onItemTapped(int index) {
     final isGuest = context.read<UserProvider>().isGuest;
+    final l = AppLocalizations.of(context)!;
     switch (index) {
       case 0:
         context.go('/home');
         break;
       case 1:
         if (isGuest) {
-          _showSignInPrompt('Your Health', '/health');
+          _showSignInPrompt(l.yourHealth, '/health');
           break;
         }
         context.go('/health', extra: {'tab': 0});
         break;
       case 2:
         if (isGuest) {
-          _showSignInPrompt('Notifications', '/notifications');
+          _showSignInPrompt(l.notificationsTitle, '/notifications');
           break;
         }
         context.go('/notifications');
@@ -101,6 +103,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
     final unread = context.watch<NotificationProvider>().unreadCount;
     final selectedIndex = _calculateSelectedIndex(context);
     final iconScale = context.watch<ThemeProvider>().iconScale;
+    final l = AppLocalizations.of(context)!;
     final iconSize = 24.0 * iconScale;
     final activeIconSize = 28.0 * iconScale;
 
@@ -123,12 +126,12 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
             BottomNavigationBarItem(
               icon: Icon(LucideIcons.home, size: iconSize),
               activeIcon: Icon(LucideIcons.home, size: activeIconSize),
-              label: 'Home',
+              label: l.navigationHome,
             ),
             BottomNavigationBarItem(
               icon: Icon(LucideIcons.heartPulse, size: iconSize),
               activeIcon: Icon(LucideIcons.heartPulse, size: activeIconSize),
-              label: 'Your Health',
+              label: l.yourHealth,
             ),
             BottomNavigationBarItem(
               icon: badges.Badge(
@@ -167,12 +170,12 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
                 ),
                 child: Icon(LucideIcons.bell, size: activeIconSize),
               ),
-              label: 'Notifications',
+              label: l.notificationsTitle,
             ),
             BottomNavigationBarItem(
               icon: Icon(LucideIcons.settings, size: iconSize),
               activeIcon: Icon(LucideIcons.settings, size: activeIconSize),
-              label: 'Settings',
+              label: l.settingsTitle,
             ),
           ],
         ),

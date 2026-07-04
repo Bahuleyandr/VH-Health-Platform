@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 
 import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class ProfileSwitcher extends StatefulWidget {
   /// Padding applied around the chip (so callers can match the surrounding
@@ -131,7 +132,10 @@ class _ProfileSwitcherSheet extends StatelessWidget {
     final dependents = context.watch<DependentsProvider>();
     final userProv = context.watch<UserProvider>();
     final active = dependents.activeDependent;
-    final selfName = userProv.name.isNotEmpty ? userProv.name : 'You';
+    final l = AppLocalizations.of(context)!;
+    final selfName = userProv.name.isNotEmpty
+        ? userProv.name
+        : l.profileSwitcherSelfName;
 
     return SafeArea(
       child: Padding(
@@ -152,14 +156,14 @@ class _ProfileSwitcherSheet extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'Switch profile',
+              l.profileSwitcherTitle,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 4),
             Text(
-              'View VH Health as yourself or one of your dependents.',
+              l.profileSwitcherSubtitle,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurface.withValues(alpha: 0.7),
               ),
@@ -168,7 +172,7 @@ class _ProfileSwitcherSheet extends StatelessWidget {
             _ProfileTile(
               icon: Icons.person,
               name: selfName,
-              subtitle: 'Your profile',
+              subtitle: l.profileSwitcherYourProfile,
               selected: active == null,
               onTap: () {
                 context.read<DependentsProvider>().switchTo(null);
@@ -189,7 +193,7 @@ class _ProfileSwitcherSheet extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Text(
-                  'No linked dependents yet.',
+                  l.profileSwitcherNoDependents,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: cs.onSurface.withValues(alpha: 0.6),
                   ),
@@ -216,7 +220,7 @@ class _ProfileSwitcherSheet extends StatelessWidget {
                 context.push('/add-dependent');
               },
               icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('Add a dependent'),
+              label: Text(l.addDependentTitle),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
@@ -239,25 +243,23 @@ class _ProfileSwitcherSheet extends StatelessWidget {
 
   Future<void> _confirmUnlink(BuildContext context, Dependent dep) async {
     final messenger = ScaffoldMessenger.of(context);
+    final l = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove dependent?'),
-        content: Text(
-          'You will no longer be able to view or act on behalf of ${dep.name} '
-          'from this account. They will need to be re-linked later.',
-        ),
+        title: Text(l.profileSwitcherRemoveDependentTitle),
+        content: Text(l.profileSwitcherRemoveDependentBody(dep.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l.commonCancelButton),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
-            child: const Text('Remove'),
+            child: Text(l.profileSwitcherRemoveButton),
           ),
         ],
       ),
@@ -268,13 +270,15 @@ class _ProfileSwitcherSheet extends StatelessWidget {
       await context.read<DependentsProvider>().unlinkDependent(dep.id);
       if (context.mounted) {
         Navigator.of(context).pop();
-        messenger.showSnackBar(SnackBar(content: Text('Removed ${dep.name}')));
+        messenger.showSnackBar(
+          SnackBar(content: Text(l.profileSwitcherRemovedToast(dep.name))),
+        );
       }
     } on DependentApiException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Failed to remove dependent')),
+        SnackBar(content: Text(l.profileSwitcherRemoveFailed)),
       );
     }
   }
@@ -301,6 +305,7 @@ class _ProfileTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     return Material(
       color: selected ? cs.primary.withValues(alpha: 0.08) : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
@@ -340,7 +345,7 @@ class _ProfileTile extends StatelessWidget {
               if (selected) Icon(Icons.check, color: cs.primary, size: 20),
               if (onRemove != null)
                 IconButton(
-                  tooltip: 'Remove dependent',
+                  tooltip: l.profileSwitcherRemoveButton,
                   icon: Icon(Icons.link_off, color: cs.error, size: 20),
                   onPressed: onRemove,
                 ),

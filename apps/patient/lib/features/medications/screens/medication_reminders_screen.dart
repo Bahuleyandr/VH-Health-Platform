@@ -59,19 +59,22 @@ class _Reminder {
 
 // ── Frequency helpers ───────────────────────────────────────────────────────
 
-const _frequencyLabels = {
-  'once_daily': 'Once Daily',
-  'twice_daily': 'Twice Daily',
-  'thrice_daily': 'Thrice Daily',
-  'as_needed': 'As Needed',
-};
-
 const _frequencyValues = [
   'once_daily',
   'twice_daily',
   'thrice_daily',
   'as_needed',
 ];
+
+String _frequencyLabel(AppLocalizations l, String value) {
+  return switch (value) {
+    'once_daily' => l.medicationFrequencyOnceDaily,
+    'twice_daily' => l.medicationFrequencyTwiceDaily,
+    'thrice_daily' => l.medicationFrequencyThriceDaily,
+    'as_needed' => l.medicationFrequencyAsNeeded,
+    _ => value,
+  };
+}
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +98,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
   }
 
   Future<void> _loadReminders() async {
+    final l = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
       _error = null;
@@ -113,7 +117,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
         _syncNotifications();
       } else {
         setState(() {
-          _error = resp.message ?? 'Failed to load reminders';
+          _error = resp.message ?? l.medicationRemindersLoadFailed;
           _loading = false;
         });
       }
@@ -121,7 +125,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
       if (kDebugMode) debugPrint('Error loading reminders: $e');
       if (mounted) {
         setState(() {
-          _error = 'Unable to load reminders';
+          _error = l.medicationRemindersLoadFailed;
           _loading = false;
         });
       }
@@ -228,7 +232,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
                   const SizedBox(height: 12),
                   FilledButton.tonal(
                     onPressed: _loadReminders,
-                    child: Text(l.familyRetryButton),
+                    child: Text(l.medicationRemindersRetryButton),
                   ),
                 ],
               ),
@@ -296,7 +300,8 @@ class _ReminderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final freq = _frequencyLabels[reminder.frequency] ?? reminder.frequency;
+    final l = AppLocalizations.of(context)!;
+    final freq = _frequencyLabel(l, reminder.frequency);
     final times = reminder.reminderTimes.join(', ');
 
     return Card(
@@ -333,7 +338,7 @@ class _ReminderCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              'ANC supplement',
+                              l.medicationReminderAncSupplement,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: theme.colorScheme.onSecondaryContainer,
                                 fontWeight: FontWeight.w600,
@@ -352,21 +357,24 @@ class _ReminderCard extends StatelessWidget {
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 20),
                     onPressed: onDelete,
-                    tooltip: 'Delete',
+                    tooltip: l.medicationReminderDeleteTooltip,
                   ),
                 ],
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              'Dosage: ${reminder.dosage}',
+              l.medicationReminderDosageLine(reminder.dosage),
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 2),
-            Text('Frequency: $freq', style: theme.textTheme.bodyMedium),
+            Text(
+              l.medicationReminderFrequencyLine(freq),
+              style: theme.textTheme.bodyMedium,
+            ),
             const SizedBox(height: 2),
             Text(
-              'Times: $times',
+              l.medicationReminderTimesLine(times),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -374,7 +382,7 @@ class _ReminderCard extends StatelessWidget {
             if (reminder.notes != null && reminder.notes!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
-                'Notes: ${reminder.notes}',
+                l.medicationReminderNotesLine(reminder.notes!),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -556,7 +564,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                   .map(
                     (v) => DropdownMenuItem(
                       value: v,
-                      child: Text(_frequencyLabels[v] ?? v),
+                      child: Text(_frequencyLabel(l, v)),
                     ),
                   )
                   .toList(),
@@ -607,7 +615,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _pickStartDate,
-                    child: Text('Start: ${_formatDate(_startDate)}'),
+                    child: Text(
+                      l.medicationReminderStartLine(_formatDate(_startDate)),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -616,8 +626,8 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                     onPressed: _pickEndDate,
                     child: Text(
                       _endDate != null
-                          ? 'End: ${_formatDate(_endDate!)}'
-                          : 'End: No end date',
+                          ? l.medicationReminderEndLine(_formatDate(_endDate!))
+                          : l.medicationReminderNoEndDate,
                     ),
                   ),
                 ),
@@ -628,9 +638,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             // Notes
             TextField(
               controller: _notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.medicationReminderNotesOptional,
+                border: const OutlineInputBorder(),
               ),
               maxLines: 2,
             ),

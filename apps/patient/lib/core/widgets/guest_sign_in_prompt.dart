@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 Future<void> showGuestSignInPrompt(
   BuildContext context, {
-  String featureLabel = 'this feature',
+  String? featureLabel,
   String? returnTo,
 }) {
   return showDialog<void>(
@@ -11,18 +12,17 @@ Future<void> showGuestSignInPrompt(
     builder: (dialogContext) {
       final theme = Theme.of(dialogContext);
       final colors = theme.colorScheme;
+      final l = AppLocalizations.of(dialogContext)!;
+      final label = featureLabel ?? l.guestSignInDefaultFeature;
 
       return AlertDialog(
         icon: Icon(Icons.lock_outline, color: colors.primary),
-        title: const Text('Sign in to continue'),
-        content: Text(
-          '$featureLabel is available for signed-in patients. '
-          'You can sign in now or keep browsing as a guest.',
-        ),
+        title: Text(l.guestSignInTitle),
+        content: Text(l.guestSignInBody(label)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Keep browsing'),
+            child: Text(l.guestSignInKeepBrowsing),
           ),
           FilledButton.icon(
             onPressed: () {
@@ -41,7 +41,7 @@ Future<void> showGuestSignInPrompt(
               }
             },
             icon: const Icon(Icons.login),
-            label: const Text('Sign in and return'),
+            label: Text(l.guestSignInAndReturn),
           ),
         ],
       );

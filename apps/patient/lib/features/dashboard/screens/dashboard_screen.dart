@@ -697,11 +697,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
 
       if (!granted) {
+        final l = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Allow Health Connect so VH Health can sync steps counted while the app is closed.',
-            ),
+          SnackBar(
+            content: Text(l.dashboardHealthConnectPrompt),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -710,11 +709,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       if (!granted) {
+        final l = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Health Connect permission was not granted. In-app walk tracking still works.',
-            ),
+          SnackBar(
+            content: Text(l.dashboardHealthConnectPermissionDenied),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -736,8 +734,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         SnackBar(
           content: Text(
             synced > 0
-                ? 'Health Connect synced. Steps updated.'
-                : 'Health Connect is connected. No new step samples yet.',
+                ? AppLocalizations.of(context)!.dashboardHealthConnectSynced
+                : AppLocalizations.of(context)!.dashboardHealthConnectNoSamples,
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -746,8 +744,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (kDebugMode) debugPrint('Steps Health Connect prompt failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not open Health Connect right now.'),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.dashboardHealthConnectOpenFailed,
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -807,14 +807,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       await CycleTrackerStore.save(updated);
       if (!mounted) return;
       setState(() => _cycleTrackerSnapshot = updated);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cycle start recorded')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.periodTrackerCycleStartRecorded,
+          ),
+        ),
+      );
     } catch (e) {
       if (kDebugMode) debugPrint('Cycle tracker save failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save cycle start right now.')),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.periodTrackerCycleStartSaveFailed,
+          ),
+        ),
       );
     }
   }
@@ -994,7 +1002,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         // ── Explore ──────────────────────────────────────
                         stagger(
                           DashboardSection(
-                            label: 'Explore',
+                            label: l10n.dashboardExploreSection,
                             accent: _dialAccentColor,
                             tinted: false,
                             child: CircularFeatureDial(
@@ -1015,7 +1023,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         if (hasTodaySection)
                           stagger(
                             DashboardSection(
-                              label: 'Today',
+                              label: l10n.dashboardTodaySection,
                               accent: DashboardAccents.today,
                               tinted: true,
                               child: _TodayCommandPanel(

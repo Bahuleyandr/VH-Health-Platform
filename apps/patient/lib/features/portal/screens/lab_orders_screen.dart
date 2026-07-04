@@ -13,6 +13,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class _LabOrder {
   _LabOrder.fromJson(Map<String, dynamic> j)
@@ -113,8 +114,9 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
           _loading = false;
         });
       } else {
+        final l = AppLocalizations.of(context)!;
         setState(() {
-          _error = response.message ?? 'Failed to load lab orders';
+          _error = response.message ?? l.labOrdersLoadFailed;
           _loading = false;
         });
       }
@@ -130,6 +132,7 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
   Future<void> _downloadReport(_LabOrder order) async {
     final messenger = ScaffoldMessenger.of(context);
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     setState(() {
       _downloadingIds.add(order.id);
@@ -163,7 +166,7 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('Could not download report'),
+          content: Text(l.labOrdersDownloadFailed),
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -179,8 +182,9 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Lab Orders',
+      title: l.labOrdersTitle,
       icon: Icons.science,
       color: const Color(0xFFB2DFDB),
       child: RefreshIndicator(
@@ -191,9 +195,8 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
           data: _orders,
           onRetry: _fetch,
           emptyIcon: Icons.science_outlined,
-          emptyTitle: 'No lab orders',
-          emptySubtitle:
-              'Lab tests ordered by your doctor will appear here with collection instructions and reports.',
+          emptyTitle: l.labOrdersEmptyTitle,
+          emptySubtitle: l.labOrdersEmptySubtitle,
           builder: (context, orders) {
             return ListView.separated(
               padding: const EdgeInsets.all(16),
@@ -203,6 +206,7 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
                 order: orders[i],
                 downloading: _downloadingIds.contains(orders[i].id),
                 onDownload: () => _downloadReport(orders[i]),
+                l: l,
               ),
             );
           },
@@ -217,11 +221,13 @@ class _LabOrderCard extends StatelessWidget {
     required this.order,
     required this.downloading,
     required this.onDownload,
+    required this.l,
   });
 
   final _LabOrder order;
   final bool downloading;
   final VoidCallback onDownload;
+  final AppLocalizations l;
 
   @override
   Widget build(BuildContext context) {
@@ -250,7 +256,7 @@ class _LabOrderCard extends StatelessWidget {
             if (order.doctorName != null && order.doctorName!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
-                'Ordered by ${order.doctorName}',
+                l.labOrdersOrderedBy(order.doctorName!),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -265,13 +271,13 @@ class _LabOrderCard extends StatelessWidget {
                   order.collectionLocation!.isNotEmpty)
                 _InstructionRow(
                   icon: Icons.place_outlined,
-                  label: 'Where',
+                  label: l.labOrdersWhere,
                   value: order.collectionLocation!,
                 ),
               if (order.collectionDeadlineAt != null)
                 _InstructionRow(
                   icon: Icons.schedule,
-                  label: 'By',
+                  label: l.labOrdersBy,
                   value:
                       '${dateFmt.format(order.collectionDeadlineAt!.toLocal())} '
                       '${timeFmt.format(order.collectionDeadlineAt!.toLocal())}',
@@ -281,7 +287,7 @@ class _LabOrderCard extends StatelessWidget {
                   order.collectionDeadlineAt == null)
                 _InstructionRow(
                   icon: Icons.event,
-                  label: 'Scheduled',
+                  label: l.labOrdersScheduled,
                   value: order.scheduledDate!,
                 ),
               if (order.collectionLocation == null &&
@@ -289,8 +295,7 @@ class _LabOrderCard extends StatelessWidget {
                   !order.fastingRequired) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Your doctor has not provided collection instructions yet. '
-                  'Please ask staff for the lab location and timing.',
+                  l.labOrdersNoCollectionInstructions,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.outline,
                   ),
@@ -302,7 +307,7 @@ class _LabOrderCard extends StatelessWidget {
               if (order.completedAt != null)
                 _InstructionRow(
                   icon: Icons.check_circle_outline,
-                  label: 'Completed',
+                  label: l.labOrdersCompleted,
                   value: dateFmt.format(order.completedAt!.toLocal()),
                 ),
               if (order.resultSummary != null &&
@@ -322,14 +327,20 @@ class _LabOrderCard extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.file_download_outlined),
-                  label: Text(downloading ? 'Downloading…' : 'Download report'),
+                  label: Text(
+                    downloading
+                        ? l.labOrdersDownloading
+                        : l.labOrdersDownloadReport,
+                  ),
                 ),
               ),
             ],
             if (order.requestedAt != null) ...[
               const SizedBox(height: 10),
               Text(
-                'Requested ${dateFmt.format(order.requestedAt!.toLocal())}',
+                l.labOrdersRequestedOn(
+                  dateFmt.format(order.requestedAt!.toLocal()),
+                ),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -381,6 +392,7 @@ class _FastingBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -397,7 +409,7 @@ class _FastingBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Fasting required',
+                  l.labOrdersFastingRequired,
                   style: theme.textTheme.titleSmall?.copyWith(
                     color: cs.onTertiaryContainer,
                   ),

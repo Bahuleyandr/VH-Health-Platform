@@ -1914,7 +1914,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get permissionGateSettingUp => 'Setting up...';
 
   @override
-  String get yourHealthUploadRecord => 'Upload Record';
+  String get yourHealthUploadRecord => 'Upload record';
 
   @override
   String get yourHealthWhatsNextTitle => 'What\'s next';
@@ -2297,4 +2297,1169 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recordAccessStatusRevoked => 'Revoked';
+
+  @override
+  String get commonRetryButton => 'Retry';
+
+  @override
+  String get commonContinueButton => 'Continue';
+
+  @override
+  String get commonBackButton => 'Back';
+
+  @override
+  String get commonOkButton => 'OK';
+
+  @override
+  String get navigationHome => 'Home';
+
+  @override
+  String get notificationsTitle => 'Notifications';
+
+  @override
+  String get appointmentsBookTab => 'Book';
+
+  @override
+  String get appointmentsMyAppointmentsTab => 'My Appointments';
+
+  @override
+  String get pharmacyOrderTab => 'Order';
+
+  @override
+  String get pharmacyMyOrdersTab => 'My Orders';
+
+  @override
+  String get pharmacyFileTooLarge => 'File too large. Maximum size is 10 MB.';
+
+  @override
+  String get pharmacyPrescriptionOrDescriptionRequired =>
+      'Please upload a prescription or describe your order';
+
+  @override
+  String pharmacyOrderPlacedToast(String orderNumber) {
+    return 'Order placed! $orderNumber';
+  }
+
+  @override
+  String pharmacyOrderNumber(String orderNumber) {
+    return 'Order Number: $orderNumber';
+  }
+
+  @override
+  String get pharmacyPlaceOrderFailed => 'Failed to place order';
+
+  @override
+  String pharmacyPlaceOrderError(String error) {
+    return 'Error: $error';
+  }
+
+  @override
+  String get billsTitle => 'Bills';
+
+  @override
+  String get billsLoadFailed =>
+      'Unable to load bills. Please pull down to retry.';
+
+  @override
+  String get billsEmptyTitle => 'No bills yet';
+
+  @override
+  String get billsEmptySubtitle =>
+      'Bills issued by the hospital will appear here. Pull to refresh.';
+
+  @override
+  String billsInvoiceFallback(int id) {
+    return 'Invoice #$id';
+  }
+
+  @override
+  String get billsTotal => 'Total';
+
+  @override
+  String get billsPaid => 'Paid';
+
+  @override
+  String get billsDue => 'Due';
+
+  @override
+  String get tpaClaimsTitle => 'Insurance claims';
+
+  @override
+  String get tpaClaimsLoadFailed =>
+      'Unable to load insurance claims. Please pull down to retry.';
+
+  @override
+  String get tpaClaimsEmptyTitle => 'No insurance claims yet';
+
+  @override
+  String get tpaClaimFallback => 'Claim';
+
+  @override
+  String get tpaClaimClaimed => 'Claimed';
+
+  @override
+  String get tpaClaimApproved => 'Approved';
+
+  @override
+  String get tpaClaimPaidByInsurer => 'Paid by insurer';
+
+  @override
+  String get tpaClaimBreakdownTitle => 'Claim breakdown';
+
+  @override
+  String get tpaClaimNoData => 'No data';
+
+  @override
+  String get tpaClaimDocumentsLoadFailed => 'Could not load claim documents';
+
+  @override
+  String get tpaClaimLoadFailed =>
+      'Unable to load claim. Please pull down to retry.';
+
+  @override
+  String get tpaClaimDocumentDownloadFailed => 'Could not download document';
+
+  @override
+  String get tpaClaimSummary => 'Summary';
+
+  @override
+  String get tpaClaimHospitalBilled => 'Hospital billed';
+
+  @override
+  String get tpaClaimTpaClaimed => 'TPA claimed';
+
+  @override
+  String get tpaClaimTpaApproved => 'TPA approved';
+
+  @override
+  String get tpaClaimTpaDisallowed => 'TPA disallowed';
+
+  @override
+  String get tpaClaimNonPayableItems => 'Non-payable items';
+
+  @override
+  String get tpaClaimPolicyCopay => 'Policy co-pay';
+
+  @override
+  String get tpaClaimYouPaid => 'You paid';
+
+  @override
+  String get tpaClaimDocuments => 'Claim documents';
+
+  @override
+  String get tpaClaimDocumentFallback => 'Document';
+
+  @override
+  String get tpaClaimDownloadTooltip => 'Download';
+
+  @override
+  String get tpaClaimLatestInsurerMessage => 'Latest insurer message';
+
+  @override
+  String get tpaClaimWhyDisallowed => 'Why an amount was disallowed';
+
+  @override
+  String get tpaClaimInvoiceBreakdown => 'Invoice breakdown';
+
+  @override
+  String get tpaClaimTotal => 'Total';
+
+  @override
+  String get tpaClaimCorrespondence => 'Correspondence';
+
+  @override
+  String get addDependentTitle => 'Add a dependent';
+
+  @override
+  String get addDependentHeading => 'Link a minor patient';
+
+  @override
+  String get addDependentIntro =>
+      'Enter the phone number or VH Health UID of the minor patient. The minor must already be registered, typically at reception during their first visit.';
+
+  @override
+  String get addDependentIdentifierLabel => 'Phone number or UID';
+
+  @override
+  String get addDependentIdentifierHint =>
+      '+91 9876543210 or a-uuid-from-reception';
+
+  @override
+  String get addDependentIdentifierRequired => 'Phone or UID is required';
+
+  @override
+  String get addDependentIdentifierInvalid =>
+      'Enter a phone (10-15 digits) or a UID';
+
+  @override
+  String get addDependentRelationshipLabel => 'Your relationship to them';
+
+  @override
+  String get addDependentRelationshipParent => 'Parent';
+
+  @override
+  String get addDependentRelationshipMother => 'Mother';
+
+  @override
+  String get addDependentRelationshipFather => 'Father';
+
+  @override
+  String get addDependentRelationshipLegalGuardian => 'Legal guardian';
+
+  @override
+  String get addDependentRelationshipGrandparent => 'Grandparent';
+
+  @override
+  String get addDependentRelationshipSibling => 'Sibling';
+
+  @override
+  String get addDependentRelationshipSpouse => 'Spouse';
+
+  @override
+  String get addDependentRelationshipOther => 'Other';
+
+  @override
+  String get addDependentLinkedTitle => 'Dependent linked';
+
+  @override
+  String addDependentLinkedBody(String name) {
+    return '$name is now linked under your account. Switch to their profile now?';
+  }
+
+  @override
+  String get addDependentNotYetButton => 'Not yet';
+
+  @override
+  String get addDependentSwitchProfileButton => 'Switch profile';
+
+  @override
+  String addDependentLinkedToast(String name) {
+    return 'Linked $name';
+  }
+
+  @override
+  String get addDependentLinkFailed =>
+      'Failed to link dependent. Please try again.';
+
+  @override
+  String get addDependentLinkingButton => 'Linking...';
+
+  @override
+  String get addDependentLinkButton => 'Link dependent';
+
+  @override
+  String get addDependentReceptionHint =>
+      'Do not see the dependent? Ask reception to register them first. They need a VH Health UID before you can link them.';
+
+  @override
+  String get medicationFrequencyOnceDaily => 'Once Daily';
+
+  @override
+  String get medicationFrequencyTwiceDaily => 'Twice Daily';
+
+  @override
+  String get medicationFrequencyThriceDaily => 'Thrice Daily';
+
+  @override
+  String get medicationFrequencyAsNeeded => 'As Needed';
+
+  @override
+  String get medicationRemindersLoadFailed =>
+      'Unable to load medication reminders. Please pull down to retry.';
+
+  @override
+  String get medicationRemindersRetryButton => 'Retry reminders';
+
+  @override
+  String get medicationReminderAncSupplement => 'ANC supplement';
+
+  @override
+  String get medicationReminderDeleteTooltip => 'Delete reminder';
+
+  @override
+  String medicationReminderDosageLine(String dosage) {
+    return 'Dosage: $dosage';
+  }
+
+  @override
+  String medicationReminderFrequencyLine(String frequency) {
+    return 'Frequency: $frequency';
+  }
+
+  @override
+  String medicationReminderTimesLine(String times) {
+    return 'Times: $times';
+  }
+
+  @override
+  String medicationReminderNotesLine(String notes) {
+    return 'Notes: $notes';
+  }
+
+  @override
+  String medicationReminderStartLine(String date) {
+    return 'Start: $date';
+  }
+
+  @override
+  String medicationReminderEndLine(String date) {
+    return 'End: $date';
+  }
+
+  @override
+  String get medicationReminderNoEndDate => 'End: No end date';
+
+  @override
+  String get medicationReminderNotesOptional => 'Notes (optional)';
+
+  @override
+  String get bookInvestigationSlotMorning => 'Morning (9 AM - 12 PM)';
+
+  @override
+  String get bookInvestigationSlotAfternoon => 'Afternoon (12 PM - 3 PM)';
+
+  @override
+  String get bookInvestigationSlotEvening => 'Evening (3 PM - 6 PM)';
+
+  @override
+  String get bookInvestigationBookingFailed => 'Booking failed';
+
+  @override
+  String get bookInvestigationBookingError =>
+      'Unable to book the investigation. Please try again.';
+
+  @override
+  String get bookInvestigationBookNowButton => 'Book Now';
+
+  @override
+  String get bookInvestigationBookingButton => 'Booking...';
+
+  @override
+  String bookInvestigationSelectedCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get bookInvestigationSearchHint => 'Search tests...';
+
+  @override
+  String bookInvestigationCostFasting(String cost) {
+    return '₹$cost • Fasting required';
+  }
+
+  @override
+  String get bookInvestigationCustomTestHint => 'e.g. CBC, Sugar test, Thyroid';
+
+  @override
+  String get bookInvestigationCameraButton => 'Camera';
+
+  @override
+  String get bookInvestigationGalleryButton => 'Gallery';
+
+  @override
+  String get bookInvestigationPhotoSelected => 'Photo selected';
+
+  @override
+  String get bookInvestigationCollectionAddressLabel => 'Collection Address *';
+
+  @override
+  String get bookInvestigationCollectionAddressHint =>
+      'Enter your full address';
+
+  @override
+  String get bookInvestigationLandmarkLabel => 'Landmark';
+
+  @override
+  String get bookInvestigationLandmarkHint => 'Near/opposite...';
+
+  @override
+  String get bookInvestigationPreferredDate => 'Preferred Date';
+
+  @override
+  String get bookInvestigationNotesOptional => 'Notes (optional)';
+
+  @override
+  String get bookInvestigationNotesHint => 'Any special instructions...';
+
+  @override
+  String get vitalsInvalidValue => 'Invalid';
+
+  @override
+  String get vitalsHeartRateRange => 'Enter 30-250 bpm';
+
+  @override
+  String get vitalsTemperatureRange => 'Enter 90-110 °F';
+
+  @override
+  String get vitalsBloodSugarRange => 'Enter 20-600 mg/dL';
+
+  @override
+  String get vitalsWeightRange => 'Enter 1-300 kg';
+
+  @override
+  String get vitalsSpo2Range => 'Enter 50-100%';
+
+  @override
+  String get vitalsHistoryHeading => 'History';
+
+  @override
+  String get yourHealthTabTimeline => 'Timeline';
+
+  @override
+  String get yourHealthTabMyUploads => 'My Uploads';
+
+  @override
+  String get yourHealthTabPrescriptions => 'Prescriptions';
+
+  @override
+  String get pharmacyOrderNoteHint =>
+      'e.g., Dolo 650 - 2 strips, Pan 40 - 1 strip...';
+
+  @override
+  String get pharmacyHomeDelivery => 'Home Delivery';
+
+  @override
+  String get pharmacyPickup => 'Pickup';
+
+  @override
+  String get pharmacyLandmarkOptional => 'Landmark (optional)';
+
+  @override
+  String get pharmacyLandmarkHint => 'Near...';
+
+  @override
+  String get commonCouldNotOpenLink => 'Could not open the link';
+
+  @override
+  String get commonCloseButton => 'Close';
+
+  @override
+  String get commonOpenButton => 'Open';
+
+  @override
+  String get commonRefreshButton => 'Refresh';
+
+  @override
+  String get guestSignInDefaultFeature => 'this feature';
+
+  @override
+  String get guestSignInTitle => 'Sign in required';
+
+  @override
+  String guestSignInBody(String feature) {
+    return 'Sign in to use $feature.';
+  }
+
+  @override
+  String get guestSignInKeepBrowsing => 'Keep browsing';
+
+  @override
+  String get guestSignInAndReturn => 'Sign in and return';
+
+  @override
+  String get dashboardOpenStepChallenge => 'Open step challenge';
+
+  @override
+  String get dashboardRecentActivity => 'Recent activity';
+
+  @override
+  String get dashboardOpenHealthPoints => 'Open health points';
+
+  @override
+  String get dashboardHealthConnectSynced =>
+      'Health data synced - activity and vitals updated';
+
+  @override
+  String get dashboardHealthConnectNoSamples => 'No new samples to sync';
+
+  @override
+  String get dashboardHealthConnectOpenFailed =>
+      'Could not open Health Connect';
+
+  @override
+  String get dashboardExploreSection => 'Explore';
+
+  @override
+  String get dashboardTodaySection => 'Today';
+
+  @override
+  String get profileSwitcherSelfName => 'You';
+
+  @override
+  String get profileSwitcherTitle => 'Profiles';
+
+  @override
+  String get profileSwitcherSubtitle =>
+      'Switch between your profile and linked dependents';
+
+  @override
+  String get profileSwitcherYourProfile => 'Your profile';
+
+  @override
+  String get profileSwitcherNoDependents => 'No dependents linked yet';
+
+  @override
+  String get profileSwitcherRemoveDependentTitle => 'Remove dependent?';
+
+  @override
+  String profileSwitcherRemoveDependentBody(String name) {
+    return 'Remove $name from your linked profiles?';
+  }
+
+  @override
+  String get profileSwitcherRemoveButton => 'Remove';
+
+  @override
+  String profileSwitcherRemovedToast(String name) {
+    return 'Removed $name';
+  }
+
+  @override
+  String get profileSwitcherRemoveFailed =>
+      'Could not remove dependent. Please try again.';
+
+  @override
+  String get periodTrackerMarkStartedToday => 'Mark started today';
+
+  @override
+  String get periodTrackerEnterStartDate => 'Enter start date';
+
+  @override
+  String get periodTrackerOpen => 'Open tracker';
+
+  @override
+  String get periodTrackerCycleStartRecorded => 'Cycle start recorded';
+
+  @override
+  String get periodTrackerCycleStartSaveFailed => 'Could not save cycle start';
+
+  @override
+  String get periodTrackerSavedToast => 'Cycle tracker saved';
+
+  @override
+  String get periodTrackerLastPeriodStart => 'Last period start';
+
+  @override
+  String get periodTrackerTitle => 'Period Tracker';
+
+  @override
+  String get periodTrackerCycleDetails => 'Cycle details';
+
+  @override
+  String get periodTrackerCycleLength => 'Cycle length';
+
+  @override
+  String get periodTrackerDays => 'days';
+
+  @override
+  String get periodTrackerPeriodLength => 'Period length';
+
+  @override
+  String get periodTrackerSaving => 'Saving';
+
+  @override
+  String get periodTrackerSaveTracker => 'Save tracker';
+
+  @override
+  String get periodTrackerAddFirstDay =>
+      'Add the first day of your last period.';
+
+  @override
+  String get periodTrackerPregnancyCaution =>
+      'This is not a diagnosis. Consider a pregnancy test or clinician review.';
+
+  @override
+  String periodTrackerCycleDay(int cycleDay) {
+    return 'Cycle day $cycleDay';
+  }
+
+  @override
+  String get periodTrackerStartedToday => 'Started today';
+
+  @override
+  String get periodTrackerAddDate => 'Add date';
+
+  @override
+  String get periodTrackerEnterDate => 'Enter date';
+
+  @override
+  String get periodTrackerStartTracking => 'Start tracking';
+
+  @override
+  String get periodTrackerMayBePregnant => 'You may be pregnant';
+
+  @override
+  String periodTrackerCycleDelayed(int days) {
+    return 'Cycle delayed by $days days';
+  }
+
+  @override
+  String get periodTrackerCycleDueToday => 'Cycle due today';
+
+  @override
+  String periodTrackerDaysToNextCycle(int days) {
+    return '$days days to next cycle';
+  }
+
+  @override
+  String get periodTrackerLastRecordedPeriod => 'Last recorded period';
+
+  @override
+  String get periodTrackerEstimatedFertileWindow => 'Estimated fertile window';
+
+  @override
+  String get periodTrackerExpectedPeriodDate => 'Expected period date';
+
+  @override
+  String get periodTrackerExpectedNextPeriod => 'Expected next period';
+
+  @override
+  String get periodTrackerPrivacyNote =>
+      'Saved locally on this device for now. Hospital sync can be added after consent, retention, and clinical review rules are finalized.';
+
+  @override
+  String get billDetailLoadFailed => 'Unable to load bill. Please retry.';
+
+  @override
+  String get billDetailPaymentLinkFailed => 'Could not generate payment link';
+
+  @override
+  String get billDetailSubtotal => 'Subtotal';
+
+  @override
+  String get billDetailDiscount => 'Discount';
+
+  @override
+  String billDetailPayViaUpi(String amount) {
+    return 'Pay $amount via UPI';
+  }
+
+  @override
+  String get billDetailPayViaUpiBody =>
+      'Tap to open your UPI app with the amount pre-filled.';
+
+  @override
+  String get billDetailGenerating => 'Generating...';
+
+  @override
+  String get billDetailPayNow => 'Pay now';
+
+  @override
+  String billDetailPaymentLinkReference(String token) {
+    return 'Payment link reference: $token...';
+  }
+
+  @override
+  String get billDetailInsuranceBreakdown => 'Insurance / TPA breakdown';
+
+  @override
+  String billDetailClaimNumber(String claimNumber) {
+    return 'Claim $claimNumber';
+  }
+
+  @override
+  String get billDetailTotalBilled => 'Total billed';
+
+  @override
+  String get billDetailTpaPaid => 'TPA paid';
+
+  @override
+  String get billDetailPatientShare => 'Patient share';
+
+  @override
+  String get billDetailWhatWasNotCovered => 'What was not covered';
+
+  @override
+  String get billDetailLatestInsurerNote => 'Latest insurer note';
+
+  @override
+  String get billDetailViewFullInsuranceClaim => 'View full insurance claim';
+
+  @override
+  String get billDetailItems => 'Items';
+
+  @override
+  String get billDetailPaymentHistory => 'Payment history';
+
+  @override
+  String get labOrdersLoadFailed =>
+      'Unable to load lab orders. Please pull down to retry.';
+
+  @override
+  String get labOrdersDownloadFailed => 'Could not download report';
+
+  @override
+  String get labOrdersTitle => 'Lab Orders';
+
+  @override
+  String get labOrdersEmptyTitle => 'No lab orders';
+
+  @override
+  String get labOrdersEmptySubtitle =>
+      'Lab tests ordered by your doctor will appear here with collection instructions and reports.';
+
+  @override
+  String labOrdersOrderedBy(String doctorName) {
+    return 'Ordered by $doctorName';
+  }
+
+  @override
+  String get labOrdersWhere => 'Where';
+
+  @override
+  String get labOrdersBy => 'By';
+
+  @override
+  String get labOrdersScheduled => 'Scheduled';
+
+  @override
+  String get labOrdersNoCollectionInstructions =>
+      'Your doctor has not provided collection instructions yet. Please ask staff for the lab location and timing.';
+
+  @override
+  String get labOrdersCompleted => 'Completed';
+
+  @override
+  String get labOrdersDownloading => 'Downloading...';
+
+  @override
+  String get labOrdersDownloadReport => 'Download report';
+
+  @override
+  String labOrdersRequestedOn(String date) {
+    return 'Requested $date';
+  }
+
+  @override
+  String get labOrdersFastingRequired => 'Fasting required';
+
+  @override
+  String get messagesCategoryGeneral => 'General';
+
+  @override
+  String get messagesCategoryAppointment => 'Appointment';
+
+  @override
+  String get messagesCategoryPrescription => 'Prescription';
+
+  @override
+  String get messagesCategoryLabResult => 'Lab result';
+
+  @override
+  String get messagesCategoryBilling => 'Billing';
+
+  @override
+  String get messagesCategoryDischarge => 'Discharge';
+
+  @override
+  String get messagesCategoryOther => 'Other';
+
+  @override
+  String get messagesLoadFailed => 'Unable to load messages. Please retry.';
+
+  @override
+  String get messagesTitle => 'Messages';
+
+  @override
+  String get messagesNewMessage => 'New message';
+
+  @override
+  String get messagesEmptyTitle => 'No messages yet';
+
+  @override
+  String get messagesEmptySubtitle =>
+      'Start a secure conversation with the hospital using the New Message button below.';
+
+  @override
+  String get messagesUrgent => 'URGENT';
+
+  @override
+  String get messagesSubjectBodyRequired =>
+      'Subject and message body are required.';
+
+  @override
+  String get messagesSendFailed => 'Failed to send message. Please try again.';
+
+  @override
+  String get messagesCategoryLabel => 'Category';
+
+  @override
+  String get messagesSubjectLabel => 'Subject';
+
+  @override
+  String get messagesBodyLabel => 'Message';
+
+  @override
+  String get messagesSending => 'Sending...';
+
+  @override
+  String get messagesSendButton => 'Send';
+
+  @override
+  String get recordsPickFile => 'Please pick a file';
+
+  @override
+  String get settingsDeletingAccount => 'Deleting account...';
+
+  @override
+  String get settingsDeleteAccountFailed =>
+      'Could not delete account. Please try again.';
+
+  @override
+  String get settingsDeleteAccountTitle => 'Delete account';
+
+  @override
+  String get settingsDeleteAccountConsequences =>
+      'This will remove your login access and clear your personal identity details from your account. Clinical, billing, and audit records are retained where the hospital is legally required to keep them. You cannot delete the account while an active admission is open.';
+
+  @override
+  String get settingsEnterOtp => 'Enter the 6-digit OTP.';
+
+  @override
+  String get settingsOtpNotReady => 'OTP is not ready yet. Resend code.';
+
+  @override
+  String get settingsOtpVerificationFailed =>
+      'OTP verification failed. Please try again.';
+
+  @override
+  String get settingsVerifyPhoneTitle => 'Verify your phone';
+
+  @override
+  String settingsFreshOtpSent(String phone) {
+    return 'We sent a fresh OTP to $phone.';
+  }
+
+  @override
+  String get settingsSendingOtp => 'Sending OTP...';
+
+  @override
+  String get settingsResendOtp => 'Resend';
+
+  @override
+  String get settingsVerifyButton => 'Verify';
+
+  @override
+  String get settingsConfirmDeletionTitle => 'Confirm deletion';
+
+  @override
+  String get settingsConfirmDeletionBody =>
+      'This action cannot be undone. You will be logged out on this device and all other sessions will be revoked.';
+
+  @override
+  String get settingsDeleteAccountButton => 'Delete account';
+
+  @override
+  String get settingsActiveAdmissionBlocksDeletion =>
+      'Account deletion is blocked while an active admission is open.';
+
+  @override
+  String settingsHospitalIdLine(String name, String hospitalNumber) {
+    return '$name - Hospital ID $hospitalNumber';
+  }
+
+  @override
+  String get settingsManageDependents => 'Manage dependents';
+
+  @override
+  String get settingsManageDependentsSubtitle =>
+      'Link or remove a minor under your account';
+
+  @override
+  String get settingsHealthDataSynced =>
+      'Health data synced - activity and vitals updated';
+
+  @override
+  String get settingsNoNewSamplesToSync => 'No new samples to sync';
+
+  @override
+  String get settingsDeleteAccountSubtitle =>
+      'Re-authenticate with OTP before deletion';
+
+  @override
+  String get settingsLegalSection => 'Legal';
+
+  @override
+  String get settingsOpenTermsInBrowser =>
+      'Open the current terms in your browser';
+
+  @override
+  String get settingsOpenPrivacyInBrowser =>
+      'Open the current privacy policy in your browser';
+
+  @override
+  String get splashUseStandardPhone =>
+      'Please use a standard, unmodified phone.';
+
+  @override
+  String get splashAuthenticateToContinue => 'Please authenticate to continue';
+
+  @override
+  String get splashUpdateRequired => 'Update required';
+
+  @override
+  String get splashUpdateBody =>
+      'This version of VH Health is no longer supported. Please install the latest version to continue.';
+
+  @override
+  String get splashUpdateButton => 'Update VH Health';
+
+  @override
+  String get yourHealthTimelineFilterAll => 'All';
+
+  @override
+  String get yourHealthTimelineFilterVisits => 'Visits';
+
+  @override
+  String get yourHealthTimelineFilterPrescriptions => 'Prescriptions';
+
+  @override
+  String get yourHealthTimelineFilterLabs => 'Labs';
+
+  @override
+  String get yourHealthTimelineFilterUploads => 'Uploads';
+
+  @override
+  String get yourHealthTimelineFilterHospital => 'Hospital Docs';
+
+  @override
+  String get yourHealthTimelineReady => 'Your health timeline is ready';
+
+  @override
+  String yourHealthTimelineUpdateCount(int count) {
+    return '$count health updates in one timeline';
+  }
+
+  @override
+  String get yourHealthTimelineRxPill => 'Rx';
+
+  @override
+  String get yourHealthTimelineVisitsPill => 'Visits';
+
+  @override
+  String get yourHealthTimelineUploadsPill => 'Uploads';
+
+  @override
+  String get yourHealthTimelineDatePending => 'Date pending';
+
+  @override
+  String yourHealthTimelineFilteredEmpty(String filter) {
+    return 'No $filter yet';
+  }
+
+  @override
+  String get yourHealthTimelineEmptyTitle => 'No timeline items yet';
+
+  @override
+  String get yourHealthTimelineFilteredEmptySubtitle =>
+      'Try another filter or refresh the latest hospital records.';
+
+  @override
+  String get yourHealthTimelineEmptySubtitle =>
+      'Prescriptions, consultations, hospital docs, and uploads will collect here automatically.';
+
+  @override
+  String get recordExtractionMissingRecordId => 'Record ID is missing';
+
+  @override
+  String get recordExtractionUnavailable => 'Extraction is not available yet';
+
+  @override
+  String get recordExtractionProcessFailed =>
+      'Extraction could not be processed';
+
+  @override
+  String get recordExtractionUploadedRecord => 'Uploaded record';
+
+  @override
+  String get recordExtractionMessageSent => 'Message sent to the hospital team';
+
+  @override
+  String get recordExtractionMessageFailed =>
+      'Message could not be sent. Please try again.';
+
+  @override
+  String get recordExtractionMessageHospital => 'Message hospital';
+
+  @override
+  String get recordExtractionRefresh => 'Refresh extraction';
+
+  @override
+  String get recordExtractionUploadedFile => 'Uploaded file';
+
+  @override
+  String get recordExtractionFilePreviewUnavailable =>
+      'File preview unavailable';
+
+  @override
+  String get recordExtractionOpenFileToCompare => 'Open the file to compare it';
+
+  @override
+  String get recordExtractionImagePreviewUnavailable =>
+      'Image preview unavailable';
+
+  @override
+  String get recordExtractionReviewFlags => 'Review flags';
+
+  @override
+  String get recordExtractionPatientIdentifiers => 'Patient identifiers';
+
+  @override
+  String get recordExtractionDiagnoses => 'Diagnoses';
+
+  @override
+  String get recordExtractionMedications => 'Medications';
+
+  @override
+  String get recordExtractionTestsReports => 'Tests & Reports';
+
+  @override
+  String get recordExtractionFollowUp => 'Follow up';
+
+  @override
+  String get recordExtractionOtherFields => 'Other extracted fields';
+
+  @override
+  String get recordExtractionDates => 'Dates';
+
+  @override
+  String get recordExtractionCitations => 'Citations';
+
+  @override
+  String get recordExtractionOcrText => 'OCR text';
+
+  @override
+  String recordExtractionReviewed(String status) {
+    return 'Extraction reviewed: $status';
+  }
+
+  @override
+  String get recordExtractionDraftWarning =>
+      'AI draft - cross-check every extracted value against the original document before relying on it.';
+
+  @override
+  String get recordExtractionDocument => 'Document';
+
+  @override
+  String get recordExtractionProcessing => 'Processing';
+
+  @override
+  String get recordExtractionNoValues => 'No extracted values';
+
+  @override
+  String get recordExtractionProcessButton => 'Process extraction';
+
+  @override
+  String get dashboardHealthConnectPermissionDenied =>
+      'Health Connect permission was not granted. In-app walk tracking still works.';
+
+  @override
+  String get dashboardWellnessBandExcellent => 'You\'re doing great';
+
+  @override
+  String get dashboardWellnessBandGood => 'Keep it up';
+
+  @override
+  String get dashboardWellnessBandNeedsAttention => 'Some attention needed';
+
+  @override
+  String get dashboardWellnessShowBreakdown => 'Show breakdown';
+
+  @override
+  String get dashboardWellnessHideBreakdown => 'Hide breakdown';
+
+  @override
+  String get dashboardWellnessBreakdownTitle => 'Wellness breakdown';
+
+  @override
+  String get dashboardWellnessNoSplit => 'No wellness split is available yet.';
+
+  @override
+  String get dashboardWellnessMedicationStatus => 'Medication status';
+
+  @override
+  String get dashboardWellnessMedicationProxy =>
+      'Prescription-status proxy, not dose adherence';
+
+  @override
+  String get dashboardWellnessNoPrescriptions =>
+      'No prescriptions to track yet';
+
+  @override
+  String dashboardWellnessPrescriptionsActive(int active, int total) {
+    return '$active of $total prescriptions active/unexpired';
+  }
+
+  @override
+  String get healthPointsCentralStats => 'Central stats';
+
+  @override
+  String get healthPointsRefreshingActivity => 'Refreshing your activity';
+
+  @override
+  String get healthPointsCentralStatsSubtitle =>
+      'Walking, points, wellness, and sleep readiness';
+
+  @override
+  String healthPointsCentralStatsFromSource(String source) {
+    return 'Walking, sleep, and points from $source';
+  }
+
+  @override
+  String get healthPointsRefreshStatsTooltip => 'Refresh stats';
+
+  @override
+  String get healthPointsWalking => 'Walking';
+
+  @override
+  String healthPointsGoalStepCaption(int goal) {
+    return '$goal-step goal';
+  }
+
+  @override
+  String healthPointsActivitySourceCaption(String activity, String source) {
+    return '$activity - $source';
+  }
+
+  @override
+  String get healthPointsDistance => 'Distance';
+
+  @override
+  String get healthPointsToday => 'today';
+
+  @override
+  String get healthPointsSleep => 'Sleep';
+
+  @override
+  String get healthPointsNoData => 'No data';
+
+  @override
+  String get healthPointsConnectHealthData => 'Connect Health data';
+
+  @override
+  String healthPointsSyncSource(String source) {
+    return '$source sync';
+  }
+
+  @override
+  String get healthPointsWellness => 'Wellness';
+
+  @override
+  String get healthPointsOutOfHundred => 'out of 100';
+
+  @override
+  String get healthPointsPoints => 'Points';
+
+  @override
+  String get healthPointsCurrentBalance => 'current balance';
+
+  @override
+  String get healthPointsGoal => 'Goal';
+
+  @override
+  String get healthPointsStepsToday => 'steps today';
+
+  @override
+  String get dashboardHealthConnectPrompt =>
+      'Allow Health Connect so VH Health can sync steps counted while the app is closed.';
 }

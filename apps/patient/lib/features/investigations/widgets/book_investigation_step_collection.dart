@@ -66,8 +66,8 @@ class BookInvestigationStepCollection extends StatelessWidget {
           TextField(
             controller: addressController,
             decoration: InputDecoration(
-              labelText: 'Collection Address *',
-              hintText: 'Enter your full address',
+              labelText: l.bookInvestigationCollectionAddressLabel,
+              hintText: l.bookInvestigationCollectionAddressHint,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -80,8 +80,8 @@ class BookInvestigationStepCollection extends StatelessWidget {
           TextField(
             controller: landmarkController,
             decoration: InputDecoration(
-              labelText: 'Landmark',
-              hintText: 'Near/opposite...',
+              labelText: l.bookInvestigationLandmarkLabel,
+              hintText: l.bookInvestigationLandmarkHint,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -98,7 +98,7 @@ class BookInvestigationStepCollection extends StatelessWidget {
           title: Text(
             preferredDate != null
                 ? DateFormat('EEEE, d MMM yyyy').format(preferredDate!)
-                : 'Preferred Date',
+                : l.bookInvestigationPreferredDate,
           ),
           subtitle: preferredDate == null
               ? Text(l.bookInvestigationTapToSelect)
@@ -137,8 +137,8 @@ class BookInvestigationStepCollection extends StatelessWidget {
         TextField(
           controller: notesController,
           decoration: InputDecoration(
-            labelText: 'Notes (optional)',
-            hintText: 'Any special instructions...',
+            labelText: l.bookInvestigationNotesOptional,
+            hintText: l.bookInvestigationNotesHint,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             isDense: true,
           ),

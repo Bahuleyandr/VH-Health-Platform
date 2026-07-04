@@ -1945,7 +1945,7 @@ class AppLocalizationsTe extends AppLocalizations {
   String get permissionGateSettingUp => 'సెటప్ చేస్తోంది...';
 
   @override
-  String get yourHealthUploadRecord => 'రికార్డును అప్‌లోడ్ చేయండి';
+  String get yourHealthUploadRecord => 'రికార్డ్ అప్లోడ్ చేయండి';
 
   @override
   String get yourHealthWhatsNextTitle => 'తర్వాత ఏమిటి';
@@ -2331,4 +2331,1176 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get recordAccessStatusRevoked => 'రద్దయింది';
+
+  @override
+  String get commonRetryButton => 'మళ్లీ ప్రయత్నించండి';
+
+  @override
+  String get commonContinueButton => 'కొనసాగించండి';
+
+  @override
+  String get commonBackButton => 'వెనుకకు';
+
+  @override
+  String get commonOkButton => 'సరే';
+
+  @override
+  String get navigationHome => 'హోమ్';
+
+  @override
+  String get notificationsTitle => 'నోటిఫికేషన్లు';
+
+  @override
+  String get appointmentsBookTab => 'బుక్ చేయండి';
+
+  @override
+  String get appointmentsMyAppointmentsTab => 'నా అపాయింట్‌మెంట్లు';
+
+  @override
+  String get pharmacyOrderTab => 'ఆర్డర్';
+
+  @override
+  String get pharmacyMyOrdersTab => 'నా ఆర్డర్లు';
+
+  @override
+  String get pharmacyFileTooLarge => 'ఫైల్ చాలా పెద్దది. గరిష్ఠ పరిమాణం 10 MB.';
+
+  @override
+  String get pharmacyPrescriptionOrDescriptionRequired =>
+      'దయచేసి ప్రిస్క్రిప్షన్ అప్లోడ్ చేయండి లేదా మీ ఆర్డర్‌ను వివరించండి';
+
+  @override
+  String pharmacyOrderPlacedToast(String orderNumber) {
+    return 'ఆర్డర్ పెట్టబడింది! $orderNumber';
+  }
+
+  @override
+  String pharmacyOrderNumber(String orderNumber) {
+    return 'ఆర్డర్ నంబర్: $orderNumber';
+  }
+
+  @override
+  String get pharmacyPlaceOrderFailed => 'ఆర్డర్ పెట్టడం విఫలమైంది';
+
+  @override
+  String pharmacyPlaceOrderError(String error) {
+    return 'లోపం: $error';
+  }
+
+  @override
+  String get billsTitle => 'బిల్లులు';
+
+  @override
+  String get billsLoadFailed =>
+      'బిల్లులు లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి కిందికి లాగండి.';
+
+  @override
+  String get billsEmptyTitle => 'ఇంకా బిల్లులు లేవు';
+
+  @override
+  String get billsEmptySubtitle =>
+      'ఆసుపత్రి జారీ చేసిన బిల్లులు ఇక్కడ కనిపిస్తాయి. రిఫ్రెష్ చేయడానికి కిందికి లాగండి.';
+
+  @override
+  String billsInvoiceFallback(int id) {
+    return 'ఇన్వాయిస్ #$id';
+  }
+
+  @override
+  String get billsTotal => 'మొత్తం';
+
+  @override
+  String get billsPaid => 'చెల్లించినది';
+
+  @override
+  String get billsDue => 'బాకీ';
+
+  @override
+  String get tpaClaimsTitle => 'ఇన్సూరెన్స్ క్లెయిమ్లు';
+
+  @override
+  String get tpaClaimsLoadFailed =>
+      'ఇన్సూరెన్స్ క్లెయిమ్లు లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి కిందికి లాగండి.';
+
+  @override
+  String get tpaClaimsEmptyTitle => 'ఇంకా ఇన్సూరెన్స్ క్లెయిమ్లు లేవు';
+
+  @override
+  String get tpaClaimFallback => 'క్లెయిమ్';
+
+  @override
+  String get tpaClaimClaimed => 'క్లెయిమ్ చేసినది';
+
+  @override
+  String get tpaClaimApproved => 'ఆమోదించబడింది';
+
+  @override
+  String get tpaClaimPaidByInsurer => 'ఇన్సూరర్ చెల్లించినది';
+
+  @override
+  String get tpaClaimBreakdownTitle => 'క్లెయిమ్ వివరాలు';
+
+  @override
+  String get tpaClaimNoData => 'డేటా లేదు';
+
+  @override
+  String get tpaClaimDocumentsLoadFailed => 'క్లెయిమ్ పత్రాలు లోడ్ కాలేదు';
+
+  @override
+  String get tpaClaimLoadFailed =>
+      'క్లెయిమ్ లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి కిందికి లాగండి.';
+
+  @override
+  String get tpaClaimDocumentDownloadFailed => 'పత్రం డౌన్‌లోడ్ కాలేదు';
+
+  @override
+  String get tpaClaimSummary => 'సారాంశం';
+
+  @override
+  String get tpaClaimHospitalBilled => 'ఆసుపత్రి బిల్లు';
+
+  @override
+  String get tpaClaimTpaClaimed => 'TPA క్లెయిమ్ చేసింది';
+
+  @override
+  String get tpaClaimTpaApproved => 'TPA ఆమోదించింది';
+
+  @override
+  String get tpaClaimTpaDisallowed => 'TPA తిరస్కరించింది';
+
+  @override
+  String get tpaClaimNonPayableItems => 'చెల్లించని అంశాలు';
+
+  @override
+  String get tpaClaimPolicyCopay => 'పాలసీ కో-పే';
+
+  @override
+  String get tpaClaimYouPaid => 'మీరు చెల్లించినది';
+
+  @override
+  String get tpaClaimDocuments => 'క్లెయిమ్ పత్రాలు';
+
+  @override
+  String get tpaClaimDocumentFallback => 'పత్రం';
+
+  @override
+  String get tpaClaimDownloadTooltip => 'డౌన్‌లోడ్';
+
+  @override
+  String get tpaClaimLatestInsurerMessage => 'తాజా ఇన్సూరర్ సందేశం';
+
+  @override
+  String get tpaClaimWhyDisallowed => 'మొత్తం ఎందుకు తిరస్కరించబడింది';
+
+  @override
+  String get tpaClaimInvoiceBreakdown => 'ఇన్వాయిస్ వివరాలు';
+
+  @override
+  String get tpaClaimTotal => 'మొత్తం';
+
+  @override
+  String get tpaClaimCorrespondence => 'లేఖాచారము';
+
+  @override
+  String get addDependentTitle => 'ఆధారితుడిని జోడించండి';
+
+  @override
+  String get addDependentHeading => 'మైనర్ రోగిని లింక్ చేయండి';
+
+  @override
+  String get addDependentIntro =>
+      'మైనర్ రోగి ఫోన్ నంబర్ లేదా VH Health UID నమోదు చేయండి. వారు ఇప్పటికే నమోదు అయి ఉండాలి, సాధారణంగా మొదటి సందర్శనలో రిసెప్షన్ వద్ద.';
+
+  @override
+  String get addDependentIdentifierLabel => 'ఫోన్ నంబర్ లేదా UID';
+
+  @override
+  String get addDependentIdentifierHint =>
+      '+91 9876543210 లేదా రిసెప్షన్ నుండి UUID';
+
+  @override
+  String get addDependentIdentifierRequired => 'ఫోన్ లేదా UID అవసరం';
+
+  @override
+  String get addDependentIdentifierInvalid =>
+      'ఫోన్ (10-15 అంకెలు) లేదా UID నమోదు చేయండి';
+
+  @override
+  String get addDependentRelationshipLabel => 'వారితో మీ సంబంధం';
+
+  @override
+  String get addDependentRelationshipParent => 'తల్లిదండ్రులు';
+
+  @override
+  String get addDependentRelationshipMother => 'తల్లి';
+
+  @override
+  String get addDependentRelationshipFather => 'తండ్రి';
+
+  @override
+  String get addDependentRelationshipLegalGuardian => 'చట్టబద్ధ సంరక్షకుడు';
+
+  @override
+  String get addDependentRelationshipGrandparent => 'తాత/అమ్మమ్మ';
+
+  @override
+  String get addDependentRelationshipSibling => 'తోబుట్టువు';
+
+  @override
+  String get addDependentRelationshipSpouse => 'జీవిత భాగస్వామి';
+
+  @override
+  String get addDependentRelationshipOther => 'ఇతర';
+
+  @override
+  String get addDependentLinkedTitle => 'ఆధారితుడు లింక్ అయ్యారు';
+
+  @override
+  String addDependentLinkedBody(String name) {
+    return '$name ఇప్పుడు మీ ఖాతాకు లింక్ అయ్యారు. ఇప్పుడే వారి ప్రొఫైల్‌కు మారాలా?';
+  }
+
+  @override
+  String get addDependentNotYetButton => 'ఇప్పుడు కాదు';
+
+  @override
+  String get addDependentSwitchProfileButton => 'ప్రొఫైల్ మార్చు';
+
+  @override
+  String addDependentLinkedToast(String name) {
+    return '$name లింక్ అయ్యారు';
+  }
+
+  @override
+  String get addDependentLinkFailed =>
+      'ఆధారితుడిని లింక్ చేయలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get addDependentLinkingButton => 'లింక్ చేస్తోంది...';
+
+  @override
+  String get addDependentLinkButton => 'ఆధారితుడిని లింక్ చేయండి';
+
+  @override
+  String get addDependentReceptionHint =>
+      'ఆధారితుడు కనిపించడంలేదా? ముందుగా రిసెప్షన్‌లో నమోదు చేయమని అడగండి. లింక్ చేయడానికి ముందు వారికి VH Health UID అవసరం.';
+
+  @override
+  String get medicationFrequencyOnceDaily => 'రోజుకు ఒకసారి';
+
+  @override
+  String get medicationFrequencyTwiceDaily => 'రోజుకు రెండుసార్లు';
+
+  @override
+  String get medicationFrequencyThriceDaily => 'రోజుకు మూడుసార్లు';
+
+  @override
+  String get medicationFrequencyAsNeeded => 'అవసరమైనప్పుడు';
+
+  @override
+  String get medicationRemindersLoadFailed =>
+      'మందుల రిమైండర్లు లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి కిందికి లాగండి.';
+
+  @override
+  String get medicationRemindersRetryButton => 'రిమైండర్లు మళ్లీ ప్రయత్నించండి';
+
+  @override
+  String get medicationReminderAncSupplement => 'ANC సప్లిమెంట్';
+
+  @override
+  String get medicationReminderDeleteTooltip => 'రిమైండర్ తొలగించండి';
+
+  @override
+  String medicationReminderDosageLine(String dosage) {
+    return 'మోతాదు: $dosage';
+  }
+
+  @override
+  String medicationReminderFrequencyLine(String frequency) {
+    return 'తరచుదనం: $frequency';
+  }
+
+  @override
+  String medicationReminderTimesLine(String times) {
+    return 'సమయాలు: $times';
+  }
+
+  @override
+  String medicationReminderNotesLine(String notes) {
+    return 'గమనికలు: $notes';
+  }
+
+  @override
+  String medicationReminderStartLine(String date) {
+    return 'ప్రారంభం: $date';
+  }
+
+  @override
+  String medicationReminderEndLine(String date) {
+    return 'ముగింపు: $date';
+  }
+
+  @override
+  String get medicationReminderNoEndDate => 'ముగింపు: ముగింపు తేదీ లేదు';
+
+  @override
+  String get medicationReminderNotesOptional => 'గమనికలు (ఐచ్చికం)';
+
+  @override
+  String get bookInvestigationSlotMorning => 'ఉదయం (9 AM - 12 PM)';
+
+  @override
+  String get bookInvestigationSlotAfternoon => 'మధ్యాహ్నం (12 PM - 3 PM)';
+
+  @override
+  String get bookInvestigationSlotEvening => 'సాయంత్రం (3 PM - 6 PM)';
+
+  @override
+  String get bookInvestigationBookingFailed => 'బుకింగ్ విఫలమైంది';
+
+  @override
+  String get bookInvestigationBookingError =>
+      'పరీక్షను బుక్ చేయలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get bookInvestigationBookNowButton => 'ఇప్పుడే బుక్ చేయండి';
+
+  @override
+  String get bookInvestigationBookingButton => 'బుక్ చేస్తోంది...';
+
+  @override
+  String bookInvestigationSelectedCount(int count) {
+    return '$count ఎంపికైంది';
+  }
+
+  @override
+  String get bookInvestigationSearchHint => 'టెస్టులను వెతకండి...';
+
+  @override
+  String bookInvestigationCostFasting(String cost) {
+    return '₹$cost • ఉపవాసం అవసరం';
+  }
+
+  @override
+  String get bookInvestigationCustomTestHint =>
+      'ఉదా. CBC, షుగర్ టెస్ట్, థైరాయిడ్';
+
+  @override
+  String get bookInvestigationCameraButton => 'కెమెరా';
+
+  @override
+  String get bookInvestigationGalleryButton => 'గ్యాలరీ';
+
+  @override
+  String get bookInvestigationPhotoSelected => 'ఫోటో ఎంపికైంది';
+
+  @override
+  String get bookInvestigationCollectionAddressLabel => 'సేకరణ చిరునామా *';
+
+  @override
+  String get bookInvestigationCollectionAddressHint =>
+      'మీ పూర్తి చిరునామా నమోదు చేయండి';
+
+  @override
+  String get bookInvestigationLandmarkLabel => 'ల్యాండ్‌మార్క్';
+
+  @override
+  String get bookInvestigationLandmarkHint => 'దగ్గర/ఎదురుగా...';
+
+  @override
+  String get bookInvestigationPreferredDate => 'ఇష్టమైన తేదీ';
+
+  @override
+  String get bookInvestigationNotesOptional => 'గమనికలు (ఐచ్చికం)';
+
+  @override
+  String get bookInvestigationNotesHint => 'ఏదైనా ప్రత్యేక సూచనలు...';
+
+  @override
+  String get vitalsInvalidValue => 'చెల్లదు';
+
+  @override
+  String get vitalsHeartRateRange => '30-250 bpm నమోదు చేయండి';
+
+  @override
+  String get vitalsTemperatureRange => '90-110 °F నమోదు చేయండి';
+
+  @override
+  String get vitalsBloodSugarRange => '20-600 mg/dL నమోదు చేయండి';
+
+  @override
+  String get vitalsWeightRange => '1-300 kg నమోదు చేయండి';
+
+  @override
+  String get vitalsSpo2Range => '50-100% నమోదు చేయండి';
+
+  @override
+  String get vitalsHistoryHeading => 'చరిత్ర';
+
+  @override
+  String get yourHealthTabTimeline => 'టైమ్‌లైన్';
+
+  @override
+  String get yourHealthTabMyUploads => 'నా అప్లోడ్లు';
+
+  @override
+  String get yourHealthTabPrescriptions => 'ప్రిస్క్రిప్షన్లు';
+
+  @override
+  String get pharmacyOrderNoteHint =>
+      'ఉదా., Dolo 650 - 2 స్ట్రిప్స్, Pan 40 - 1 స్ట్రిప్...';
+
+  @override
+  String get pharmacyHomeDelivery => 'హోమ్ డెలివరీ';
+
+  @override
+  String get pharmacyPickup => 'పికప్';
+
+  @override
+  String get pharmacyLandmarkOptional => 'ల్యాండ్‌మార్క్ (ఐచ్చికం)';
+
+  @override
+  String get pharmacyLandmarkHint => 'దగ్గర...';
+
+  @override
+  String get commonCouldNotOpenLink => 'లింక్ తెరవలేకపోయాం';
+
+  @override
+  String get commonCloseButton => 'మూసివేయి';
+
+  @override
+  String get commonOpenButton => 'తెరవండి';
+
+  @override
+  String get commonRefreshButton => 'రిఫ్రెష్';
+
+  @override
+  String get guestSignInDefaultFeature => 'ఈ ఫీచర్';
+
+  @override
+  String get guestSignInTitle => 'సైన్ ఇన్ అవసరం';
+
+  @override
+  String guestSignInBody(String feature) {
+    return '$feature ఉపయోగించడానికి సైన్ ఇన్ చేయండి.';
+  }
+
+  @override
+  String get guestSignInKeepBrowsing => 'బ్రౌజ్ కొనసాగించండి';
+
+  @override
+  String get guestSignInAndReturn => 'సైన్ ఇన్ చేసి తిరిగి రండి';
+
+  @override
+  String get dashboardOpenStepChallenge => 'స్టెప్ ఛాలెంజ్ తెరవండి';
+
+  @override
+  String get dashboardRecentActivity => 'తాజా కార్యకలాపం';
+
+  @override
+  String get dashboardOpenHealthPoints => 'హెల్త్ పాయింట్లు తెరవండి';
+
+  @override
+  String get dashboardHealthConnectSynced =>
+      'ఆరోగ్య డేటా సింక్ అయింది - కార్యకలాపం మరియు వైటల్స్ నవీకరించబడ్డాయి';
+
+  @override
+  String get dashboardHealthConnectNoSamples =>
+      'సింక్ చేయడానికి కొత్త నమూనాలు లేవు';
+
+  @override
+  String get dashboardHealthConnectOpenFailed => 'Health Connect తెరవలేకపోయాం';
+
+  @override
+  String get dashboardExploreSection => 'అన్వేషించండి';
+
+  @override
+  String get dashboardTodaySection => 'ఈరోజు';
+
+  @override
+  String get profileSwitcherSelfName => 'మీరు';
+
+  @override
+  String get profileSwitcherTitle => 'ప్రొఫైళ్లు';
+
+  @override
+  String get profileSwitcherSubtitle =>
+      'మీ ప్రొఫైల్ మరియు లింక్ చేసిన ఆధారితుల మధ్య మారండి';
+
+  @override
+  String get profileSwitcherYourProfile => 'మీ ప్రొఫైల్';
+
+  @override
+  String get profileSwitcherNoDependents => 'ఇంకా ఆధారితులు లింక్ కాలేదు';
+
+  @override
+  String get profileSwitcherRemoveDependentTitle => 'ఆధారితుడిని తొలగించాలా?';
+
+  @override
+  String profileSwitcherRemoveDependentBody(String name) {
+    return '$name ను మీ లింక్ చేసిన ప్రొఫైళ్ల నుండి తొలగించాలా?';
+  }
+
+  @override
+  String get profileSwitcherRemoveButton => 'తొలగించు';
+
+  @override
+  String profileSwitcherRemovedToast(String name) {
+    return '$name తొలగించబడ్డారు';
+  }
+
+  @override
+  String get profileSwitcherRemoveFailed =>
+      'ఆధారితుడిని తొలగించలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get periodTrackerMarkStartedToday =>
+      'ఈరోజు ప్రారంభమైందిగా గుర్తించండి';
+
+  @override
+  String get periodTrackerEnterStartDate => 'ప్రారంభ తేదీ నమోదు చేయండి';
+
+  @override
+  String get periodTrackerOpen => 'ట్రాకర్ తెరవండి';
+
+  @override
+  String get periodTrackerCycleStartRecorded => 'సైకిల్ ప్రారంభం నమోదైంది';
+
+  @override
+  String get periodTrackerCycleStartSaveFailed =>
+      'సైకిల్ ప్రారంభాన్ని సేవ్ చేయలేకపోయాం';
+
+  @override
+  String get periodTrackerSavedToast => 'సైకిల్ ట్రాకర్ సేవ్ అయింది';
+
+  @override
+  String get periodTrackerLastPeriodStart => 'చివరి పీరియడ్ ప్రారంభం';
+
+  @override
+  String get periodTrackerTitle => 'పీరియడ్ ట్రాకర్';
+
+  @override
+  String get periodTrackerCycleDetails => 'సైకిల్ వివరాలు';
+
+  @override
+  String get periodTrackerCycleLength => 'సైకిల్ పొడవు';
+
+  @override
+  String get periodTrackerDays => 'రోజులు';
+
+  @override
+  String get periodTrackerPeriodLength => 'పీరియడ్ పొడవు';
+
+  @override
+  String get periodTrackerSaving => 'సేవ్ చేస్తోంది';
+
+  @override
+  String get periodTrackerSaveTracker => 'ట్రాకర్ సేవ్ చేయండి';
+
+  @override
+  String get periodTrackerAddFirstDay =>
+      'మీ చివరి పీరియడ్ మొదటి రోజును జోడించండి.';
+
+  @override
+  String get periodTrackerPregnancyCaution =>
+      'ఇది నిర్ధారణ కాదు. గర్భ పరీక్ష లేదా వైద్యుని సమీక్షను పరిగణించండి.';
+
+  @override
+  String periodTrackerCycleDay(int cycleDay) {
+    return 'సైకిల్ రోజు $cycleDay';
+  }
+
+  @override
+  String get periodTrackerStartedToday => 'ఈరోజు ప్రారంభమైంది';
+
+  @override
+  String get periodTrackerAddDate => 'తేదీ జోడించండి';
+
+  @override
+  String get periodTrackerEnterDate => 'తేదీ నమోదు చేయండి';
+
+  @override
+  String get periodTrackerStartTracking => 'ట్రాకింగ్ ప్రారంభించండి';
+
+  @override
+  String get periodTrackerMayBePregnant => 'మీరు గర్భవతిగా ఉండవచ్చు';
+
+  @override
+  String periodTrackerCycleDelayed(int days) {
+    return 'సైకిల్ $days రోజులు ఆలస్యం';
+  }
+
+  @override
+  String get periodTrackerCycleDueToday => 'సైకిల్ ఈరోజు రావాలి';
+
+  @override
+  String periodTrackerDaysToNextCycle(int days) {
+    return 'తదుపరి సైకిల్‌కు $days రోజులు';
+  }
+
+  @override
+  String get periodTrackerLastRecordedPeriod => 'చివరిగా నమోదైన పీరియడ్';
+
+  @override
+  String get periodTrackerEstimatedFertileWindow => 'అంచనా ఫెర్టైల్ విండో';
+
+  @override
+  String get periodTrackerExpectedPeriodDate => 'అంచనా పీరియడ్ తేదీ';
+
+  @override
+  String get periodTrackerExpectedNextPeriod => 'తదుపరి అంచనా పీరియడ్';
+
+  @override
+  String get periodTrackerPrivacyNote =>
+      'ప్రస్తుతం ఇది ఈ పరికరంలో స్థానికంగా సేవ్ అవుతుంది. సమ్మతి, నిల్వ, క్లినికల్ సమీక్ష నియమాలు పూర్తయ్యాక ఆసుపత్రి సింక్ జోడించవచ్చు.';
+
+  @override
+  String get billDetailLoadFailed => 'బిల్ లోడ్ కాలేదు. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get billDetailPaymentLinkFailed => 'చెల్లింపు లింక్ రూపొందించలేకపోయాం';
+
+  @override
+  String get billDetailSubtotal => 'ఉపమొత్తం';
+
+  @override
+  String get billDetailDiscount => 'డిస్కౌంట్';
+
+  @override
+  String billDetailPayViaUpi(String amount) {
+    return 'UPI ద్వారా $amount చెల్లించండి';
+  }
+
+  @override
+  String get billDetailPayViaUpiBody =>
+      'మొత్తం ముందే నింపిన UPI యాప్ తెరవడానికి నొక్కండి.';
+
+  @override
+  String get billDetailGenerating => 'రూపొందిస్తోంది...';
+
+  @override
+  String get billDetailPayNow => 'ఇప్పుడే చెల్లించండి';
+
+  @override
+  String billDetailPaymentLinkReference(String token) {
+    return 'చెల్లింపు లింక్ సూచన: $token...';
+  }
+
+  @override
+  String get billDetailInsuranceBreakdown => 'ఇన్సూరెన్స్ / TPA వివరాలు';
+
+  @override
+  String billDetailClaimNumber(String claimNumber) {
+    return 'క్లెయిమ్ $claimNumber';
+  }
+
+  @override
+  String get billDetailTotalBilled => 'మొత్తం బిల్';
+
+  @override
+  String get billDetailTpaPaid => 'TPA చెల్లించింది';
+
+  @override
+  String get billDetailPatientShare => 'రోగి భాగం';
+
+  @override
+  String get billDetailWhatWasNotCovered => 'ఏవి కవర్ కాలేదు';
+
+  @override
+  String get billDetailLatestInsurerNote => 'తాజా ఇన్సూరర్ గమనిక';
+
+  @override
+  String get billDetailViewFullInsuranceClaim =>
+      'పూర్తి ఇన్సూరెన్స్ క్లెయిమ్ చూడండి';
+
+  @override
+  String get billDetailItems => 'అంశాలు';
+
+  @override
+  String get billDetailPaymentHistory => 'చెల్లింపు చరిత్ర';
+
+  @override
+  String get labOrdersLoadFailed =>
+      'ల్యాబ్ ఆర్డర్లు లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి కిందికి లాగండి.';
+
+  @override
+  String get labOrdersDownloadFailed => 'రిపోర్ట్ డౌన్‌లోడ్ కాలేదు';
+
+  @override
+  String get labOrdersTitle => 'ల్యాబ్ ఆర్డర్లు';
+
+  @override
+  String get labOrdersEmptyTitle => 'ల్యాబ్ ఆర్డర్లు లేవు';
+
+  @override
+  String get labOrdersEmptySubtitle =>
+      'మీ వైద్యుడు ఆర్డర్ చేసిన ల్యాబ్ పరీక్షలు సేకరణ సూచనలు మరియు రిపోర్టులతో ఇక్కడ కనిపిస్తాయి.';
+
+  @override
+  String labOrdersOrderedBy(String doctorName) {
+    return '$doctorName ఆర్డర్ చేశారు';
+  }
+
+  @override
+  String get labOrdersWhere => 'ఎక్కడ';
+
+  @override
+  String get labOrdersBy => 'లోపు';
+
+  @override
+  String get labOrdersScheduled => 'షెడ్యూల్ చేయப்பட்டது';
+
+  @override
+  String get labOrdersNoCollectionInstructions =>
+      'మీ వైద్యుడు ఇంకా సేకరణ సూచనలు ఇవ్వలేదు. ల్యాబ్ స్థలం మరియు సమయానికి సిబ్బందిని అడగండి.';
+
+  @override
+  String get labOrdersCompleted => 'పూర్తయింది';
+
+  @override
+  String get labOrdersDownloading => 'డౌన్‌లోడ్ అవుతోంది...';
+
+  @override
+  String get labOrdersDownloadReport => 'రిపోర్ట్ డౌన్‌లోడ్ చేయండి';
+
+  @override
+  String labOrdersRequestedOn(String date) {
+    return '$date న అభ్యర్థించారు';
+  }
+
+  @override
+  String get labOrdersFastingRequired => 'ఉపవాసం అవసరం';
+
+  @override
+  String get messagesCategoryGeneral => 'సాధారణం';
+
+  @override
+  String get messagesCategoryAppointment => 'అపాయింట్‌మెంట్';
+
+  @override
+  String get messagesCategoryPrescription => 'ప్రిస్క్రిప్షన్';
+
+  @override
+  String get messagesCategoryLabResult => 'ల్యాబ్ ఫలితం';
+
+  @override
+  String get messagesCategoryBilling => 'బిల్లింగ్';
+
+  @override
+  String get messagesCategoryDischarge => 'డిశ్చార్జ్';
+
+  @override
+  String get messagesCategoryOther => 'ఇతర';
+
+  @override
+  String get messagesLoadFailed => 'సందేశాలు లోడ్ కాలేదు. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get messagesTitle => 'సందేశాలు';
+
+  @override
+  String get messagesNewMessage => 'కొత్త సందేశం';
+
+  @override
+  String get messagesEmptyTitle => 'ఇంకా సందేశాలు లేవు';
+
+  @override
+  String get messagesEmptySubtitle =>
+      'కింద ఉన్న కొత్త సందేశం బటన్‌తో ఆసుపత్రితో భద్రమైన సంభాషణ ప్రారంభించండి.';
+
+  @override
+  String get messagesUrgent => 'అత్యవసరం';
+
+  @override
+  String get messagesSubjectBodyRequired => 'విషయం మరియు సందేశం అవసరం.';
+
+  @override
+  String get messagesSendFailed => 'సందేశం పంపలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get messagesCategoryLabel => 'వర్గం';
+
+  @override
+  String get messagesSubjectLabel => 'విషయం';
+
+  @override
+  String get messagesBodyLabel => 'సందేశం';
+
+  @override
+  String get messagesSending => 'పంపుతోంది...';
+
+  @override
+  String get messagesSendButton => 'పంపండి';
+
+  @override
+  String get recordsPickFile => 'దయచేసి ఫైల్ ఎంచుకోండి';
+
+  @override
+  String get settingsDeletingAccount => 'ఖాతా తొలగిస్తోంది...';
+
+  @override
+  String get settingsDeleteAccountFailed =>
+      'ఖాతా తొలగించలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get settingsDeleteAccountTitle => 'ఖాతాను తొలగించు';
+
+  @override
+  String get settingsDeleteAccountConsequences =>
+      'ఇది మీ లాగిన్ యాక్సెస్‌ను తొలగించి ఖాతా నుండి వ్యక్తిగత గుర్తింపు వివరాలను క్లియర్ చేస్తుంది. క్లినికల్, బిల్లింగ్, ఆడిట్ రికార్డులు ఆసుపత్రికి చట్టపరంగా అవసరమైన చోట నిల్వ ఉంటాయి. సక్రియ అడ్మిషన్ ఉన్నప్పుడు ఖాతాను తొలగించలేరు.';
+
+  @override
+  String get settingsEnterOtp => '6 అంకెల OTP నమోదు చేయండి.';
+
+  @override
+  String get settingsOtpNotReady =>
+      'OTP ఇంకా సిద్ధంగా లేదు. కోడ్ మళ్లీ పంపండి.';
+
+  @override
+  String get settingsOtpVerificationFailed =>
+      'OTP ధృవీకరణ విఫలమైంది. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get settingsVerifyPhoneTitle => 'మీ ఫోన్ ధృవీకరించండి';
+
+  @override
+  String settingsFreshOtpSent(String phone) {
+    return '$phone కు కొత్త OTP పంపాం.';
+  }
+
+  @override
+  String get settingsSendingOtp => 'OTP పంపుతోంది...';
+
+  @override
+  String get settingsResendOtp => 'మళ్లీ పంపండి';
+
+  @override
+  String get settingsVerifyButton => 'ధృవీకరించండి';
+
+  @override
+  String get settingsConfirmDeletionTitle => 'తొలగింపును నిర్ధారించండి';
+
+  @override
+  String get settingsConfirmDeletionBody =>
+      'ఈ చర్యను తిరస్కరించలేరు. మీరు ఈ పరికరంలో లాగ్ అవుట్ అవుతారు మరియు ఇతర అన్ని సెషన్లు రద్దవుతాయి.';
+
+  @override
+  String get settingsDeleteAccountButton => 'ఖాతాను తొలగించు';
+
+  @override
+  String get settingsActiveAdmissionBlocksDeletion =>
+      'సక్రియ అడ్మిషన్ ఉన్నప్పుడు ఖాతా తొలగింపు నిలిపివేయబడింది.';
+
+  @override
+  String settingsHospitalIdLine(String name, String hospitalNumber) {
+    return '$name - ఆసుపత్రి ID $hospitalNumber';
+  }
+
+  @override
+  String get settingsManageDependents => 'ఆధారితులను నిర్వహించండి';
+
+  @override
+  String get settingsManageDependentsSubtitle =>
+      'మీ ఖాతా కింద మైనర్‌ను లింక్ చేయండి లేదా తొలగించండి';
+
+  @override
+  String get settingsHealthDataSynced =>
+      'ఆరోగ్య డేటా సింక్ అయింది - కార్యకలాపం మరియు వైటల్స్ నవీకరించబడ్డాయి';
+
+  @override
+  String get settingsNoNewSamplesToSync => 'సింక్ చేయడానికి కొత్త నమూనాలు లేవు';
+
+  @override
+  String get settingsDeleteAccountSubtitle =>
+      'తొలగింపుకు ముందు OTP తో మళ్లీ ధృవీకరించండి';
+
+  @override
+  String get settingsLegalSection => 'చట్టపరమైనది';
+
+  @override
+  String get settingsOpenTermsInBrowser =>
+      'ప్రస్తుత నిబంధనలను మీ బ్రౌజర్‌లో తెరవండి';
+
+  @override
+  String get settingsOpenPrivacyInBrowser =>
+      'ప్రస్తుత గోప్యతా విధానాన్ని మీ బ్రౌజర్‌లో తెరవండి';
+
+  @override
+  String get splashUseStandardPhone =>
+      'దయచేసి సాధారణ, మార్పులేని ఫోన్ ఉపయోగించండి.';
+
+  @override
+  String get splashAuthenticateToContinue => 'కొనసాగించడానికి ధృవీకరించండి';
+
+  @override
+  String get splashUpdateRequired => 'అప్‌డేట్ అవసరం';
+
+  @override
+  String get splashUpdateBody =>
+      'VH Health ఈ వెర్షన్ ఇక మద్దతు ఇవ్వబడదు. కొనసాగించడానికి తాజా వెర్షన్ ఇన్‌స్టాల్ చేయండి.';
+
+  @override
+  String get splashUpdateButton => 'VH Health అప్‌డేట్ చేయండి';
+
+  @override
+  String get yourHealthTimelineFilterAll => 'అన్నీ';
+
+  @override
+  String get yourHealthTimelineFilterVisits => 'సందర్శనలు';
+
+  @override
+  String get yourHealthTimelineFilterPrescriptions => 'ప్రిస్క్రిప్షన్లు';
+
+  @override
+  String get yourHealthTimelineFilterLabs => 'ల్యాబ్స్';
+
+  @override
+  String get yourHealthTimelineFilterUploads => 'అప్లోడ్లు';
+
+  @override
+  String get yourHealthTimelineFilterHospital => 'ఆసుపత్రి పత్రాలు';
+
+  @override
+  String get yourHealthTimelineReady => 'మీ ఆరోగ్య టైమ్‌లైన్ సిద్ధంగా ఉంది';
+
+  @override
+  String yourHealthTimelineUpdateCount(int count) {
+    return 'ఒక టైమ్‌లైన్‌లో $count ఆరోగ్య అప్‌డేట్లు';
+  }
+
+  @override
+  String get yourHealthTimelineRxPill => 'Rx';
+
+  @override
+  String get yourHealthTimelineVisitsPill => 'సందర్శనలు';
+
+  @override
+  String get yourHealthTimelineUploadsPill => 'అప్లోడ్లు';
+
+  @override
+  String get yourHealthTimelineDatePending => 'తేదీ పెండింగ్';
+
+  @override
+  String yourHealthTimelineFilteredEmpty(String filter) {
+    return 'ఇంకా $filter లేవు';
+  }
+
+  @override
+  String get yourHealthTimelineEmptyTitle => 'ఇంకా టైమ్‌లైన్ అంశాలు లేవు';
+
+  @override
+  String get yourHealthTimelineFilteredEmptySubtitle =>
+      'మరొక ఫిల్టర్ ప్రయత్నించండి లేదా తాజా ఆసుపత్రి రికార్డులు రిఫ్రెష్ చేయండి.';
+
+  @override
+  String get yourHealthTimelineEmptySubtitle =>
+      'ప్రిస్క్రిప్షన్లు, కన్సల్టేషన్లు, ఆసుపత్రి పత్రాలు మరియు అప్లోడ్లు ఇక్కడ స్వయంగా చేరతాయి.';
+
+  @override
+  String get recordExtractionMissingRecordId => 'రికార్డ్ ID లేదు';
+
+  @override
+  String get recordExtractionUnavailable =>
+      'ఎక్స్‌ట్రాక్షన్ ఇంకా అందుబాటులో లేదు';
+
+  @override
+  String get recordExtractionProcessFailed => 'ఎక్స్‌ట్రాక్షన్ ప్రాసెస్ కాలేదు';
+
+  @override
+  String get recordExtractionUploadedRecord => 'అప్‌లోడ్ చేసిన రికార్డ్';
+
+  @override
+  String get recordExtractionMessageSent =>
+      'ఆసుపత్రి బృందానికి సందేశం పంపబడింది';
+
+  @override
+  String get recordExtractionMessageFailed =>
+      'సందేశం పంపలేకపోయాం. మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get recordExtractionMessageHospital => 'ఆసుపత్రికి సందేశం పంపండి';
+
+  @override
+  String get recordExtractionRefresh => 'ఎక్స్‌ట్రాక్షన్ రిఫ్రెష్ చేయండి';
+
+  @override
+  String get recordExtractionUploadedFile => 'అప్‌లోడ్ చేసిన ఫైల్';
+
+  @override
+  String get recordExtractionFilePreviewUnavailable =>
+      'ఫైల్ ప్రివ్యూ అందుబాటులో లేదు';
+
+  @override
+  String get recordExtractionOpenFileToCompare => 'పోల్చడానికి ఫైల్ తెరవండి';
+
+  @override
+  String get recordExtractionImagePreviewUnavailable =>
+      'చిత్ర ప్రివ్యూ అందుబాటులో లేదు';
+
+  @override
+  String get recordExtractionReviewFlags => 'సమీక్ష ఫ్లాగులు';
+
+  @override
+  String get recordExtractionPatientIdentifiers => 'రోగి గుర్తింపులు';
+
+  @override
+  String get recordExtractionDiagnoses => 'నిర్ధారణలు';
+
+  @override
+  String get recordExtractionMedications => 'మందులు';
+
+  @override
+  String get recordExtractionTestsReports => 'పరీక్షలు మరియు రిపోర్టులు';
+
+  @override
+  String get recordExtractionFollowUp => 'ఫాలో అప్';
+
+  @override
+  String get recordExtractionOtherFields => 'ఇతర తీసుకున్న ఫీల్డులు';
+
+  @override
+  String get recordExtractionDates => 'తేదీలు';
+
+  @override
+  String get recordExtractionCitations => 'ఉల్లేఖనలు';
+
+  @override
+  String get recordExtractionOcrText => 'OCR టెక్స్ట్';
+
+  @override
+  String recordExtractionReviewed(String status) {
+    return 'ఎక్స్‌ట్రాక్షన్ సమీక్షించబడింది: $status';
+  }
+
+  @override
+  String get recordExtractionDraftWarning =>
+      'AI డ్రాఫ్ట్ - ఆధారపడే ముందు ప్రతి తీసుకున్న విలువను అసలు పత్రంతో సరిపోల్చండి.';
+
+  @override
+  String get recordExtractionDocument => 'పత్రం';
+
+  @override
+  String get recordExtractionProcessing => 'ప్రాసెస్ అవుతోంది';
+
+  @override
+  String get recordExtractionNoValues => 'తీసుకున్న విలువలు లేవు';
+
+  @override
+  String get recordExtractionProcessButton => 'ఎక్స్‌ట్రాక్షన్ ప్రాసెస్ చేయండి';
+
+  @override
+  String get dashboardHealthConnectPermissionDenied =>
+      'Health Connect అనుమతి ఇవ్వలేదు. యాప్‌లో నడక ట్రాకింగ్ ఇంకా పనిచేస్తుంది.';
+
+  @override
+  String get dashboardWellnessBandExcellent => 'మీరు బాగా చేస్తున్నారు';
+
+  @override
+  String get dashboardWellnessBandGood => 'ఇలాగే కొనసాగండి';
+
+  @override
+  String get dashboardWellnessBandNeedsAttention => 'కొంత శ్రద్ధ అవసరం';
+
+  @override
+  String get dashboardWellnessShowBreakdown => 'వివరాలు చూపించండి';
+
+  @override
+  String get dashboardWellnessHideBreakdown => 'వివరాలు దాచండి';
+
+  @override
+  String get dashboardWellnessBreakdownTitle => 'వెల్‌నెస్ వివరాలు';
+
+  @override
+  String get dashboardWellnessNoSplit =>
+      'వెల్‌నెస్ విభజన ఇంకా అందుబాటులో లేదు.';
+
+  @override
+  String get dashboardWellnessMedicationStatus => 'మందుల స్థితి';
+
+  @override
+  String get dashboardWellnessMedicationProxy =>
+      'ప్రిస్క్రిప్షన్-స్థితి సూచిక, డోస్ పాటింపు కాదు';
+
+  @override
+  String get dashboardWellnessNoPrescriptions =>
+      'ట్రాక్ చేయడానికి ఇంకా ప్రిస్క్రిప్షన్లు లేవు';
+
+  @override
+  String dashboardWellnessPrescriptionsActive(int active, int total) {
+    return '$total ప్రిస్క్రిప్షన్లలో $active సక్రియం/గడువు ముగియలేదు';
+  }
+
+  @override
+  String get healthPointsCentralStats => 'కేంద్ర గణాంకాలు';
+
+  @override
+  String get healthPointsRefreshingActivity =>
+      'మీ కార్యకలాపం రిఫ్రెష్ అవుతోంది';
+
+  @override
+  String get healthPointsCentralStatsSubtitle =>
+      'నడక, పాయింట్లు, వెల్‌నెస్ మరియు నిద్ర సిద్ధత';
+
+  @override
+  String healthPointsCentralStatsFromSource(String source) {
+    return '$source నుండి నడక, నిద్ర మరియు పాయింట్లు';
+  }
+
+  @override
+  String get healthPointsRefreshStatsTooltip => 'గణాంకాలు రిఫ్రెష్ చేయండి';
+
+  @override
+  String get healthPointsWalking => 'నడక';
+
+  @override
+  String healthPointsGoalStepCaption(int goal) {
+    return '$goal-అడుగుల లక్ష్యం';
+  }
+
+  @override
+  String healthPointsActivitySourceCaption(String activity, String source) {
+    return '$source నుండి $activity';
+  }
+
+  @override
+  String get healthPointsDistance => 'దూరం';
+
+  @override
+  String get healthPointsToday => 'ఈరోజు';
+
+  @override
+  String get healthPointsSleep => 'నిద్ర';
+
+  @override
+  String get healthPointsNoData => 'డేటా లేదు';
+
+  @override
+  String get healthPointsConnectHealthData => 'హెల్త్ డేటా కనెక్ట్ చేయండి';
+
+  @override
+  String healthPointsSyncSource(String source) {
+    return '$source సింక్';
+  }
+
+  @override
+  String get healthPointsWellness => 'వెల్‌నెస్';
+
+  @override
+  String get healthPointsOutOfHundred => '100 లో';
+
+  @override
+  String get healthPointsPoints => 'పాయింట్లు';
+
+  @override
+  String get healthPointsCurrentBalance => 'ప్రస్తుత బ్యాలెన్స్';
+
+  @override
+  String get healthPointsGoal => 'లక్ష్యం';
+
+  @override
+  String get healthPointsStepsToday => 'ఈరోజు అడుగులు';
+
+  @override
+  String get dashboardHealthConnectPrompt =>
+      'యాప్ మూసి ఉన్నప్పుడు లెక్కించిన అడుగులను VH Health సింక్ చేయడానికి Health Connect అనుమతించండి.';
 }

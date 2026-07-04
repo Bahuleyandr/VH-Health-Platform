@@ -218,16 +218,16 @@ class SettingsController {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const AlertDialog(
+      builder: (_) => AlertDialog(
         content: Row(
           children: [
-            SizedBox(
+            const SizedBox(
               width: 24,
               height: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            SizedBox(width: 16),
-            Expanded(child: Text('Deleting account...')),
+            const SizedBox(width: 16),
+            Expanded(child: Text(loc.settingsDeletingAccount)),
           ],
         ),
       ),
@@ -252,7 +252,7 @@ class SettingsController {
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      _showSnackBar('Could not delete account. Please try again.');
+      _showSnackBar(loc.settingsDeleteAccountFailed);
     }
   }
 
@@ -260,10 +260,8 @@ class SettingsController {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete account'),
-        content: const Text(
-          'This will remove your login access and clear your personal identity details from your account. Clinical, billing, and audit records are retained where the hospital is legally required to keep them. You cannot delete the account while an active admission is open.',
-        ),
+        title: Text(loc.settingsDeleteAccountTitle),
+        content: Text(loc.settingsDeleteAccountConsequences),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -274,7 +272,7 @@ class SettingsController {
               backgroundColor: Theme.of(context).colorScheme.error,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Continue'),
+            child: Text(loc.commonContinueButton),
           ),
         ],
       ),
@@ -329,11 +327,11 @@ class SettingsController {
     ) async {
       final otp = otpController.text.trim();
       if (otp.length != 6) {
-        setDialogState(() => errorText = 'Enter the 6-digit OTP.');
+        setDialogState(() => errorText = loc.settingsEnterOtp);
         return;
       }
       if (verificationId == null) {
-        setDialogState(() => errorText = 'OTP is not ready yet. Resend code.');
+        setDialogState(() => errorText = loc.settingsOtpNotReady);
         return;
       }
 
@@ -353,7 +351,7 @@ class SettingsController {
         if (closed) return;
         setDialogState(() {
           verifying = false;
-          errorText = 'OTP verification failed. Please try again.';
+          errorText = loc.settingsOtpVerificationFailed;
         });
       }
     }
@@ -375,12 +373,12 @@ class SettingsController {
               }
 
               return AlertDialog(
-                title: const Text('Verify your phone'),
+                title: Text(loc.settingsVerifyPhoneTitle),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('We sent a fresh OTP to $phone.'),
+                    Text(loc.settingsFreshOtpSent(phone)),
                     const SizedBox(height: 16),
                     TextField(
                       controller: otpController,
@@ -400,15 +398,15 @@ class SettingsController {
                     ),
                     const SizedBox(height: 8),
                     if (sending)
-                      const Row(
+                      Row(
                         children: [
-                          SizedBox(
+                          const SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                          SizedBox(width: 8),
-                          Text('Sending OTP...'),
+                          const SizedBox(width: 8),
+                          Text(loc.settingsSendingOtp),
                         ],
                       ),
                   ],
@@ -427,7 +425,7 @@ class SettingsController {
                     onPressed: sending || verifying
                         ? null
                         : () => sendOtp(setDialogState, dialogContext),
-                    child: const Text('Resend'),
+                    child: Text(loc.settingsResendOtp),
                   ),
                   FilledButton(
                     onPressed: sending || verifying
@@ -439,7 +437,7 @@ class SettingsController {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Verify'),
+                        : Text(loc.settingsVerifyButton),
                   ),
                 ],
               );
@@ -457,10 +455,8 @@ class SettingsController {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm deletion'),
-        content: const Text(
-          'This action cannot be undone. You will be logged out on this device and all other sessions will be revoked.',
-        ),
+        title: Text(loc.settingsConfirmDeletionTitle),
+        content: Text(loc.settingsConfirmDeletionBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -471,7 +467,7 @@ class SettingsController {
               backgroundColor: Theme.of(context).colorScheme.error,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete account'),
+            child: Text(loc.settingsDeleteAccountButton),
           ),
         ],
       ),
@@ -480,7 +476,7 @@ class SettingsController {
 
   String _messageForDeletionError(AccountDeletionException e) {
     if (e.code == 'ACTIVE_ADMISSION_BLOCKS_ACCOUNT_DELETION') {
-      return 'Account deletion is blocked while an active admission is open.';
+      return loc.settingsActiveAdmissionBlocksDeletion;
     }
     return e.message;
   }

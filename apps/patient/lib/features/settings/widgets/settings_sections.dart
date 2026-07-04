@@ -30,7 +30,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
             subtitle: Text(
               c.hospitalNumber.trim().isEmpty
                   ? c.name
-                  : '${c.name} · Hospital ID ${c.hospitalNumber}',
+                  : c.loc.settingsHospitalIdLine(c.name, c.hospitalNumber),
               style: txt.bodySmall,
             ),
             trailing: Icon(
@@ -49,9 +49,9 @@ List<Widget> buildSettingsSections(SettingsController c) {
               backgroundColor: cs.tertiaryContainer,
               child: Icon(Icons.escalator_warning, color: cs.tertiary),
             ),
-            title: Text('Manage dependents', style: txt.titleMedium),
+            title: Text(c.loc.settingsManageDependents, style: txt.titleMedium),
             subtitle: Text(
-              'Link or remove a minor under your account',
+              c.loc.settingsManageDependentsSubtitle,
               style: txt.bodySmall,
             ),
             trailing: Icon(
@@ -123,8 +123,8 @@ List<Widget> buildSettingsSections(SettingsController c) {
                 SnackBar(
                   content: Text(
                     synced > 0
-                        ? 'Health data synced — activity and vitals updated'
-                        : 'No new samples to sync',
+                        ? c.loc.settingsHealthDataSynced
+                        : c.loc.settingsNoNewSamplesToSync,
                   ),
                 ),
               );
@@ -335,10 +335,10 @@ List<Widget> buildSettingsSections(SettingsController c) {
           ListTile(
             leading: Icon(Icons.delete_forever_outlined, color: cs.error),
             title: Text(
-              'Delete account',
+              c.loc.settingsDeleteAccountTitle,
               style: txt.titleMedium?.copyWith(color: cs.error),
             ),
-            subtitle: const Text('Re-authenticate with OTP before deletion'),
+            subtitle: Text(c.loc.settingsDeleteAccountSubtitle),
             trailing: Icon(
               Icons.arrow_forward_ios,
               size: 16,
@@ -351,14 +351,14 @@ List<Widget> buildSettingsSections(SettingsController c) {
     ),
     const SizedBox(height: 16),
 
-    _sectionTitle('LEGAL', c.context),
+    _sectionTitle(c.loc.settingsLegalSection.toUpperCase(), c.context),
     _card(
       Column(
         children: [
           _legalLinkTile(
             icon: Icons.description_outlined,
             title: c.loc.commonTermsOfUse,
-            subtitle: 'Open the current terms in your browser',
+            subtitle: c.loc.settingsOpenTermsInBrowser,
             url: LegalUrls.termsUrl,
             c: c,
           ),
@@ -366,7 +366,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
           _legalLinkTile(
             icon: Icons.privacy_tip_outlined,
             title: c.loc.commonPrivacyPolicy,
-            subtitle: 'Open the current privacy policy in your browser',
+            subtitle: c.loc.settingsOpenPrivacyInBrowser,
             url: LegalUrls.privacyPolicyUrl,
             c: c,
           ),
@@ -462,7 +462,7 @@ Widget _legalLinkTile({
       );
       if (!launched) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Could not open the link')),
+          SnackBar(content: Text(c.loc.commonCouldNotOpenLink)),
         );
       }
     },

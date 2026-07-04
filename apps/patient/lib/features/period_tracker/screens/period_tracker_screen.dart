@@ -7,6 +7,7 @@ import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class PeriodTrackerScreen extends StatefulWidget {
   const PeriodTrackerScreen({super.key});
@@ -65,19 +66,21 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     );
     if (!mounted) return;
     setState(() => _saving = false);
+    final l = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Cycle tracker saved')));
+    ).showSnackBar(SnackBar(content: Text(l.periodTrackerSavedToast)));
   }
 
   Future<void> _pickLastPeriodStart() async {
+    final l = AppLocalizations.of(context)!;
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
       initialDate: _lastPeriodStart ?? now,
       firstDate: DateTime(now.year - 2),
       lastDate: now,
-      helpText: 'Last period start',
+      helpText: l.periodTrackerLastPeriodStart,
     );
     if (picked == null) return;
     setState(() => _lastPeriodStart = picked);
@@ -103,10 +106,11 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final estimate = _estimate();
 
     return FeatureScreenScaffold(
-      title: 'Period Tracker',
+      title: l.periodTrackerTitle,
       icon: LucideIcons.calendarHeart,
       color: _accent,
       scrollable: true,
@@ -121,21 +125,22 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 _HeroCyclePanel(
                   estimate: estimate,
                   accent: _accent,
+                  l: l,
                   onPickDate: _pickLastPeriodStart,
                   onMarkToday: _markStartedToday,
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  'Cycle details',
+                  l.periodTrackerCycleDetails,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 10),
                 _LengthControl(
-                  label: 'Cycle length',
+                  label: l.periodTrackerCycleLength,
                   value: _cycleLength,
-                  suffix: 'days',
+                  suffix: l.periodTrackerDays,
                   min: 21,
                   max: 45,
                   accent: _accent,
@@ -143,9 +148,9 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 ),
                 const SizedBox(height: 10),
                 _LengthControl(
-                  label: 'Period length',
+                  label: l.periodTrackerPeriodLength,
                   value: _periodLength,
-                  suffix: 'days',
+                  suffix: l.periodTrackerDays,
                   min: 2,
                   max: 10,
                   accent: _accent,
@@ -153,10 +158,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 ),
                 const SizedBox(height: 16),
                 if (estimate != null) ...[
-                  _TimelinePanel(estimate: estimate, accent: _accent),
+                  _TimelinePanel(estimate: estimate, accent: _accent, l: l),
                   const SizedBox(height: 16),
                 ],
-                _PrivacyPanel(accent: _accent),
+                _PrivacyPanel(accent: _accent, l: l),
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: _saving ? null : _save,
@@ -167,7 +172,11 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(LucideIcons.save, size: 18),
-                  label: Text(_saving ? 'Saving' : 'Save tracker'),
+                  label: Text(
+                    _saving
+                        ? l.periodTrackerSaving
+                        : l.periodTrackerSaveTracker,
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: _accent,
                     foregroundColor: Colors.white,
@@ -183,12 +192,14 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 class _HeroCyclePanel extends StatelessWidget {
   final CycleEstimate? estimate;
   final Color accent;
+  final AppLocalizations l;
   final VoidCallback onPickDate;
   final VoidCallback onMarkToday;
 
   const _HeroCyclePanel({
     required this.estimate,
     required this.accent,
+    required this.l,
     required this.onPickDate,
     required this.onMarkToday,
   });
@@ -198,12 +209,12 @@ class _HeroCyclePanel extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final estimate = this.estimate;
-    final title = _titleFor(estimate);
+    final title = _titleFor(estimate, l);
     final subtitle = estimate == null
-        ? 'Add the first day of your last period.'
+        ? l.periodTrackerAddFirstDay
         : estimate.mayBePregnant
-        ? 'This is not a diagnosis. Consider a pregnancy test or clinician review.'
-        : 'Cycle day ${estimate.cycleDay}';
+        ? l.periodTrackerPregnancyCaution
+        : l.periodTrackerCycleDay(estimate.cycleDay);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -264,7 +275,7 @@ class _HeroCyclePanel extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onMarkToday,
                   icon: const Icon(LucideIcons.checkCircle2, size: 18),
-                  label: const Text('Started today'),
+                  label: Text(l.periodTrackerStartedToday),
                   style: FilledButton.styleFrom(
                     backgroundColor: accent,
                     foregroundColor: Colors.white,
@@ -277,7 +288,11 @@ class _HeroCyclePanel extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: onPickDate,
                   icon: const Icon(LucideIcons.calendarPlus, size: 18),
-                  label: Text(estimate == null ? 'Add date' : 'Enter date'),
+                  label: Text(
+                    estimate == null
+                        ? l.periodTrackerAddDate
+                        : l.periodTrackerEnterDate,
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: accent,
                     side: BorderSide(color: accent.withValues(alpha: 0.55)),
@@ -292,14 +307,16 @@ class _HeroCyclePanel extends StatelessWidget {
     );
   }
 
-  String _titleFor(CycleEstimate? estimate) {
-    if (estimate == null) return 'Start tracking';
-    if (estimate.mayBePregnant) return 'You may be pregnant';
+  String _titleFor(CycleEstimate? estimate, AppLocalizations l) {
+    if (estimate == null) return l.periodTrackerStartTracking;
+    if (estimate.mayBePregnant) return l.periodTrackerMayBePregnant;
     if (estimate.isDelayed) {
-      return 'Cycle delayed by ${estimate.delayedDays} days';
+      return l.periodTrackerCycleDelayed(estimate.delayedDays);
     }
-    if (estimate.status == CycleStatus.dueToday) return 'Cycle due today';
-    return '${estimate.daysToNextPeriod} days to next cycle';
+    if (estimate.status == CycleStatus.dueToday) {
+      return l.periodTrackerCycleDueToday;
+    }
+    return l.periodTrackerDaysToNextCycle(estimate.daysToNextPeriod);
   }
 }
 
@@ -386,8 +403,13 @@ class _LengthControl extends StatelessWidget {
 class _TimelinePanel extends StatelessWidget {
   final CycleEstimate estimate;
   final Color accent;
+  final AppLocalizations l;
 
-  const _TimelinePanel({required this.estimate, required this.accent});
+  const _TimelinePanel({
+    required this.estimate,
+    required this.accent,
+    required this.l,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -396,7 +418,7 @@ class _TimelinePanel extends StatelessWidget {
       children: [
         _DateRow(
           icon: LucideIcons.droplet,
-          label: 'Last recorded period',
+          label: l.periodTrackerLastRecordedPeriod,
           value:
               '${_dateLabel(estimate.lastPeriodStart)} - ${_dateLabel(estimate.lastPeriodEnd)}',
           accent: accent,
@@ -404,7 +426,7 @@ class _TimelinePanel extends StatelessWidget {
         const SizedBox(height: 8),
         _DateRow(
           icon: LucideIcons.flower2,
-          label: 'Estimated fertile window',
+          label: l.periodTrackerEstimatedFertileWindow,
           value:
               '${_dateLabel(estimate.fertileStart)} - ${_dateLabel(estimate.fertileEnd)}',
           accent: Colors.tealAccent,
@@ -413,8 +435,8 @@ class _TimelinePanel extends StatelessWidget {
         _DateRow(
           icon: LucideIcons.calendarClock,
           label: estimate.isDelayed
-              ? 'Expected period date'
-              : 'Expected next period',
+              ? l.periodTrackerExpectedPeriodDate
+              : l.periodTrackerExpectedNextPeriod,
           value:
               '${_dateLabel(estimate.nextPeriod)} - ${_dateLabel(estimate.expectedPeriodEnd)}',
           accent: Colors.amber,
@@ -483,8 +505,9 @@ class _DateRow extends StatelessWidget {
 
 class _PrivacyPanel extends StatelessWidget {
   final Color accent;
+  final AppLocalizations l;
 
-  const _PrivacyPanel({required this.accent});
+  const _PrivacyPanel({required this.accent, required this.l});
 
   @override
   Widget build(BuildContext context) {
@@ -498,7 +521,7 @@ class _PrivacyPanel extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            'Saved locally on this device for now. Hospital sync can be added after we finalize consent, retention, and clinical review rules.',
+            l.periodTrackerPrivacyNote,
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withValues(alpha: 0.68),
             ),

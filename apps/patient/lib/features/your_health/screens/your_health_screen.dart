@@ -600,11 +600,11 @@ List<Tab> buildYourHealthTabs(
   required bool includeExplanations,
 }) {
   return [
-    const Tab(text: 'Timeline'),
+    Tab(text: l10n.yourHealthTabTimeline),
     Tab(text: l10n.yourHealthTabRecords),
-    const Tab(text: 'Hospital Docs'),
-    const Tab(text: 'My Uploads'),
-    const Tab(text: 'Prescriptions'),
+    Tab(text: l10n.yourHealthHospitalRecordsTab),
+    Tab(text: l10n.yourHealthTabMyUploads),
+    Tab(text: l10n.yourHealthTabPrescriptions),
     Tab(text: l10n.yourHealthTabConsultationNotes),
     Tab(text: l10n.yourHealthTabSummary),
     if (includeExplanations) Tab(text: l10n.yourHealthTabExplanations),

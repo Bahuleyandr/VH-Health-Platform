@@ -67,7 +67,10 @@ class _OrderFormTabState extends State<OrderFormTab> {
       const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
       if (sizeBytes > maxSizeBytes) {
         if (mounted) {
-          _showSnack('File too large. Maximum size is 10 MB.', isError: true);
+          _showSnack(
+            AppLocalizations.of(context)!.pharmacyFileTooLarge,
+            isError: true,
+          );
         }
         return;
       }
@@ -115,11 +118,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _placeOrder() async {
+    final l = AppLocalizations.of(context)!;
     if (_prescriptionPhoto == null && _noteController.text.trim().isEmpty) {
-      _showSnack(
-        'Please upload a prescription or describe your order',
-        isError: true,
-      );
+      _showSnack(l.pharmacyPrescriptionOrDescriptionRequired, isError: true);
       return;
     }
 
@@ -174,7 +175,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
       if (response.isSuccess) {
         final orderNumber = response.data?['order_number'] ?? '';
 
-        _showSnack('Order placed! $orderNumber');
+        _showSnack(l.pharmacyOrderPlacedToast(orderNumber.toString()));
 
         // Reset form
         setState(() {
@@ -192,12 +193,17 @@ class _OrderFormTabState extends State<OrderFormTab> {
         // Notify parent to switch tabs and refresh orders
         widget.onOrderPlaced();
       } else {
-        _showSnack(response.message ?? 'Failed to place order', isError: true);
+        _showSnack(
+          response.message ?? l.pharmacyPlaceOrderFailed,
+          isError: true,
+        );
       }
     } catch (e) {
       if (mounted) {
         _showSnack(
-          'Error: ${e.toString().replaceFirst("Exception: ", "")}',
+          l.pharmacyPlaceOrderError(
+            e.toString().replaceFirst("Exception: ", ""),
+          ),
           isError: true,
         );
       }
@@ -225,7 +231,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
           children: [
             if (orderNumber.isNotEmpty)
               Text(
-                'Order Number: $orderNumber',
+                l.pharmacyOrderNumber(orderNumber),
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
@@ -241,7 +247,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+            child: Text(l.commonOkButton),
           ),
         ],
       ),
@@ -364,7 +370,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
             controller: _noteController,
             maxLines: 3,
             decoration: InputDecoration(
-              hintText: 'e.g., Dolo 650 - 2 strips, Pan 40 - 1 strip...',
+              hintText: l.pharmacyOrderNoteHint,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -388,7 +394,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
               Expanded(
                 child: PharmacyDeliveryOption(
                   icon: Icons.delivery_dining,
-                  label: 'Home Delivery',
+                  label: l.pharmacyHomeDelivery,
                   selected: _deliveryType == 'delivery',
                   onTap: () => setState(() => _deliveryType = 'delivery'),
                 ),
@@ -397,7 +403,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
               Expanded(
                 child: PharmacyDeliveryOption(
                   icon: Icons.store,
-                  label: 'Pickup',
+                  label: l.pharmacyPickup,
                   selected: _deliveryType == 'pickup',
                   onTap: () => setState(() => _deliveryType = 'pickup'),
                 ),
@@ -412,8 +418,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
               controller: _addressController,
               maxLines: 2,
               decoration: InputDecoration(
-                labelText: 'Delivery Address',
-                hintText: 'House/Flat, Street, Area...',
+                labelText: l.pharmacyDeliveryAddressLabel,
+                hintText: l.pharmacyDeliveryAddressHint,
                 prefixIcon: const Icon(Icons.location_on),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -424,8 +430,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
             TextField(
               controller: _landmarkController,
               decoration: InputDecoration(
-                labelText: 'Landmark (optional)',
-                hintText: 'Near...',
+                labelText: l.pharmacyLandmarkOptional,
+                hintText: l.pharmacyLandmarkHint,
                 prefixIcon: const Icon(Icons.place),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -437,7 +443,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
               controller: _phoneController,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: 'Contact Phone',
+                labelText: l.pharmacyPhoneNumberLabel,
                 prefixIcon: const Icon(Icons.phone),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),

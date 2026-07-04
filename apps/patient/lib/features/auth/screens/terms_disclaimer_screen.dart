@@ -96,9 +96,10 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
       mode: LaunchMode.externalApplication,
     );
     if (!launched && mounted) {
+      final l = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Could not open the link')));
+      ).showSnackBar(SnackBar(content: Text(l.commonCouldNotOpenLink)));
     }
   }
 

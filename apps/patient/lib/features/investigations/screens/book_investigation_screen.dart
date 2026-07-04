@@ -54,12 +54,6 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   Map<String, dynamic>? _bookingResult;
 
   static const _timeSlots = ['09:00-12:00', '12:00-15:00', '15:00-18:00'];
-  static const _timeSlotLabels = [
-    'Morning (9 AM - 12 PM)',
-    'Afternoon (12 PM - 3 PM)',
-    'Evening (3 PM - 6 PM)',
-  ];
-
   MediaType? _contentTypeForUpload(String path, String? fileName) {
     final name = (fileName?.isNotEmpty == true ? fileName! : path)
         .toLowerCase();
@@ -239,10 +233,13 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
           _currentStep = 3; // success step
         });
       } else {
-        _showError(response.message ?? 'Booking failed');
+        _showError(
+          response.message ??
+              AppLocalizations.of(context)!.bookInvestigationBookingFailed,
+        );
       }
     } catch (e) {
-      _showError('Error: ${e.toString()}');
+      _showError(AppLocalizations.of(context)!.bookInvestigationBookingError);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -275,6 +272,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final timeSlotLabels = [
+      l.bookInvestigationSlotMorning,
+      l.bookInvestigationSlotAfternoon,
+      l.bookInvestigationSlotEvening,
+    ];
 
     return Scaffold(
       appBar: AppBar(title: Text(l.bookInvestigationTitle), elevation: 0),
@@ -306,7 +308,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                                   (_currentStep == 1 && _canProceedStep2)
                               ? details.onStepContinue
                               : null,
-                          child: const Text('Continue'),
+                          child: Text(l.commonContinueButton),
                         )
                       else
                         FilledButton.icon(
@@ -324,14 +326,16 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                                 )
                               : const Icon(Icons.check),
                           label: Text(
-                            _isSubmitting ? 'Booking...' : 'Book Now',
+                            _isSubmitting
+                                ? l.bookInvestigationBookingButton
+                                : l.bookInvestigationBookNowButton,
                           ),
                         ),
                       const SizedBox(width: 12),
                       if (_currentStep > 0)
                         TextButton(
                           onPressed: details.onStepCancel,
-                          child: const Text('Back'),
+                          child: Text(l.commonBackButton),
                         ),
                     ],
                   ),
@@ -341,7 +345,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                 Step(
                   title: Text(l.bookInvestigationStepChoose),
                   subtitle: _selectedTestIds.isNotEmpty
-                      ? Text('${_selectedTestIds.length} selected')
+                      ? Text(
+                          l.bookInvestigationSelectedCount(
+                            _selectedTestIds.length,
+                          ),
+                        )
                       : null,
                   isActive: _currentStep >= 0,
                   state: _currentStep > 0
@@ -401,7 +409,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                     preferredDate: _preferredDate,
                     preferredTimeSlot: _preferredTimeSlot,
                     timeSlots: _timeSlots,
-                    timeSlotLabels: _timeSlotLabels,
+                    timeSlotLabels: timeSlotLabels,
                     onCollectionTypeChanged: (v) =>
                         setState(() => _collectionType = v),
                     onAddressChanged: () => setState(() {}),

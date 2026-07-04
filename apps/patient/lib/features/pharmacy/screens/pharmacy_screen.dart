@@ -5,6 +5,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_form_tab.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_list_tab.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class PharmacyScreen extends StatefulWidget {
   const PharmacyScreen({super.key});
@@ -39,8 +40,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Pharmacy',
+      title: l.pharmacy,
       icon: Icons.local_pharmacy,
       color: const Color(0xFFD1C4E9),
       child: Column(
@@ -50,9 +52,15 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             labelColor: const Color(0xFF7E57C2),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF7E57C2),
-            tabs: const [
-              Tab(icon: Icon(Icons.add_shopping_cart), text: 'Order'),
-              Tab(icon: Icon(Icons.receipt_long), text: 'My Orders'),
+            tabs: [
+              Tab(
+                icon: const Icon(Icons.add_shopping_cart),
+                text: l.pharmacyOrderTab,
+              ),
+              Tab(
+                icon: const Icon(Icons.receipt_long),
+                text: l.pharmacyMyOrdersTab,
+              ),
             ],
           ),
           Expanded(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/document_opener.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class PatientRecordExtractionSheet extends StatefulWidget {
   final Map<String, dynamic> record;
@@ -46,9 +47,10 @@ class _PatientRecordExtractionSheetState
   Future<void> _loadExtraction({bool autoProcess = false}) async {
     final id = _recordId;
     if (id == null) {
+      final l = AppLocalizations.of(context)!;
       setState(() {
         _loading = false;
-        _error = 'Record ID is missing';
+        _error = l.recordExtractionMissingRecordId;
       });
       return;
     }
@@ -77,7 +79,9 @@ class _PatientRecordExtractionSheetState
 
       setState(() {
         _loading = false;
-        _error = response.message ?? 'Extraction is not available yet';
+        _error =
+            response.message ??
+            AppLocalizations.of(context)!.recordExtractionUnavailable;
       });
     } catch (e) {
       if (!mounted) return;
@@ -108,7 +112,9 @@ class _PatientRecordExtractionSheetState
       } else {
         setState(() {
           _processing = false;
-          _error = response.message ?? 'Extraction could not be processed';
+          _error =
+              response.message ??
+              AppLocalizations.of(context)!.recordExtractionProcessFailed;
         });
       }
     } catch (e) {
@@ -195,11 +201,13 @@ class _PatientRecordExtractionSheetState
   Future<void> _messageHospitalAboutRecord() async {
     if (_messageSending) return;
     setState(() => _messageSending = true);
-    final title = _recordTitle(_record);
+    final l = AppLocalizations.of(context)!;
+    final title = _recordTitle(_record, l);
     final recordId = _recordId;
     final fileName = _record['file_name']?.toString();
     final documentType =
-        _compactType(_record['document_type']?.toString()) ?? 'Uploaded record';
+        _compactType(_record['document_type']?.toString()) ??
+        l.recordExtractionUploadedRecord;
     try {
       final response = await ApiClient.post(
         '/portal/messages',
@@ -227,19 +235,19 @@ class _PatientRecordExtractionSheetState
       if (!mounted) return;
       if (response.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Message sent to the hospital team'),
+          SnackBar(
+            content: Text(l.recordExtractionMessageSent),
             backgroundColor: Colors.green,
           ),
         );
       } else {
-        throw Exception(response.message ?? 'Message could not be sent');
+        throw Exception(response.message ?? l.recordExtractionMessageFailed);
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Message failed: $e'),
+          content: Text(l.recordExtractionMessageFailed),
           backgroundColor: Colors.red,
         ),
       );
@@ -266,7 +274,8 @@ class _DialogHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = _recordTitle(record);
+    final l = AppLocalizations.of(context)!;
+    final title = _recordTitle(record, l);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
       child: Row(
@@ -286,7 +295,8 @@ class _DialogHeader extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  _compactType(record['document_type']) ?? 'Uploaded record',
+                  _compactType(record['document_type']) ??
+                      l.recordExtractionUploadedRecord,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -301,15 +311,15 @@ class _DialogHeader extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.forum_outlined, size: 18),
-            label: const Text('Message hospital'),
+            label: Text(l.recordExtractionMessageHospital),
           ),
           IconButton(
-            tooltip: 'Refresh extraction',
+            tooltip: l.recordExtractionRefresh,
             onPressed: refreshing ? null : () => onRefresh(autoProcess: true),
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
-            tooltip: 'Close',
+            tooltip: l.commonCloseButton,
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.close),
           ),
@@ -326,6 +336,7 @@ class _DocumentPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final url = record['file_url']?.toString();
     final mime = record['file_mime']?.toString().toLowerCase() ?? '';
     final fileName = record['file_name']?.toString();
@@ -345,7 +356,7 @@ class _DocumentPreview extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  fileName ?? 'Uploaded file',
+                  fileName ?? l.recordExtractionUploadedFile,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleSmall,
@@ -360,7 +371,7 @@ class _DocumentPreview extends StatelessWidget {
                         filename: fileName,
                       ),
                 icon: const Icon(Icons.open_in_new, size: 16),
-                label: const Text('Open'),
+                label: Text(l.commonOpenButton),
               ),
             ],
           ),
@@ -385,8 +396,9 @@ class _DocumentPreview extends StatelessWidget {
   }
 
   Widget _buildPreview(BuildContext context, String? url, bool isImage) {
+    final l = AppLocalizations.of(context)!;
     if (url == null || url.isEmpty) {
-      return const Center(child: Text('File preview unavailable'));
+      return Center(child: Text(l.recordExtractionFilePreviewUnavailable));
     }
     if (!isImage) {
       return Center(
@@ -396,7 +408,7 @@ class _DocumentPreview extends StatelessWidget {
             const Icon(Icons.picture_as_pdf_outlined, size: 56),
             const SizedBox(height: 12),
             Text(
-              'Open the file to compare it',
+              l.recordExtractionOpenFileToCompare,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -414,7 +426,7 @@ class _DocumentPreview extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         },
         errorBuilder: (_, _, _) =>
-            const Center(child: Text('Image preview unavailable')),
+            Center(child: Text(l.recordExtractionImagePreviewUnavailable)),
       ),
     );
   }
@@ -439,6 +451,7 @@ class _ExtractionPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     if (loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -446,7 +459,7 @@ class _ExtractionPanel extends StatelessWidget {
     final extraction = this.extraction;
     if (extraction == null || error != null) {
       return _EmptyExtractionState(
-        message: error ?? 'Extraction is not available yet',
+        message: error ?? l.recordExtractionUnavailable,
         processing: processing,
         onProcess: onProcess,
       );
@@ -467,57 +480,57 @@ class _ExtractionPanel extends StatelessWidget {
         const SizedBox(height: 12),
         if (safetyFlags.isNotEmpty)
           _SectionCard(
-            title: 'Review flags',
+            title: l.recordExtractionReviewFlags,
             icon: Icons.warning_amber_outlined,
             children: safetyFlags.map(_SafetyFlagTile.new).toList(),
           ),
         _SectionCard(
-          title: 'Summary',
+          title: l.tpaClaimSummary,
           icon: Icons.summarize_outlined,
           children: _valueListWidgets(normalized['summary']),
         ),
         _SectionCard(
-          title: 'Patient identifiers',
+          title: l.recordExtractionPatientIdentifiers,
           icon: Icons.badge_outlined,
           children: _mapWidgets(_asMap(extractedFields['patient_identifiers'])),
         ),
         _SectionCard(
-          title: 'Diagnoses',
+          title: l.recordExtractionDiagnoses,
           icon: Icons.medical_information_outlined,
           children: _valueListWidgets(extractedFields['diagnoses']),
         ),
         _SectionCard(
-          title: 'Medications',
+          title: l.recordExtractionMedications,
           icon: Icons.medication_outlined,
           children: _valueListWidgets(extractedFields['medications']),
         ),
         _SectionCard(
-          title: 'Tests & Reports',
+          title: l.recordExtractionTestsReports,
           icon: Icons.science_outlined,
           children: _valueListWidgets(extractedFields['investigations']),
         ),
         _SectionCard(
-          title: 'Follow up',
+          title: l.recordExtractionFollowUp,
           icon: Icons.event_available_outlined,
           children: _valueListWidgets(extractedFields['follow_up']),
         ),
         _SectionCard(
-          title: 'Other extracted fields',
+          title: l.recordExtractionOtherFields,
           icon: Icons.fact_check_outlined,
           children: [
             ..._mapWidgets(_asMap(extractedFields['billing_fields'])),
-            ..._fieldRowList('Dates', extractedFields['dates']),
+            ..._fieldRowList(l.recordExtractionDates, extractedFields['dates']),
           ],
         ),
         if (citations.isNotEmpty)
           _SectionCard(
-            title: 'Citations',
+            title: l.recordExtractionCitations,
             icon: Icons.format_quote_outlined,
             children: _valueListWidgets(citations),
           ),
         if (rawText != null && rawText.isNotEmpty)
           _SectionCard(
-            title: 'OCR text',
+            title: l.recordExtractionOcrText,
             icon: Icons.text_snippet_outlined,
             children: [SelectableText(rawText)],
           ),
@@ -525,7 +538,7 @@ class _ExtractionPanel extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: processing ? null : () => onRefresh(autoProcess: true),
           icon: const Icon(Icons.refresh, size: 16),
-          label: const Text('Refresh extraction'),
+          label: Text(l.recordExtractionRefresh),
         ),
       ],
     );
@@ -541,6 +554,7 @@ class _ReviewBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
     final reviewerDecision = extraction['reviewer_decision']?.toString().trim();
     final reviewed =
         reviewerDecision != null &&
@@ -571,8 +585,10 @@ class _ReviewBanner extends StatelessWidget {
           Expanded(
             child: Text(
               reviewed
-                  ? 'Extraction reviewed: ${_compactType(reviewerDecision)}'
-                  : 'AI draft - cross-check every extracted value against the original document before relying on it.',
+                  ? l.recordExtractionReviewed(
+                      _compactType(reviewerDecision) ?? reviewerDecision,
+                    )
+                  : l.recordExtractionDraftWarning,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: reviewed ? Colors.teal.shade800 : cs.onSurface,
                 fontWeight: FontWeight.w700,
@@ -598,6 +614,7 @@ class _EmptyExtractionState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
@@ -617,7 +634,11 @@ class _EmptyExtractionState extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.document_scanner_outlined),
-              label: Text(processing ? 'Processing' : 'Process extraction'),
+              label: Text(
+                processing
+                    ? l.recordExtractionProcessing
+                    : l.recordExtractionProcessButton,
+              ),
             ),
           ],
         ),
@@ -637,8 +658,10 @@ class _ExtractionStatusHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final status = extraction['extraction_status']?.toString() ?? 'pending';
-    final type = _compactType(extraction['document_type']) ?? 'Document';
+    final type =
+        _compactType(extraction['document_type']) ?? l.recordExtractionDocument;
     final confidence = extraction['confidence'];
     final ocr = extraction['ocr_status']?.toString();
     final provider = extraction['provider'] ?? extraction['ocr_provider'];
@@ -655,7 +678,7 @@ class _ExtractionStatusHeader extends StatelessWidget {
         if (provider != null)
           _Chip(label: provider.toString(), icon: Icons.memory_outlined),
         if (processing)
-          const _Chip(label: 'Processing', icon: Icons.hourglass_top),
+          _Chip(label: l.recordExtractionProcessing, icon: Icons.hourglass_top),
       ],
     );
   }
@@ -693,7 +716,7 @@ class _SectionCard extends StatelessWidget {
     final visibleChildren = children.isEmpty
         ? [
             Text(
-              'No extracted values',
+              AppLocalizations.of(context)!.recordExtractionNoValues,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ]
@@ -865,7 +888,7 @@ String _stringify(dynamic value) {
   return value.toString();
 }
 
-String _recordTitle(Map<String, dynamic> record) {
+String _recordTitle(Map<String, dynamic> record, AppLocalizations l) {
   final title = record['title']?.toString().trim();
   if (title != null && title.isNotEmpty) return title;
   final extraction = record['ai_extraction'];
@@ -873,7 +896,8 @@ String _recordTitle(Map<String, dynamic> record) {
     final type = _compactType(extraction['document_type']);
     if (type != null) return type;
   }
-  return _compactType(record['document_type']) ?? 'Uploaded record';
+  return _compactType(record['document_type']) ??
+      l.recordExtractionUploadedRecord;
 }
 
 String? _compactType(dynamic value) {
