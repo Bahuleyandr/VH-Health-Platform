@@ -18,6 +18,7 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../core/widgets/ward_list_filter_bar.dart';
+import '../../../core/widgets/workbench_split_view.dart';
 import '../../../l10n/app_strings.dart';
 
 String _compactString(dynamic value) {
@@ -166,6 +167,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   List<Map<String, dynamic>> _beds = [];
   String? _selectedWardId;
   String? _selectedWardName;
+  Map<String, dynamic>? _selectedBed;
   String _searchQuery = '';
   bool _loadingWards = true;
   bool _loadingBeds = false;
@@ -190,6 +192,38 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       query: _bedQuery,
       housekeepingOnly: _isHousekeepingRole,
     );
+  }
+
+  String _bedIdentity(Map<String, dynamic>? bed) {
+    if (bed == null) return '';
+    return (bed['id'] ??
+            bed['_id'] ??
+            bed['bed_id'] ??
+            bed['bedId'] ??
+            bed['bed_number'] ??
+            bed['bedNumber'] ??
+            '')
+        .toString();
+  }
+
+  bool _isSelectedBed(Map<String, dynamic> bed) {
+    final selectedId = _bedIdentity(_selectedBed);
+    return selectedId.isNotEmpty && selectedId == _bedIdentity(bed);
+  }
+
+  void _syncSelectedBedWithLatestRows() {
+    final selectedId = _bedIdentity(_selectedBed);
+    if (selectedId.isEmpty) {
+      _selectedBed = null;
+      return;
+    }
+    for (final bed in _beds) {
+      if (_bedIdentity(bed) == selectedId) {
+        _selectedBed = bed;
+        return;
+      }
+    }
+    _selectedBed = null;
   }
 
   @override
@@ -270,10 +304,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     }
   }
 
-  Future<void> _fetchBeds(String wardId) async {
+  Future<void> _fetchBeds(String wardId, {bool clearBeds = false}) async {
     setState(() {
       _loadingBeds = true;
-      _beds = [];
+      if (clearBeds) _beds = [];
     });
     try {
       final response = await ApiClient.get('/beds/ward/$wardId');
@@ -287,6 +321,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             (b) => b is Map<String, dynamic> ? b : <String, dynamic>{},
           ),
         );
+        _syncSelectedBedWithLatestRows();
       }
     } catch (e) {
       debugPrint('bed_board_screen.dart: $e');
@@ -390,6 +425,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                       // taking the rest. Tapping a ward swaps the right
                       // pane in place rather than navigating "into" the
                       // ward, so the user keeps both lists visible.
+                      if (constraints.maxWidth >= 1100 &&
+                          _selectedWardId != null) {
+                        return _buildBedMasterDetail();
+                      }
                       if (constraints.maxWidth >= 1024) {
                         return _buildTwoPane();
                       }
@@ -417,6 +456,58 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               : _buildBedGrid(forceHideBack: true),
         ),
       ],
+    );
+  }
+
+  Widget _buildBedMasterDetail() {
+    return WorkbenchSplitView(
+      leading: _buildBedGrid(forceHideBack: true, selectInPane: true),
+      trailing: _buildBedDetailPane(),
+    );
+  }
+
+  Widget _buildBedDetailPane() {
+    final bed = _selectedBed;
+    if (bed == null) {
+      return Container(
+        color: AppTheme.cardSurface,
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.bed_outlined, size: 48, color: AppTheme.textSecondary),
+              const SizedBox(height: 12),
+              Text(
+                AppStrings.of(context).bedBoardSelectBedPrompt,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface,
+        border: Border(
+          left: BorderSide(color: AppTheme.divider.withValues(alpha: 0.35)),
+        ),
+      ),
+      child: _BedDetailSheet(
+        bed: bed,
+        wardName: _selectedWardName ?? '',
+        role: _role,
+        embedded: true,
+        onClose: () => setState(() => _selectedBed = null),
+        onChanged: () async {
+          await _fetchWards(showLoading: false);
+          final wardId = _selectedWardId;
+          if (wardId != null) await _fetchBeds(wardId);
+        },
+      ),
     );
   }
 
@@ -590,20 +681,20 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                           ),
                           subtitle: Padding(
                             padding: const EdgeInsets.only(top: 8),
-                            child: Row(
+                            child: Wrap(
+                              spacing: 12,
+                              runSpacing: 8,
                               children: [
                                 _miniStat(
                                   s.bedBoardWardStatTotal,
                                   '$totalBeds',
                                   Colors.grey,
                                 ),
-                                const SizedBox(width: 12),
                                 _miniStat(
                                   s.bedBoardWardStatFree,
                                   '$available',
                                   AppTheme.successGreen,
                                 ),
-                                const SizedBox(width: 12),
                                 _miniStat(
                                   s.bedBoardWardStatUsed,
                                   '$occupied',
@@ -624,7 +715,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     );
   }
 
-  Widget _buildBedGrid({bool forceHideBack = false}) {
+  Widget _buildBedGrid({
+    bool forceHideBack = false,
+    bool selectInPane = false,
+  }) {
     final available = _beds
         .where(
           (b) => (b['status'] ?? '').toString().toLowerCase() == 'available',
@@ -651,6 +745,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                   onPressed: () => setState(() {
                     _selectedWardId = null;
                     _selectedWardName = null;
+                    _selectedBed = null;
                     _beds = [];
                     _bedQuery = '';
                     _bedStatusFilter = _defaultBedStatusFilter;
@@ -760,7 +855,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                     itemCount: _filteredBeds.length,
                     itemBuilder: (context, index) {
                       final bed = _filteredBeds[index];
-                      return _buildBedCard(bed);
+                      return _buildBedCard(bed, selectInPane: selectInPane);
                     },
                   ),
                 ),
@@ -769,7 +864,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     );
   }
 
-  Widget _buildBedCard(Map<String, dynamic> bed) {
+  Widget _buildBedCard(Map<String, dynamic> bed, {bool selectInPane = false}) {
     final status = (bed['status'] ?? 'available').toString();
     final bedNumber =
         bed['bedNumber'] ??
@@ -802,6 +897,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     final color = dischargeInitiated
         ? const Color(0xFFEF6C00)
         : _statusColor(status);
+    final selected = selectInPane && _isSelectedBed(bed);
     final statusLabel = dischargeInitiated
         ? AppStrings.of(context).bedSheetDischargeInitiatedShort
         : (status.isNotEmpty
@@ -812,11 +908,16 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       decoration: BoxDecoration(
         color: AppTheme.cardSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color, width: 2),
+        border: Border.all(
+          color: selected ? AppTheme.primaryBlue : color,
+          width: selected ? 3 : 2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.15),
-            blurRadius: 8,
+            color: (selected ? AppTheme.primaryBlue : color).withValues(
+              alpha: selected ? 0.22 : 0.15,
+            ),
+            blurRadius: selected ? 12 : 8,
             offset: const Offset(0, 2),
           ),
         ],
@@ -956,7 +1057,13 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => _openBedSheet(bed),
+          onTap: () {
+            if (selectInPane) {
+              setState(() => _selectedBed = bed);
+            } else {
+              _openBedSheet(bed);
+            }
+          },
           // Long-press → inline quick notes dialog. Skips the full sheet for
           // when a nurse just wants to scribble a one-line update during
           // rounds. Shorter path: 1 long-press → 1 dialog → Save.
@@ -1117,9 +1224,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     setState(() {
       _selectedWardId = wardId;
       _selectedWardName = wardName;
+      _selectedBed = null;
       _bedStatusFilter = _defaultBedStatusFilter;
     });
-    _fetchBeds(wardId);
+    _fetchBeds(wardId, clearBeds: true);
   }
 
   Widget _legendDot(Color color, String label) {
@@ -1141,21 +1249,25 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   }
 
   Widget _miniStat(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: color,
-            fontSize: 14,
+    return SizedBox(
+      width: 42,
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: color,
+              fontSize: 14,
+            ),
           ),
-        ),
-        Text(
-          label,
-          style: TextStyle(fontSize: 10, color: AppTheme.textSecondary),
-        ),
-      ],
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1168,10 +1280,16 @@ class _BedDetailSheet extends StatefulWidget {
   final Map<String, dynamic> bed;
   final String wardName;
   final StaffRole role;
+  final bool embedded;
+  final FutureOr<void> Function()? onChanged;
+  final VoidCallback? onClose;
   const _BedDetailSheet({
     required this.bed,
     required this.wardName,
     required this.role,
+    this.embedded = false,
+    this.onChanged,
+    this.onClose,
   });
 
   @override
@@ -1217,6 +1335,24 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
     }
   }
 
+  Future<void> _notifyChanged() async {
+    if (widget.embedded) {
+      await widget.onChanged?.call();
+      return;
+    }
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  void _close() {
+    if (widget.embedded) {
+      widget.onClose?.call();
+      return;
+    }
+    Navigator.of(context).pop(false);
+  }
+
   Future<void> _save() async {
     final status = (widget.bed['status'] ?? '').toString().toLowerCase();
     final notesAllowed = status == 'occupied' || status == 'reserved';
@@ -1238,8 +1374,14 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
       if (!mounted) return;
       if (response.isSuccess) {
         final s = AppStrings.of(context);
-        Navigator.of(context).pop(true);
-        SuccessToast.show(context, s.bedSheetNotesSaved);
+        if (widget.embedded) {
+          await _notifyChanged();
+          if (!mounted) return;
+          SuccessToast.show(context, s.bedSheetNotesSaved);
+        } else {
+          SuccessToast.show(context, s.bedSheetNotesSaved);
+          Navigator.of(context).pop(true);
+        }
       } else {
         setState(() {
           _saveError = response.failureMessage('Failed to save notes');
@@ -1315,17 +1457,18 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Drag handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+              if (!widget.embedded)
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
 
               // Header — bed + status
               Row(
@@ -1405,6 +1548,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   patientPhone: patientPhone,
                   bedNumber: bedNumber.toString(),
                   wardName: widget.wardName,
+                  embedded: widget.embedded,
                 ),
                 const SizedBox(height: 16),
               ],
@@ -1417,11 +1561,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
               _BedStatusActions(
                 bed: bed,
                 role: widget.role,
-                onChanged: () {
-                  if (Navigator.of(context).canPop()) {
-                    Navigator.of(context).pop(true);
-                  }
-                },
+                embedded: widget.embedded,
+                onChanged: _notifyChanged,
               ),
               const SizedBox(height: 16),
 
@@ -1451,7 +1592,9 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   // this is the gesture nurses naturally try first.
                   onTap: patientUid.isNotEmpty
                       ? () {
-                          Navigator.of(context).pop(false);
+                          if (!widget.embedded) {
+                            Navigator.of(context).pop(false);
+                          }
                           context.push(
                             ipCommandBoardRoute(
                               patientUid: patientUid,
@@ -1636,9 +1779,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.of(context).pop(false),
+                      onPressed: _saving ? null : _close,
                       child: Text(AppStrings.of(context).actionClose),
                     ),
                   ),
@@ -1791,6 +1932,7 @@ class _BedQuickActions extends StatelessWidget {
   final String patientPhone;
   final String bedNumber;
   final String wardName;
+  final bool embedded;
   const _BedQuickActions({
     required this.admissionId,
     required this.patientUid,
@@ -1800,6 +1942,7 @@ class _BedQuickActions extends StatelessWidget {
     required this.patientPhone,
     required this.bedNumber,
     required this.wardName,
+    this.embedded = false,
   });
 
   @override
@@ -1941,7 +2084,7 @@ class _BedQuickActions extends StatelessWidget {
                   onTap: () async {
                     final route = await a.route();
                     if (!context.mounted) return;
-                    Navigator.of(context).pop(false);
+                    if (!embedded) Navigator.of(context).pop(false);
                     context.push(route);
                   },
                   child: Padding(
@@ -2017,10 +2160,12 @@ class _QuickAction {
 class _BedStatusActions extends StatefulWidget {
   final Map<String, dynamic> bed;
   final StaffRole role;
-  final VoidCallback onChanged;
+  final bool embedded;
+  final FutureOr<void> Function() onChanged;
   const _BedStatusActions({
     required this.bed,
     required this.role,
+    required this.embedded,
     required this.onChanged,
   });
 
@@ -2088,7 +2233,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       final s = AppStrings.of(context);
       if (response.isSuccess) {
         SuccessToast.show(context, s.bedSheetMarkedAs(newStatus));
-        widget.onChanged();
+        await widget.onChanged();
       } else {
         ErrorToast.show(
           context,
@@ -2123,7 +2268,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       if (!mounted) return;
       if (response.isSuccess) {
         SuccessToast.show(context, 'Bed marked available');
-        widget.onChanged();
+        await widget.onChanged();
       } else {
         ErrorToast.show(
           context,
@@ -2164,7 +2309,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
           context,
           AppStrings.of(context).bedSheetDischargeInitiated,
         );
-        widget.onChanged();
+        await widget.onChanged();
       } else {
         ErrorToast.show(context, response.failureMessage('Discharge failed'));
       }
@@ -2190,7 +2335,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       patientName: patientName,
       action: 'discharge',
     );
-    Navigator.of(context).pop(false);
+    if (!widget.embedded) Navigator.of(context).pop(false);
     context.push(route);
   }
 
@@ -2247,7 +2392,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       if (!mounted) return;
       if (response.isSuccess) {
         SuccessToast.show(context, s.bedSheetTransferSucceeded);
-        widget.onChanged();
+        await widget.onChanged();
       } else {
         ErrorToast.show(context, response.failureMessage('Transfer failed'));
       }
@@ -2310,7 +2455,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
           context,
           AppStrings.of(context).bedSheetPatientAdmitted(patientName),
         );
-        widget.onChanged();
+        await widget.onChanged();
       } else {
         ErrorToast.show(context, response.failureMessage('Admit failed'));
       }
