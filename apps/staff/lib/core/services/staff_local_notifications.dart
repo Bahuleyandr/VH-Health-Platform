@@ -22,8 +22,7 @@ bool shouldShowDesktopToast({
 String codeBlueToastBodyFromData(Map<String, dynamic> data) {
   final parts = <String>[
     if (_text(data['ward']).isNotEmpty) 'Ward ${_text(data['ward'])}',
-    if (_text(data['bedNumber']).isNotEmpty)
-      'Bed ${_text(data['bedNumber'])}',
+    if (_text(data['bedNumber']).isNotEmpty) 'Bed ${_text(data['bedNumber'])}',
     if (_text(data['reason']).isNotEmpty) _text(data['reason']),
   ];
   return parts.isNotEmpty ? parts.join(' · ') : 'Respond immediately';

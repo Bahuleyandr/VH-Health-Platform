@@ -33,7 +33,10 @@ void main() {
   });
 
   test('notification activation routes only cheap deep links', () {
-    expect(routeForNotificationPayload(staffMessageNotificationPayload), '/messaging');
+    expect(
+      routeForNotificationPayload(staffMessageNotificationPayload),
+      '/messaging',
+    );
     expect(routeForNotificationPayload(codeBlueNotificationPayload), isNull);
     expect(routeForNotificationPayload('unknown'), isNull);
   });
