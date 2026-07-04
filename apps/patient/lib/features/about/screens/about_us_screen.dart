@@ -49,51 +49,54 @@ class AboutUsScreen extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              ...numbers.map(
-                (entry) => ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Color(0x1A007A64),
-                    child: Icon(
-                      Icons.phone,
-                      color: Color(0xFF007A64),
-                      size: 20,
-                    ),
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
-                  title: Text(
-                    entry.$1,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  trailing: const Icon(Icons.call, color: Color(0xFF007A64)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    SafeUrlLauncher.launchPhone(entry.$2);
-                  },
                 ),
-              ),
-              const SizedBox(height: 8),
-            ],
+                const SizedBox(height: 16),
+                ...numbers.map(
+                  (entry) => ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: colors.primaryContainer,
+                      child: Icon(
+                        Icons.phone,
+                        color: colors.onPrimaryContainer,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      entry.$1,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    trailing: Icon(Icons.call, color: colors.primary),
+                    onTap: () {
+                      Navigator.pop(context);
+                      SafeUrlLauncher.launchPhone(entry.$2);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -126,7 +129,8 @@ class AboutUsScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton(
         onPressed: () => _triggerSOS(context),
         tooltip: l10n.authSosTooltip,
-        backgroundColor: Colors.red,
+        backgroundColor: cs.error,
+        foregroundColor: cs.onError,
         child: const Icon(Icons.favorite),
       ),
       child: SingleChildScrollView(

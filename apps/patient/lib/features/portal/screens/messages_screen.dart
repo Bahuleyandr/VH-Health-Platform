@@ -126,10 +126,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.messagesTitle,
       icon: Icons.forum,
-      color: const Color(0xFFFFE082),
+      color: colors.tertiary,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCompose,
         icon: const Icon(Icons.edit),

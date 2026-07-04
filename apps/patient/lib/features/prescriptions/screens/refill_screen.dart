@@ -127,10 +127,11 @@ class _RefillScreenState extends State<RefillScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.refillTitle,
       icon: Icons.medication,
-      color: const Color(0xFF81D4FA),
+      color: colors.secondary,
       child: _buildBody(),
     );
   }
@@ -182,14 +183,16 @@ class _RefillScreenState extends State<RefillScreen> {
               Icon(
                 Icons.medication_outlined,
                 size: 48,
-                color: Colors.grey.shade400,
+                color: theme.colorScheme.outlineVariant,
               ),
               const SizedBox(height: 12),
               Text(l.refillNoActive, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 8),
               Text(
                 l.refillNoActiveHint,
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -210,7 +213,9 @@ class _RefillScreenState extends State<RefillScreen> {
         const SizedBox(height: 4),
         Text(
           l.refillHint,
-          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 16),
         ListView.separated(
@@ -248,6 +253,7 @@ class _PrescriptionRefillCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final l = AppLocalizations.of(context)!;
     final medName =
         prescription['medicationName'] as String? ??
@@ -284,11 +290,7 @@ class _PrescriptionRefillCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.medication,
-                  color: const Color(0xFF42A5F5),
-                  size: 20,
-                ),
+                Icon(Icons.medication, color: colors.secondary, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -306,7 +308,7 @@ class _PrescriptionRefillCard extends StatelessWidget {
               Text(
                 'Dosage: $dosage',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.grey.shade700,
+                  color: colors.onSurfaceVariant,
                 ),
               ),
             ],
@@ -315,20 +317,20 @@ class _PrescriptionRefillCard extends StatelessWidget {
               Text(
                 'Last filled: $lastFilled',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.grey.shade600,
+                  color: colors.onSurfaceVariant,
                 ),
               ),
             ],
             const SizedBox(height: 12),
             if (isSubmitted)
               Chip(
-                avatar: const Icon(
+                avatar: Icon(
                   Icons.check_circle,
-                  color: Colors.green,
+                  color: colors.tertiary,
                   size: 18,
                 ),
                 label: Text(l.refillRequestedHeading),
-                backgroundColor: Colors.green.shade50,
+                backgroundColor: colors.tertiaryContainer,
               )
             else
               SizedBox(
@@ -350,8 +352,8 @@ class _PrescriptionRefillCard extends StatelessWidget {
                         : l.refillRequestButton,
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF42A5F5),
-                    side: const BorderSide(color: Color(0xFF42A5F5)),
+                    foregroundColor: colors.secondary,
+                    side: BorderSide(color: colors.secondary),
                   ),
                 ),
               ),
@@ -368,16 +370,17 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     Color color;
     switch (status.toLowerCase()) {
       case 'active':
-        color = Colors.green;
+        color = colors.tertiary;
         break;
       case 'expired':
-        color = Colors.red;
+        color = colors.error;
         break;
       default:
-        color = Colors.grey;
+        color = colors.onSurfaceVariant;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

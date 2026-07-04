@@ -36,17 +36,18 @@ class _VitalsScreenState extends State<VitalsScreen>
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.vitalsTitle,
       icon: Icons.monitor_heart,
-      color: const Color(0xFFEF9A9A),
+      color: colors.error,
       child: Column(
         children: [
           TabBar(
             controller: _tabController,
-            labelColor: const Color(0xFFE57373),
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: const Color(0xFFE57373),
+            labelColor: colors.error,
+            unselectedLabelColor: colors.onSurfaceVariant,
+            indicatorColor: colors.error,
             tabs: [
               Tab(icon: const Icon(Icons.edit_note), text: l.vitalsLogTab),
               Tab(icon: const Icon(Icons.history), text: l.vitalsHistoryTab),

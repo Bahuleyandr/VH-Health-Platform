@@ -36,17 +36,18 @@ class _AbdmScreenState extends State<AbdmScreen>
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.settingsHealthIdLabel,
       icon: Icons.health_and_safety,
-      color: const Color(0xFF26A69A),
+      color: colors.primary,
       child: Column(
         children: [
           TabBar(
             controller: _tabController,
-            labelColor: const Color(0xFF26A69A),
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: const Color(0xFF26A69A),
+            labelColor: colors.primary,
+            unselectedLabelColor: colors.onSurfaceVariant,
+            indicatorColor: colors.primary,
             tabs: const [
               Tab(icon: Icon(Icons.badge), text: 'My ABHA'),
               Tab(icon: Icon(Icons.handshake), text: 'Consent Requests'),
@@ -188,7 +189,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: isError ? Colors.red : null,
+        backgroundColor: isError ? Theme.of(context).colorScheme.error : null,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -566,7 +567,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.message),
-            backgroundColor: Colors.red,
+            backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -574,25 +575,26 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
     }
   }
 
-  Color _statusColor(String status) {
+  Color _statusColor(String status, ColorScheme colors) {
     switch (status.toUpperCase()) {
       case 'REQUESTED':
-        return Colors.blue;
+        return colors.primary;
       case 'GRANTED':
-        return Colors.green;
+        return colors.tertiary;
       case 'DENIED':
-        return Colors.red;
+        return colors.error;
       case 'EXPIRED':
       case 'REVOKED':
-        return Colors.grey;
+        return colors.onSurfaceVariant;
       default:
-        return Colors.grey;
+        return colors.onSurfaceVariant;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -662,14 +664,17 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                         label: Text(
                           status,
                           style: TextStyle(
-                            color: _statusColor(status),
+                            color: _statusColor(status, colors),
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        backgroundColor: _statusColor(status).withAlpha(26),
+                        backgroundColor: _statusColor(
+                          status,
+                          colors,
+                        ).withAlpha(26),
                         side: BorderSide(
-                          color: _statusColor(status).withAlpha(76),
+                          color: _statusColor(status, colors).withAlpha(76),
                         ),
                         padding: EdgeInsets.zero,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -700,7 +705,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                             AbdmApiService.denyConsent,
                           ),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red,
+                            foregroundColor: colors.error,
                           ),
                           child: const Text('Deny'),
                         ),
@@ -727,7 +732,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                           AbdmApiService.revokeConsent,
                         ),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
+                          foregroundColor: colors.error,
                         ),
                         child: const Text('Revoke'),
                       ),

@@ -85,7 +85,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     }
   }
 
-  Color _statusColor(String status) {
+  Color _statusColor(String status, ColorScheme colors) {
     switch (status) {
       case 'BOOKED':
         return Colors.orange;
@@ -100,7 +100,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
       case 'RESULT_READY':
         return Colors.green;
       default:
-        return Colors.grey;
+        return colors.onSurfaceVariant;
     }
   }
 
@@ -130,6 +130,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
 
   Widget _buildBookingCard(Map<String, dynamic> booking, ThemeData theme) {
     final status = booking['status'] ?? 'BOOKED';
+    final colors = theme.colorScheme;
     final statusIdx = _statusOrder.indexOf(status);
     final testDetails = booking['test_details'] as List<dynamic>?;
     final customTests = booking['custom_test_names'] as String?;
@@ -164,13 +165,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: _statusColor(status).withValues(alpha: 0.15),
+                    color: _statusColor(status, colors).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     _statusLabels[status] ?? status,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: _statusColor(status),
+                      color: _statusColor(status, colors),
                       fontWeight: FontWeight.bold,
                     ),
                   ),

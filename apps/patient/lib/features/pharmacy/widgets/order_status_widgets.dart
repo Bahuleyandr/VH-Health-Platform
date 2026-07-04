@@ -23,19 +23,18 @@ class PharmacyDeliveryOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: selected
-              ? const Color(0xFF7E57C2).withValues(alpha: 0.1)
-              : theme.colorScheme.surfaceContainerHighest.withAlpha(128),
+              ? colors.secondaryContainer.withValues(alpha: 0.72)
+              : colors.surfaceContainerHighest.withAlpha(128),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected
-                ? const Color(0xFF7E57C2)
-                : theme.colorScheme.outlineVariant,
+            color: selected ? colors.secondary : colors.outlineVariant,
             width: selected ? 2 : 1,
           ),
         ),
@@ -44,8 +43,8 @@ class PharmacyDeliveryOption extends StatelessWidget {
             Icon(
               icon,
               color: selected
-                  ? const Color(0xFF7E57C2)
-                  : theme.colorScheme.onSurfaceVariant,
+                  ? colors.onSecondaryContainer
+                  : colors.onSurfaceVariant,
               size: 28,
             ),
             const SizedBox(height: 4),
@@ -53,8 +52,8 @@ class PharmacyDeliveryOption extends StatelessWidget {
               label,
               style: TextStyle(
                 color: selected
-                    ? const Color(0xFF7E57C2)
-                    : theme.colorScheme.onSurfaceVariant,
+                    ? colors.onSecondaryContainer
+                    : colors.onSurfaceVariant,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                 fontSize: 13,
               ),
@@ -127,9 +126,9 @@ class PharmacyOrderCard extends StatelessWidget {
                   if (cost != null)
                     Text(
                       '\u20B9$cost',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF7E57C2),
+                        color: theme.colorScheme.secondary,
                       ),
                     ),
                 ],
@@ -157,6 +156,7 @@ class PharmacyStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     final (color, label) = switch (status.toUpperCase()) {
       'PENDING' || 'PLACED' => (Colors.orange, 'Pending'),
       'CONFIRMED' => (Colors.blue, 'Confirmed'),
@@ -165,7 +165,7 @@ class PharmacyStatusChip extends StatelessWidget {
       'DISPATCHED' => (Colors.teal, 'Dispatched'),
       'DELIVERED' => (Colors.green, 'Delivered'),
       'CANCELLED' => (Colors.red, 'Cancelled'),
-      _ => (Colors.grey, status),
+      _ => (colors.onSurfaceVariant, status),
     };
 
     return Container(
@@ -193,14 +193,15 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     if (status.toUpperCase() == 'CANCELLED') {
       return Row(
         children: [
-          Icon(Icons.cancel, color: Colors.red.shade400, size: 16),
+          Icon(Icons.cancel, color: colors.error, size: 16),
           const SizedBox(width: 4),
           Text(
             AppLocalizations.of(context)!.pharmacyOrderCancelled,
-            style: TextStyle(color: Colors.red.shade400, fontSize: 12),
+            style: TextStyle(color: colors.error, fontSize: 12),
           ),
         ],
       );
@@ -228,8 +229,8 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
             child: Container(
               height: 2,
               color: stepIdx < currentIdx
-                  ? const Color(0xFF7E57C2)
-                  : theme.colorScheme.outlineVariant,
+                  ? colors.secondary
+                  : colors.outlineVariant,
             ),
           );
         }
@@ -240,9 +241,7 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: done
-                ? const Color(0xFF7E57C2)
-                : theme.colorScheme.outlineVariant,
+            color: done ? colors.secondary : colors.outlineVariant,
           ),
         );
       }),
@@ -257,21 +256,22 @@ class PharmacyStatusTracker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     if (status.toUpperCase() == 'CANCELLED') {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
+          color: colors.errorContainer,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
-            Icon(Icons.cancel, color: Colors.red.shade400, size: 32),
+            Icon(Icons.cancel, color: colors.onErrorContainer, size: 32),
             const SizedBox(width: 12),
             Text(
               AppLocalizations.of(context)!.pharmacyOrderCancelled,
-              style: const TextStyle(
-                color: Colors.red,
+              style: TextStyle(
+                color: colors.onErrorContainer,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
@@ -311,15 +311,13 @@ class PharmacyStatusTracker extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: done
-                        ? const Color(0xFF7E57C2)
-                        : theme.colorScheme.surfaceContainerHighest,
+                        ? colors.secondary
+                        : colors.surfaceContainerHighest,
                   ),
                   child: Icon(
                     icon,
                     size: 16,
-                    color: done
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.onSurfaceVariant,
+                    color: done ? colors.onSecondary : colors.onSurfaceVariant,
                   ),
                 ),
                 if (i < steps.length - 1)
@@ -327,8 +325,8 @@ class PharmacyStatusTracker extends StatelessWidget {
                     width: 2,
                     height: 24,
                     color: i < currentIdx
-                        ? const Color(0xFF7E57C2)
-                        : theme.colorScheme.surfaceContainerHighest,
+                        ? colors.secondary
+                        : colors.surfaceContainerHighest,
                   ),
               ],
             ),

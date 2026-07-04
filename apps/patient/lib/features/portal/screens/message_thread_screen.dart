@@ -162,10 +162,11 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: _thread?.subject ?? 'Message',
       icon: Icons.forum,
-      color: const Color(0xFFFFE082),
+      color: colors.tertiary,
       child: Column(
         children: [
           Expanded(

@@ -134,6 +134,7 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -335,7 +336,8 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                 _submitting ? l.vitalsSubmitting : l.vitalsRecordButton,
               ),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE57373),
+                backgroundColor: colors.error,
+                foregroundColor: colors.onError,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),

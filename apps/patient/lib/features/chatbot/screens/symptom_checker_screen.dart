@@ -183,7 +183,10 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
         for (final d in differential)
           ListTile(
             dense: true,
-            leading: _likelihoodBadge((d as Map)['likelihood']?.toString()),
+            leading: _likelihoodBadge(
+              context,
+              (d as Map)['likelihood']?.toString(),
+            ),
             title: Text(d['diagnosis']?.toString() ?? ''),
             contentPadding: EdgeInsets.zero,
           ),
@@ -203,17 +206,21 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
         padding: const EdgeInsets.only(top: 20),
         child: Text(
           l.symptomCheckerDisclaimer,
-          style: const TextStyle(fontSize: 11, color: Colors.black54),
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     ];
   }
 
-  Widget _likelihoodBadge(String? likelihood) {
+  Widget _likelihoodBadge(BuildContext context, String? likelihood) {
+    final colors = Theme.of(context).colorScheme;
     final colour = switch (likelihood) {
       'high' => Colors.red,
       'medium' => Colors.orange,
-      _ => Colors.grey,
+      _ => colors.onSurfaceVariant,
     };
     return Container(
       width: 10,

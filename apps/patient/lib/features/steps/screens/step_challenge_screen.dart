@@ -399,10 +399,11 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
 
   void _showSuccess(String msg) {
     if (!mounted) return;
+    final colors = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: Colors.green[700],
+        backgroundColor: colors.tertiary,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -424,10 +425,11 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: 'Step Challenge 🏃',
       icon: LucideIcons.footprints,
-      color: const Color(0xFFA5D6A7),
+      color: colors.tertiary,
       heroTag: 'steps',
       child: RefreshIndicator(
         onRefresh: _fetchAll,

@@ -96,31 +96,31 @@ class _OrderFormTabState extends State<OrderFormTab> {
     final l = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Color(0xFF7E57C2)),
-              title: Text(l.pharmacyTakePhoto),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickPrescription(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.photo_library,
-                color: Color(0xFF7E57C2),
+      builder: (ctx) {
+        final colors = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: Icon(Icons.camera_alt, color: colors.secondary),
+                title: Text(l.pharmacyTakePhoto),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickPrescription(ImageSource.camera);
+                },
               ),
-              title: Text(l.pharmacyChooseFromGallery),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickPrescription(ImageSource.gallery);
-              },
-            ),
-          ],
-        ),
-      ),
+              ListTile(
+                leading: Icon(Icons.photo_library, color: colors.secondary),
+                title: Text(l.pharmacyChooseFromGallery),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickPrescription(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -228,13 +228,18 @@ class _OrderFormTabState extends State<OrderFormTab> {
 
   void _showOrderPlacedDialog(String orderNumber) {
     final l = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            const Icon(Icons.check_circle, color: Colors.green, size: 28),
+            Icon(
+              Icons.check_circle,
+              color: theme.colorScheme.tertiary,
+              size: 28,
+            ),
             const SizedBox(width: 8),
             Text(l.pharmacyOrderPlacedTitle),
           ],
@@ -254,7 +259,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
             const SizedBox(height: 12),
             Text(
               l.pharmacyOrderPlacedBody,
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -270,10 +275,11 @@ class _OrderFormTabState extends State<OrderFormTab> {
 
   void _showSnack(String msg, {bool isError = false}) {
     if (!mounted) return;
+    final colors = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+        backgroundColor: isError ? colors.error : colors.tertiary,
       ),
     );
   }
@@ -286,6 +292,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final hasPrescriptionError = _prescriptionError != null;
 
     return SingleChildScrollView(
@@ -306,12 +313,12 @@ class _OrderFormTabState extends State<OrderFormTab> {
               width: double.infinity,
               height: _prescriptionPhoto != null ? 200 : 120,
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: hasPrescriptionError
-                      ? theme.colorScheme.error
-                      : const Color(0xFF7E57C2).withValues(alpha: 0.3),
+                      ? colors.error
+                      : colors.secondary.withValues(alpha: 0.35),
                   width: 2,
                   style: BorderStyle.solid,
                 ),
@@ -339,13 +346,13 @@ class _OrderFormTabState extends State<OrderFormTab> {
                             }),
                             child: Container(
                               padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
+                              decoration: BoxDecoration(
+                                color: colors.error,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.close,
-                                color: Colors.white,
+                                color: colors.onError,
                                 size: 16,
                               ),
                             ),
@@ -356,20 +363,20 @@ class _OrderFormTabState extends State<OrderFormTab> {
                   : Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.camera_alt,
                           size: 36,
-                          color: Color(0xFF7E57C2),
+                          color: colors.secondary,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           l.pharmacyTapToUpload,
-                          style: const TextStyle(color: Colors.grey),
+                          style: TextStyle(color: colors.onSurfaceVariant),
                         ),
                         Text(
                           l.pharmacyCameraOrGallery,
-                          style: const TextStyle(
-                            color: Colors.grey,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
                             fontSize: 12,
                           ),
                         ),
@@ -490,17 +497,17 @@ class _OrderFormTabState extends State<OrderFormTab> {
             child: ElevatedButton.icon(
               onPressed: _isSubmitting ? null : _placeOrder,
               icon: _isSubmitting
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                        color: Colors.white,
+                        color: colors.onSecondary,
                         strokeWidth: 2,
                       ),
                     )
-                  : const Icon(
+                  : Icon(
                       Icons.shopping_cart_checkout,
-                      color: Colors.white,
+                      color: colors.onSecondary,
                     ),
               label: Text(
                 _isSubmitting
@@ -512,8 +519,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF7E57C2),
-                foregroundColor: Colors.white,
+                backgroundColor: colors.secondary,
+                foregroundColor: colors.onSecondary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

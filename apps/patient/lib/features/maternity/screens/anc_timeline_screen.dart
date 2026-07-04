@@ -236,10 +236,11 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: l.ancTimelineTitle,
       icon: Icons.pregnant_woman,
-      color: const Color(0xFFF8BBD0),
+      color: colors.tertiary,
       child: RefreshIndicator(onRefresh: _fetch, child: _body(context, l)),
     );
   }

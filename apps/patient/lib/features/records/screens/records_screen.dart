@@ -437,10 +437,11 @@ class _RecordsScreenState extends State<RecordsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
       title: 'My Records',
       icon: Icons.folder_outlined,
-      color: const Color(0xFF007A64),
+      color: colors.primary,
       heroTag: 'records',
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showUploadSheet,
