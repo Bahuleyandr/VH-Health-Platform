@@ -14,6 +14,7 @@ namespace {
 // (apps/staff/lib/core/services/windows_screen_capture.dart).
 constexpr char kScreenCaptureChannel[] =
     "vhhealth/screen_protector_windows";
+constexpr char kWindowControlChannel[] = "vhhealth/windows_window";
 
 // SetWindowDisplayAffinity / WDA_EXCLUDEFROMCAPTURE are declared in winuser.h
 // (pulled in via windows.h from flutter headers). WDA_EXCLUDEFROMCAPTURE
@@ -47,6 +48,21 @@ int ApplyCaptureExclusion(HWND hwnd, bool enable) {
     return WDA_MONITOR;
   }
   return -1;
+}
+
+bool FocusTopLevelWindow(HWND hwnd) {
+  if (hwnd == nullptr) {
+    return false;
+  }
+  if (::IsIconic(hwnd)) {
+    ::ShowWindow(hwnd, SW_RESTORE);
+  } else {
+    ::ShowWindow(hwnd, SW_SHOWNORMAL);
+  }
+  ::BringWindowToTop(hwnd);
+  const BOOL foreground = ::SetForegroundWindow(hwnd);
+  ::SetActiveWindow(hwnd);
+  return foreground || ::GetForegroundWindow() == hwnd;
 }
 
 }  // namespace
@@ -101,6 +117,25 @@ bool FlutterWindow::OnCreate() {
             result->Error("affinity_failed",
                           "SetWindowDisplayAffinity failed");
           }
+        } else {
+          result->NotImplemented();
+        }
+      });
+
+  // Windows toast activation lands in Dart, which then calls this channel to
+  // restore and foreground the top-level runner window.
+  window_control_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), kWindowControlChannel,
+          &flutter::StandardMethodCodec::GetInstance());
+  window_control_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const std::string& method = call.method_name();
+        if (method == "focusWindow") {
+          result->Success(flutter::EncodableValue(
+              FocusTopLevelWindow(GetHandle())));
         } else {
           result->NotImplemented();
         }

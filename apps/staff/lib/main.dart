@@ -27,6 +27,7 @@ import 'core/services/composite_crash_reporter.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
+import 'core/services/staff_local_notifications.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/windows_screen_capture.dart';
 import 'core/widgets/patient_search_sheet.dart';
@@ -344,6 +345,9 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    StaffLocalNotifications.instance.setWindowFocused(
+      state == AppLifecycleState.resumed,
+    );
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       ConnectivitySyncService.instance.stopListening();

@@ -35,6 +35,10 @@ class FlutterWindow : public Win32Window {
   // (SetWindowDisplayAffinity). Owned for the lifetime of the window.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       screen_capture_channel_;
+
+  // Windows toast activation: restore and foreground the runner window.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      window_control_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

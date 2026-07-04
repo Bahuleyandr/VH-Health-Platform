@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../l10n/app_strings.dart';
+import '../services/staff_local_notifications.dart';
 
 /// Invisible overlay widget that listens to `staff:code-blue` events and shows
 /// a blocking full-screen modal the moment a Code Blue fires. Mount once —
@@ -37,6 +38,9 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
   }
 
   void _onCodeBlue(RealtimeEvent event) {
+    unawaited(
+      StaffLocalNotifications.instance.showCodeBlueFromData(event.data),
+    );
     if (_dialogOpen || !mounted) return;
     _dialogOpen = true;
     showDialog<void>(
