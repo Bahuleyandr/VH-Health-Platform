@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+import 'package:vhhealth_core/utils/log_sanitizer.dart';
 
 /// Generic JSON response cache for API endpoints.
 ///
@@ -158,7 +159,11 @@ class ApiCacheManager {
       final encrypted = await _encrypt(jsonEncode(envelope));
       await file.writeAsString(encrypted);
     } catch (e) {
-      if (kDebugMode) debugPrint('ApiCacheManager.save failed for $path: $e');
+      if (kDebugMode) {
+        debugPrint(
+          'ApiCacheManager.save failed for ${logSafePath(path)}: ${logSafeError(e)}',
+        );
+      }
     }
   }
 
@@ -184,7 +189,11 @@ class ApiCacheManager {
       final cachedAt = DateTime.parse(envelope['cachedAt'] as String);
       return CachedData(data: envelope['data'], cachedAt: cachedAt);
     } catch (e) {
-      if (kDebugMode) debugPrint('ApiCacheManager.load failed for $path: $e');
+      if (kDebugMode) {
+        debugPrint(
+          'ApiCacheManager.load failed for ${logSafePath(path)}: ${logSafeError(e)}',
+        );
+      }
       return null;
     }
   }
@@ -197,7 +206,11 @@ class ApiCacheManager {
       final file = File('$dir/$key.json');
       if (await file.exists()) await file.delete();
     } catch (e) {
-      if (kDebugMode) debugPrint('ApiCacheManager.invalidate failed: $e');
+      if (kDebugMode) {
+        debugPrint(
+          'ApiCacheManager.invalidate failed for ${logSafePath(path)}: ${logSafeError(e)}',
+        );
+      }
     }
   }
 
@@ -227,8 +240,12 @@ class ApiCacheManager {
           await entity.delete();
         }
       }
-    } catch (_) {
-      if (kDebugMode) debugPrint('ApiCacheManager.invalidateByPrefix failed');
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          'ApiCacheManager.invalidateByPrefix failed for ${logSafePath(pathPrefix)}: ${logSafeError(e)}',
+        );
+      }
     }
   }
 
@@ -253,7 +270,9 @@ class ApiCacheManager {
         _cacheDir = null; // Force re-creation next time
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('ApiCacheManager.clearAll failed: $e');
+      if (kDebugMode) {
+        debugPrint('ApiCacheManager.clearAll failed: ${logSafeError(e)}');
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 // lib/features/profile/screens/profile_edit_screen.dart
 import 'package:go_router/go_router.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -10,6 +11,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth_core/utils/log_sanitizer.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key});
@@ -192,11 +194,17 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       if (!success) {
         errorMessage =
             _profileUpdateErrorMessage(response) ?? l10n.networkError;
-        debugPrint('API error: ${response.statusCode} – ${response.message}');
+        if (kDebugMode) {
+          debugPrint(
+            'ProfileEdit: update failed status=${response.statusCode} message=${redactLogText(response.message)}',
+          );
+        }
       }
     } catch (e) {
       errorMessage = l10n.networkError;
-      debugPrint('Network error: $e');
+      if (kDebugMode) {
+        debugPrint('ProfileEdit: network error: ${logSafeError(e)}');
+      }
     }
 
     if (!mounted) return;
@@ -281,7 +289,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       ),
     );
 
-    debugPrint('SOS Triggered for phone: $_phone');
+    if (kDebugMode) debugPrint('ProfileEdit: SOS triggered');
   }
 
   // ─────────────────────────── Gender display label ─────────────────────────

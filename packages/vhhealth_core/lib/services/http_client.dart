@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/api_response.dart';
+import '../utils/log_sanitizer.dart';
 import 'auth_service.dart';
 import 'pinned_http_client.dart';
 import 'idempotency_key.dart';
@@ -528,7 +529,11 @@ class VHHttpClient {
           completer.complete(ok);
         })
         .catchError((Object e, StackTrace st) {
-          if (kDebugMode) debugPrint('VHHttpClient: token refresh failed — $e');
+          if (kDebugMode) {
+            debugPrint(
+              'VHHttpClient: token refresh failed - ${logSafeError(e)}',
+            );
+          }
           completer.complete(false);
         })
         .whenComplete(() {
