@@ -16,8 +16,9 @@ const String _dueMedsAllWards = '';
 const String _dueMedsAllRoutes = 'all';
 
 List<WardListFilterOption> dueMedsWardFilterOptions(
-  List<Map<String, dynamic>> rows,
-) {
+  List<Map<String, dynamic>> rows, {
+  String allWardsLabel = 'All wards',
+}) {
   final byValue = <String, String>{};
   for (final row in rows) {
     final value = _filterText(row['ward_id']);
@@ -30,15 +31,16 @@ List<WardListFilterOption> dueMedsWardFilterOptions(
   final options = byValue.entries.toList()
     ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
   return [
-    const WardListFilterOption(value: _dueMedsAllWards, label: 'All wards'),
+    WardListFilterOption(value: _dueMedsAllWards, label: allWardsLabel),
     for (final entry in options)
       WardListFilterOption(value: entry.key, label: entry.value),
   ];
 }
 
 List<WardListFilterOption> dueMedsRouteFilterOptions(
-  List<Map<String, dynamic>> rows,
-) {
+  List<Map<String, dynamic>> rows, {
+  String allRoutesLabel = 'All routes',
+}) {
   final routes =
       rows
           .map((row) => _filterText(row['route']))
@@ -47,7 +49,7 @@ List<WardListFilterOption> dueMedsRouteFilterOptions(
           .toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
   return [
-    const WardListFilterOption(value: _dueMedsAllRoutes, label: 'All routes'),
+    WardListFilterOption(value: _dueMedsAllRoutes, label: allRoutesLabel),
     for (final route in routes)
       WardListFilterOption(value: route, label: route),
   ];
@@ -105,7 +107,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
   String _selectedWardValue = _dueMedsAllWards;
   String _selectedRouteValue = _dueMedsAllRoutes;
   List<WardListFilterOption> _wardOptions = const [
-    WardListFilterOption(value: _dueMedsAllWards, label: 'All wards'),
+    WardListFilterOption(value: _dueMedsAllWards, label: ''),
   ];
 
   List<Map<String, dynamic>> get _filtered {
@@ -179,7 +181,20 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    final routeOptions = dueMedsRouteFilterOptions(_rows);
+    final wardOptions = _wardOptions
+        .map(
+          (option) => option.value == _dueMedsAllWards
+              ? WardListFilterOption(
+                  value: option.value,
+                  label: s.dueMedsAllWards,
+                )
+              : option,
+        )
+        .toList();
+    final routeOptions = dueMedsRouteFilterOptions(
+      _rows,
+      allRoutesLabel: s.dueMedsAllRoutes,
+    );
     return StaffScaffold(
       title: s.dueMedsTitle,
       body: ConstrainedContent(
@@ -202,13 +217,13 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
             ),
             WardListFilterBar(
               keyPrefix: 'due-meds',
-              wardOptions: _wardOptions,
+              wardOptions: wardOptions,
               selectedWardValue: _selectedWardValue,
               onWardChanged: (value) {
                 setState(() => _selectedWardValue = value);
                 _load();
               },
-              filterLabel: 'Route',
+              filterLabel: s.dueMedsRouteFilterLabel,
               filterOptions: routeOptions,
               selectedFilterValue: _selectedRouteValue,
               onFilterChanged: (value) =>

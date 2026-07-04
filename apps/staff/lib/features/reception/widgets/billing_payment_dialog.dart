@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../l10n/app_strings.dart';
 
 Future<bool> showBillingPaymentDialog({
   required BuildContext context,
@@ -26,6 +27,8 @@ Future<bool> showBillingPaymentDialog({
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (context, setDialogState) {
+          final s = AppStrings.of(context);
+
           void focusNextField() {
             FocusScope.of(context).nextFocus();
           }
@@ -50,30 +53,22 @@ Future<bool> showBillingPaymentDialog({
             final reference = referenceCtrl.text.trim();
             final shift = shiftCtrl.text.trim();
             if (amount == null || amount <= 0) {
-              setDialogState(
-                () => dialogError = 'Enter a payment amount greater than 0.',
-              );
+              setDialogState(() => dialogError = s.billingPaymentAmountError);
               return;
             }
             if (amount > due + 0.01) {
               setDialogState(
-                () => dialogError =
-                    'Payment cannot exceed outstanding due ${billingMoney(due)}.',
+                () =>
+                    dialogError = s.billingPaymentExceedsDue(billingMoney(due)),
               );
               return;
             }
             if (mode == 'CASH' && shift.isEmpty) {
-              setDialogState(
-                () => dialogError =
-                    'Cash payments require a cashier shift for drawer reconciliation.',
-              );
+              setDialogState(() => dialogError = s.billingCashShiftRequired);
               return;
             }
             if (mode != 'CASH' && reference.isEmpty) {
-              setDialogState(
-                () => dialogError =
-                    'Enter a transaction reference for non-cash payments.',
-              );
+              setDialogState(() => dialogError = s.billingReferenceRequired);
               return;
             }
 
@@ -105,7 +100,7 @@ Future<bool> showBillingPaymentDialog({
 
           return FocusTraversalGroup(
             child: AlertDialog(
-              title: const Text('Collect Payment'),
+              title: Text(s.billingCollectPaymentTitle),
               content: SizedBox(
                 width: 520,
                 child: SingleChildScrollView(
@@ -121,7 +116,9 @@ Future<bool> showBillingPaymentDialog({
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text('Outstanding ${billingMoney(due)}'),
+                        subtitle: Text(
+                          s.billingOutstandingAmount(billingMoney(due)),
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
@@ -131,17 +128,17 @@ Future<bool> showBillingPaymentDialog({
                         ),
                         textInputAction: TextInputAction.next,
                         onSubmitted: (_) => focusNextField(),
-                        decoration: const InputDecoration(
-                          labelText: 'Amount',
-                          prefixIcon: Icon(Icons.currency_rupee),
+                        decoration: InputDecoration(
+                          labelText: s.billingAmountLabel,
+                          prefixIcon: const Icon(Icons.currency_rupee),
                         ),
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         initialValue: mode,
-                        decoration: const InputDecoration(
-                          labelText: 'Mode',
-                          prefixIcon: Icon(Icons.payments_outlined),
+                        decoration: InputDecoration(
+                          labelText: s.billingModeLabel,
+                          prefixIcon: const Icon(Icons.payments_outlined),
                         ),
                         items:
                             const [
@@ -172,8 +169,8 @@ Future<bool> showBillingPaymentDialog({
                         onSubmitted: (_) => focusNextField(),
                         decoration: InputDecoration(
                           labelText: mode == 'CASH'
-                              ? 'Reference (optional)'
-                              : 'Transaction reference',
+                              ? s.billingReferenceOptional
+                              : s.billingTransactionReference,
                           prefixIcon: const Icon(Icons.numbers_outlined),
                         ),
                       ),
@@ -183,9 +180,11 @@ Future<bool> showBillingPaymentDialog({
                           controller: shiftCtrl,
                           textInputAction: TextInputAction.next,
                           onSubmitted: (_) => focusNextField(),
-                          decoration: const InputDecoration(
-                            labelText: 'Cashier shift',
-                            prefixIcon: Icon(Icons.point_of_sale_outlined),
+                          decoration: InputDecoration(
+                            labelText: s.billingCashierShiftLabel,
+                            prefixIcon: const Icon(
+                              Icons.point_of_sale_outlined,
+                            ),
                           ),
                         ),
                       ],
@@ -199,9 +198,9 @@ Future<bool> showBillingPaymentDialog({
                             handleNewline(notesCtrl, value, collect),
                         minLines: 2,
                         maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Notes',
-                          prefixIcon: Icon(Icons.notes_outlined),
+                        decoration: InputDecoration(
+                          labelText: s.billingNotesLabel,
+                          prefixIcon: const Icon(Icons.notes_outlined),
                         ),
                       ),
                       if (dialogError != null) ...[
@@ -218,7 +217,7 @@ Future<bool> showBillingPaymentDialog({
               actions: [
                 TextButton(
                   onPressed: saving ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: Text(s.actionCancel),
                 ),
                 FilledButton.icon(
                   onPressed: saving ? null : collect,
@@ -229,7 +228,7 @@ Future<bool> showBillingPaymentDialog({
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.payments_outlined),
-                  label: const Text('Collect'),
+                  label: Text(s.billingCollectButton),
                 ),
               ],
             ),

@@ -98,18 +98,37 @@ List<WardListFilterOption> bedBoardWardFilterOptions(
 
 List<WardListFilterOption> bedBoardStatusFilterOptions({
   required bool housekeepingOnly,
+  required AppStrings strings,
 }) {
   if (housekeepingOnly) {
-    return const [
-      WardListFilterOption(value: bedBoardCleaningStatus, label: 'Cleaning'),
+    return [
+      WardListFilterOption(
+        value: bedBoardCleaningStatus,
+        label: strings.bedBoardFilterCleaning,
+      ),
     ];
   }
-  return const [
-    WardListFilterOption(value: bedBoardAllStatuses, label: 'All statuses'),
-    WardListFilterOption(value: 'available', label: 'Available'),
-    WardListFilterOption(value: 'occupied', label: 'Occupied'),
-    WardListFilterOption(value: 'maintenance', label: 'Maintenance'),
-    WardListFilterOption(value: bedBoardCleaningStatus, label: 'Cleaning'),
+  return [
+    WardListFilterOption(
+      value: bedBoardAllStatuses,
+      label: strings.bedBoardFilterAllStatuses,
+    ),
+    WardListFilterOption(
+      value: 'available',
+      label: strings.bedBoardFilterAvailable,
+    ),
+    WardListFilterOption(
+      value: 'occupied',
+      label: strings.bedBoardFilterOccupied,
+    ),
+    WardListFilterOption(
+      value: 'maintenance',
+      label: strings.bedBoardFilterMaintenance,
+    ),
+    WardListFilterOption(
+      value: bedBoardCleaningStatus,
+      label: strings.bedBoardFilterCleaning,
+    ),
   ];
 }
 
@@ -821,9 +840,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 )['name']!;
             _selectWard(wardId, wardName);
           },
-          filterLabel: 'Bed status',
+          filterLabel: s.bedBoardFilterStatusLabel,
           filterOptions: bedBoardStatusFilterOptions(
             housekeepingOnly: _isHousekeepingRole,
+            strings: s,
           ),
           selectedFilterValue: _bedStatusFilter,
           onFilterChanged: (value) => setState(() => _bedStatusFilter = value),
@@ -2263,10 +2283,11 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   Future<void> _markReady() async {
     final id = _bedId();
     if (id.isEmpty) return;
+    final s = AppStrings.of(context);
     final ok = await _confirm(
-      'Mark bed ready?',
-      'This confirms housekeeping has completed cleaning and makes the bed available for the next patient.',
-      'Mark Ready',
+      s.bedBoardMarkReadyTitle,
+      s.bedBoardMarkReadyBody,
+      s.bedBoardMarkReady,
       confirmColor: AppTheme.successGreen,
     );
     if (!ok || !mounted) return;
@@ -2501,7 +2522,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         FilledButton.icon(
           onPressed: _busy ? null : _markReady,
           icon: const Icon(Icons.cleaning_services_outlined, size: 16),
-          label: const Text('Mark Ready'),
+          label: Text(s.bedBoardMarkReady),
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF007A64),
           ),
@@ -2538,7 +2559,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
           FilledButton.icon(
             onPressed: _busy ? null : _openDischargeHub,
             icon: const Icon(Icons.rule_folder_outlined, size: 16),
-            label: const Text('Discharge Hub'),
+            label: Text(s.bedBoardDischargeHub),
           ),
         );
       }
@@ -2837,7 +2858,7 @@ class _TransferBedPickerState extends State<_TransferBedPicker> {
             _bedLabel(bed),
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: floor.isEmpty ? null : Text('Floor $floor'),
+          subtitle: floor.isEmpty ? null : Text(s.bedBoardFloorLabel(floor)),
           selected: selected,
           onTap: () => setState(() => _selectedBed = bed),
         );
