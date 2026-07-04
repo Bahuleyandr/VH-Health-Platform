@@ -1,7 +1,7 @@
 # CLAUDE.md — VHHealth Staff App
 
 ## Project Overview
-Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, telemedicine, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has ~199 Dart source files across 40+ feature modules.
+Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has 218 Dart source files across 40+ feature modules.
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
@@ -27,7 +27,7 @@ lib/
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
       sos_button.dart                # Emergency SOS FAB
-  features/                          # ~40 feature modules (199 Dart files total)
+  features/                          # ~40 feature modules (218 Dart files total)
     auth/                            # Employee ID + password/PIN login
     dashboard/                       # Home: check-in status, stats, feature grid
     attendance/                      # Check in/out + history
@@ -53,11 +53,10 @@ lib/
     clinical_ai/                     # Clinical AI decision support panels
     diagnostics/                     # Lab/diagnostic order management
     schedule/                        # Staff scheduling + shift management
-    telemedicine/                     # Telemedicine session management
     messaging/                       # Secure staff messaging
     notifications/                   # Push notification centre
     hr/                              # HR admin (payroll, credentialing)
-    payroll/                         # Payroll summary view
+    payroll/                         # Payroll summary view (built, routing pending S3)
     reports/                         # Clinical + operational reports
     safety/                          # Incident reporting, code blue
     about/                           # App version + build info
