@@ -8,6 +8,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -248,83 +249,90 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
           icon: const Icon(Icons.refresh),
         ),
       ],
-      body: Column(
-        children: [
-          if (_error != null)
-            Container(
-              width: double.infinity,
-              color: AppTheme.errorOnSurface.withValues(alpha: 0.12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    color: AppTheme.errorOnSurface,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: AppTheme.errorOnSurface,
-                        fontSize: 12,
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            if (_error != null)
+              Container(
+                width: double.infinity,
+                color: AppTheme.errorOnSurface.withValues(alpha: 0.12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: AppTheme.errorOnSurface,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: AppTheme.errorOnSurface,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            Material(
+              color: AppTheme.cardSurface,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: AppTheme.successOnSurface,
+                unselectedLabelColor: AppTheme.textSecondary,
+                indicatorColor: AppTheme.successOnSurface,
+                dividerColor: AppTheme.divider,
+                tabs: [
+                  Tab(text: '${s.housekeepingTabAll} (${_allTasks.length})'),
+                  Tab(
+                    text:
+                        '${s.housekeepingTabPending} (${_pendingTasks.length})',
+                  ),
+                  Tab(
+                    text:
+                        '${s.housekeepingTabDone} (${_completedTasks.length})',
                   ),
                 ],
               ),
             ),
-          Material(
-            color: AppTheme.cardSurface,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: AppTheme.successOnSurface,
-              unselectedLabelColor: AppTheme.textSecondary,
-              indicatorColor: AppTheme.successOnSurface,
-              dividerColor: AppTheme.divider,
-              tabs: [
-                Tab(text: '${s.housekeepingTabAll} (${_allTasks.length})'),
-                Tab(
-                  text: '${s.housekeepingTabPending} (${_pendingTasks.length})',
-                ),
-                Tab(
-                  text: '${s.housekeepingTabDone} (${_completedTasks.length})',
-                ),
-              ],
+            Expanded(
+              child: _loading && _allTasks.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _TaskList(
+                          tasks: _allTasks,
+                          busyTaskId: _busyTaskId,
+                          onRefresh: _loadTasks,
+                          onStart: _startTask,
+                          onComplete: _completeTask,
+                        ),
+                        _TaskList(
+                          tasks: _pendingTasks,
+                          busyTaskId: _busyTaskId,
+                          onRefresh: _loadTasks,
+                          onStart: _startTask,
+                          onComplete: _completeTask,
+                        ),
+                        _TaskList(
+                          tasks: _completedTasks,
+                          busyTaskId: _busyTaskId,
+                          onRefresh: _loadTasks,
+                          onStart: _startTask,
+                          onComplete: _completeTask,
+                        ),
+                      ],
+                    ),
             ),
-          ),
-          Expanded(
-            child: _loading && _allTasks.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _TaskList(
-                        tasks: _allTasks,
-                        busyTaskId: _busyTaskId,
-                        onRefresh: _loadTasks,
-                        onStart: _startTask,
-                        onComplete: _completeTask,
-                      ),
-                      _TaskList(
-                        tasks: _pendingTasks,
-                        busyTaskId: _busyTaskId,
-                        onRefresh: _loadTasks,
-                        onStart: _startTask,
-                        onComplete: _completeTask,
-                      ),
-                      _TaskList(
-                        tasks: _completedTasks,
-                        busyTaskId: _busyTaskId,
-                        onRefresh: _loadTasks,
-                        onStart: _startTask,
-                        onComplete: _completeTask,
-                      ),
-                    ],
-                  ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

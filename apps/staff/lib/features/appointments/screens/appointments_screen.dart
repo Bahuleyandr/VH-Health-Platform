@@ -8,6 +8,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -1284,16 +1285,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: _screenTitle,
-      body: Column(
-        children: [
-          _buildToolbar(),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _buildCalendarSurface(),
+      body: ConstrainedContent(
+        child: Column(
+          children: [
+            _buildToolbar(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: _buildCalendarSurface(),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
