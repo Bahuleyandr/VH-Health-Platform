@@ -38,9 +38,10 @@ class RealtimeEvent {
 ///    `auth` message frame (NEVER in the URL query — that would leak the bearer
 ///    token into reverse-proxy / ingress access logs).
 ///  - Auto-subscribes tracked channels on every (re)connect.
-///  - Auto-reconnects with exponential backoff (1s → 2s → 4s → … cap 30s) unless
-///    the server closes with 4001 (auth failure), in which case [onSessionExpired]
-///    fires and the client stops reconnecting until [connect] is called again.
+///  - Auto-reconnects with exponential backoff (1s → 2s → 4s → … cap 30s).
+///    When the server closes with 4001 (auth failure), it first joins
+///    [VHHttpClient.refreshAuthToken], then reconnects with the rotated JWT.
+///    If refresh fails, [onSessionExpired] fires and reconnects stop.
 class RealtimeClient {
   RealtimeClient._();
   static final RealtimeClient instance = RealtimeClient._();
@@ -69,8 +70,15 @@ class RealtimeClient {
   bool _shouldReconnect = false;
   bool _sessionExpired = false;
 
+  static String? _wsUrlOverrideForTesting;
+
   /// True while the underlying socket is open.
   bool get isConnected => _channel != null && !_sessionExpired;
+
+  @visibleForTesting
+  static void setWsUrlForTesting(String? url) {
+    _wsUrlOverrideForTesting = url;
+  }
 
   /// Derive the WebSocket URL from [ApiConfig.baseUrl]. Strips `/api/v1` and
   /// replaces `https`/`http` with `wss`/`ws`.
@@ -112,7 +120,7 @@ class RealtimeClient {
       // keeps the token off the URL. Connect to the bare /ws endpoint, then
       // send `{action:'auth', token}` before any subscribe frame.
       final channel = WebSocketChannel.connect(
-        Uri.parse(buildWsUrl(ApiConfig.baseUrl)),
+        Uri.parse(_wsUrlOverrideForTesting ?? buildWsUrl(ApiConfig.baseUrl)),
       );
       _channel = channel;
       await channel.ready;
@@ -229,8 +237,10 @@ class RealtimeClient {
       _reconnectTimer = Timer(const Duration(milliseconds: 200), _openSocket);
       return;
     }
-    // Refresh rejected — VHHttpClient has cleared tokens + called its own
-    // onSessionExpired. Stop trying to reconnect on our side too.
+    // Refresh rejected. Mirror VHHttpClient's 401 failure path: drop both
+    // tokens, notify the app, and stop trying to reconnect.
+    await AuthService.clearJwt();
+    await AuthService.clearRefreshToken();
     _sessionExpired = true;
     _shouldReconnect = false;
     try {

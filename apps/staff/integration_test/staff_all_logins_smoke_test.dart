@@ -3,8 +3,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeClient;
 import 'package:vhhealth_staff/core/config/api_config.dart';
-import 'package:vhhealth_staff/core/services/websocket_service.dart';
 import 'package:vhhealth_staff/main.dart' as app;
 
 class _StaffLoginCase {
@@ -92,11 +92,11 @@ void main() {
       }
 
       await const FlutterSecureStorage().deleteAll();
-      WebSocketService.instance.disconnect();
+      await RealtimeClient.instance.disconnect();
       final previousErrorWidgetBuilder = ErrorWidget.builder;
       addTearDown(() async {
         ErrorWidget.builder = previousErrorWidgetBuilder;
-        WebSocketService.instance.disconnect();
+        await RealtimeClient.instance.disconnect();
         await const FlutterSecureStorage().deleteAll();
       });
 
@@ -131,7 +131,7 @@ void main() {
         expect(await ApiConfig.getRole(), account.expectedRole);
 
         await ApiConfig.clearAll();
-        WebSocketService.instance.disconnect();
+        await RealtimeClient.instance.disconnect();
         GoRouter.of(tester.element(find.byType(Scaffold).first)).go('/login');
         await pumpFor(tester, const Duration(seconds: 2));
         await waitFor(
