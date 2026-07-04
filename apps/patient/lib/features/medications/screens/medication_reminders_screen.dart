@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -90,10 +91,13 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
   List<_Reminder> _reminders = [];
   bool _loading = true;
   String? _error;
+  bool _didLoad = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _loadReminders();
   }
 
@@ -212,7 +216,6 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l = AppLocalizations.of(context)!;
 
     return Scaffold(
@@ -221,65 +224,36 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
         onPressed: _showAddReminderSheet,
         child: const Icon(Icons.add),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!, style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 12),
-                  FilledButton.tonal(
-                    onPressed: _loadReminders,
-                    child: Text(l.medicationRemindersRetryButton),
-                  ),
-                ],
-              ),
-            )
-          : _reminders.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.medication_outlined,
-                    size: 64,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l.medicationRemindersEmpty,
-                    style: theme.textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    l.medicationRemindersEmptyHint,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadReminders,
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                itemCount: _reminders.length,
-                itemBuilder: (context, index) {
-                  final r = _reminders[index];
-                  return _ReminderCard(
-                    reminder: r,
-                    onToggle: () => _toggleReminder(r),
-                    onDelete: () => _deleteReminder(r.id),
-                  );
-                },
-              ),
+      body: DataStateBuilder<_Reminder>(
+        isLoading: _loading,
+        error: _error,
+        data: _reminders,
+        onRetry: _loadReminders,
+        onEmptyAction: _showAddReminderSheet,
+        emptyIcon: Icons.medication_outlined,
+        emptyTitle: l.medicationRemindersEmpty,
+        emptySubtitle: l.medicationRemindersEmptyHint,
+        emptyActionLabel: l.medicationReminderAdd,
+        errorTitle: l.genericError,
+        errorActionLabel: l.medicationRemindersRetryButton,
+        builder: (context, reminders) {
+          return RefreshIndicator(
+            onRefresh: _loadReminders,
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              itemCount: reminders.length,
+              itemBuilder: (context, index) {
+                final r = reminders[index];
+                return _ReminderCard(
+                  reminder: r,
+                  onToggle: () => _toggleReminder(r),
+                  onDelete: () => _deleteReminder(r.id),
+                );
+              },
             ),
+          );
+        },
+      ),
     );
   }
 }
@@ -498,7 +472,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
         Navigator.of(context).pop();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(resp.message ?? 'Failed to save reminder')),
+          SnackBar(
+            content: Text(resp.message ?? l.medicationReminderSaveFailed),
+          ),
         );
       }
     } catch (e) {

@@ -1076,7 +1076,7 @@
   "vitalsAtLeastOne": "దయచేసి కనీసం ఒక ముఖ్యమైన గుర్తును నమోదు చేయండి",
   "vitalsNoHistory": "ఇంకా నమోదులు లేవు",
   "vitalsNoHistoryHint": "లాగ్ వైటల్స్ ట్యాబ్‌ని ఉపయోగించి మీ ప్రాణాధారాలను లాగ్ చేయండి.",
-  "vitalsHistoryFailed": "కీలకమైన చరిత్రను లోడ్ చేయడంలో విఫలమైంది",
+  "vitalsHistoryFailed": "వైటల్స్ చరిత్రను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
   "familyTitle": "కుటుంబ సభ్యులు",
   "familyYourFamily": "మీ కుటుంబం",
   "familyManageHint": "మీ ఖాతాకు లింక్ చేయబడిన కుటుంబ సభ్యులను నిర్వహించండి.",
@@ -1330,7 +1330,7 @@
   "@familyPhoneInvalid": {
     "description": "Validation when family member phone invalid"
   },
-  "familyLoadFailed": "కుటుంబ సభ్యులను లోడ్ చేయడంలో విఫలమైంది",
+  "familyLoadFailed": "కుటుంబ సభ్యులను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
   "@familyLoadFailed": {
     "description": "Error state when family members fetch fails"
   },
@@ -2101,7 +2101,7 @@
   "pharmacyPrescriptionOrDescriptionRequired": "దయచేసి ప్రిస్క్రిప్షన్ అప్లోడ్ చేయండి లేదా మీ ఆర్డర్‌ను వివరించండి",
   "pharmacyOrderPlacedToast": "ఆర్డర్ పెట్టబడింది! {orderNumber}",
   "pharmacyOrderNumber": "ఆర్డర్ నంబర్: {orderNumber}",
-  "pharmacyPlaceOrderFailed": "ఆర్డర్ పెట్టడం విఫలమైంది",
+  "pharmacyPlaceOrderFailed": "ఆర్డర్ ఇవ్వలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
   "pharmacyPlaceOrderError": "లోపం: {error}",
   "billsTitle": "బిల్లులు",
   "billsLoadFailed": "బిల్లులు లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి కిందికి లాగండి.",
@@ -2434,5 +2434,23 @@
   "healthPointsCurrentBalance": "ప్రస్తుత బ్యాలెన్స్",
   "healthPointsGoal": "లక్ష్యం",
   "healthPointsStepsToday": "ఈరోజు అడుగులు",
-  "dashboardHealthConnectPrompt": "యాప్ మూసి ఉన్నప్పుడు లెక్కించిన అడుగులను VH Health సింక్ చేయడానికి Health Connect అనుమతించండి."
+  "dashboardHealthConnectPrompt": "యాప్ మూసి ఉన్నప్పుడు లెక్కించిన అడుగులను VH Health సింక్ చేయడానికి Health Connect అనుమతించండి.",
+  "tpaClaimsEmptySubtitle": "మీ సందర్శనల కోసం నమోదైన బీమా మరియు క్యాష్‌లెస్ క్లెయిమ్‌లు ఇక్కడ కనిపిస్తాయి.",
+  "tpaClaimNoDataHint": "తాజా క్లెయిమ్ వివరాలకు క్రిందికి లాగండి లేదా Refresh నొక్కండి.",
+  "appointmentsLoadFailed": "అపాయింట్‌మెంట్‌లను లోడ్ చేయలేకపోయాం. మళ్లీ ప్రయత్నించడానికి క్రిందికి లాగండి.",
+  "appointmentsNoDocuments": "ఈ అపాయింట్‌మెంట్‌కు ఇంకా పత్రాలు అందుబాటులో లేవు.",
+  "appointmentsDocumentsTitle": "పత్రాలు",
+  "appointmentsDocumentFallback": "పత్రం",
+  "appointmentsDocumentsLoadFailed": "అపాయింట్‌మెంట్ పత్రాలను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
+  "appointmentsCancelConfirm": "{date} న {time} కు {doctor} తో అపాయింట్‌మెంట్‌ను రద్దు చేయాలా?",
+  "appointmentsCancelledToast": "అపాయింట్‌మెంట్ రద్దయింది",
+  "appointmentsCancelFailed": "అపాయింట్‌మెంట్‌ను రద్దు చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
+  "appointmentsEmptyHint": "మీ కేర్ టీమ్‌తో ఒక సందర్శనను బుక్ చేయండి; అది ఇక్కడ కనిపిస్తుంది.",
+  "appointmentsUpcomingSection": "రాబోయే",
+  "appointmentsPastSection": "గత",
+  "bookInvestigationCatalogLoadFailed": "ఇన్వెస్టిగేషన్ కాటలాగ్‌ను లోడ్ చేయలేకపోయాం. మీరు మళ్లీ ప్రయత్నించవచ్చు లేదా పరీక్షలను మాన్యువల్‌గా నమోదు చేయవచ్చు.",
+  "bookInvestigationCatalogEmptyTitle": "పరీక్షలు కనబడలేదు",
+  "bookInvestigationCatalogEmptySubtitle": "మరొక శోధన ప్రయత్నించండి, కస్టమ్ పరీక్షను నమోదు చేయండి, లేదా ప్రిస్క్రిప్షన్ స్లిప్ అప్‌లోడ్ చేయండి.",
+  "pharmacyPlaceOrderButton": "ఆర్డర్ ఇవ్వండి",
+  "pharmacyPlacingOrderButton": "ఆర్డర్ ఇస్తున్నాం..."
 }

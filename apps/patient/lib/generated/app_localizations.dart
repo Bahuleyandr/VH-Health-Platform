@@ -2216,10 +2216,10 @@ abstract class AppLocalizations {
   /// **'Log your vitals using the Log Vitals tab.'**
   String get vitalsNoHistoryHint;
 
-  /// No description provided for @vitalsHistoryFailed.
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
-  /// **'Failed to load vitals history'**
+  /// **'Unable to load vitals history. Please try again.'**
   String get vitalsHistoryFailed;
 
   /// No description provided for @familyTitle.
@@ -2816,10 +2816,10 @@ abstract class AppLocalizations {
   /// **'Enter a valid phone number'**
   String get familyPhoneInvalid;
 
-  /// Error state when family members fetch fails
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
-  /// **'Failed to load family members'**
+  /// **'Unable to load family members. Please try again.'**
   String get familyLoadFailed;
 
   /// Fallback name when family member name missing
@@ -4547,7 +4547,7 @@ abstract class AppLocalizations {
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:
-  /// **'Failed to place order'**
+  /// **'Unable to place order. Please try again.'**
   String get pharmacyPlaceOrderFailed;
 
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
@@ -6547,6 +6547,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Allow Health Connect so VH Health can sync steps counted while the app is closed.'**
   String get dashboardHealthConnectPrompt;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Insurance and cashless claims raised for your visits will appear here.'**
+  String get tpaClaimsEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Pull down or tap Refresh to check for the latest claim details.'**
+  String get tpaClaimNoDataHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load appointments. Please pull down to retry.'**
+  String get appointmentsLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No documents are available for this appointment yet.'**
+  String get appointmentsNoDocuments;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Documents'**
+  String get appointmentsDocumentsTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Document'**
+  String get appointmentsDocumentFallback;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load appointment documents. Please try again.'**
+  String get appointmentsDocumentsLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review. Confirmation text before cancelling an appointment.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel appointment with {doctor} on {date} at {time}?'**
+  String appointmentsCancelConfirm(String doctor, String date, String time);
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment cancelled'**
+  String get appointmentsCancelledToast;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to cancel appointment. Please try again.'**
+  String get appointmentsCancelFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Book a visit with your care team and it will appear here.'**
+  String get appointmentsEmptyHint;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming'**
+  String get appointmentsUpcomingSection;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Past'**
+  String get appointmentsPastSection;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load the investigation catalog. You can retry or enter tests manually.'**
+  String get bookInvestigationCatalogLoadFailed;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'No tests found'**
+  String get bookInvestigationCatalogEmptyTitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another search, enter a custom test, or upload a prescription slip.'**
+  String get bookInvestigationCatalogEmptySubtitle;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order'**
+  String get pharmacyPlaceOrderButton;
+
+  /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
+  ///
+  /// In en, this message translates to:
+  /// **'Placing order...'**
+  String get pharmacyPlacingOrderButton;
 }
 
 class _AppLocalizationsDelegate

@@ -1142,7 +1142,8 @@ class AppLocalizationsTe extends AppLocalizations {
       'లాగ్ వైటల్స్ ట్యాబ్‌ని ఉపయోగించి మీ ప్రాణాధారాలను లాగ్ చేయండి.';
 
   @override
-  String get vitalsHistoryFailed => 'కీలకమైన చరిత్రను లోడ్ చేయడంలో విఫలమైంది';
+  String get vitalsHistoryFailed =>
+      'వైటల్స్ చరిత్రను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
 
   @override
   String get familyTitle => 'కుటుంబ సభ్యులు';
@@ -1463,7 +1464,8 @@ class AppLocalizationsTe extends AppLocalizations {
       'చెల్లుబాటు అయ్యే ఫోన్ నంబర్‌ను నమోదు చేయండి';
 
   @override
-  String get familyLoadFailed => 'కుటుంబ సభ్యులను లోడ్ చేయడంలో విఫలమైంది';
+  String get familyLoadFailed =>
+      'కుటుంబ సభ్యులను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
 
   @override
   String get familyUnknown => 'తెలియదు';
@@ -2380,7 +2382,8 @@ class AppLocalizationsTe extends AppLocalizations {
   }
 
   @override
-  String get pharmacyPlaceOrderFailed => 'ఆర్డర్ పెట్టడం విఫలమైంది';
+  String get pharmacyPlaceOrderFailed =>
+      'ఆర్డర్ ఇవ్వలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
 
   @override
   String pharmacyPlaceOrderError(String error) {
@@ -3503,4 +3506,69 @@ class AppLocalizationsTe extends AppLocalizations {
   @override
   String get dashboardHealthConnectPrompt =>
       'యాప్ మూసి ఉన్నప్పుడు లెక్కించిన అడుగులను VH Health సింక్ చేయడానికి Health Connect అనుమతించండి.';
+
+  @override
+  String get tpaClaimsEmptySubtitle =>
+      'మీ సందర్శనల కోసం నమోదైన బీమా మరియు క్యాష్‌లెస్ క్లెయిమ్‌లు ఇక్కడ కనిపిస్తాయి.';
+
+  @override
+  String get tpaClaimNoDataHint =>
+      'తాజా క్లెయిమ్ వివరాలకు క్రిందికి లాగండి లేదా Refresh నొక్కండి.';
+
+  @override
+  String get appointmentsLoadFailed =>
+      'అపాయింట్‌మెంట్‌లను లోడ్ చేయలేకపోయాం. మళ్లీ ప్రయత్నించడానికి క్రిందికి లాగండి.';
+
+  @override
+  String get appointmentsNoDocuments =>
+      'ఈ అపాయింట్‌మెంట్‌కు ఇంకా పత్రాలు అందుబాటులో లేవు.';
+
+  @override
+  String get appointmentsDocumentsTitle => 'పత్రాలు';
+
+  @override
+  String get appointmentsDocumentFallback => 'పత్రం';
+
+  @override
+  String get appointmentsDocumentsLoadFailed =>
+      'అపాయింట్‌మెంట్ పత్రాలను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String appointmentsCancelConfirm(String doctor, String date, String time) {
+    return '$date న $time కు $doctor తో అపాయింట్‌మెంట్‌ను రద్దు చేయాలా?';
+  }
+
+  @override
+  String get appointmentsCancelledToast => 'అపాయింట్‌మెంట్ రద్దయింది';
+
+  @override
+  String get appointmentsCancelFailed =>
+      'అపాయింట్‌మెంట్‌ను రద్దు చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get appointmentsEmptyHint =>
+      'మీ కేర్ టీమ్‌తో ఒక సందర్శనను బుక్ చేయండి; అది ఇక్కడ కనిపిస్తుంది.';
+
+  @override
+  String get appointmentsUpcomingSection => 'రాబోయే';
+
+  @override
+  String get appointmentsPastSection => 'గత';
+
+  @override
+  String get bookInvestigationCatalogLoadFailed =>
+      'ఇన్వెస్టిగేషన్ కాటలాగ్‌ను లోడ్ చేయలేకపోయాం. మీరు మళ్లీ ప్రయత్నించవచ్చు లేదా పరీక్షలను మాన్యువల్‌గా నమోదు చేయవచ్చు.';
+
+  @override
+  String get bookInvestigationCatalogEmptyTitle => 'పరీక్షలు కనబడలేదు';
+
+  @override
+  String get bookInvestigationCatalogEmptySubtitle =>
+      'మరొక శోధన ప్రయత్నించండి, కస్టమ్ పరీక్షను నమోదు చేయండి, లేదా ప్రిస్క్రిప్షన్ స్లిప్ అప్‌లోడ్ చేయండి.';
+
+  @override
+  String get pharmacyPlaceOrderButton => 'ఆర్డర్ ఇవ్వండి';
+
+  @override
+  String get pharmacyPlacingOrderButton => 'ఆర్డర్ ఇస్తున్నాం...';
 }

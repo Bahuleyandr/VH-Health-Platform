@@ -200,12 +200,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack(
-          l.pharmacyPlaceOrderError(
-            e.toString().replaceFirst("Exception: ", ""),
-          ),
-          isError: true,
-        );
+        _showSnack(l.pharmacyPlaceOrderFailed, isError: true);
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -474,7 +469,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
                       color: Colors.white,
                     ),
               label: Text(
-                _isSubmitting ? 'Placing Order...' : 'Place Order',
+                _isSubmitting
+                    ? l.pharmacyPlacingOrderButton
+                    : l.pharmacyPlaceOrderButton,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,

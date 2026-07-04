@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class TpaClaimsScreen extends StatefulWidget {
@@ -29,10 +30,13 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _claims = [];
+  bool _didLoad = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _fetch();
   }
 
@@ -69,38 +73,32 @@ class _TpaClaimsScreenState extends State<TpaClaimsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(title: Text(l.tpaClaimsTitle)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!, style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 12),
-                  FilledButton.tonal(
-                    onPressed: _fetch,
-                    child: Text(l.commonRetryButton),
-                  ),
-                ],
-              ),
-            )
-          : _claims.isEmpty
-          ? Center(child: Text(l.tpaClaimsEmptyTitle))
-          : RefreshIndicator(
-              onRefresh: _fetch,
-              child: ListView.builder(
-                itemCount: _claims.length,
-                itemBuilder: (context, i) {
-                  final c = _claims[i];
-                  return _TpaClaimCard(claim: c);
-                },
-              ),
+      body: DataStateBuilder<Map<String, dynamic>>(
+        isLoading: _loading,
+        error: _error,
+        data: _claims,
+        onRetry: _fetch,
+        emptyIcon: Icons.policy_outlined,
+        emptyTitle: l.tpaClaimsEmptyTitle,
+        emptySubtitle: l.tpaClaimsEmptySubtitle,
+        errorTitle: l.genericError,
+        errorActionLabel: l.commonRetryButton,
+        emptyActionLabel: l.commonRefreshButton,
+        builder: (context, claims) {
+          return RefreshIndicator(
+            onRefresh: _fetch,
+            child: ListView.builder(
+              itemCount: claims.length,
+              itemBuilder: (context, i) {
+                return _TpaClaimCard(claim: claims[i]);
+              },
             ),
+          );
+        },
+      ),
     );
   }
 }
@@ -195,10 +193,13 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
   Map<String, dynamic>? _data;
   List<Map<String, dynamic>> _documents = const [];
   final Set<int> _downloadingDocIds = <int>{};
+  bool _didLoad = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _fetch();
   }
 
@@ -311,16 +312,27 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
     final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(title: Text(l.tpaClaimBreakdownTitle)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _data == null
-          ? Center(child: Text(l.tpaClaimNoData))
-          : ListView(
+      body: DataStateBuilder<Map<String, dynamic>>(
+        isLoading: _loading,
+        error: _error,
+        data: _data == null ? const [] : [_data!],
+        onRetry: _fetch,
+        emptyIcon: Icons.policy_outlined,
+        emptyTitle: l.tpaClaimNoData,
+        emptySubtitle: l.tpaClaimNoDataHint,
+        errorTitle: l.genericError,
+        errorActionLabel: l.commonRetryButton,
+        emptyActionLabel: l.commonRefreshButton,
+        builder: (context, _) {
+          return RefreshIndicator(
+            onRefresh: _fetch,
+            child: ListView(
               padding: const EdgeInsets.all(16),
               children: _buildContent(theme, l),
             ),
+          );
+        },
+      ),
     );
   }
 

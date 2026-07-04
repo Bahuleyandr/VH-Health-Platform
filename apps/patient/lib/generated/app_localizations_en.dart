@@ -1125,7 +1125,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get vitalsNoHistoryHint => 'Log your vitals using the Log Vitals tab.';
 
   @override
-  String get vitalsHistoryFailed => 'Failed to load vitals history';
+  String get vitalsHistoryFailed =>
+      'Unable to load vitals history. Please try again.';
 
   @override
   String get familyTitle => 'Family Members';
@@ -1440,7 +1441,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get familyPhoneInvalid => 'Enter a valid phone number';
 
   @override
-  String get familyLoadFailed => 'Failed to load family members';
+  String get familyLoadFailed =>
+      'Unable to load family members. Please try again.';
 
   @override
   String get familyUnknown => 'Unknown';
@@ -2346,7 +2348,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get pharmacyPlaceOrderFailed => 'Failed to place order';
+  String get pharmacyPlaceOrderFailed =>
+      'Unable to place order. Please try again.';
 
   @override
   String pharmacyPlaceOrderError(String error) {
@@ -3462,4 +3465,69 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get dashboardHealthConnectPrompt =>
       'Allow Health Connect so VH Health can sync steps counted while the app is closed.';
+
+  @override
+  String get tpaClaimsEmptySubtitle =>
+      'Insurance and cashless claims raised for your visits will appear here.';
+
+  @override
+  String get tpaClaimNoDataHint =>
+      'Pull down or tap Refresh to check for the latest claim details.';
+
+  @override
+  String get appointmentsLoadFailed =>
+      'Unable to load appointments. Please pull down to retry.';
+
+  @override
+  String get appointmentsNoDocuments =>
+      'No documents are available for this appointment yet.';
+
+  @override
+  String get appointmentsDocumentsTitle => 'Documents';
+
+  @override
+  String get appointmentsDocumentFallback => 'Document';
+
+  @override
+  String get appointmentsDocumentsLoadFailed =>
+      'Unable to load appointment documents. Please try again.';
+
+  @override
+  String appointmentsCancelConfirm(String doctor, String date, String time) {
+    return 'Cancel appointment with $doctor on $date at $time?';
+  }
+
+  @override
+  String get appointmentsCancelledToast => 'Appointment cancelled';
+
+  @override
+  String get appointmentsCancelFailed =>
+      'Unable to cancel appointment. Please try again.';
+
+  @override
+  String get appointmentsEmptyHint =>
+      'Book a visit with your care team and it will appear here.';
+
+  @override
+  String get appointmentsUpcomingSection => 'Upcoming';
+
+  @override
+  String get appointmentsPastSection => 'Past';
+
+  @override
+  String get bookInvestigationCatalogLoadFailed =>
+      'Unable to load the investigation catalog. You can retry or enter tests manually.';
+
+  @override
+  String get bookInvestigationCatalogEmptyTitle => 'No tests found';
+
+  @override
+  String get bookInvestigationCatalogEmptySubtitle =>
+      'Try another search, enter a custom test, or upload a prescription slip.';
+
+  @override
+  String get pharmacyPlaceOrderButton => 'Place Order';
+
+  @override
+  String get pharmacyPlacingOrderButton => 'Placing order...';
 }

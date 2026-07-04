@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/features/appointments/models/appointment_models.dart';
 import 'package:vhhealth/features/appointments/widgets/appointment_card.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -32,27 +33,35 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   List<AppointmentInfo> _appointments = [];
   bool _loadingAppointments = true;
   String? _patientId;
+  String? _error;
+  WebSocketProvider? _webSocketProvider;
 
   @override
   void initState() {
     super.initState();
     _loadPatientId();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<WebSocketProvider>();
+    if (_webSocketProvider == provider) return;
+    _webSocketProvider?.removeListener(_onWsEvent);
+    _webSocketProvider = provider;
     // Refresh when the backend pushes an appointment-status-changed event.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<WebSocketProvider>().addListener(_onWsEvent);
-      }
-    });
+    _webSocketProvider?.addListener(_onWsEvent);
   }
 
   @override
   void dispose() {
-    context.read<WebSocketProvider>().removeListener(_onWsEvent);
+    _webSocketProvider?.removeListener(_onWsEvent);
     super.dispose();
   }
 
   void _onWsEvent() {
-    final wsProv = context.read<WebSocketProvider>();
+    final wsProv = _webSocketProvider;
+    if (wsProv == null) return;
     final event = wsProv.lastAppointmentEvent;
     if (event != null) {
       wsProv.clearAppointmentEvent();
@@ -75,7 +84,11 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
 
   Future<void> _fetchAppointments() async {
     if (_patientId == null) return;
-    setState(() => _loadingAppointments = true);
+    final l = AppLocalizations.of(context)!;
+    setState(() {
+      _loadingAppointments = true;
+      _error = null;
+    });
     try {
       final resp = await ApiClient.get('/appointments/patient/$_patientId');
       if (resp.isSuccess) {
@@ -107,20 +120,33 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
         }
         return;
       }
+      if (mounted) {
+        setState(() {
+          _error = resp.message ?? l.appointmentsLoadFailed;
+          _loadingAppointments = false;
+        });
+      }
+      return;
     } catch (e) {
       debugPrint('Fetch appointments failed: $e');
     }
-    if (mounted) setState(() => _loadingAppointments = false);
+    if (mounted) {
+      setState(() {
+        _error = l.appointmentsLoadFailed;
+        _loadingAppointments = false;
+      });
+    }
   }
 
   Future<void> _viewPrescription(AppointmentInfo appt) async {
+    final l = AppLocalizations.of(context)!;
     try {
       final resp = await ApiClient.get('/appointments/${appt.id}/documents');
       if (!mounted) return;
       if (resp.isSuccess) {
         final List<dynamic> docs = resp.dataAsList();
         if (docs.isEmpty) {
-          _showError('No documents available for this appointment');
+          _showError(l.appointmentsNoDocuments);
           return;
         }
         // Show a bottom sheet with document links
@@ -133,7 +159,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Documents',
+                  l.appointmentsDocumentsTitle,
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -143,7 +169,9 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                   final m = d as Map<String, dynamic>;
                   final url = m['file_url']?.toString();
                   final name =
-                      m['file_name'] ?? m['document_type'] ?? 'Document';
+                      m['file_name'] ??
+                      m['document_type'] ??
+                      l.appointmentsDocumentFallback;
                   return ListTile(
                     leading: const Icon(Icons.description),
                     title: Text(name),
@@ -168,10 +196,10 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
           ),
         );
       } else {
-        _showError('Failed to load documents');
+        _showError(l.appointmentsDocumentsLoadFailed);
       }
     } catch (e) {
-      _showError('Failed to load documents');
+      _showError(l.appointmentsDocumentsLoadFailed);
     }
   }
 
@@ -182,7 +210,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
       builder: (ctx) => AlertDialog(
         title: Text(l.appointmentsCancel),
         content: Text(
-          'Cancel appointment with ${appt.doctorName} on ${appt.date} at ${appt.time}?',
+          l.appointmentsCancelConfirm(appt.doctorName, appt.date, appt.time),
         ),
         actions: [
           TextButton(
@@ -201,14 +229,14 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     try {
       final resp = await ApiClient.delete('/appointments/${appt.id}');
       if (resp.isSuccess) {
-        _showSuccess('Appointment cancelled');
+        _showSuccess(l.appointmentsCancelledToast);
         _fetchAppointments();
       } else {
-        _showError('Failed to cancel appointment');
+        _showError(resp.message ?? l.appointmentsCancelFailed);
       }
     } catch (e) {
       debugPrint('Cancel appointment failed: $e');
-      _showError('Failed to cancel appointment');
+      _showError(l.appointmentsCancelFailed);
     }
   }
 
@@ -248,86 +276,59 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    if (_loadingAppointments) {
-      return const Center(child: CircularProgressIndicator());
-    }
 
-    if (_patientId == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(
-            l10n.appointmentsLogOutAndBack,
-            textAlign: TextAlign.center,
+    return DataStateBuilder<AppointmentInfo>(
+      isLoading: _loadingAppointments,
+      error: _patientId == null ? l10n.appointmentsLogOutAndBack : _error,
+      data: _appointments,
+      onRetry: _patientId == null ? _loadPatientId : _fetchAppointments,
+      onEmptyAction: widget.onBookOne,
+      emptyIcon: Icons.event_busy,
+      emptyTitle: l10n.appointmentsEmpty,
+      emptySubtitle: l10n.appointmentsEmptyHint,
+      emptyActionLabel: l10n.appointmentsBookOneNow,
+      errorTitle: l10n.genericError,
+      errorActionLabel: l10n.commonRetryButton,
+      builder: (context, appointments) {
+        final upcoming = appointments.where((a) => a.isUpcoming).toList()
+          ..sort(
+            (a, b) => '${a.date} ${a.time}'.compareTo('${b.date} ${b.time}'),
+          );
+        final past = appointments.where((a) => !a.isUpcoming).toList()
+          ..sort(
+            (a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'),
+          );
+        return RefreshIndicator(
+          onRefresh: _fetchAppointments,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (upcoming.isNotEmpty) ...[
+                _sectionHeader(l10n.appointmentsUpcomingSection),
+                ...upcoming.map(
+                  (a) => AppointmentCard(
+                    appt: a,
+                    onViewPrescription: _viewPrescription,
+                    onCancel: _cancelAppointment,
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+              if (past.isNotEmpty) ...[
+                _sectionHeader(l10n.appointmentsPastSection),
+                ...past.map(
+                  (a) => AppointmentCard(
+                    appt: a,
+                    onViewPrescription: _viewPrescription,
+                    onCancel: _cancelAppointment,
+                  ),
+                ),
+              ],
+            ],
           ),
-        ),
-      );
-    }
-
-    if (_appointments.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.event_busy,
-              size: 64,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.appointmentsEmpty,
-              style: TextStyle(
-                fontSize: 16,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: widget.onBookOne,
-              icon: const Icon(Icons.add),
-              label: Text(l10n.appointmentsBookOneNow),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final upcoming = _appointments.where((a) => a.isUpcoming).toList()
-      ..sort((a, b) => '${a.date} ${a.time}'.compareTo('${b.date} ${b.time}'));
-    final past = _appointments.where((a) => !a.isUpcoming).toList()
-      ..sort((a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'));
-
-    return RefreshIndicator(
-      onRefresh: _fetchAppointments,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (upcoming.isNotEmpty) ...[
-            _sectionHeader('Upcoming'),
-            ...upcoming.map(
-              (a) => AppointmentCard(
-                appt: a,
-                onViewPrescription: _viewPrescription,
-                onCancel: _cancelAppointment,
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-          if (past.isNotEmpty) ...[
-            _sectionHeader('Past'),
-            ...past.map(
-              (a) => AppointmentCard(
-                appt: a,
-                onViewPrescription: _viewPrescription,
-                onCancel: _cancelAppointment,
-              ),
-            ),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 }

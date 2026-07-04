@@ -34,6 +34,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   // Step 1: Test selection
   List<dynamic> _catalog = [];
   bool _loadingCatalog = true;
+  String? _catalogError;
   String _searchQuery = '';
   Timer? _searchDebounce;
   final Set<int> _selectedTestIds = {};
@@ -52,6 +53,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   // Step 3: Submission
   bool _isSubmitting = false;
   Map<String, dynamic>? _bookingResult;
+  bool _didLoadCatalog = false;
 
   static const _timeSlots = ['09:00-12:00', '12:00-15:00', '15:00-18:00'];
   MediaType? _contentTypeForUpload(String path, String? fileName) {
@@ -66,8 +68,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoadCatalog) return;
+    _didLoadCatalog = true;
     _fetchCatalog();
   }
 
@@ -82,6 +86,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   }
 
   Future<void> _fetchCatalog() async {
+    final l = AppLocalizations.of(context)!;
+    setState(() {
+      _loadingCatalog = true;
+      _catalogError = null;
+    });
     try {
       final response = await ApiClient.get('/investigations/catalog');
       if (!mounted) return;
@@ -93,11 +102,18 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
           _loadingCatalog = false;
         });
       } else {
-        setState(() => _loadingCatalog = false);
+        setState(() {
+          _catalogError =
+              response.message ?? l.bookInvestigationCatalogLoadFailed;
+          _loadingCatalog = false;
+        });
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _loadingCatalog = false);
+      setState(() {
+        _catalogError = l.bookInvestigationCatalogLoadFailed;
+        _loadingCatalog = false;
+      });
     }
   }
 
@@ -357,6 +373,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                       : StepState.indexed,
                   content: BookInvestigationStepChoose(
                     loadingCatalog: _loadingCatalog,
+                    catalogError: _catalogError,
                     groupedCatalog: _groupedCatalog,
                     selectedTestIds: _selectedTestIds,
                     customTestController: _customTestController,
@@ -372,6 +389,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                         },
                       );
                     },
+                    onCatalogRetry: _fetchCatalog,
                     onTestToggle: (id, selected) {
                       setState(() {
                         if (selected == true) {

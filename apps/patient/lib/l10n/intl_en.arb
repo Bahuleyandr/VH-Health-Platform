@@ -1076,7 +1076,7 @@
   "vitalsAtLeastOne": "Please enter at least one vital sign",
   "vitalsNoHistory": "No vitals recorded yet",
   "vitalsNoHistoryHint": "Log your vitals using the Log Vitals tab.",
-  "vitalsHistoryFailed": "Failed to load vitals history",
+  "vitalsHistoryFailed": "Unable to load vitals history. Please try again.",
   "familyTitle": "Family Members",
   "familyYourFamily": "Your Family",
   "familyManageHint": "Manage family members linked to your account.",
@@ -1330,9 +1330,9 @@
   "@familyPhoneInvalid": {
     "description": "Validation when family member phone invalid"
   },
-  "familyLoadFailed": "Failed to load family members",
+  "familyLoadFailed": "Unable to load family members. Please try again.",
   "@familyLoadFailed": {
-    "description": "Error state when family members fetch fails"
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
   "familyUnknown": "Unknown",
   "@familyUnknown": {
@@ -2353,7 +2353,7 @@
       }
     }
   },
-  "pharmacyPlaceOrderFailed": "Failed to place order",
+  "pharmacyPlaceOrderFailed": "Unable to place order. Please try again.",
   "@pharmacyPlaceOrderFailed": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
@@ -3897,6 +3897,95 @@
   },
   "dashboardHealthConnectPrompt": "Allow Health Connect so VH Health can sync steps counted while the app is closed.",
   "@dashboardHealthConnectPrompt": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "@vitalsHistoryFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimsEmptySubtitle": "Insurance and cashless claims raised for your visits will appear here.",
+  "@tpaClaimsEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "tpaClaimNoDataHint": "Pull down or tap Refresh to check for the latest claim details.",
+  "@tpaClaimNoDataHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsLoadFailed": "Unable to load appointments. Please pull down to retry.",
+  "@appointmentsLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsNoDocuments": "No documents are available for this appointment yet.",
+  "@appointmentsNoDocuments": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsDocumentsTitle": "Documents",
+  "@appointmentsDocumentsTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsDocumentFallback": "Document",
+  "@appointmentsDocumentFallback": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsDocumentsLoadFailed": "Unable to load appointment documents. Please try again.",
+  "@appointmentsDocumentsLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsCancelConfirm": "Cancel appointment with {doctor} on {date} at {time}?",
+  "@appointmentsCancelConfirm": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review. Confirmation text before cancelling an appointment.",
+    "placeholders": {
+      "doctor": {
+        "type": "String",
+        "example": "Dr. Rao"
+      },
+      "date": {
+        "type": "String",
+        "example": "2026-07-04"
+      },
+      "time": {
+        "type": "String",
+        "example": "09:30"
+      }
+    }
+  },
+  "appointmentsCancelledToast": "Appointment cancelled",
+  "@appointmentsCancelledToast": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsCancelFailed": "Unable to cancel appointment. Please try again.",
+  "@appointmentsCancelFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsEmptyHint": "Book a visit with your care team and it will appear here.",
+  "@appointmentsEmptyHint": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsUpcomingSection": "Upcoming",
+  "@appointmentsUpcomingSection": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentsPastSection": "Past",
+  "@appointmentsPastSection": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCatalogLoadFailed": "Unable to load the investigation catalog. You can retry or enter tests manually.",
+  "@bookInvestigationCatalogLoadFailed": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCatalogEmptyTitle": "No tests found",
+  "@bookInvestigationCatalogEmptyTitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "bookInvestigationCatalogEmptySubtitle": "Try another search, enter a custom test, or upload a prescription slip.",
+  "@bookInvestigationCatalogEmptySubtitle": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyPlaceOrderButton": "Place Order",
+  "@pharmacyPlaceOrderButton": {
+    "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "pharmacyPlacingOrderButton": "Placing order...",
+  "@pharmacyPlacingOrderButton": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   }
 }

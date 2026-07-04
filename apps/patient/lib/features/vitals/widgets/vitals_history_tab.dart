@@ -7,6 +7,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 
 class VitalsHistoryTab extends StatefulWidget {
   final String phone;
@@ -20,10 +21,13 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _entries = [];
+  bool _didLoad = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didLoad) return;
+    _didLoad = true;
     _fetchHistory();
   }
 
@@ -70,75 +74,45 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context)!;
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: 12),
-            Text(_error!, style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _fetchHistory,
-              icon: const Icon(Icons.refresh),
-              label: Text(l.commonRetryButton),
-            ),
-          ],
-        ),
-      );
-    }
-    if (_entries.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.monitor_heart_outlined,
-              size: 48,
-              color: Colors.grey.shade400,
-            ),
-            const SizedBox(height: 12),
-            Text(l.vitalsNoHistory, style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 8),
-            Text(
-              l.vitalsNoHistoryHint,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+    return DataStateBuilder<Map<String, dynamic>>(
+      isLoading: _loading,
+      error: _error,
+      data: _entries,
+      onRetry: _fetchHistory,
+      emptyIcon: Icons.monitor_heart_outlined,
+      emptyTitle: l.vitalsNoHistory,
+      emptySubtitle: l.vitalsNoHistoryHint,
+      errorTitle: l.genericError,
+      errorActionLabel: l.commonRetryButton,
+      emptyActionLabel: l.commonRefreshButton,
+      builder: (context, entries) {
+        return RefreshIndicator(
+          onRefresh: _fetchHistory,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Trend summary comparing latest vs previous readings
+              if (entries.length >= 2)
+                _VitalsTrendSummary(latest: entries[0], previous: entries[1]),
+              if (entries.length >= 2) const SizedBox(height: 16),
+              Text(
+                l.vitalsHistoryHeading,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-          ],
-        ),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: _fetchHistory,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Trend summary comparing latest vs previous readings
-          if (_entries.length >= 2)
-            _VitalsTrendSummary(latest: _entries[0], previous: _entries[1]),
-          if (_entries.length >= 2) const SizedBox(height: 16),
-          Text(
-            l.vitalsHistoryHeading,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+              const SizedBox(height: 8),
+              ...List.generate(
+                entries.length,
+                (i) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _VitalEntryCard(entry: entries[i]),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          ...List.generate(
-            _entries.length,
-            (i) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _VitalEntryCard(entry: _entries[i]),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
