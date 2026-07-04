@@ -107,3 +107,87 @@ jobs:
           files: |
             apps/staff/build/app/outputs/flutter-apk/app-release.apk
             apps/staff/build/app/outputs/bundle/release/app-release.aab
+
+  windows-msix:
+    name: Build Windows MSIX
+    if: startsWith(github.ref, 'refs/tags/staff-v')
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VH_BASE_URL: ${{ vars.VH_BASE_URL }}
+      VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      STAFF_CERT_PIN_HASHES: ${{ vars.STAFF_CERT_PIN_HASHES }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Activate Melos
+        run: dart pub global activate melos 7.5.1
+
+      - name: Bootstrap workspace
+        run: |
+          dart pub get
+          melos bootstrap
+
+      - name: Validate Windows release configuration
+        shell: pwsh
+        run: |
+          $missing = @()
+          foreach ($name in @(
+            'VH_BASE_URL',
+            'VH_API_KEY',
+            'STAFF_CERT_PIN_HASHES'
+          )) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              $missing += $name
+            }
+          }
+          foreach ($name in $missing) {
+            Write-Error "$name is required for staff Windows release builds"
+          }
+          if ($missing.Count -gt 0) { exit 1 }
+
+      - name: Build Windows release
+        working-directory: apps/staff
+        shell: pwsh
+        run: |
+          flutter build windows --release `
+            --dart-define=VH_BASE_URL="$env:VH_BASE_URL" `
+            --dart-define=VH_API_KEY="$env:VH_API_KEY" `
+            --dart-define=PRODUCTION=true `
+            --dart-define=CERT_PIN_HASHES="$env:STAFF_CERT_PIN_HASHES"
+
+      - name: Create unsigned MSIX
+        working-directory: apps/staff
+        shell: pwsh
+        run: |
+          dart run msix:create
+          $msix = Get-ChildItem -Path build/windows -Filter *.msix -Recurse |
+            Select-Object -First 1
+          if (-not $msix) {
+            throw 'MSIX package was not produced'
+          }
+          $summary = @"
+          ### Staff Windows MSIX
+
+          Built and attached an unsigned/test-signed Windows MSIX from `apps/staff/pubspec.yaml` (`msix_config`).
+
+          Production distribution still needs an operator decision for a Windows signing certificate and whether `install_certificate` should remain `false` or move to a signed install flow.
+          "@
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: Staff ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: |
+            apps/staff/build/windows/**/*.msix

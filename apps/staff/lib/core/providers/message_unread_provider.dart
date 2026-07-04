@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
 import '../services/messaging_api_service.dart';
+import '../services/staff_local_notifications.dart';
 
 class StaffMessageAlert {
   final String messageId;
@@ -129,6 +130,14 @@ class MessageUnreadProvider extends ChangeNotifier {
     _latestAlert = alert;
     _alertSerial += 1;
     notifyListeners();
+    unawaited(
+      StaffLocalNotifications.instance.showStaffMessage(
+        messageId: alert.messageId,
+        title: alert.title,
+        body: alert.body,
+        priority: alert.priority,
+      ),
+    );
     unawaited(refresh());
   }
 
