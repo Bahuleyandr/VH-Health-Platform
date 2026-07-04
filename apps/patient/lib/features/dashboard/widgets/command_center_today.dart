@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class CommandCenterToday extends StatelessWidget {
   final List<Map<String, dynamic>> cards;
@@ -19,6 +20,8 @@ class CommandCenterToday extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     if (loading && cards.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 18),
@@ -31,7 +34,7 @@ class CommandCenterToday extends StatelessWidget {
         icon: LucideIcons.wifiOff,
         title: 'Today could not refresh',
         subtitle: error!,
-        actionLabel: 'Retry',
+        actionLabel: l10n.commonRetry,
         onAction: onRetry,
       );
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -75,13 +76,11 @@ class _ConsultationNotesTabState extends State<ConsultationNotesTab> {
   }
 
   Future<void> _openNote(ConsultationNote note) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ConsultationNoteDetailScreen(
-          noteId: note.id,
-          initialNote: note,
-          repository: widget.repository,
-        ),
+    await context.push(
+      '/health/consultation-notes/${note.id}',
+      extra: ConsultationNoteDetailRouteArgs(
+        initialNote: note,
+        repository: widget.repository,
       ),
     );
   }
@@ -182,16 +181,23 @@ class _ConsultationNoteCard extends StatelessWidget {
   }
 }
 
+class ConsultationNoteDetailRouteArgs {
+  const ConsultationNoteDetailRouteArgs({this.initialNote, this.repository});
+
+  final ConsultationNote? initialNote;
+  final ConsultationNotesRepository? repository;
+}
+
 class ConsultationNoteDetailScreen extends StatefulWidget {
   const ConsultationNoteDetailScreen({
     super.key,
     required this.noteId,
-    required this.initialNote,
+    this.initialNote,
     this.repository = const ApiConsultationNotesRepository(),
   });
 
   final int noteId;
-  final ConsultationNote initialNote;
+  final ConsultationNote? initialNote;
   final ConsultationNotesRepository repository;
 
   @override
@@ -243,9 +249,10 @@ class _ConsultationNoteDetailScreenState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final fallbackTitle = widget.initialNote.title.isEmpty
+    final initialTitle = widget.initialNote?.title ?? '';
+    final fallbackTitle = initialTitle.isEmpty
         ? l10n.consultationNotesUntitled
-        : widget.initialNote.title;
+        : initialTitle;
 
     return Scaffold(
       appBar: AppBar(title: Text(fallbackTitle)),

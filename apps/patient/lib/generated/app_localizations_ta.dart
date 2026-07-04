@@ -2354,7 +2354,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get recordAccessStatusRevoked => 'ரத்து செய்யப்பட்டது';
 
   @override
-  String get commonRetryButton => 'மீண்டும் முயற்சி';
+  String get commonRetry => 'மீண்டும் முயற்சிக்கவும்';
 
   @override
   String get commonContinueButton => 'தொடரவும்';

@@ -2301,7 +2301,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recordAccessStatusRevoked => 'Revoked';
 
   @override
-  String get commonRetryButton => 'Retry';
+  String get commonRetry => 'Retry';
 
   @override
   String get commonContinueButton => 'Continue';

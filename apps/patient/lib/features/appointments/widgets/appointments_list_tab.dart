@@ -292,7 +292,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
       emptySubtitle: l10n.appointmentsEmptyHint,
       emptyActionLabel: l10n.appointmentsBookOneNow,
       errorTitle: l10n.genericError,
-      errorActionLabel: l10n.commonRetryButton,
+      errorActionLabel: l10n.commonRetry,
       builder: (context, appointments) {
         final upcoming = appointments.where((a) => a.isUpcoming).toList()
           ..sort(

@@ -152,10 +152,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                   const SizedBox(height: 16),
                   Text(_error!, textAlign: TextAlign.center),
                   const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _fetch,
-                    child: Text(l.commonRetryButton),
-                  ),
+                  ElevatedButton(onPressed: _fetch, child: Text(l.commonRetry)),
                 ],
               ),
             )

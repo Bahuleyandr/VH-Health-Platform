@@ -2087,7 +2087,10 @@
   "recordAccessProxyFallback": "Proxy",
   "recordAccessStatusActive": "செயலில்",
   "recordAccessStatusRevoked": "ரத்து செய்யப்பட்டது",
-  "commonRetryButton": "மீண்டும் முயற்சி",
+  "commonRetry": "மீண்டும் முயற்சிக்கவும்",
+  "@commonRetry": {
+    "description": "Machine translated; review required. Generic retry button label"
+  },
   "commonContinueButton": "தொடரவும்",
   "commonBackButton": "பின்",
   "commonOkButton": "சரி",

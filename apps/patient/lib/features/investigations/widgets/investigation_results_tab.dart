@@ -399,7 +399,7 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _fetchInvestigations,
-              child: const Text('Retry'),
+              child: Text(AppLocalizations.of(context)!.commonRetry),
             ),
           ],
         ),

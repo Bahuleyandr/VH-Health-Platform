@@ -2087,7 +2087,10 @@
   "recordAccessProxyFallback": "Proxy",
   "recordAccessStatusActive": "സജീവം",
   "recordAccessStatusRevoked": "പിൻവലിച്ചത്",
-  "commonRetryButton": "വീണ്ടും ശ്രമിക്കുക",
+  "commonRetry": "വീണ്ടും ശ്രമിക്കുക",
+  "@commonRetry": {
+    "description": "Machine translated; review required. Generic retry button label"
+  },
   "commonContinueButton": "തുടരുക",
   "commonBackButton": "പിന്നോട്ട്",
   "commonOkButton": "ശരി",

@@ -20,6 +20,8 @@ class MilestonesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     if (loading && milestones.isEmpty) {
       return const Center(
         child: Padding(
@@ -43,11 +45,11 @@ class MilestonesTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              AppLocalizations.of(context)!.gamificationNoMilestones,
+              l10n.gamificationNoMilestones,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
-            TextButton(onPressed: onRefresh, child: const Text('Retry')),
+            TextButton(onPressed: onRefresh, child: Text(l10n.commonRetry)),
           ],
         ),
       );

@@ -127,7 +127,7 @@ class _BillsScreenState extends State<BillsScreen> {
           emptyTitle: l.billsEmptyTitle,
           emptySubtitle: l.billsEmptySubtitle,
           errorTitle: l.genericError,
-          errorActionLabel: l.commonRetryButton,
+          errorActionLabel: l.commonRetry,
           emptyActionLabel: l.commonRefreshButton,
           builder: (context, bills) {
             return ListView.separated(

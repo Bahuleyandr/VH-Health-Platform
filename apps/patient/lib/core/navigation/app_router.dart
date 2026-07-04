@@ -49,6 +49,8 @@ import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/messages_screen.dart';
 import 'package:vhhealth/features/portal/screens/message_thread_screen.dart';
 import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
+import 'package:vhhealth/features/your_health/widgets/consultation_notes_tab.dart';
+import 'package:vhhealth/features/your_health/widgets/explanations_tab.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -330,6 +332,30 @@ class AppRouter {
         builder: (context, state) => const LabResultsScreen(),
       ),
       GoRoute(
+        path: '/portal/lab-results/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/portal/lab-results' : null;
+        },
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id']!)!;
+          final extra = state.extra;
+          final args = extra is LabResultDetailRouteArgs ? extra : null;
+          final repository = args?.repository;
+          if (repository != null) {
+            return LabResultDetailScreen(
+              resultId: id,
+              initialResult: args?.initialResult,
+              repository: repository,
+            );
+          }
+          return LabResultDetailScreen(
+            resultId: id,
+            initialResult: args?.initialResult,
+          );
+        },
+      ),
+      GoRoute(
         path: '/portal/lab-orders',
         builder: (context, state) => const LabOrdersScreen(),
       ),
@@ -386,6 +412,54 @@ class AppRouter {
         builder: (context, state) => MessageThreadScreen(
           threadId: int.tryParse(state.pathParameters['id']!)!,
         ),
+      ),
+      GoRoute(
+        path: '/health/explanations/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/health' : null;
+        },
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id']!)!;
+          final extra = state.extra;
+          final args = extra is PatientExplainerDetailRouteArgs ? extra : null;
+          final repository = args?.repository;
+          if (repository != null) {
+            return PatientExplainerDetailScreen(
+              reviewId: id,
+              initialExplainer: args?.initialExplainer,
+              repository: repository,
+            );
+          }
+          return PatientExplainerDetailScreen(
+            reviewId: id,
+            initialExplainer: args?.initialExplainer,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/health/consultation-notes/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/health' : null;
+        },
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id']!)!;
+          final extra = state.extra;
+          final args = extra is ConsultationNoteDetailRouteArgs ? extra : null;
+          final repository = args?.repository;
+          if (repository != null) {
+            return ConsultationNoteDetailScreen(
+              noteId: id,
+              initialNote: args?.initialNote,
+              repository: repository,
+            );
+          }
+          return ConsultationNoteDetailScreen(
+            noteId: id,
+            initialNote: args?.initialNote,
+          );
+        },
       ),
       GoRoute(
         path: '/investigations',

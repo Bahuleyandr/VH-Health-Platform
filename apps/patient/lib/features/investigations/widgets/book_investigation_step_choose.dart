@@ -73,7 +73,7 @@ class BookInvestigationStepChoose extends StatelessWidget {
           emptyTitle: l.bookInvestigationCatalogEmptyTitle,
           emptySubtitle: l.bookInvestigationCatalogEmptySubtitle,
           errorTitle: l.genericError,
-          errorActionLabel: l.commonRetryButton,
+          errorActionLabel: l.commonRetry,
           emptyActionLabel: l.commonRefreshButton,
           builder: (context, grouped) {
             return Column(

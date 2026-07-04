@@ -127,7 +127,7 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _fetchSummaryData,
-                child: const Text('Retry'),
+                child: Text(AppLocalizations.of(context)!.commonRetry),
               ),
             ],
           ],

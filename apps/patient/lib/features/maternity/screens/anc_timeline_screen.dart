@@ -269,7 +269,7 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
               iconColor: theme.colorScheme.error,
               title: l.ancLoadFailed,
               subtitle: _error!,
-              actionLabel: l.familyRetryButton,
+              actionLabel: l.commonRetry,
               onAction: _fetch,
             ),
           ),

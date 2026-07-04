@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth/features/your_health/models/consultation_note.dart';
 import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/your_health/services/consultation_notes_repository.dart';
@@ -38,10 +39,31 @@ void main() {
   ) async {
     final note = _sampleNote();
     final repository = _FakeConsultationNotesRepository([note]);
-
-    await tester.pumpWidget(
-      _LocalizedHarness(child: ConsultationNotesTab(repository: repository)),
+    final router = GoRouter(
+      initialLocation: '/health',
+      routes: [
+        GoRoute(
+          path: '/health',
+          builder: (_, _) => ConsultationNotesTab(repository: repository),
+        ),
+        GoRoute(
+          path: '/health/consultation-notes/:id',
+          builder: (_, state) {
+            final args = state.extra is ConsultationNoteDetailRouteArgs
+                ? state.extra! as ConsultationNoteDetailRouteArgs
+                : null;
+            return ConsultationNoteDetailScreen(
+              noteId: int.parse(state.pathParameters['id']!),
+              initialNote: args?.initialNote,
+              repository: args?.repository ?? repository,
+            );
+          },
+        ),
+      ],
     );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_RouterHarness(router: router));
 
     await tester.pumpAndSettle();
 
@@ -80,6 +102,21 @@ void main() {
     );
     expect(find.text('Clinical notes'), findsNothing);
   });
+}
+
+class _RouterHarness extends StatelessWidget {
+  const _RouterHarness({required this.router});
+
+  final GoRouter router;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      routerConfig: router,
+    );
+  }
 }
 
 class _LocalizedHarness extends StatelessWidget {

@@ -48,8 +48,11 @@ class DeepLinkService {
   /// must be a non-negative integer (portal detail screens).
   static const _numericIdPrefixes = <String>[
     '/portal/bills/',
+    '/portal/lab-results/',
     '/portal/tpa/claims/',
     '/portal/messages/',
+    '/health/explanations/',
+    '/health/consultation-notes/',
   ];
 
   @visibleForTesting

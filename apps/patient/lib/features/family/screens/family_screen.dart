@@ -174,7 +174,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
       emptySubtitle: l.familyNoMembersHint,
       emptyActionLabel: l.familyAddMember,
       errorTitle: l.genericError,
-      errorActionLabel: l.commonRetryButton,
+      errorActionLabel: l.commonRetry,
       builder: (context, members) {
         return RefreshIndicator(
           onRefresh: _fetchMembers,
