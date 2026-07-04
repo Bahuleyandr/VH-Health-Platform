@@ -16,6 +16,7 @@ void main() {
 
     expect(intent.hardStop, isFalse);
     expect(intent.submit, isTrue);
+    expect(intent.enqueue, isTrue);
     expect(intent.endpoint, '/lab/samples/77/collect');
     expect(intent.body['scanned_patient_uid'], patientUid);
     expect(intent.body['sample_barcode'], 'tube-0007');
@@ -35,6 +36,7 @@ void main() {
 
     expect(intent.hardStop, isTrue);
     expect(intent.submit, isFalse);
+    expect(intent.enqueue, isFalse);
     expect(intent.failedRights, contains('patient'));
 
     await tester.pumpWidget(
@@ -47,5 +49,18 @@ void main() {
     );
     final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
     expect(button.onPressed, isNull);
+  });
+
+  test('blank tube barcode does not enqueue', () {
+    final intent = buildSpecimenScanIntent(
+      investigationId: 77,
+      scannedPatientUid: patientUid,
+      tubeBarcode: '   ',
+      expectedPatientUid: patientUid,
+    );
+
+    expect(intent.hardStop, isFalse);
+    expect(intent.submit, isFalse);
+    expect(intent.enqueue, isFalse);
   });
 }

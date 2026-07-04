@@ -101,6 +101,7 @@ class AppStrings {
   String get labelNoData => _t('label.no_data');
   String get labelOptional => _t('label.optional');
   String get labelRequired => _t('label.required');
+  String get offlineRecordedPendingSync => _t('offline.recorded_pending_sync');
   String noMatchesFor(String query) => '${_t('label.no_matches_for')} "$query"';
 
   // ── Time-of-day greetings ──────────────────────────────────────────
@@ -635,6 +636,12 @@ class AppStrings {
   String get vitalsRecordedSuccess => _t('vitals.recorded_success');
   // REVIEW: clinical / connectivity message
   String get vitalsOfflineQueued => _t('vitals.offline_queued');
+
+  // ── Offline bedside scan copy ──────────────────────────────────────
+  String get transfusionScanPendingSyncMessage =>
+      _t('transfusion_scan.pending_sync_message');
+  String get specimenScanPendingSyncMessage =>
+      _t('specimen_scan.pending_sync_message');
 
   // ── Nursing Notes ──────────────────────────────────────────────────
   String get nursingNotesTitle => _t('nursing_notes.title');
@@ -2788,6 +2795,7 @@ class AppStrings {
       'label.no_matches_for': 'No matches for',
       'label.optional': 'Optional',
       'label.required': 'Required',
+      'offline.recorded_pending_sync': 'Recorded — pending sync',
       // Greetings
       'dashboard.greeting.morning': 'Good morning',
       'dashboard.greeting.afternoon': 'Good afternoon',
@@ -3304,7 +3312,11 @@ class AppStrings {
       'vitals.no_records': 'No vital records found for this patient',
       'vitals.recorded_success': 'Vitals recorded successfully',
       'vitals.offline_queued':
-          'No connection - vitals saved and will sync when online',
+          'Recorded — pending sync. Vitals will sync when online.',
+      'transfusion_scan.pending_sync_message':
+          'The bedside transfusion verification was recorded on this device and will sync when online.',
+      'specimen_scan.pending_sync_message':
+          'The specimen collection was recorded on this device and will sync when online.',
       // Nursing Notes
       'nursing_notes.title': 'Nursing Notes',
       'nursing_notes.tab.add': 'Add Note',
@@ -4989,6 +5001,7 @@ class AppStrings {
       'label.no_matches_for': 'कोई मेल नहीं मिला:',
       'label.optional': 'वैकल्पिक',
       'label.required': 'आवश्यक',
+      'offline.recorded_pending_sync': 'दर्ज किया गया — सिंक लंबित',
       // Greetings
       'dashboard.greeting.morning': 'सुप्रभात',
       'dashboard.greeting.afternoon': 'शुभ दोपहर',
@@ -5540,7 +5553,11 @@ class AppStrings {
       'vitals.recorded_success': 'वाइटल्स सफलतापूर्वक दर्ज किए गए',
       // REVIEW: clinical / connectivity message
       'vitals.offline_queued':
-          'कनेक्शन नहीं - वाइटल्स सहेजे गए और ऑनलाइन होने पर सिंक होंगे',
+          'दर्ज किया गया — सिंक लंबित। ऑनलाइन होने पर वाइटल्स सिंक होंगे।',
+      'transfusion_scan.pending_sync_message':
+          'बेडसाइड ट्रांसफ्यूजन सत्यापन इस डिवाइस पर दर्ज किया गया है और ऑनलाइन होने पर सिंक होगा।',
+      'specimen_scan.pending_sync_message':
+          'सैंपल संग्रह इस डिवाइस पर दर्ज किया गया है और ऑनलाइन होने पर सिंक होगा।',
       // Nursing Notes
       'nursing_notes.title': 'नर्सिंग नोट्स',
       'nursing_notes.tab.add': 'नोट जोड़ें',
@@ -7188,6 +7205,8 @@ class AppStrings {
       'label.no_matches_for': 'பொருத்தம் இல்லை',
       'label.optional': 'விருப்பம்',
       'label.required': 'தேவை',
+      'offline.recorded_pending_sync':
+          'பதிவு செய்யப்பட்டது — சிங்க் நிலுவையில்',
       'dashboard.greeting.morning': 'காலை வணக்கம்',
       'dashboard.greeting.afternoon': 'மதிய வணக்கம்',
       'dashboard.greeting.evening': 'மாலை வணக்கம்',
@@ -7737,7 +7756,11 @@ class AppStrings {
       'vitals.recorded_success': 'வைட்டல்ஸ் வெற்றிகரமாக பதிவு செய்யப்பட்டது',
       // REVIEW: clinical / connectivity message
       'vitals.offline_queued':
-          'இணைப்பு இல்லை - வைட்டல்ஸ் சேமிக்கப்பட்டு ஆன்லைனில் சிங்க் ஆகும்',
+          'பதிவு செய்யப்பட்டது — சிங்க் நிலுவையில். ஆன்லைனில் வந்ததும் வைட்டல்ஸ் சிங்க் ஆகும்.',
+      'transfusion_scan.pending_sync_message':
+          'படுக்கையருகே செய்யப்பட்ட இரத்த மாற்ற சரிபார்ப்பு இந்த சாதனத்தில் பதிவு செய்யப்பட்டது; ஆன்லைனில் வந்ததும் சிங்க் ஆகும்.',
+      'specimen_scan.pending_sync_message':
+          'மாதிரி சேகரிப்பு இந்த சாதனத்தில் பதிவு செய்யப்பட்டது; ஆன்லைனில் வந்ததும் சிங்க் ஆகும்.',
       // Nursing Notes - REVIEW
       'nursing_notes.title': 'செவிலியர் குறிப்புகள்',
       'nursing_notes.tab.add': 'குறிப்பு சேர்',
@@ -9859,6 +9882,8 @@ class AppStrings {
       'label.no_matches_for': 'సరిపోలికలు లేవు',
       'label.optional': 'ఐచ్ఛికం',
       'label.required': 'అవసరం',
+      'offline.recorded_pending_sync':
+          'రికార్డ్ అయింది — సింక్ పెండింగ్‌లో ఉంది',
       'dashboard.greeting.morning': 'శుభోదయం',
       'dashboard.greeting.afternoon': 'శుభ మధ్యాహ్నం',
       'dashboard.greeting.evening': 'శుభ సాయంత్రం',
@@ -10409,7 +10434,11 @@ class AppStrings {
       'vitals.recorded_success': 'వైటల్స్ విజయవంతంగా రికార్డ్ చేయబడ్డాయి',
       // REVIEW: clinical / connectivity message
       'vitals.offline_queued':
-          'కనెక్షన్ లేదు - వైటల్స్ సేవ్ చేయబడ్డాయి, ఆన్‌లైన్‌కి వచ్చినప్పుడు సింక్ అవుతాయి',
+          'రికార్డ్ అయింది — సింక్ పెండింగ్‌లో ఉంది. ఆన్‌లైన్‌లోకి వచ్చినప్పుడు వైటల్స్ సింక్ అవుతాయి.',
+      'transfusion_scan.pending_sync_message':
+          'బెడ్‌సైడ్ రక్త మార్పిడి ధృవీకరణ ఈ పరికరంలో రికార్డ్ అయింది, ఆన్‌లైన్‌లోకి వచ్చినప్పుడు సింక్ అవుతుంది.',
+      'specimen_scan.pending_sync_message':
+          'నమూనా సేకరణ ఈ పరికరంలో రికార్డ్ అయింది, ఆన్‌లైన్‌లోకి వచ్చినప్పుడు సింక్ అవుతుంది.',
       // Nursing Notes - REVIEW
       'nursing_notes.title': 'నర్సింగ్ నోట్స్',
       'nursing_notes.tab.add': 'గమనిక జోడించు',
@@ -12506,6 +12535,7 @@ class AppStrings {
       'label.no_matches_for': 'പൊരുത്തങ്ങളില്ല:',
       'label.optional': 'ഓപ്ഷണൽ',
       'label.required': 'നിർബന്ധം',
+      'offline.recorded_pending_sync': 'രേഖപ്പെടുത്തി — സിങ്ക് ബാക്കി',
       'dashboard.greeting.morning': 'സുപ്രഭാതം',
       'dashboard.greeting.afternoon': 'ശുഭ മധ്യാഹ്നം',
       'dashboard.greeting.evening': 'ശുഭ സായാഹ്നം',
@@ -12769,7 +12799,11 @@ class AppStrings {
       'vitals.no_records': 'ഈ രോഗിക്ക് വൈറ്റൽ രേഖകളൊന്നുമില്ല',
       'vitals.recorded_success': 'വൈറ്റൽസ് രേഖപ്പെടുത്തി',
       'vitals.offline_queued':
-          'കണക്ഷനില്ല - വൈറ്റൽസ് സേവ് ചെയ്തു, ഓൺലൈനാകുമ്പോൾ സിങ്ക് ചെയ്യും',
+          'രേഖപ്പെടുത്തി — സിങ്ക് ബാക്കി. ഓൺലൈനാകുമ്പോൾ വൈറ്റൽസ് സിങ്ക് ചെയ്യും.',
+      'transfusion_scan.pending_sync_message':
+          'ബെഡ്‌സൈഡ് രക്തമാറ്റ പരിശോധന ഈ ഉപകരണത്തിൽ രേഖപ്പെടുത്തി; ഓൺലൈനാകുമ്പോൾ സിങ്ക് ചെയ്യും.',
+      'specimen_scan.pending_sync_message':
+          'സ്പെസിമെൻ ശേഖരണം ഈ ഉപകരണത്തിൽ രേഖപ്പെടുത്തി; ഓൺലൈനാകുമ്പോൾ സിങ്ക് ചെയ്യും.',
       'nursing_notes.title': 'നഴ്സിംഗ് കുറിപ്പുകൾ',
       'nursing_notes.tab.add': 'കുറിപ്പ് ചേർക്കുക',
       'nursing_notes.tab.recent': 'സമീപകാല കുറിപ്പുകൾ',
