@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 import '../specimen_scan_intent.dart';
 
 class SpecimenScanScreen extends StatefulWidget {
@@ -34,6 +36,7 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
   SpecimenScanIntent? _hardStop;
   bool _busy = false;
   bool _scanLock = false;
+  bool _pendingSync = false;
 
   @override
   void dispose() {
@@ -83,10 +86,27 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
     if (!intent.submit) return;
 
     try {
+      if (!ConnectivitySyncService.instance.isOnline) {
+        await ConnectivitySyncService.instance.enqueue(
+          endpoint: intent.endpoint,
+          method: 'POST',
+          body: intent.body,
+          contextLabel: 'Specimen collection #${widget.investigationId}',
+        );
+        if (!mounted) return;
+        setState(() {
+          _pendingSync = true;
+          _step = _SpecimenScanStep.done;
+        });
+        return;
+      }
       final response = await ApiClient.post(intent.endpoint, body: intent.body);
       if (!mounted) return;
       if (response.isSuccess) {
-        setState(() => _step = _SpecimenScanStep.done);
+        setState(() {
+          _pendingSync = false;
+          _step = _SpecimenScanStep.done;
+        });
       } else {
         setState(
           () => _errorMessage = response.failureMessage(
@@ -110,15 +130,17 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
       _hardStop = null;
       _errorMessage = null;
       _busy = false;
+      _pendingSync = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return StaffScaffold(title: 'Specimen scan', body: _buildBody());
+    final s = AppStrings.of(context);
+    return StaffScaffold(title: 'Specimen scan', body: _buildBody(s));
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppStrings s) {
     switch (_step) {
       case _SpecimenScanStep.scanWristband:
         return _scanPanel(
@@ -135,7 +157,7 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
       case _SpecimenScanStep.collect:
         return _collectPanel();
       case _SpecimenScanStep.done:
-        return _donePanel();
+        return _donePanel(s);
     }
   }
 
@@ -261,12 +283,14 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
     );
   }
 
-  Widget _donePanel() {
+  Widget _donePanel(AppStrings s) {
     return _messagePanel(
-      icon: Icons.check_circle,
-      color: AppTheme.successGreen,
-      title: 'Specimen collected',
-      message: 'The wristband and tube barcode were recorded.',
+      icon: _pendingSync ? Icons.cloud_off : Icons.check_circle,
+      color: _pendingSync ? AppTheme.textSecondary : AppTheme.successGreen,
+      title: _pendingSync ? s.offlineRecordedPendingSync : 'Specimen collected',
+      message: _pendingSync
+          ? s.specimenScanPendingSyncMessage
+          : 'The wristband and tube barcode were recorded.',
       actionLabel: 'Done',
       onAction: () => context.pop(true),
     );

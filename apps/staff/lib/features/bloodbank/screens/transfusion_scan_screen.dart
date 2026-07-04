@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 import '../transfusion_scan_intent.dart';
 
 class TransfusionScanScreen extends StatefulWidget {
@@ -38,6 +40,7 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
   TransfusionScanIntent? _hardStop;
   bool _busy = false;
   bool _scanLock = false;
+  bool _pendingSync = false;
 
   @override
   void dispose() {
@@ -89,10 +92,27 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
     if (!intent.submit) return;
 
     try {
+      if (!ConnectivitySyncService.instance.isOnline) {
+        await ConnectivitySyncService.instance.enqueue(
+          endpoint: intent.endpoint,
+          method: 'POST',
+          body: intent.body,
+          contextLabel: 'Transfusion verification #${widget.requestId}',
+        );
+        if (!mounted) return;
+        setState(() {
+          _pendingSync = true;
+          _step = _TransfusionScanStep.done;
+        });
+        return;
+      }
       final response = await ApiClient.post(intent.endpoint, body: intent.body);
       if (!mounted) return;
       if (response.isSuccess) {
-        setState(() => _step = _TransfusionScanStep.done);
+        setState(() {
+          _pendingSync = false;
+          _step = _TransfusionScanStep.done;
+        });
       } else {
         setState(
           () => _errorMessage = response.failureMessage(
@@ -116,15 +136,17 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       _hardStop = null;
       _errorMessage = null;
       _busy = false;
+      _pendingSync = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return StaffScaffold(title: 'Transfusion scan', body: _buildBody());
+    final s = AppStrings.of(context);
+    return StaffScaffold(title: 'Transfusion scan', body: _buildBody(s));
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppStrings s) {
     switch (_step) {
       case _TransfusionScanStep.scanWristband:
         return _scanPanel(
@@ -141,7 +163,7 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       case _TransfusionScanStep.verify:
         return _verifyPanel();
       case _TransfusionScanStep.done:
-        return _donePanel();
+        return _donePanel(s);
     }
   }
 
@@ -279,12 +301,16 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
     );
   }
 
-  Widget _donePanel() {
+  Widget _donePanel(AppStrings s) {
     return _messagePanel(
-      icon: Icons.check_circle,
-      color: AppTheme.successGreen,
-      title: 'Verification recorded',
-      message: 'The bedside transfusion verification was recorded.',
+      icon: _pendingSync ? Icons.cloud_off : Icons.check_circle,
+      color: _pendingSync ? AppTheme.textSecondary : AppTheme.successGreen,
+      title: _pendingSync
+          ? s.offlineRecordedPendingSync
+          : 'Verification recorded',
+      message: _pendingSync
+          ? s.transfusionScanPendingSyncMessage
+          : 'The bedside transfusion verification was recorded.',
       actionLabel: 'Done',
       onAction: () => context.pop(true),
     );

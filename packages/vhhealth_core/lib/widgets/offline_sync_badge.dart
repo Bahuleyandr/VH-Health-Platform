@@ -342,17 +342,37 @@ class ConflictRow extends StatelessWidget {
   static bool _isPrescriptionConflict(String endpoint) =>
       endpoint.contains('/prescriptions/');
 
+  /// Bedside transfusion verification that was recorded locally but rejected
+  /// during drain needs clinical framing + confirm-on-discard.
+  static bool _isTransfusionConflict(String endpoint) =>
+      endpoint.contains('/blood-bank/') && endpoint.contains('/verify-bedside');
+
+  /// Bedside specimen collection that was recorded locally but rejected during
+  /// drain needs clinical framing + confirm-on-discard.
+  static bool _isSpecimenConflict(String endpoint) =>
+      endpoint.contains('/lab/samples/') && endpoint.contains('/collect');
+
   Future<void> _handleDiscard(BuildContext context, String endpoint) async {
     final isMar = _isMarConflict(endpoint);
     final isOrder = _isOrderConflict(endpoint);
     final isRx = _isPrescriptionConflict(endpoint);
-    if (!isMar && !isOrder && !isRx) {
+    final isTransfusion = _isTransfusionConflict(endpoint);
+    final isSpecimen = _isSpecimenConflict(endpoint);
+    if (!isMar && !isOrder && !isRx && !isTransfusion && !isSpecimen) {
       onDiscard();
       return;
     }
     final String title;
     final String message;
-    if (isRx) {
+    if (isTransfusion) {
+      title = 'Discard transfusion verification?';
+      message =
+          'Discard this transfusion verification? It was recorded on this device but NOT recorded on the server.';
+    } else if (isSpecimen) {
+      title = 'Discard specimen collection?';
+      message =
+          'Discard this specimen collection? It was recorded on this device but NOT recorded on the server.';
+    } else if (isRx) {
       title = 'Discard prescription?';
       message = 'Discard this prescription? It was NOT recorded on the server.';
     } else if (isOrder) {
@@ -398,6 +418,8 @@ class ConflictRow extends StatelessWidget {
     final isMar = _isMarConflict(endpoint);
     final isOrder = _isOrderConflict(endpoint);
     final isRx = _isPrescriptionConflict(endpoint);
+    final isTransfusion = _isTransfusionConflict(endpoint);
+    final isSpecimen = _isSpecimenConflict(endpoint);
     final createdAt = conflict['created_at'] as int?;
     final createdLabel = createdAt != null
         ? DateFormat(
@@ -429,6 +451,22 @@ class ConflictRow extends StatelessWidget {
         : isRx
         ? Text(
             'Prescription not recorded on the server — review needed. $reason.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : isTransfusion
+        ? Text(
+            'Transfusion verification not recorded on the server — review needed. $reason.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : isSpecimen
+        ? Text(
+            'Specimen collection not recorded on the server — review needed. $reason.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: Colors.red.shade700,
               fontWeight: FontWeight.w600,
