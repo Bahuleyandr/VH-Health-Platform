@@ -2410,6 +2410,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     final pharmacyPicker = SizedBox(
       width: desktop ? 260 : double.infinity,
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: _preferredPharmacy,
         decoration: InputDecoration(
           labelText: AppStrings.of(context).lookup('dashboard.action.pharmacy'),
@@ -2747,6 +2748,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return SizedBox(
       width: width,
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: safeValue,
         decoration: const InputDecoration(isDense: true),
         items: options
@@ -3067,6 +3069,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return SizedBox(
       width: width,
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: safeValue,
         decoration: const InputDecoration(isDense: true),
         items: options
@@ -3666,6 +3669,7 @@ class _MedicationCardState extends State<_MedicationCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: med.frequency.isEmpty ? null : med.frequency,
                   decoration: InputDecoration(
                     labelText: s.prescriptionsFrequency,
@@ -3710,6 +3714,7 @@ class _MedicationCardState extends State<_MedicationCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: med.route.isEmpty ? null : med.route,
                   decoration: InputDecoration(
                     labelText: s.prescriptionsRoute,
