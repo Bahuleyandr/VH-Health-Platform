@@ -198,6 +198,69 @@ void main() {
     );
   });
 
+  test('S4 HR display copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/hr/screens/organization_hierarchy_screen.dart'),
+      File('lib/features/hr/screens/hr_dashboard_screen.dart'),
+      File('lib/features/hr/screens/staff_management_screen.dart'),
+      File('lib/features/hr/screens/leave_approvals_screen.dart'),
+      File('lib/features/hr/screens/performance_screen.dart'),
+    ];
+    final hits = <String>[];
+    for (final file in files) {
+      for (final entry in _literalHits(file, [
+        _Pattern(
+          'StaffScaffold title',
+          RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern(
+          'section title',
+          RegExp(r'''_SectionTitle\(\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+        _Pattern(
+          'subtitle',
+          RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      ])) {
+        hits.add(entry);
+      }
+    }
+
+    final keys = <String>{};
+    for (final file in files) {
+      keys.addAll(
+        _appStringKeysFrom(file.readAsStringSync(), [
+          'hr.action.',
+          'role.display.',
+          'staff_mgmt.',
+          'performance.no_review_yet',
+          's4.lib.hr_dashboard.',
+          's4.lib.organization_hierarchy.',
+          's4.lib.leave_approvals.',
+          's4.lib.staff_management.',
+          's4.dynamic.hr_dashboard.',
+          's4.dynamic.organization_hierarchy.',
+          's4.dynamic.leave_approvals.',
+          's4.dynamic.staff_management.',
+        ]),
+      );
+    }
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 HR slice metadata and small display labels should use AppStrings.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 HR slice keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

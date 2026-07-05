@@ -149,8 +149,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Leave Approvals',
+      title: s.lookup('s4.lib.leave_approvals.title'),
       actions: [
         IconButton(
           tooltip: AppStrings.of(context).lookup('action.refresh'),
@@ -169,7 +170,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
               children: _statuses
                   .map(
                     (status) => ChoiceChip(
-                      label: Text(status.toUpperCase()),
+                      label: Text(_leaveStatusLabel(context, status)),
                       selected: _status == status,
                       onSelected: _loading
                           ? null
@@ -227,10 +228,16 @@ class _LeaveRequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = row['staff_name'] ?? row['staffName'] ?? 'Unknown staff';
+    final s = AppStrings.of(context);
+    final name =
+        row['staff_name'] ??
+        row['staffName'] ??
+        s.lookup('s4.lib.leave_approvals.unknown_staff');
     final employeeId = row['employee_id'] ?? row['employeeId'];
-    final department = row['department'] ?? 'Department not set';
-    final type = row['leave_type'] ?? 'Leave';
+    final department =
+        row['department'] ??
+        s.lookup('s4.lib.leave_approvals.department_not_set');
+    final type = row['leave_type'] ?? s.leaveTitle;
     final days = row['total_days'] ?? row['days_taken'] ?? '-';
     final reason = row['reason']?.toString().trim();
 
@@ -280,7 +287,11 @@ class _LeaveRequestCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              '${formatDate(row['start_date'])} to ${formatDate(row['end_date'])} - $days day(s)',
+              s.format('s4.dynamic.leave_approvals.date_range_days', {
+                'start': formatDate(row['start_date']),
+                'end': formatDate(row['end_date']),
+                'days': days,
+              }),
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -340,7 +351,7 @@ class _StatusPill extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.55)),
       ),
       child: Text(
-        status.toUpperCase(),
+        _leaveStatusLabel(context, status),
         style: TextStyle(
           color: color,
           fontSize: 11,
@@ -357,6 +368,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -368,7 +380,9 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'No $status leave requests',
+            s.format('s4.dynamic.leave_approvals.no_status_requests', {
+              'status': _leaveStatusLabel(context, status).toLowerCase(),
+            }),
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontSize: 16,
@@ -379,6 +393,12 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _leaveStatusLabel(BuildContext context, String status) {
+  final key = 's4.lib.leave_approvals.status.${status.toLowerCase()}';
+  final label = AppStrings.of(context).lookup(key);
+  return label == key ? status.toUpperCase() : label;
 }
 
 class _ErrorState extends StatelessWidget {

@@ -226,8 +226,16 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      '${_selectedDept ?? 'Department'}: '
-                      '${_deptSummary!['totalStaff'] ?? _deptSummary!['count'] ?? '—'} staff',
+                      s.format(
+                        's4.dynamic.staff_management.department_staff_count',
+                        {
+                          'department': _selectedDept ?? s.staffMgmtDepartment,
+                          'count':
+                              _deptSummary!['totalStaff'] ??
+                              _deptSummary!['count'] ??
+                              '—',
+                        },
+                      ),
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -320,9 +328,13 @@ class _PolicyRuntimeStrip extends StatelessWidget {
     final shortHash = hash == null || hash!.length < 12
         ? hash
         : hash!.substring(0, 12);
+    final s = AppStrings.of(context);
     final text = [
       if (version != null) version,
-      if (shortHash != null) 'policy $shortHash',
+      if (shortHash != null)
+        s.format('s4.dynamic.staff_management.policy_hash', {
+          'hash': shortHash,
+        }),
     ].join(' - ');
     if (text.isEmpty) return const SizedBox.shrink();
 
@@ -360,7 +372,11 @@ class _StaffCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = staff['name'] ?? staff['fullName'] ?? 'Unknown';
+    final s = AppStrings.of(context);
+    final name =
+        staff['name'] ??
+        staff['fullName'] ??
+        s.lookup('s4.lib.staff_management.unknown_staff');
     final role = staff['role'] ?? '—';
     final dept = staff['department'] ?? '—';
     final empId =
@@ -420,7 +436,7 @@ class _StaffCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          isActive ? 'Active' : 'Inactive',
+                          isActive ? s.staffMgmtActive : s.staffMgmtInactive,
                           style: TextStyle(
                             fontSize: 10,
                             color: isActive
@@ -434,11 +450,14 @@ class _StaffCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    role.replaceAll('_', ' '),
+                    _roleDisplayLabel(context, role.toString()),
                     style: TextStyle(fontSize: 12, color: roleColor),
                   ),
                   Text(
-                    '$dept • ID: $empId',
+                    s.format(
+                      's4.dynamic.staff_management.department_employee_id',
+                      {'department': dept, 'employeeId': empId},
+                    ),
                     style: TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,
@@ -488,42 +507,54 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   bool _showAllDepartments = false;
 
   static const _roleOptions = <_StaffRoleOption>[
-    _StaffRoleOption('DOCTOR', 'Doctor'),
-    _StaffRoleOption('DUTY_DOCTOR', 'Duty Doctor'),
-    _StaffRoleOption('ANESTHETIST', 'Anaesthetist'),
-    _StaffRoleOption('MEDICAL_SUPERINTENDENT', 'Medical Superintendent'),
-    _StaffRoleOption('CNO', 'Nursing Superintendent'),
-    _StaffRoleOption('NURSING_STAFF', 'Nursing Staff'),
-    _StaffRoleOption('NURSING_INCHARGE', 'Nursing Incharge'),
-    _StaffRoleOption('OP_STAFF_NURSE', 'OP Staff Nurse'),
-    _StaffRoleOption('OP_INCHARGE', 'OP Incharge'),
-    _StaffRoleOption('IP_STAFF_NURSE', 'IP Staff Nurse'),
-    _StaffRoleOption('IP_INCHARGE', 'IP Incharge'),
-    _StaffRoleOption('OT_NURSE', 'OT Nurse'),
-    _StaffRoleOption('OT_INCHARGE', 'OT Incharge'),
-    _StaffRoleOption('CATH_LAB_STAFF', 'Cath Lab Staff'),
-    _StaffRoleOption('CATH_LAB_INCHARGE', 'Cath Lab Incharge'),
-    _StaffRoleOption('RECEPTIONIST', 'Receptionist'),
-    _StaffRoleOption('RECEPTION_INCHARGE', 'Reception Incharge'),
-    _StaffRoleOption('HR_STAFF', 'HR Staff'),
-    _StaffRoleOption('BILLING_STAFF', 'Billing Staff'),
-    _StaffRoleOption('BILLING_INCHARGE', 'Billing Incharge'),
-    _StaffRoleOption('FINANCE_INCHARGE', 'Finance Incharge'),
-    _StaffRoleOption('ADMISSION_OFFICER', 'Admission Officer'),
-    _StaffRoleOption('INSURANCE_COORDINATOR', 'Insurance Coordinator'),
-    _StaffRoleOption('IPD_COUNSELLOR', 'IPD Counsellor'),
-    _StaffRoleOption('HOUSEKEEPING_STAFF', 'Housekeeping Staff'),
-    _StaffRoleOption('HOUSEKEEPING_INCHARGE', 'Housekeeping Incharge'),
-    _StaffRoleOption('PHARMACY_STAFF', 'Pharmacy Staff'),
-    _StaffRoleOption('PHARMACY_INCHARGE', 'Pharmacy Incharge'),
-    _StaffRoleOption('STORES_PURCHASE_INCHARGE', 'Stores / Purchase Incharge'),
-    _StaffRoleOption('LAB_STAFF', 'Lab Staff'),
-    _StaffRoleOption('RADIOLOGY_STAFF', 'Radiology Staff'),
-    _StaffRoleOption('DRIVER', 'Driver'),
-    _StaffRoleOption('SECURITY', 'Security'),
-    _StaffRoleOption('EMERGENCY_RESPONDER', 'Emergency Responder'),
-    _StaffRoleOption('MAINTENANCE', 'Maintenance'),
-    _StaffRoleOption('GENERAL_STAFF', 'General Staff'),
+    _StaffRoleOption('DOCTOR', 'role.display.doctor'),
+    _StaffRoleOption('DUTY_DOCTOR', 'role.display.duty_doctor'),
+    _StaffRoleOption('ANESTHETIST', 'role.display.anesthetist'),
+    _StaffRoleOption(
+      'MEDICAL_SUPERINTENDENT',
+      'role.display.medical_superintendent',
+    ),
+    _StaffRoleOption('CNO', 'role.display.cno'),
+    _StaffRoleOption('NURSING_STAFF', 'role.display.nursing_staff'),
+    _StaffRoleOption('NURSING_INCHARGE', 'role.display.nursing_incharge'),
+    _StaffRoleOption('OP_STAFF_NURSE', 'role.display.op_staff_nurse'),
+    _StaffRoleOption('OP_INCHARGE', 'role.display.op_incharge'),
+    _StaffRoleOption('IP_STAFF_NURSE', 'role.display.ip_staff_nurse'),
+    _StaffRoleOption('IP_INCHARGE', 'role.display.ip_incharge'),
+    _StaffRoleOption('OT_NURSE', 'role.display.ot_nurse'),
+    _StaffRoleOption('OT_INCHARGE', 'role.display.ot_incharge'),
+    _StaffRoleOption('CATH_LAB_STAFF', 'role.display.cath_lab_staff'),
+    _StaffRoleOption('CATH_LAB_INCHARGE', 'role.display.cath_lab_incharge'),
+    _StaffRoleOption('RECEPTIONIST', 'role.display.receptionist'),
+    _StaffRoleOption('RECEPTION_INCHARGE', 'role.display.reception_incharge'),
+    _StaffRoleOption('HR_STAFF', 'role.display.hr_staff'),
+    _StaffRoleOption('BILLING_STAFF', 'role.display.billing_staff'),
+    _StaffRoleOption('BILLING_INCHARGE', 'role.display.billing_incharge'),
+    _StaffRoleOption('FINANCE_INCHARGE', 'role.display.finance_incharge'),
+    _StaffRoleOption('ADMISSION_OFFICER', 'role.display.admission_officer'),
+    _StaffRoleOption(
+      'INSURANCE_COORDINATOR',
+      'role.display.insurance_coordinator',
+    ),
+    _StaffRoleOption('IPD_COUNSELLOR', 'role.display.ipd_counsellor'),
+    _StaffRoleOption('HOUSEKEEPING_STAFF', 'role.display.housekeeping_staff'),
+    _StaffRoleOption(
+      'HOUSEKEEPING_INCHARGE',
+      'role.display.housekeeping_incharge',
+    ),
+    _StaffRoleOption('PHARMACY_STAFF', 'role.display.pharmacy_staff'),
+    _StaffRoleOption('PHARMACY_INCHARGE', 'role.display.pharmacy_incharge'),
+    _StaffRoleOption(
+      'STORES_PURCHASE_INCHARGE',
+      'role.display.stores_purchase_incharge',
+    ),
+    _StaffRoleOption('LAB_STAFF', 'role.display.lab_staff'),
+    _StaffRoleOption('RADIOLOGY_STAFF', 'role.display.radiology_staff'),
+    _StaffRoleOption('DRIVER', 'role.display.driver'),
+    _StaffRoleOption('SECURITY', 'role.display.security'),
+    _StaffRoleOption('EMERGENCY_RESPONDER', 'role.display.emergency_responder'),
+    _StaffRoleOption('MAINTENANCE', 'role.display.maintenance'),
+    _StaffRoleOption('GENERAL_STAFF', 'role.display.general_staff'),
   ];
 
   static const _shiftOptions = [
@@ -617,8 +648,10 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
           SnackBar(
             content: Text(
               id != null
-                  ? 'Staff updated successfully'
-                  : 'Staff account created with onboarding checklist',
+                  ? AppStrings.of(context).staffMgmtUpdatedSuccess
+                  : AppStrings.of(context).lookup(
+                      's4.lib.staff_management.staff_account_created_with_onboarding_checklist',
+                    ),
             ),
             backgroundColor: AppTheme.successGreen,
           ),
@@ -671,7 +704,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                       ).lookup('profile.field.phone'),
                     ),
                     validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Phone is required'
+                        ? s.lookup('staff_mgmt.phone_required')
                         : null,
                   ),
                   const SizedBox(height: 12),
@@ -708,7 +741,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                       for (final option in widget.roleOptions)
                         DropdownMenuItem(
                           value: option.value,
-                          child: Text(option.label),
+                          child: Text(option.displayLabel(context)),
                         ),
                     ],
                     onChanged: (value) {
@@ -736,7 +769,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     _deptFocusNode.requestFocus();
                   },
                   validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Department is required'
+                      ? s.lookup('staff_mgmt.department_required')
                       : null,
                 ),
                 const SizedBox(height: 12),
@@ -748,7 +781,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     ).lookup('s4.lib.staff_management.position'),
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Position is required'
+                      ? s.lookup('staff_mgmt.position_required')
                       : null,
                 ),
                 const SizedBox(height: 12),
@@ -763,7 +796,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     for (final shift in _shiftOptions)
                       DropdownMenuItem(
                         value: shift,
-                        child: Text(shift.replaceAll('_', ' ')),
+                        child: Text(_shiftDisplayLabel(context, shift)),
                       ),
                   ],
                   onChanged: (value) {
@@ -781,7 +814,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                       ).lookup('s4.lib.staff_management.temporary_password'),
                     ),
                     validator: (v) => (v == null || v.trim().length < 6)
-                        ? 'Use at least 6 characters'
+                        ? s.lookup('staff_mgmt.password_min_length')
                         : null,
                   ),
                 ],
@@ -926,6 +959,28 @@ class _StaffRoleOption {
   final String value;
   final String label;
   const _StaffRoleOption(this.value, this.label);
+
+  String displayLabel(BuildContext context) {
+    final s = AppStrings.of(context);
+    final localized = s.lookup(label);
+    return localized == label ? label : localized;
+  }
+}
+
+String _roleDisplayLabel(BuildContext context, String? roleCode) {
+  final raw = roleCode?.trim().toUpperCase() ?? '';
+  if (raw.isEmpty) {
+    return AppStrings.of(context).lookup('role.display.general_staff');
+  }
+  final key = 'role.display.${raw.toLowerCase()}';
+  final label = AppStrings.of(context).lookup(key);
+  return label == key ? raw.replaceAll('_', ' ') : label;
+}
+
+String _shiftDisplayLabel(BuildContext context, String shift) {
+  final key = 's4.lib.staff_management.shift.${shift.toLowerCase()}';
+  final label = AppStrings.of(context).lookup(key);
+  return label == key ? shift.replaceAll('_', ' ') : label;
 }
 
 class _ErrorState extends StatelessWidget {

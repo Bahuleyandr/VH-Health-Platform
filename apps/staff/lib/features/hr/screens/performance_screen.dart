@@ -422,7 +422,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
               r['period'] ??
               r['review_period'] ??
               r['last_review_date'] ??
-              'No review yet';
+              AppStrings.of(context).lookup('performance.no_review_yet');
           final rating =
               r['overall_rating'] ??
               r['overallRating'] ??

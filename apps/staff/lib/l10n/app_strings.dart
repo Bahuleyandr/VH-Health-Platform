@@ -4123,6 +4123,19 @@ class AppStrings {
       'hr.action.performance.subtitle': 'Manage performance records',
       'hr.action.staff_directory': 'Staff Directory',
       'hr.action.staff_directory.subtitle': 'Browse all staff members',
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      'hr.action.staff_roster': 'Staff roster',
+      'hr.action.staff_roster.subtitle':
+          'Open doctor, nursing, OP, reception, driver, maintenance, pharmacy, or housekeeping boards',
+      'hr.action.leave_approvals': 'Leave approvals',
+      'hr.action.leave_approvals.subtitle':
+          'Review pending leave requests and record HR decisions',
+      'hr.action.my_roster': 'My roster',
+      'hr.action.my_roster.subtitle':
+          'View duty roster, leave, attendance, and duty requests',
+      'hr.action.hr_admin_report_review': 'HR/Admin Report Review',
+      'hr.action.hr_admin_report_review.subtitle':
+          'Central incident and grievance queue with activity logs',
       'hr.action.reports': 'Reports & Grievances',
       'hr.action.reports.subtitle': 'Incident reports, staff grievances',
       'hr.action.payslips': 'My Payslips',
@@ -4134,6 +4147,10 @@ class AppStrings {
       'staff_mgmt.full_name': 'Full Name',
       'staff_mgmt.name_required': 'Name is required',
       'staff_mgmt.department': 'Department',
+      'staff_mgmt.phone_required': 'Phone is required',
+      'staff_mgmt.department_required': 'Department is required',
+      'staff_mgmt.position_required': 'Position is required',
+      'staff_mgmt.password_min_length': 'Use at least 6 characters',
       'staff_mgmt.clear_filter': 'Remove filter',
       'staff_mgmt.active': 'Active',
       'staff_mgmt.inactive': 'Inactive',
@@ -4169,6 +4186,7 @@ class AppStrings {
       'performance.rating.needs_improvement': 'Needs Improvement',
       'performance.rating.unsatisfactory': 'Unsatisfactory',
       'performance.no_reviews': 'No reviews yet',
+      'performance.no_review_yet': 'No review yet',
       'directory.title': 'Staff Directory',
       'directory.search_hint': 'Search by name, dept, role...',
       'directory.empty': 'Directory is empty',
@@ -5491,6 +5509,10 @@ class AppStrings {
       's4.lib.hr_dashboard.roster': "Roster",
       's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
           "Seeded and onboarded staff currently visible to HR",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.hr_dashboard.staff_roster_snapshot': "Staff roster snapshot",
+      's4.lib.hr_dashboard.unassigned_department': "Unassigned",
+      's4.lib.hr_dashboard.staff_name_fallback': "Staff",
       's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
           "Use onboarding to add the first staff account.",
       's4.lib.investigations.cbc_x_ray_chest_ecg': "CBC, X-Ray chest, ECG...",
@@ -5518,6 +5540,13 @@ class AppStrings {
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.leave_approvals.leave_approved': "Leave approved",
       's4.lib.leave_approvals.leave_rejected': "Leave rejected",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.title': "Leave Approvals",
+      's4.lib.leave_approvals.status.pending': "Pending",
+      's4.lib.leave_approvals.status.approved': "Approved",
+      's4.lib.leave_approvals.status.rejected': "Rejected",
+      's4.lib.leave_approvals.unknown_staff': "Unknown staff",
+      's4.lib.leave_approvals.department_not_set': "Department not set",
       's4.lib.main_scaffold.pending_clinical_tasks': "pending clinical tasks",
       's4.lib.main_scaffold.unread_alerts': "unread alerts",
       's4.lib.main_scaffold.unread_messages': "unread messages",
@@ -5575,6 +5604,39 @@ class AppStrings {
           "Search (pneumonia, sepsis, …)",
       's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
           "Central hierarchy and role map",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.organization_hierarchy.hospital_hierarchy': "Hospital hierarchy",
+      's4.lib.organization_hierarchy.role_boundaries': "Role boundaries",
+      's4.lib.organization_hierarchy.role_boundaries_subtitle':
+          "What each authority line can and cannot do.",
+      's4.lib.organization_hierarchy.guardrails': "Guardrails",
+      's4.lib.organization_hierarchy.guardrails_subtitle':
+          "Rules that prevent roles from overstepping.",
+      's4.lib.organization_hierarchy.suggested_improvements':
+          "Suggested improvements",
+      's4.lib.organization_hierarchy.suggested_improvements_subtitle':
+          "A cleaner structure for hospital-scale operations.",
+      's4.lib.organization_hierarchy.design_note_fallback':
+          "Access, work supervision, and leave approval are separate.",
+      's4.lib.organization_hierarchy.tenant_scoped': "Tenant scoped",
+      's4.lib.organization_hierarchy.tenant_unavailable': "Tenant unavailable",
+      's4.lib.organization_hierarchy.legend.executive_governance':
+          "Executive / governance",
+      's4.lib.organization_hierarchy.legend.daily_work_supervision':
+          "Daily work supervision",
+      's4.lib.organization_hierarchy.legend.hr_leave_process':
+          "HR leave process",
+      's4.lib.organization_hierarchy.legend.coverage_advice': "Coverage advice",
+      's4.lib.organization_hierarchy.role_fallback': "Role",
+      's4.lib.organization_hierarchy.current_enrolled_staff_for_role':
+          "Current enrolled staff for this hierarchy role",
+      's4.lib.organization_hierarchy.reports_here': "Reports here",
+      's4.lib.organization_hierarchy.hierarchy_lane_fallback': "Hierarchy lane",
+      's4.lib.organization_hierarchy.boundary_fallback': "Boundary",
+      's4.lib.organization_hierarchy.suggestion_fallback': "Suggestion",
+      's4.lib.organization_hierarchy.tap_to_view_staff_details':
+          "Tap to view staff details",
+      's4.lib.organization_hierarchy.unnamed_staff': "Unnamed staff",
       's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
           "No registered staff found under this role.",
       's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
@@ -5783,6 +5845,15 @@ class AppStrings {
       's4.lib.staff_management.position': "Position",
       's4.lib.staff_management.show_department_options':
           "Show department options",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.staff_management.unknown_staff': "Unknown",
+      's4.lib.staff_management.staff_account_created_with_onboarding_checklist':
+          "Staff account created with onboarding checklist",
+      's4.lib.staff_management.shift.full_day': "Full day",
+      's4.lib.staff_management.shift.morning': "Morning",
+      's4.lib.staff_management.shift.afternoon': "Afternoon",
+      's4.lib.staff_management.shift.night': "Night",
+      's4.lib.staff_management.shift.on_call': "On call",
       's4.lib.staff_management.temporary_password': "Temporary password",
       's4.lib.staff_phone_more.more': "More",
       's4.lib.staff_query.it': "IT",
@@ -6040,6 +6111,28 @@ class AppStrings {
       's4.dynamic.housekeeping.week_label': "Week {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} shift name",
       's4.dynamic.leave_approvals.decision_title': "{decision} leave",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.dynamic.leave_approvals.date_range_days':
+          "{start} to {end} - {days} day(s)",
+      's4.dynamic.leave_approvals.no_status_requests':
+          "No {status} leave requests",
+      's4.dynamic.hr_dashboard.active_of_total_staff':
+          "{active} active of {total} staff",
+      's4.dynamic.hr_dashboard.department_count': "{department} {count}",
+      's4.dynamic.staff_management.department_staff_count':
+          "{department}: {count} staff",
+      's4.dynamic.staff_management.policy_hash': "policy {hash}",
+      's4.dynamic.staff_management.department_employee_id':
+          "{department} • ID: {employeeId}",
+      's4.dynamic.organization_hierarchy.counts_status': "Counts: {status}",
+      's4.dynamic.organization_hierarchy.policy_hash': "Policy {hash}",
+      's4.dynamic.organization_hierarchy.commit_hash': "Commit {hash}",
+      's4.dynamic.organization_hierarchy.role_later': "{role} later",
+      's4.dynamic.organization_hierarchy.cannot_value': "Cannot: {value}",
+      's4.dynamic.organization_hierarchy.tap_to_view_all_staff':
+          "Tap to view all {count} staff",
+      's4.dynamic.organization_hierarchy.registered_staff_count':
+          "{count} registered staff",
       's4.dynamic.lab_bookings.tests_prefix': "Tests: {tests}",
       's4.dynamic.messaging.saved_to_path': "Saved to {path}",
       's4.dynamic.pharmacy.cancel_order_confirm': "Cancel order {orderNumber}?",
@@ -7378,6 +7471,19 @@ class AppStrings {
       'hr.action.performance.subtitle': 'प्रदर्शन रिकॉर्ड प्रबंधित करें',
       'hr.action.staff_directory': 'कर्मचारी निर्देशिका',
       'hr.action.staff_directory.subtitle': 'सभी कर्मचारी देखें',
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      'hr.action.staff_roster': 'कर्मचारी रोस्टर',
+      'hr.action.staff_roster.subtitle':
+          'डॉक्टर, नर्सिंग, ओपी, रिसेप्शन, ड्राइवर, रखरखाव, फार्मेसी या हाउसकीपिंग बोर्ड खोलें',
+      'hr.action.leave_approvals': 'अवकाश स्वीकृतियाँ',
+      'hr.action.leave_approvals.subtitle':
+          'लंबित अवकाश अनुरोधों की समीक्षा करें और HR निर्णय दर्ज करें',
+      'hr.action.my_roster': 'मेरा रोस्टर',
+      'hr.action.my_roster.subtitle':
+          'ड्यूटी रोस्टर, अवकाश, उपस्थिति और ड्यूटी अनुरोध देखें',
+      'hr.action.hr_admin_report_review': 'HR/Admin रिपोर्ट समीक्षा',
+      'hr.action.hr_admin_report_review.subtitle':
+          'गतिविधि लॉग के साथ केंद्रीय घटना और शिकायत कतार',
       'hr.action.reports': 'रिपोर्ट और शिकायतें',
       'hr.action.reports.subtitle': 'घटना रिपोर्ट, कर्मचारी शिकायतें',
       'hr.action.payslips': 'मेरी वेतन-पर्चियाँ',
@@ -7389,6 +7495,10 @@ class AppStrings {
       'staff_mgmt.full_name': 'पूरा नाम',
       'staff_mgmt.name_required': 'नाम आवश्यक है',
       'staff_mgmt.department': 'विभाग',
+      'staff_mgmt.phone_required': 'फ़ोन आवश्यक है',
+      'staff_mgmt.department_required': 'विभाग आवश्यक है',
+      'staff_mgmt.position_required': 'पद आवश्यक है',
+      'staff_mgmt.password_min_length': 'कम से कम 6 अक्षर उपयोग करें',
       'staff_mgmt.clear_filter': 'फ़िल्टर हटाएँ',
       'staff_mgmt.active': 'सक्रिय',
       'staff_mgmt.inactive': 'निष्क्रिय',
@@ -7431,6 +7541,7 @@ class AppStrings {
       // REVIEW: HR rating - verify scale
       'performance.rating.unsatisfactory': 'असंतोषजनक',
       'performance.no_reviews': 'अभी तक कोई समीक्षा नहीं',
+      'performance.no_review_yet': 'अभी कोई समीक्षा नहीं',
       'directory.title': 'कर्मचारी निर्देशिका',
       'directory.search_hint': 'नाम, विभाग, भूमिका से खोजें…',
       'directory.empty': 'निर्देशिका खाली है',
@@ -8713,6 +8824,10 @@ class AppStrings {
       's4.lib.hr_dashboard.roster': "रोस्टर",
       's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
           "सीडेड और ऑनबोर्ड स्टाफ वर्तमान में एचआर को दिखाई दे रहा है",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.hr_dashboard.staff_roster_snapshot': "कर्मचारी रोस्टर स्नैपशॉट",
+      's4.lib.hr_dashboard.unassigned_department': "असाइन नहीं किया गया",
+      's4.lib.hr_dashboard.staff_name_fallback': "कर्मचारी",
       's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
           "पहला स्टाफ खाता जोड़ने के लिए ऑनबोर्डिंग का उपयोग करें।",
       's4.lib.investigations.cbc_x_ray_chest_ecg':
@@ -8741,6 +8856,13 @@ class AppStrings {
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.leave_approvals.leave_approved': "छुट्टी स्वीकृत",
       's4.lib.leave_approvals.leave_rejected': "छुट्टी अस्वीकृत",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.title': "अवकाश स्वीकृतियाँ",
+      's4.lib.leave_approvals.status.pending': "लंबित",
+      's4.lib.leave_approvals.status.approved': "स्वीकृत",
+      's4.lib.leave_approvals.status.rejected': "अस्वीकृत",
+      's4.lib.leave_approvals.unknown_staff': "अज्ञात कर्मचारी",
+      's4.lib.leave_approvals.department_not_set': "विभाग सेट नहीं",
       's4.lib.main_scaffold.pending_clinical_tasks': "लंबित नैदानिक ​​कार्य",
       's4.lib.main_scaffold.unread_alerts': "अपठित अलर्ट",
       's4.lib.main_scaffold.unread_messages': "अपठित संदेश",
@@ -8798,6 +8920,38 @@ class AppStrings {
           "खोजें (निमोनिया, सेप्सिस,…)",
       's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
           "केंद्रीय पदानुक्रम और भूमिका मानचित्र",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.organization_hierarchy.hospital_hierarchy': "अस्पताल पदानुक्रम",
+      's4.lib.organization_hierarchy.role_boundaries': "भूमिका सीमाएँ",
+      's4.lib.organization_hierarchy.role_boundaries_subtitle':
+          "हर अधिकार रेखा क्या कर सकती है और क्या नहीं।",
+      's4.lib.organization_hierarchy.guardrails': "सुरक्षा नियम",
+      's4.lib.organization_hierarchy.guardrails_subtitle':
+          "वे नियम जो भूमिकाओं को सीमा से बाहर जाने से रोकते हैं।",
+      's4.lib.organization_hierarchy.suggested_improvements': "सुझाए गए सुधार",
+      's4.lib.organization_hierarchy.suggested_improvements_subtitle':
+          "अस्पताल-स्तर के संचालन के लिए साफ़ संरचना।",
+      's4.lib.organization_hierarchy.design_note_fallback':
+          "एक्सेस, कार्य पर्यवेक्षण और अवकाश स्वीकृति अलग-अलग हैं।",
+      's4.lib.organization_hierarchy.tenant_scoped': "टेनेंट-सीमित",
+      's4.lib.organization_hierarchy.tenant_unavailable': "टेनेंट उपलब्ध नहीं",
+      's4.lib.organization_hierarchy.legend.executive_governance':
+          "कार्यकारी / शासन",
+      's4.lib.organization_hierarchy.legend.daily_work_supervision':
+          "दैनिक कार्य पर्यवेक्षण",
+      's4.lib.organization_hierarchy.legend.hr_leave_process':
+          "HR अवकाश प्रक्रिया",
+      's4.lib.organization_hierarchy.legend.coverage_advice': "कवरेज सलाह",
+      's4.lib.organization_hierarchy.role_fallback': "भूमिका",
+      's4.lib.organization_hierarchy.current_enrolled_staff_for_role':
+          "इस पदानुक्रम भूमिका के लिए वर्तमान नामांकित कर्मचारी",
+      's4.lib.organization_hierarchy.reports_here': "यहाँ रिपोर्ट करता है",
+      's4.lib.organization_hierarchy.hierarchy_lane_fallback': "पदानुक्रम लेन",
+      's4.lib.organization_hierarchy.boundary_fallback': "सीमा",
+      's4.lib.organization_hierarchy.suggestion_fallback': "सुझाव",
+      's4.lib.organization_hierarchy.tap_to_view_staff_details':
+          "कर्मचारी विवरण देखने के लिए टैप करें",
+      's4.lib.organization_hierarchy.unnamed_staff': "बेनाम कर्मचारी",
       's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
           "इस भूमिका के अंतर्गत कोई पंजीकृत कर्मचारी नहीं मिला.",
       's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
@@ -9013,6 +9167,15 @@ class AppStrings {
       's4.lib.staff_management.position': "पद",
       's4.lib.staff_management.show_department_options':
           "विभाग के विकल्प दिखाएँ",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.staff_management.unknown_staff': "अज्ञात",
+      's4.lib.staff_management.staff_account_created_with_onboarding_checklist':
+          "ऑनबोर्डिंग चेकलिस्ट के साथ कर्मचारी खाता बनाया गया",
+      's4.lib.staff_management.shift.full_day': "पूरा दिन",
+      's4.lib.staff_management.shift.morning': "सुबह",
+      's4.lib.staff_management.shift.afternoon': "दोपहर",
+      's4.lib.staff_management.shift.night': "रात",
+      's4.lib.staff_management.shift.on_call': "ऑन कॉल",
       's4.lib.staff_management.temporary_password': "अस्थायी पासवर्ड",
       's4.lib.staff_phone_more.more': "अधिक",
       's4.lib.staff_query.it': "IT",
@@ -9270,6 +9433,28 @@ class AppStrings {
       's4.dynamic.housekeeping.week_label': "सप्ताह {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} शिफ्ट नाम",
       's4.dynamic.leave_approvals.decision_title': "{decision} छोड़ें",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.dynamic.leave_approvals.date_range_days':
+          "{start} से {end} - {days} दिन",
+      's4.dynamic.leave_approvals.no_status_requests':
+          "कोई {status} अवकाश अनुरोध नहीं",
+      's4.dynamic.hr_dashboard.active_of_total_staff':
+          "{total} में से {active} कर्मचारी सक्रिय",
+      's4.dynamic.hr_dashboard.department_count': "{department} {count}",
+      's4.dynamic.staff_management.department_staff_count':
+          "{department}: {count} कर्मचारी",
+      's4.dynamic.staff_management.policy_hash': "नीति {hash}",
+      's4.dynamic.staff_management.department_employee_id':
+          "{department} • ID: {employeeId}",
+      's4.dynamic.organization_hierarchy.counts_status': "गिनती: {status}",
+      's4.dynamic.organization_hierarchy.policy_hash': "नीति {hash}",
+      's4.dynamic.organization_hierarchy.commit_hash': "कमिट {hash}",
+      's4.dynamic.organization_hierarchy.role_later': "{role} बाद में",
+      's4.dynamic.organization_hierarchy.cannot_value': "नहीं कर सकता: {value}",
+      's4.dynamic.organization_hierarchy.tap_to_view_all_staff':
+          "सभी {count} कर्मचारी देखने के लिए टैप करें",
+      's4.dynamic.organization_hierarchy.registered_staff_count':
+          "{count} पंजीकृत कर्मचारी",
       's4.dynamic.lab_bookings.tests_prefix': "परीक्षण: {tests}",
       's4.dynamic.messaging.saved_to_path': "{path} में सहेजा गया",
       's4.dynamic.pharmacy.cancel_order_confirm':
@@ -10551,6 +10736,19 @@ class AppStrings {
       'hr.stat.pending_leaves': 'நிலுவையிலுள்ள விடுப்புகள்',
       'hr.action.staff_management': 'ஊழியர் மேலாண்மை',
       'hr.action.staff_directory': 'ஊழியர் பட்டியல்',
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      'hr.action.staff_roster': 'ஊழியர் பட்டியல் அட்டவணை',
+      'hr.action.staff_roster.subtitle':
+          'மருத்துவர், நர்சிங், OP, வரவேற்பு, ஓட்டுநர், பராமரிப்பு, மருந்தகம் அல்லது ஹவுஸ்கீப்பிங் பலகைகளைத் திறக்கவும்',
+      'hr.action.leave_approvals': 'விடுப்பு ஒப்புதல்கள்',
+      'hr.action.leave_approvals.subtitle':
+          'நிலுவையிலுள்ள விடுப்பு கோரிக்கைகளை மதிப்பாய்வு செய்து HR முடிவுகளை பதிவு செய்யவும்',
+      'hr.action.my_roster': 'என் ரோஸ்டர்',
+      'hr.action.my_roster.subtitle':
+          'ட்யூட்டி ரோஸ்டர், விடுப்பு, வருகை மற்றும் ட்யூட்டி கோரிக்கைகளைப் பார்க்கவும்',
+      'hr.action.hr_admin_report_review': 'HR/Admin அறிக்கை மதிப்பாய்வு',
+      'hr.action.hr_admin_report_review.subtitle':
+          'செயல்பாட்டு பதிவுகளுடன் மைய சம்பவ மற்றும் குறைதீர் வரிசை',
       'hr.action.payslips': 'என் சம்பளப் பட்டியல்கள்',
       'staff_mgmt.title': 'ஊழியர் மேலாண்மை',
       'staff_mgmt.add_staff': 'ஊழியர் சேர்',
@@ -11070,6 +11268,12 @@ class AppStrings {
       'staff_mgmt.name_required': 'பெயர் தேவை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'staff_mgmt.department': 'துறை',
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      'staff_mgmt.phone_required': 'தொலைபேசி எண் தேவை',
+      'staff_mgmt.department_required': 'துறை தேவை',
+      'staff_mgmt.position_required': 'பதவி தேவை',
+      'staff_mgmt.password_min_length':
+          'குறைந்தது 6 எழுத்துகளைப் பயன்படுத்தவும்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'staff_mgmt.clear_filter': 'வடிகட்டியை அகற்று',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -11126,6 +11330,7 @@ class AppStrings {
       'performance.rating.unsatisfactory': 'திருப்தியற்றது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'performance.no_reviews': 'இதுவரை விமர்சனங்கள் இல்லை',
+      'performance.no_review_yet': 'இன்னும் மதிப்பாய்வு இல்லை',
       'directory.search_hint': 'பெயர், துறை, பங்கு மூலம் தேடவும்...',
       'directory.empty': 'கோப்பகம் காலியாக உள்ளது',
       'directory.search_empty': 'வேறு தேடல் சொல்லை முயற்சிக்கவும்',
@@ -12438,6 +12643,10 @@ class AppStrings {
       's4.lib.hr_dashboard.roster': "பட்டியல்",
       's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
           "விதைக்கப்பட்ட மற்றும் உள்நாட்டில் பணிபுரியும் ஊழியர்கள் தற்போது HR-க்கு தெரியும்",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.hr_dashboard.staff_roster_snapshot': "ஊழியர் ரோஸ்டர் சுருக்கம்",
+      's4.lib.hr_dashboard.unassigned_department': "ஒதுக்கப்படாதது",
+      's4.lib.hr_dashboard.staff_name_fallback': "ஊழியர்",
       's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
           "முதல் பணியாளர் கணக்கைச் சேர்க்க ஆன்போர்டிங்கைப் பயன்படுத்தவும்.",
       's4.lib.investigations.cbc_x_ray_chest_ecg':
@@ -12467,6 +12676,13 @@ class AppStrings {
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.leave_approvals.leave_approved': "விடுப்பு அங்கீகரிக்கப்பட்டது",
       's4.lib.leave_approvals.leave_rejected': "விடுப்பு நிராகரிக்கப்பட்டது",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.title': "விடுப்பு ஒப்புதல்கள்",
+      's4.lib.leave_approvals.status.pending': "நிலுவையில்",
+      's4.lib.leave_approvals.status.approved': "அங்கீகரிக்கப்பட்டது",
+      's4.lib.leave_approvals.status.rejected': "நிராகரிக்கப்பட்டது",
+      's4.lib.leave_approvals.unknown_staff': "அறியப்படாத ஊழியர்",
+      's4.lib.leave_approvals.department_not_set': "துறை அமைக்கப்படவில்லை",
       's4.lib.main_scaffold.pending_clinical_tasks':
           "நிலுவையில் உள்ள மருத்துவ பணிகள்",
       's4.lib.main_scaffold.unread_alerts': "படிக்காத எச்சரிக்கைகள்",
@@ -12528,6 +12744,40 @@ class AppStrings {
           "தேடல் (நிமோனியா, செப்சிஸ், ...)",
       's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
           "மத்திய படிநிலை மற்றும் பங்கு வரைபடம்",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.organization_hierarchy.hospital_hierarchy': "மருத்துவமனை படிநிலை",
+      's4.lib.organization_hierarchy.role_boundaries': "பங்கு எல்லைகள்",
+      's4.lib.organization_hierarchy.role_boundaries_subtitle':
+          "ஒவ்வொரு அதிகார வரியும் என்ன செய்யலாம், என்ன செய்ய முடியாது.",
+      's4.lib.organization_hierarchy.guardrails': "பாதுகாப்பு விதிகள்",
+      's4.lib.organization_hierarchy.guardrails_subtitle':
+          "பங்குகள் எல்லை மீறாமல் தடுக்கும் விதிகள்.",
+      's4.lib.organization_hierarchy.suggested_improvements':
+          "பரிந்துரைக்கப்பட்ட மேம்பாடுகள்",
+      's4.lib.organization_hierarchy.suggested_improvements_subtitle':
+          "மருத்துவமனை அளவிலான செயல்பாடுகளுக்கான தெளிவான அமைப்பு.",
+      's4.lib.organization_hierarchy.design_note_fallback':
+          "அணுகல், பணி மேற்பார்வை மற்றும் விடுப்பு ஒப்புதல் தனித்தனியாக உள்ளன.",
+      's4.lib.organization_hierarchy.tenant_scoped': "டெனன்ட் வரம்புடையது",
+      's4.lib.organization_hierarchy.tenant_unavailable':
+          "டெனன்ட் கிடைக்கவில்லை",
+      's4.lib.organization_hierarchy.legend.executive_governance':
+          "நிர்வாகம் / ஆட்சி",
+      's4.lib.organization_hierarchy.legend.daily_work_supervision':
+          "தினசரி பணி மேற்பார்வை",
+      's4.lib.organization_hierarchy.legend.hr_leave_process':
+          "HR விடுப்பு செயல்முறை",
+      's4.lib.organization_hierarchy.legend.coverage_advice': "கவரேஜ் ஆலோசனை",
+      's4.lib.organization_hierarchy.role_fallback': "பங்கு",
+      's4.lib.organization_hierarchy.current_enrolled_staff_for_role':
+          "இந்த படிநிலைப் பங்கிற்கான தற்போதைய பதிவு செய்யப்பட்ட ஊழியர்கள்",
+      's4.lib.organization_hierarchy.reports_here': "இங்கே அறிக்கை செய்கிறார்",
+      's4.lib.organization_hierarchy.hierarchy_lane_fallback': "படிநிலை பாதை",
+      's4.lib.organization_hierarchy.boundary_fallback': "எல்லை",
+      's4.lib.organization_hierarchy.suggestion_fallback': "பரிந்துரை",
+      's4.lib.organization_hierarchy.tap_to_view_staff_details':
+          "ஊழியர் விவரங்களைப் பார்க்க தட்டவும்",
+      's4.lib.organization_hierarchy.unnamed_staff': "பெயரிடப்படாத ஊழியர்",
       's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
           "இந்தப் பொறுப்பின் கீழ் பதிவுசெய்யப்பட்ட ஊழியர்கள் யாரும் இல்லை.",
       's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
@@ -12755,6 +13005,15 @@ class AppStrings {
       's4.lib.staff_management.position': "பதவி",
       's4.lib.staff_management.show_department_options':
           "துறை விருப்பங்களைக் காட்டு",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.staff_management.unknown_staff': "அறியப்படாதவர்",
+      's4.lib.staff_management.staff_account_created_with_onboarding_checklist':
+          "ஆன்போர்டிங் சரிபார்ப்பு பட்டியலுடன் ஊழியர் கணக்கு உருவாக்கப்பட்டது",
+      's4.lib.staff_management.shift.full_day': "முழு நாள்",
+      's4.lib.staff_management.shift.morning': "காலை",
+      's4.lib.staff_management.shift.afternoon': "மதியம்",
+      's4.lib.staff_management.shift.night': "இரவு",
+      's4.lib.staff_management.shift.on_call': "அழைப்பில்",
       's4.lib.staff_management.temporary_password': "தற்காலிக கடவுச்சொல்",
       's4.lib.staff_phone_more.more': "மேலும்",
       's4.lib.staff_query.it': "IT",
@@ -13018,6 +13277,29 @@ class AppStrings {
       's4.dynamic.housekeeping.week_label': "வாரம் {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} ஷிப்ட் பெயர்",
       's4.dynamic.leave_approvals.decision_title': "{decision} விடுப்பு",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.dynamic.leave_approvals.date_range_days':
+          "{start} முதல் {end} வரை - {days} நாள்",
+      's4.dynamic.leave_approvals.no_status_requests':
+          "{status} விடுப்பு கோரிக்கைகள் இல்லை",
+      's4.dynamic.hr_dashboard.active_of_total_staff':
+          "{total} ஊழியர்களில் {active} செயலில்",
+      's4.dynamic.hr_dashboard.department_count': "{department} {count}",
+      's4.dynamic.staff_management.department_staff_count':
+          "{department}: {count} ஊழியர்கள்",
+      's4.dynamic.staff_management.policy_hash': "கொள்கை {hash}",
+      's4.dynamic.staff_management.department_employee_id':
+          "{department} • ID: {employeeId}",
+      's4.dynamic.organization_hierarchy.counts_status': "எண்ணிக்கை: {status}",
+      's4.dynamic.organization_hierarchy.policy_hash': "கொள்கை {hash}",
+      's4.dynamic.organization_hierarchy.commit_hash': "கமிட் {hash}",
+      's4.dynamic.organization_hierarchy.role_later': "{role} பின்னர்",
+      's4.dynamic.organization_hierarchy.cannot_value':
+          "செய்ய முடியாது: {value}",
+      's4.dynamic.organization_hierarchy.tap_to_view_all_staff':
+          "அனைத்து {count} ஊழியர்களையும் பார்க்க தட்டவும்",
+      's4.dynamic.organization_hierarchy.registered_staff_count':
+          "{count} பதிவு செய்யப்பட்ட ஊழியர்கள்",
       's4.dynamic.lab_bookings.tests_prefix': "சோதனைகள்: {tests}",
       's4.dynamic.messaging.saved_to_path': "{path} இல் சேமிக்கப்பட்டது",
       's4.dynamic.pharmacy.cancel_order_confirm':
@@ -14284,6 +14566,19 @@ class AppStrings {
       'hr.stat.pending_leaves': 'పెండింగ్ సెలవులు',
       'hr.action.staff_management': 'సిబ్బంది నిర్వహణ',
       'hr.action.staff_directory': 'సిబ్బంది డైరెక్టరీ',
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      'hr.action.staff_roster': 'సిబ్బంది రోస్టర్',
+      'hr.action.staff_roster.subtitle':
+          'డాక్టర్, నర్సింగ్, OP, రిసెప్షన్, డ్రైవర్, నిర్వహణ, ఫార్మసీ లేదా హౌస్‌కీపింగ్ బోర్డులను తెరవండి',
+      'hr.action.leave_approvals': 'సెలవు ఆమోదాలు',
+      'hr.action.leave_approvals.subtitle':
+          'పెండింగ్ సెలవు అభ్యర్థనలను సమీక్షించి HR నిర్ణయాలను నమోదు చేయండి',
+      'hr.action.my_roster': 'నా రోస్టర్',
+      'hr.action.my_roster.subtitle':
+          'డ్యూటీ రోస్టర్, సెలవు, హాజరు మరియు డ్యూటీ అభ్యర్థనలను చూడండి',
+      'hr.action.hr_admin_report_review': 'HR/Admin నివేదిక సమీక్ష',
+      'hr.action.hr_admin_report_review.subtitle':
+          'చర్యల లాగ్‌లతో కేంద్ర ఘటన మరియు ఫిర్యాదు క్యూలు',
       'hr.action.payslips': 'నా జీతం స్లిప్‌లు',
       'staff_mgmt.title': 'సిబ్బంది నిర్వహణ',
       'staff_mgmt.add_staff': 'సిబ్బందిని జోడించు',
@@ -14796,6 +15091,11 @@ class AppStrings {
       'staff_mgmt.name_required': 'పేరు అవసరం',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'staff_mgmt.department': 'శాఖ',
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      'staff_mgmt.phone_required': 'ఫోన్ అవసరం',
+      'staff_mgmt.department_required': 'శాఖ అవసరం',
+      'staff_mgmt.position_required': 'స్థానం అవసరం',
+      'staff_mgmt.password_min_length': 'కనీసం 6 అక్షరాలు ఉపయోగించండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'staff_mgmt.clear_filter': 'ఫిల్టర్‌ని తీసివేయండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -14851,6 +15151,7 @@ class AppStrings {
       'performance.rating.unsatisfactory': 'సంతృప్తికరంగా లేదు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'performance.no_reviews': 'ఇంకా సమీక్షలు లేవు',
+      'performance.no_review_yet': 'ఇంకా సమీక్ష లేదు',
       'directory.search_hint': 'పేరు, శాఖ, పాత్ర ద్వారా శోధించండి...',
       'directory.empty': 'డైరెక్టరీ ఖాళీగా ఉంది',
       'directory.search_empty': 'వేరొక శోధన పదాన్ని ప్రయత్నించండి',
@@ -16150,6 +16451,10 @@ class AppStrings {
       's4.lib.hr_dashboard.roster': "రోస్టర్",
       's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
           "సీడెడ్ మరియు ఆన్‌బోర్డ్ సిబ్బంది ప్రస్తుతం HRకి కనిపిస్తున్నారు",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.hr_dashboard.staff_roster_snapshot': "సిబ్బంది రోస్టర్ సారాంశం",
+      's4.lib.hr_dashboard.unassigned_department': "కేటాయించబడలేదు",
+      's4.lib.hr_dashboard.staff_name_fallback': "సిబ్బంది",
       's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
           "మొదటి సిబ్బంది ఖాతాను జోడించడానికి ఆన్‌బోర్డింగ్ ఉపయోగించండి.",
       's4.lib.investigations.cbc_x_ray_chest_ecg':
@@ -16178,6 +16483,13 @@ class AppStrings {
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.leave_approvals.leave_approved': "సెలవు ఆమోదించబడింది",
       's4.lib.leave_approvals.leave_rejected': "సెలవు తిరస్కరించబడింది",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.title': "సెలవు ఆమోదాలు",
+      's4.lib.leave_approvals.status.pending': "పెండింగ్",
+      's4.lib.leave_approvals.status.approved': "ఆమోదించబడింది",
+      's4.lib.leave_approvals.status.rejected': "తిరస్కరించబడింది",
+      's4.lib.leave_approvals.unknown_staff': "తెలియని సిబ్బంది",
+      's4.lib.leave_approvals.department_not_set': "శాఖ సెట్ చేయలేదు",
       's4.lib.main_scaffold.pending_clinical_tasks':
           "పెండింగ్‌లో ఉన్న క్లినికల్ పనులు",
       's4.lib.main_scaffold.unread_alerts': "చదవని హెచ్చరికలు",
@@ -16237,6 +16549,40 @@ class AppStrings {
           "శోధన (న్యుమోనియా, సెప్సిస్, …)",
       's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
           "కేంద్ర సోపానక్రమం మరియు రోల్ మ్యాప్",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.organization_hierarchy.hospital_hierarchy': "ఆసుపత్రి సోపానక్రమం",
+      's4.lib.organization_hierarchy.role_boundaries': "పాత్ర పరిమితులు",
+      's4.lib.organization_hierarchy.role_boundaries_subtitle':
+          "ప్రతి అధికారి రేఖ ఏమి చేయగలదు, ఏమి చేయలదు.",
+      's4.lib.organization_hierarchy.guardrails': "రక్షణ నియమాలు",
+      's4.lib.organization_hierarchy.guardrails_subtitle':
+          "పాత్రలు పరిమితులు దాటకుండా నిరోధించే నియమాలు.",
+      's4.lib.organization_hierarchy.suggested_improvements':
+          "సూచించిన మెరుగుదలలు",
+      's4.lib.organization_hierarchy.suggested_improvements_subtitle':
+          "ఆసుపత్రి స్థాయి కార్యకలాపాలకు మరింత స్పష్టమైన నిర్మాణం.",
+      's4.lib.organization_hierarchy.design_note_fallback':
+          "యాక్సెస్, పని పర్యవేక్షణ మరియు సెలవు ఆమోదం వేర్వేరు.",
+      's4.lib.organization_hierarchy.tenant_scoped': "టెనెంట్ పరిమితి",
+      's4.lib.organization_hierarchy.tenant_unavailable':
+          "టెనెంట్ అందుబాటులో లేదు",
+      's4.lib.organization_hierarchy.legend.executive_governance':
+          "ఎగ్జిక్యూటివ్ / పాలన",
+      's4.lib.organization_hierarchy.legend.daily_work_supervision':
+          "రోజువారీ పని పర్యవేక్షణ",
+      's4.lib.organization_hierarchy.legend.hr_leave_process':
+          "HR సెలవు ప్రక్రియ",
+      's4.lib.organization_hierarchy.legend.coverage_advice': "కవరేజ్ సలహా",
+      's4.lib.organization_hierarchy.role_fallback': "పాత్ర",
+      's4.lib.organization_hierarchy.current_enrolled_staff_for_role':
+          "ఈ సోపానక్రమ పాత్ర కోసం ప్రస్తుత నమోదు చేసిన సిబ్బంది",
+      's4.lib.organization_hierarchy.reports_here': "ఇక్కడ నివేదిస్తారు",
+      's4.lib.organization_hierarchy.hierarchy_lane_fallback': "సోపానక్రమ లేన్",
+      's4.lib.organization_hierarchy.boundary_fallback': "పరిమితి",
+      's4.lib.organization_hierarchy.suggestion_fallback': "సూచన",
+      's4.lib.organization_hierarchy.tap_to_view_staff_details':
+          "సిబ్బంది వివరాలను చూడటానికి ట్యాప్ చేయండి",
+      's4.lib.organization_hierarchy.unnamed_staff': "పేరు లేని సిబ్బంది",
       's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
           "ఈ పాత్ర కింద నమోదిత సిబ్బంది కనుగొనబడలేదు.",
       's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
@@ -16455,6 +16801,15 @@ class AppStrings {
           "స్వయంచాలకంగా రూపొందించడానికి ఖాళీని వదిలివేయండి",
       's4.lib.staff_management.position': "స్థానం",
       's4.lib.staff_management.show_department_options': "విభాగం ఎంపికలను చూపు",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.lib.staff_management.unknown_staff': "తెలియదు",
+      's4.lib.staff_management.staff_account_created_with_onboarding_checklist':
+          "ఆన్‌బోర్డింగ్ చెక్‌లిస్ట్‌తో సిబ్బంది ఖాతా సృష్టించబడింది",
+      's4.lib.staff_management.shift.full_day': "పూర్తి రోజు",
+      's4.lib.staff_management.shift.morning': "ఉదయం",
+      's4.lib.staff_management.shift.afternoon': "మధ్యాహ్నం",
+      's4.lib.staff_management.shift.night': "రాత్రి",
+      's4.lib.staff_management.shift.on_call': "ఆన్ కాల్",
       's4.lib.staff_management.temporary_password': "తాత్కాలిక పాస్వర్డ్",
       's4.lib.staff_phone_more.more': "మరిన్ని",
       's4.lib.staff_query.it': "IT",
@@ -16717,6 +17072,28 @@ class AppStrings {
       's4.dynamic.housekeeping.week_label': "వారం {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} షిఫ్ట్ పేరు",
       's4.dynamic.leave_approvals.decision_title': "{decision} సెలవు",
+      // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
+      's4.dynamic.leave_approvals.date_range_days':
+          "{start} నుండి {end} వరకు - {days} రోజు",
+      's4.dynamic.leave_approvals.no_status_requests':
+          "{status} సెలవు అభ్యర్థనలు లేవు",
+      's4.dynamic.hr_dashboard.active_of_total_staff':
+          "{total} సిబ్బందిలో {active} సక్రియం",
+      's4.dynamic.hr_dashboard.department_count': "{department} {count}",
+      's4.dynamic.staff_management.department_staff_count':
+          "{department}: {count} సిబ్బంది",
+      's4.dynamic.staff_management.policy_hash': "పాలసీ {hash}",
+      's4.dynamic.staff_management.department_employee_id':
+          "{department} • ID: {employeeId}",
+      's4.dynamic.organization_hierarchy.counts_status': "లెక్కలు: {status}",
+      's4.dynamic.organization_hierarchy.policy_hash': "పాలసీ {hash}",
+      's4.dynamic.organization_hierarchy.commit_hash': "కమిట్ {hash}",
+      's4.dynamic.organization_hierarchy.role_later': "{role} తరువాత",
+      's4.dynamic.organization_hierarchy.cannot_value': "చేయలేరు: {value}",
+      's4.dynamic.organization_hierarchy.tap_to_view_all_staff':
+          "అన్ని {count} సిబ్బందిని చూడటానికి ట్యాప్ చేయండి",
+      's4.dynamic.organization_hierarchy.registered_staff_count':
+          "{count} నమోదిత సిబ్బంది",
       's4.dynamic.lab_bookings.tests_prefix': "పరీక్షలు: {tests}",
       's4.dynamic.messaging.saved_to_path': "{path}కి సేవ్ చేయబడింది",
       's4.dynamic.pharmacy.cancel_order_confirm':
