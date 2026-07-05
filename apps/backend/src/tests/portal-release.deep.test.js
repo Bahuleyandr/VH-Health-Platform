@@ -23,6 +23,10 @@ let freshResultId;
 let agedResultId;
 let heldResultId;
 let grantId;
+const pngSignature = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  'base64',
+);
 
 function patientClient(uid) {
   const secret = process.env.JWT_SECRET || 'test-jwt-secret';
@@ -175,14 +179,31 @@ d('Portal result release + proxy access — deep round-trip (roadmap E6)', () =>
     const blocked = await patientClient(patientB).get(`/api/v1/portal/lab-results?for_patient=${patientA}`);
     expect(blocked.status).toBe(403);
 
-    const grant = await patientClient(patientA).post('/api/v1/portal/proxy/grants').send({
-      proxy_uid: patientB,
-      relationship: 'son',
-      consent_method: 'otp',
-      consent_ref: 'OTP-2026-0610-001',
-    });
+    const grant = await patientClient(patientA)
+      .post('/api/v1/portal/proxy/grants')
+      .field('proxy_uid', patientB)
+      .field('relationship', 'son')
+      .field('consent_method', 'written')
+      .field('consent_ref', 'SIG-2026-0610-001')
+      .attach('file', pngSignature, {
+        filename: 'proxy-grant-signature.png',
+        contentType: 'image/png',
+      });
     expect(grant.status).toBe(200);
     grantId = grant.body.data.id;
+    expect(String(grant.body.data.signature_sha256_hash || '')).toHaveLength(64);
+
+    const grantRows = await prisma.$queryRawUnsafe(
+      `SELECT signature_storage_key, signature_mime_type, signature_sha256_hash
+         FROM portal_proxy_grants
+        WHERE id = $1::int`,
+      grantId,
+    );
+    expect(grantRows[0]).toMatchObject({
+      signature_mime_type: 'image/png',
+      signature_sha256_hash: grant.body.data.signature_sha256_hash,
+    });
+    expect(String(grantRows[0].signature_storage_key || '')).toContain('portal-proxy-grant-signatures/');
 
     const dup = await patientClient(patientA).post('/api/v1/portal/proxy/grants').send({
       proxy_uid: patientB, consent_method: 'otp',

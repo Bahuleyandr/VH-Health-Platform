@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/features/settings/models/record_access_grant.dart';
 import 'package:vhhealth/features/settings/screens/record_access_screen.dart';
 import 'package:vhhealth/features/settings/services/record_access_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth_core/vhhealth_core.dart';
 
 void main() {
   testWidgets('shows active, revoked, and held record access grants', (
@@ -59,6 +62,13 @@ void main() {
   testWidgets('grants and revokes record access through confirmations', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
     final repository = _FakeRecordAccessRepository(
       grantedByMe: [
         _grant(
@@ -84,9 +94,25 @@ void main() {
       '44444444-4444-4444-8444-444444444444',
     );
     await tester.enterText(find.byType(TextFormField).at(1), 'Brother');
-    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.ensureVisible(find.byType(SignaturePadField));
+    final canvas = find
+        .descendant(
+          of: find.byType(SignaturePadField),
+          matching: find.byType(CustomPaint),
+        )
+        .last;
+    await tester.dragFrom(tester.getCenter(canvas), const Offset(80, 0));
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.widgetWithText(FilledButton, 'Continue'),
+      180,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.runAsync(() async {
+      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
     await tester.pumpAndSettle();
 
     expect(find.text('Grant record access?'), findsOneWidget);
@@ -99,7 +125,18 @@ void main() {
       repository.createdScope,
       containsAll(['results', 'claim_documents']),
     );
-    expect(repository.createdConsentMethod, 'otp');
+    expect(repository.createdConsentMethod, 'written');
+    expect(repository.createdSignatureBytes, isNotNull);
+    expect(repository.createdSignatureBytes!.take(8).toList(), [
+      0x89,
+      0x50,
+      0x4E,
+      0x47,
+      0x0D,
+      0x0A,
+      0x1A,
+      0x0A,
+    ]);
     expect(find.text('Brother'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 5));
@@ -161,6 +198,7 @@ class _FakeRecordAccessRepository implements RecordAccessRepository {
   String? createdRelationship;
   List<String>? createdScope;
   String? createdConsentMethod;
+  List<int>? createdSignatureBytes;
 
   @override
   Future<RecordAccessGrantsPage> listGrants() async {
@@ -176,11 +214,13 @@ class _FakeRecordAccessRepository implements RecordAccessRepository {
     required String relationship,
     required List<String> scope,
     required String consentMethod,
+    Uint8List? signaturePngBytes,
   }) async {
     createdProxyUid = proxyUid;
     createdRelationship = relationship;
     createdScope = scope;
     createdConsentMethod = consentMethod;
+    createdSignatureBytes = signaturePngBytes;
     final grant = _grant(
       id: 99,
       proxyUid: proxyUid,

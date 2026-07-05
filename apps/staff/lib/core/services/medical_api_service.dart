@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../models/composition_alternatives.dart';
 import 'api_client.dart';
@@ -980,6 +981,32 @@ class MedicalApiService {
     Map<String, dynamic> data,
   ) async {
     return _post('/admissions', data);
+  }
+
+  /// POST /consent/:id/signatures — immutable PNG signature capture.
+  static Future<Map<String, dynamic>> uploadConsentSignature({
+    required int consentId,
+    required String signatureRole,
+    required Uint8List pngBytes,
+    String? signerName,
+  }) async {
+    final resp = await ApiClient.multipart(
+      '/consent/$consentId/signatures',
+      fields: {
+        'signature_role': signatureRole,
+        if (signerName != null && signerName.trim().isNotEmpty)
+          'signer_name': signerName.trim(),
+      },
+      files: [
+        http.MultipartFile.fromBytes(
+          'file',
+          pngBytes,
+          filename: '$signatureRole-signature.png',
+          contentType: MediaType('image', 'png'),
+        ),
+      ],
+    );
+    return _handle(resp);
   }
 
   /// GET /admissions/lookup — reception-counter IP lookup by patient phone.

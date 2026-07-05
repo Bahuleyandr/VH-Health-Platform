@@ -2332,6 +2332,19 @@ class AppLocalizationsMl extends AppLocalizations {
       'പ്രായപൂർത്തിയാകാത്തവർക്കുള്ള രക്ഷിതാവ്';
 
   @override
+  String get recordAccessSignatureLabel => 'നിങ്ങളുടെ ഒപ്പ്';
+
+  @override
+  String get recordAccessSignatureHint => 'ഈ ബോക്സിനുള്ളിൽ ഒപ്പിടുക';
+
+  @override
+  String get recordAccessSignatureClear => 'മായ്ക്കുക';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'തുടരുന്നതിന് മുമ്പ് നിങ്ങളുടെ ഒപ്പ് ചേർക്കുക.';
+
+  @override
   String get recordAccessContinueButton => 'തുടരുക';
 
   @override

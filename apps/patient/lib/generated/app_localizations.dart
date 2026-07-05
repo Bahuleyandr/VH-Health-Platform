@@ -4436,6 +4436,30 @@ abstract class AppLocalizations {
   /// **'Guardian for minor'**
   String get recordAccessConsentMethodGuardian;
 
+  /// No description provided for @recordAccessSignatureLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Your signature'**
+  String get recordAccessSignatureLabel;
+
+  /// No description provided for @recordAccessSignatureHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign inside this box'**
+  String get recordAccessSignatureHint;
+
+  /// No description provided for @recordAccessSignatureClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get recordAccessSignatureClear;
+
+  /// No description provided for @recordAccessSignatureRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Add your signature before continuing.'**
+  String get recordAccessSignatureRequired;
+
   /// No description provided for @recordAccessContinueButton.
   ///
   /// In en, this message translates to:

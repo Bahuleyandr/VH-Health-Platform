@@ -126,7 +126,7 @@ export async function releaseResultNow(resultId, { actorUid = null, actorRole = 
 
 export async function createProxyGrant({
   patientUid, proxyUid, relationship = null, scope = ['results'],
-  consentMethod, consentRef = null, expiresAt = null,
+  consentMethod, consentRef = null, expiresAt = null, signatureProof = null,
 }, { actorUid = null, actorRole = null } = {}) {
   if (!patientUid || !proxyUid) {
     throw AppError.badRequest('patient_uid and proxy_uid are required', 'PORTAL_PROXY_IDS_REQUIRED');
@@ -157,11 +157,22 @@ export async function createProxyGrant({
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO portal_proxy_grants
-         (patient_uid, proxy_uid, relationship, scope, consent_method, consent_ref, granted_by, expires_at)
-       VALUES ($1::uuid, $2::uuid, $3, $4::text[], $5, $6, $7::uuid, $8::timestamptz)
+         (patient_uid, proxy_uid, relationship, scope, consent_method, consent_ref,
+          signature_storage_key, signature_storage_url, signature_mime_type,
+          signature_file_size, signature_sha256_hash, signature_captured_at,
+          granted_by, expires_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4::text[], $5, $6,
+               $7, $8, $9, $10::int, $11::text, CASE WHEN $11::text IS NULL THEN NULL ELSE NOW() END,
+               $12::uuid, $13::timestamptz)
        RETURNING *`,
       patientUid, proxyUid, relationship || null, cleanScope,
-      consentMethod, consentRef || null, actorUid, expiresAt || null,
+      consentMethod, consentRef || null,
+      signatureProof?.storageKey || null,
+      signatureProof?.storageUrl || null,
+      signatureProof?.mimeType || null,
+      signatureProof?.fileSize || null,
+      signatureProof?.sha256Hash || null,
+      actorUid, expiresAt || null,
     );
     const grant = rows[0];
 
@@ -175,6 +186,7 @@ export async function createProxyGrant({
       metadata: {
         proxy_uid: proxyUid, relationship, scope: cleanScope,
         consent_method: consentMethod, consent_ref: consentRef, expires_at: expiresAt,
+        signature_sha256_hash: signatureProof?.sha256Hash || null,
       },
     });
 
@@ -226,7 +238,9 @@ export async function revokeProxyGrant(grantId, { reason = null }, { actorUid = 
 
 export async function listProxyGrants(uid) {
   const grantedByMe = await prisma.$queryRawUnsafe(
-    `SELECT id, proxy_uid, relationship, scope, status, consent_method, granted_at, expires_at, revoked_at
+    `SELECT id, proxy_uid, relationship, scope, status, consent_method,
+            signature_sha256_hash, signature_captured_at,
+            granted_at, expires_at, revoked_at
      FROM portal_proxy_grants WHERE patient_uid = $1::uuid ORDER BY granted_at DESC`,
     uid,
   );

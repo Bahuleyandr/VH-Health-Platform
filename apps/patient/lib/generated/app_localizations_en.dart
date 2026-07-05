@@ -2289,6 +2289,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recordAccessConsentMethodGuardian => 'Guardian for minor';
 
   @override
+  String get recordAccessSignatureLabel => 'Your signature';
+
+  @override
+  String get recordAccessSignatureHint => 'Sign inside this box';
+
+  @override
+  String get recordAccessSignatureClear => 'Clear';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'Add your signature before continuing.';
+
+  @override
   String get recordAccessContinueButton => 'Continue';
 
   @override

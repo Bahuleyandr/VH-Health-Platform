@@ -3009,6 +3009,18 @@ class AppStrings {
       _t('reception_counter.ip.consent_title');
   String get receptionCounterIpConsentSubtitle =>
       _t('reception_counter.ip.consent_subtitle');
+  String get receptionCounterIpPatientSignatureLabel =>
+      _t('reception_counter.ip.patient_signature_label');
+  String get receptionCounterIpStaffWitnessSignatureLabel =>
+      _t('reception_counter.ip.staff_witness_signature_label');
+  String get receptionCounterIpSignatureHint =>
+      _t('reception_counter.ip.signature_hint');
+  String get receptionCounterIpSignatureClear =>
+      _t('reception_counter.ip.signature_clear');
+  String get receptionCounterIpSignatureRequired =>
+      _t('reception_counter.ip.signature_required');
+  String get receptionCounterIpSignatureUploadFailed =>
+      _t('reception_counter.ip.signature_upload_failed');
   String get receptionCounterIpCreateButton =>
       _t('reception_counter.ip.create_button');
   String get receptionCounterWardFloor => _t('reception_counter.ward.floor');
@@ -5535,6 +5547,15 @@ class AppStrings {
           'Treatment consent captured at counter',
       'reception_counter.ip.consent_subtitle':
           'Required for routine IP admissions before the chart is opened.',
+      'reception_counter.ip.patient_signature_label': 'Patient signature',
+      'reception_counter.ip.staff_witness_signature_label':
+          'Staff witness signature',
+      'reception_counter.ip.signature_hint': 'Sign inside this box',
+      'reception_counter.ip.signature_clear': 'Clear',
+      'reception_counter.ip.signature_required':
+          'Capture both patient and staff witness signatures.',
+      'reception_counter.ip.signature_upload_failed':
+          'Admission was created, but consent signatures could not be attached.',
       'reception_counter.ip.create_button': 'Create IP admission',
       'reception_counter.ward.floor': 'Ward / floor',
       'reception_counter.bed': 'Bed',
@@ -8109,6 +8130,15 @@ class AppStrings {
       'label.no_matches_for': 'कोई मेल नहीं मिला:',
       'label.optional': 'वैकल्पिक',
       'label.required': 'आवश्यक',
+      'reception_counter.ip.patient_signature_label': 'रोगी के हस्ताक्षर',
+      'reception_counter.ip.staff_witness_signature_label':
+          'स्टाफ गवाह के हस्ताक्षर',
+      'reception_counter.ip.signature_hint': 'इस बॉक्स में हस्ताक्षर करें',
+      'reception_counter.ip.signature_clear': 'साफ़ करें',
+      'reception_counter.ip.signature_required':
+          'रोगी और स्टाफ गवाह दोनों के हस्ताक्षर कैप्चर करें।',
+      'reception_counter.ip.signature_upload_failed':
+          'भर्ती बन गई, लेकिन सहमति हस्ताक्षर जोड़े नहीं जा सके।',
       'offline.recorded_pending_sync': 'दर्ज किया गया — सिंक लंबित',
       // Greetings
       'dashboard.greeting.morning': 'सुप्रभात',
@@ -13161,6 +13191,15 @@ class AppStrings {
       'label.no_matches_for': 'பொருத்தம் இல்லை',
       'label.optional': 'விருப்பம்',
       'label.required': 'தேவை',
+      'reception_counter.ip.patient_signature_label': 'நோயாளர் கையொப்பம்',
+      'reception_counter.ip.staff_witness_signature_label':
+          'பணியாளர் சாட்சி கையொப்பம்',
+      'reception_counter.ip.signature_hint': 'இந்த பெட்டிக்குள் கையொப்பமிடவும்',
+      'reception_counter.ip.signature_clear': 'அழி',
+      'reception_counter.ip.signature_required':
+          'நோயாளர் மற்றும் பணியாளர் சாட்சி கையொப்பங்களை இரண்டையும் பதிவு செய்யவும்.',
+      'reception_counter.ip.signature_upload_failed':
+          'அனுமதி உருவாக்கப்பட்டது, ஆனால் ஒப்புதல் கையொப்பங்களை இணைக்க முடியவில்லை.',
       'offline.recorded_pending_sync':
           'பதிவு செய்யப்பட்டது — சிங்க் நிலுவையில்',
       'dashboard.greeting.morning': 'காலை வணக்கம்',
@@ -18873,6 +18912,15 @@ class AppStrings {
       'label.no_matches_for': 'సరిపోలికలు లేవు',
       'label.optional': 'ఐచ్ఛికం',
       'label.required': 'అవసరం',
+      'reception_counter.ip.patient_signature_label': 'రోగి సంతకం',
+      'reception_counter.ip.staff_witness_signature_label':
+          'సిబ్బంది సాక్షి సంతకం',
+      'reception_counter.ip.signature_hint': 'ఈ పెట్టెలో సంతకం చేయండి',
+      'reception_counter.ip.signature_clear': 'క్లియర్',
+      'reception_counter.ip.signature_required':
+          'రోగి మరియు సిబ్బంది సాక్షి సంతకాలు రెండూ నమోదు చేయండి.',
+      'reception_counter.ip.signature_upload_failed':
+          'అడ్మిషన్ సృష్టించబడింది, కానీ సమ్మతి సంతకాలు జోడించలేకపోయాము.',
       'offline.recorded_pending_sync':
           'రికార్డ్ అయింది — సింక్ పెండింగ్‌లో ఉంది',
       'dashboard.greeting.morning': 'శుభోదయం',

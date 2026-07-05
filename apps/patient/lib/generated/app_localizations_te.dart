@@ -2323,6 +2323,19 @@ class AppLocalizationsTe extends AppLocalizations {
   String get recordAccessConsentMethodGuardian => 'మైనర్‌కు సంరక్షకుడు';
 
   @override
+  String get recordAccessSignatureLabel => 'మీ సంతకం';
+
+  @override
+  String get recordAccessSignatureHint => 'ఈ పెట్టెలో సంతకం చేయండి';
+
+  @override
+  String get recordAccessSignatureClear => 'క్లియర్';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'కొనసాగించే ముందు మీ సంతకం జోడించండి.';
+
+  @override
   String get recordAccessContinueButton => 'కొనసాగించండి';
 
   @override

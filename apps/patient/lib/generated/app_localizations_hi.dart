@@ -2295,6 +2295,19 @@ class AppLocalizationsHi extends AppLocalizations {
   String get recordAccessConsentMethodGuardian => 'नाबालिग के अभिभावक';
 
   @override
+  String get recordAccessSignatureLabel => 'आपके हस्ताक्षर';
+
+  @override
+  String get recordAccessSignatureHint => 'इस बॉक्स में हस्ताक्षर करें';
+
+  @override
+  String get recordAccessSignatureClear => 'साफ़ करें';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'जारी रखने से पहले अपने हस्ताक्षर जोड़ें।';
+
+  @override
   String get recordAccessContinueButton => 'जारी रखें';
 
   @override

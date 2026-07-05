@@ -43,4 +43,5 @@ export 'utils/validators.dart';
 export 'widgets/data_state_builder.dart';
 export 'widgets/error_boundary.dart';
 export 'widgets/offline_sync_badge.dart';
+export 'widgets/signature_pad_field.dart';
 export 'widgets/sos_button.dart';

@@ -2342,6 +2342,19 @@ class AppLocalizationsTa extends AppLocalizations {
   String get recordAccessConsentMethodGuardian => 'சிறாருக்கான பாதுகாவலர்';
 
   @override
+  String get recordAccessSignatureLabel => 'உங்கள் கையொப்பம்';
+
+  @override
+  String get recordAccessSignatureHint => 'இந்த பெட்டிக்குள் கையொப்பமிடவும்';
+
+  @override
+  String get recordAccessSignatureClear => 'அழி';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'தொடர்வதற்கு முன் உங்கள் கையொப்பத்தைச் சேர்க்கவும்.';
+
+  @override
   String get recordAccessContinueButton => 'தொடரவும்';
 
   @override
