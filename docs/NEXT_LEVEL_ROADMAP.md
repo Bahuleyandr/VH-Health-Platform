@@ -97,13 +97,16 @@ Every ✗ below was verified against the repo (grep/read), not assumed.
       registers as printable statutory formats).
 
 ### C. Basics that embarrass in a demo
-- [ ] ✗ **Appointment reschedule** — absent on both backend and clients.
+- [x] **Appointment reschedule** — shipped in NL-4 (PR #429): backend PATCH
+      endpoint and patient/staff reschedule UI honor double-booking guards.
 - [ ] ✗ **Teleconsultation UI** — backend (mig 117) complete; stub UI was removed;
       needs a real build on a self-hosted SFU.
-- [ ] ✗ **e-Consent signature capture** — consent records exist; no signature pad
-      (staff witness + patient) and no consent-form rendering with signature embed.
-- [ ] ✗ EMPI hardening + optional biometric capture at registration (dedupe/merge
-      engine exists; no face/fingerprint capture, no front-desk duplicate-warning UX).
+- [x] **e-Consent signature capture** — shipped in NL-4 (PR #429): staff
+      patient/witness pads and patient proxy-grant signatures store audited PNG
+      evidence and embed consent signatures; DSC provider remains procurement.
+- [x] EMPI hardening + optional biometric capture at registration — shipped in
+      NL-4 (PR #429): front-desk duplicate review/create-anyway audit,
+      profile-photo capture, and disabled-by-default biometric seam.
 
 ### D. Clinical content & safety licensing
 - [ ] ✗ Licensed drug KB + DDI (FDB / Medi-Span class) behind CDS — homegrown KB is
@@ -264,7 +267,7 @@ one-commit-per-item for bisectability.
 | NL-1 Enterprise identity | A | ☐ not started |
 | NL-2 NHCX claims exchange | A | ☐ not started |
 | NL-3 Teleconsultation | A | ☐ not started |
-| NL-4 Demo-basics debt | A | ☐ not started |
+| NL-4 Demo-basics debt | A | ☑ shipped — PR #429 |
 | NL-5 Terminology + content studio | B | ☐ not started |
 | NL-6 Departmental completion | B | ☐ not started |
 | NL-7 Device & IoT gateway | B | ☐ not started |

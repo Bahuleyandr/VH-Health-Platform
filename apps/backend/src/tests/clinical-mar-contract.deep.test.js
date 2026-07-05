@@ -21,6 +21,7 @@ const prisma = (await import('../lib/prisma.js')).default;
 const marService = await import('../services/clinical/marService.js');
 const marFiveRights = await import('../services/clinical/marFiveRightsService.js');
 const { assertData } = await import('./helpers/assertSchema.js');
+const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
 
 // The wire format Express produces (Date -> ISO string, BigInt -> number).
 const wire = (o) => JSON.parse(JSON.stringify(o));
@@ -73,7 +74,8 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
+  await deleteWithAuditBypass(
+    prisma,
     `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(

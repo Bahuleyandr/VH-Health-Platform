@@ -57,6 +57,8 @@ prisma/schema.prisma  # 527 models, canonical schema source (regenerated after e
 - **Security config**: All security constants (lockout, OTP limits, JWT expiry, device trust) live in `src/config/securityConfig.js` — not hardcoded in services.
 - **Input sanitization**: All user-facing text fields go through `stripHtml()` from `src/utils/sanitize.js` via middleware in `src/middleware/sanitizeMiddleware.js`.
 - **File upload validation**: Multer + magic bytes verification (`validateFileContent`) + patient-specific restrictions (`validatePatientUpload`) in `src/middleware/uploadMiddleware.js`.
+- **Consent signatures are immutable**: `POST /consent/:id/signatures` writes versioned `consent_signatures` evidence through the validated upload/R2 path and refreshes the signed consent PDF record; do not update signature rows in place.
+- **Front-desk registration guardrails**: `POST /patients` accepts JSON or multipart profile-photo registration. Near matches return `PATIENT_DUPLICATE_REVIEW_REQUIRED`; create-anyway requires an audited override reason. `tenantSettingsService.getFrontDeskBiometricCaptureSettings()` is a disabled-by-default biometric seam only, not a device SDK integration.
 - **Notification outbox**: Use `notificationOutbox.queue()` from `src/utils/notifications/notificationOutbox.js` to persist notification intent before sending. Failed notifications can be retried by background jobs.
 - **API versioning**: `apiVersionMiddleware` reads `Accept-Version` header, sets `req.apiVersion`. Currently informational — future response helpers can adapt per version.
 - **Insurance claim tables are deliberately split.** `insurance_claims` and `tpa_claims` are **distinct concepts**, not duplicates. Do not consolidate them.
@@ -97,6 +99,7 @@ prisma/schema.prisma  # 527 models, canonical schema source (regenerated after e
 ### IDOR Protection
 All patient-facing mutation endpoints verify resource ownership:
 - `PUT /appointments/:id` — `checkAppointmentPermission()` with `String()` comparison
+- `PATCH /appointments/:id/reschedule` — same ownership check plus slot conflict guards
 - `DELETE /appointments/:id` — same
 - `DELETE /appointments/patient/records/:id` — `WHERE patient_id=$2` scoped query
 - Pharmacy legacy endpoints — phone ownership check for PATIENT role
@@ -115,6 +118,7 @@ Applied via middleware from `src/middleware/sanitizeMiddleware.js`:
 2. **Magic bytes**: `validateFileContent()` checks file header bytes match claimed MIME
 3. **Patient restrictions**: `validatePatientUpload()` — JPEG/PNG/PDF only, 10MB images / 25MB PDFs
 4. **Filename sanitization**: Dangerous character patterns rejected
+5. **NL-4 evidence/photo paths**: consent signature PNGs and front-desk profile photos must stay on the same validated upload path; never accept raw base64 evidence in JSON.
 
 ### Phone-in-URL Mitigation
 Prefer `/my` endpoints that derive phone from JWT:

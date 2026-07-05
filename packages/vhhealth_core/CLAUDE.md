@@ -21,6 +21,7 @@ lib/
     app_theme.dart              # Material 3 light/dark theme definitions
     theme_colors.dart           # Shared color constants
   widgets/
+    signature_pad_field.dart    # Pointer-drawn PNG signature capture field
     sos_button.dart             # Emergency SOS floating action button
 ```
 
@@ -64,6 +65,10 @@ Secure storage abstraction:
 - `getEmployeeId()` / `setEmployeeId()` / `getStaffId()` / `setStaffId()`
 - `isLoggedIn()` — true iff JWT present
 - `clearAll()` — wipes every key
+
+### SignaturePadField / SignaturePadController
+Shared patient/staff signature capture widget. Exports transparent PNG bytes for
+consent/proxy-grant evidence without adding a heavy drawing dependency.
 
 ### VHHttpClient
 HTTP helper with automatic auth, single-flight 401 refresh, and exponential-backoff retry:
