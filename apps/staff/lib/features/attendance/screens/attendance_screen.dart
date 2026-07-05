@@ -21,6 +21,23 @@ class AttendanceScreen extends StatefulWidget {
   State<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
+String _attendanceStatusLabel(AppStrings s, String status) {
+  switch (status) {
+    case 'present':
+      return s.attendanceLegendPresent;
+    case 'absent':
+      return s.attendanceLegendAbsent;
+    case 'leave':
+      return s.attendanceLegendLeave;
+    case 'late':
+      return s.attendanceLegendLate;
+    case 'weekend':
+      return s.attendanceStatusWeekend;
+    default:
+      return status;
+  }
+}
+
 class _AttendanceScreenState extends State<AttendanceScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -618,7 +635,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  status.toUpperCase(),
+                  _attendanceStatusLabel(s, status).toUpperCase(),
                   style: TextStyle(
                     color: _getDayColor(status),
                     fontWeight: FontWeight.w600,
@@ -640,7 +657,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             ],
             if (dayData['hoursWorked'] != null) ...[
               Text(
-                '${s.attendanceHoursLabel}: ${dayData['hoursWorked']}h',
+                '${s.attendanceHoursLabel}: ${s.attendanceHoursCompact(dayData['hoursWorked'].toString())}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ],
@@ -764,7 +781,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 : Text(s.attendanceHistoryAbsent),
             trailing: (checkIn.isNotEmpty && checkOut.isNotEmpty)
                 ? Text(
-                    '${_calcHours(checkIn, checkOut)}h',
+                    s.attendanceHoursCompact(_calcHours(checkIn, checkOut)),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   )
                 : null,

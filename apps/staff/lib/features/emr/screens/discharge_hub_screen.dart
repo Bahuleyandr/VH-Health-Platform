@@ -325,8 +325,9 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Could not open discharge PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+          content: AppText(
+            's4.dynamic.discharge_hub.pdf_open_failed',
+            values: {'error': e.toString().replaceFirst('Exception: ', '')},
           ),
           backgroundColor: AppTheme.errorRed,
         ),
@@ -403,6 +404,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   }
 
   Widget _buildAdmissionBanner(ThemeData theme) {
+    final s = AppStrings.of(context);
     final admission = _map(_hub?['admission']);
     final ready = _map(_hub?['readiness'])['ready'] == true;
     final initiated = _hub?['discharge_initiated'] == true;
@@ -428,10 +430,16 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           const SizedBox(height: 6),
           Text(
             [
-              if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
+              if (hospitalNumber.isNotEmpty)
+                s.format('s4.dynamic.discharge_hub.hospital_id', {
+                  'id': hospitalNumber,
+                }),
               if (ward.isNotEmpty) ward,
-              if (bed.isNotEmpty) 'Bed $bed',
-              'Admission #${widget.admissionId}',
+              if (bed.isNotEmpty)
+                s.format('s4.dynamic.discharge_hub.bed', {'bed': bed}),
+              s.format('s4.dynamic.discharge_hub.admission_id', {
+                'id': widget.admissionId,
+              }),
             ].join(' · '),
             style: theme.textTheme.bodyMedium,
           ),
@@ -441,12 +449,16 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             runSpacing: 8,
             children: [
               _chip(
-                initiated ? 'Discharge initiated' : 'Not initiated',
+                initiated
+                    ? s.lookup('s4.lib.discharge_hub.discharge_initiated')
+                    : s.lookup('s4.lib.discharge_hub.not_initiated'),
                 initiated ? Colors.orange : Colors.grey,
                 Icons.pending_actions,
               ),
               _chip(
-                ready ? 'Ready for final discharge' : 'Checklist pending',
+                ready
+                    ? s.lookup('s4.lib.discharge_hub.ready_for_final_discharge')
+                    : s.lookup('s4.lib.discharge_hub.checklist_pending'),
                 ready ? Colors.green : Colors.blueGrey,
                 ready ? Icons.verified : Icons.rule,
               ),
@@ -458,10 +470,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   }
 
   Widget _buildSummaryCard(ThemeData theme) {
+    final s = AppStrings.of(context);
     final summary = _map(_hub?['summary']);
     final signed = summary['is_signed'] == true;
-    final label = (summary['ai_label'] ?? 'No discharge summary draft yet')
-        .toString();
+    final label =
+        (summary['ai_label'] ??
+                s.lookup('s4.lib.discharge_hub.no_summary_draft'))
+            .toString();
     final citations = summary['source_citation_count'] ?? 0;
     final flags = summary['safety_flag_count'] ?? 0;
     return Card(
@@ -472,7 +487,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           children: [
             _sectionTitle(
               theme,
-              'Doctor summary',
+              s.lookup('s4.lib.discharge_hub.doctor_summary'),
               signed ? Icons.verified : Icons.edit_document,
             ),
             const SizedBox(height: 8),
@@ -490,7 +505,11 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                         ? AppTheme.successOnSurface
                         : AppTheme.warningOnSurface,
                   ),
-                  label: Text(signed ? 'Signed' : 'Doctor review needed'),
+                  label: Text(
+                    signed
+                        ? s.lookup('s4.lib.prescriptions.signed')
+                        : s.lookup('s4.lib.discharge_hub.doctor_review_needed'),
+                  ),
                   side: BorderSide(
                     color: signed
                         ? AppTheme.successOnSurface
@@ -503,7 +522,11 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                           .withValues(alpha: 0.10),
                   onPressed: () => _showSignerDetails(summary),
                 ),
-                _chip('$citations sources', Colors.blue, Icons.source),
+                _chip(
+                  _sourceCountLabel(s, citations),
+                  Colors.blue,
+                  Icons.source,
+                ),
                 _safetyFlagButton(theme, summary, flags),
               ],
             ),
@@ -516,7 +539,9 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                   onPressed: _openSummary,
                   icon: const Icon(Icons.summarize),
                   label: Text(
-                    signed ? 'View signed summary' : 'Open summary editor',
+                    signed
+                        ? s.lookup('s4.lib.discharge_hub.view_signed_summary')
+                        : s.lookup('s4.lib.discharge_hub.open_summary_editor'),
                   ),
                 ),
                 ClinicalPrintPdfAction(
@@ -538,6 +563,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     Map<String, dynamic> summary,
     dynamic rawCount,
   ) {
+    final s = AppStrings.of(context);
     final count = int.tryParse('$rawCount') ?? 0;
     final hasFlags = count > 0;
     final color = hasFlags
@@ -548,8 +574,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       icon: Icon(Icons.health_and_safety, size: 18, color: color),
       label: Text(
         hasFlags
-            ? 'Review $count safety ${count == 1 ? 'flag' : 'flags'}'
-            : 'No safety flags',
+            ? _safetyFlagCountLabel(s, count)
+            : s.lookup('s4.lib.discharge_hub.no_safety_flags'),
       ),
       style: OutlinedButton.styleFrom(
         visualDensity: VisualDensity.compact,
@@ -572,7 +598,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _sectionTitle(theme, 'Role work items', Icons.groups),
+              _sectionTitle(
+                theme,
+                AppStrings.of(
+                  context,
+                ).lookup('s4.lib.discharge_hub.role_work_items'),
+                Icons.groups,
+              ),
               const SizedBox(height: 8),
               const AppText(
                 's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar',
@@ -588,7 +620,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: _sectionTitle(theme, 'Role work items', Icons.groups),
+          child: _sectionTitle(
+            theme,
+            AppStrings.of(
+              context,
+            ).lookup('s4.lib.discharge_hub.role_work_items'),
+            Icons.groups,
+          ),
         ),
         ...items.map((item) => _workItemCard(theme, item)),
       ],
@@ -596,10 +634,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   }
 
   Widget _workItemCard(ThemeData theme, Map<String, dynamic> item) {
+    final s = AppStrings.of(context);
     final type = (item['consult_type'] ?? '').toString();
     final done = item['completed_at'] != null;
     final canComplete = item['actor_can_complete'] == true;
-    final owner = (item['owner_label'] ?? 'Hospital team').toString();
+    final owner =
+        (item['owner_label'] ?? s.lookup('s4.lib.discharge_hub.hospital_team'))
+            .toString();
     final notes = (item['notes'] ?? '').toString();
     return Card(
       child: ListTile(
@@ -611,7 +652,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(done ? 'Finished by ${item['completed_by'] ?? owner}' : owner),
+            Text(
+              done
+                  ? s.format('s4.dynamic.discharge_hub.finished_by', {
+                      'name': item['completed_by'] ?? owner,
+                    })
+                  : owner,
+            ),
             if (notes.isNotEmpty) Text(notes),
             if (type == 'pharmacy' && !done)
               const AppText(
@@ -640,6 +687,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
   }
 
   Widget _buildReadinessCard(ThemeData theme) {
+    final s = AppStrings.of(context);
     final readiness = _map(_hub?['readiness']);
     final blockers = _list(readiness['blockers']);
     final ready = readiness['ready'] == true;
@@ -649,12 +697,16 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _sectionTitle(theme, 'Final discharge gate', Icons.rule_folder),
+            _sectionTitle(
+              theme,
+              s.lookup('s4.lib.discharge_hub.final_discharge_gate'),
+              Icons.rule_folder,
+            ),
             const SizedBox(height: 8),
             Text(
               ready
-                  ? 'All required work is complete. Final discharge can proceed from the signed summary screen.'
-                  : 'Final discharge stays blocked until every item below is clear.',
+                  ? s.lookup('s4.lib.discharge_hub.final_gate_ready')
+                  : s.lookup('s4.lib.discharge_hub.final_gate_blocked'),
             ),
             if (blockers.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -674,7 +726,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                         child: Text(
                           (blocker['message'] ??
                                   blocker['type'] ??
-                                  'Pending item')
+                                  s.lookup('s4.lib.discharge_hub.pending_item'))
                               .toString(),
                         ),
                       ),
@@ -716,6 +768,25 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  String _sourceCountLabel(AppStrings s, Object? rawCount) {
+    final count = int.tryParse('$rawCount') ?? 0;
+    return s.format(
+      count == 1
+          ? 's4.dynamic.discharge_hub.source_count.one'
+          : 's4.dynamic.discharge_hub.source_count.other',
+      {'count': count},
+    );
+  }
+
+  String _safetyFlagCountLabel(AppStrings s, int count) {
+    return s.format(
+      count == 1
+          ? 's4.dynamic.discharge_hub.safety_flag_count.one'
+          : 's4.dynamic.discharge_hub.safety_flag_count.other',
+      {'count': count},
     );
   }
 

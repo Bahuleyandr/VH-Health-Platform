@@ -232,18 +232,21 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   }
 
   Widget _buildBody() {
+    final strings = AppStrings.of(context);
     if (_controller.text.trim().isEmpty) {
       return _emptyHint(
         Icons.search_outlined,
-        'Type a Hospital ID, name, phone, or ABHA address to find a patient.',
+        strings.lookup('s4.lib.patient_search_sheet.type_to_find_patient'),
       );
     }
     if (!patientLookupQueryReady(_controller.text)) {
       return _emptyHint(
         Icons.search_outlined,
         patientPhoneLikeQuery(_controller.text)
-            ? 'Enter at least 10 digits to search by phone.'
-            : 'Type at least 2 characters to search.',
+            ? strings.lookup(
+                's4.lib.patient_search_sheet.enter_10_digits_for_phone',
+              )
+            : strings.lookup('s4.lib.patient_search_sheet.type_2_characters'),
       );
     }
     if (_loading && _results.isEmpty) {
@@ -255,7 +258,9 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
     if (_results.isEmpty) {
       return _emptyHint(
         Icons.person_search_outlined,
-        'No matches for "$_lastQuery"',
+        strings.format('s4.dynamic.patient_search_sheet.no_matches_for', {
+          'query': _lastQuery,
+        }),
       );
     }
     return ListView.separated(
@@ -263,7 +268,10 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final p = _results[index];
-        final name = patientNameFrom(p, fallback: 'Unnamed');
+        final name = patientNameFrom(
+          p,
+          fallback: strings.lookup('s4.lib.patient_search_sheet.unnamed'),
+        );
         final subtitle = patientSubtitle(
           p,
           includeAgeGender: true,

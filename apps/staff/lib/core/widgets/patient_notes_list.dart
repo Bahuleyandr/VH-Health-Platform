@@ -158,6 +158,7 @@ class _PatientNotesListState extends State<PatientNotesList> {
     }
 
     final visible = _visibleNotes;
+    final strings = AppStrings.of(context);
     return Column(
       children: [
         Padding(
@@ -166,7 +167,7 @@ class _PatientNotesListState extends State<PatientNotesList> {
             children: [
               for (final f in _NoteFilter.values) ...[
                 ChoiceChip(
-                  label: Text(_filterLabel(f)),
+                  label: Text(_filterLabel(strings, f)),
                   selected: _filter == f,
                   onSelected: (_) => setState(() => _filter = f),
                 ),
@@ -204,14 +205,14 @@ class _PatientNotesListState extends State<PatientNotesList> {
     );
   }
 
-  String _filterLabel(_NoteFilter f) {
+  String _filterLabel(AppStrings strings, _NoteFilter f) {
     switch (f) {
       case _NoteFilter.all:
-        return 'All';
+        return strings.lookup('s4.lib.patient_notes_list.filter.all');
       case _NoteFilter.doctor:
-        return 'Doctor';
+        return strings.lookup('s4.lib.patient_notes_list.filter.doctor');
       case _NoteFilter.nursing:
-        return 'Nursing';
+        return strings.lookup('s4.lib.patient_notes_list.filter.nursing');
     }
   }
 }
@@ -228,8 +229,12 @@ class _NoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final role = '${note['author_role'] ?? 'UNKNOWN'}';
-    final type = _displayNoteType('${note['note_type'] ?? 'note'}');
+    final strings = AppStrings.of(context);
+    final rawRole = '${note['author_role'] ?? ''}'.trim();
+    final role = rawRole.isEmpty
+        ? strings.lookup('s4.lib.patient_notes_list.unknown_role')
+        : rawRole;
+    final type = _displayNoteType(strings, '${note['note_type'] ?? ''}'.trim());
     final authorName = _authorName(note);
     final version = note['version'];
     final createdAt = DateTime.tryParse('${note['created_at']}');
@@ -261,11 +266,17 @@ class _NoteCard extends StatelessWidget {
                 _Badge(label: type, color: AppTheme.textSecondary),
                 if (signed) ...[
                   const SizedBox(width: 6),
-                  _Badge(label: 'SIGNED', color: Colors.green.shade700),
+                  _Badge(
+                    label: strings.clinicalNotesSigned,
+                    color: Colors.green.shade700,
+                  ),
                 ],
                 if (isAddendum) ...[
                   const SizedBox(width: 6),
-                  _Badge(label: 'ADDENDUM', color: Colors.orange.shade700),
+                  _Badge(
+                    label: strings.lookup('s4.lib.patient_notes_list.addendum'),
+                    color: Colors.orange.shade700,
+                  ),
                 ],
                 const Spacer(),
                 if (createdAt != null)
@@ -278,9 +289,9 @@ class _NoteCard extends StatelessWidget {
                   ),
                 if (canEdit)
                   IconButton(
-                    tooltip: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.patient_notes_list.admin_edit_prior_note'),
+                    tooltip: strings.lookup(
+                      's4.lib.patient_notes_list.admin_edit_prior_note',
+                    ),
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.edit_note, size: 20),
                     onPressed: () => _openEditor(context),
@@ -316,7 +327,10 @@ class _NoteCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
-                  'rev $version (admin-edited)',
+                  strings.format(
+                    's4.dynamic.patient_notes_list.rev_admin_edited',
+                    {'version': version},
+                  ),
                   style: TextStyle(fontSize: 11, color: Colors.orange.shade900),
                 ),
               ),
@@ -340,7 +354,7 @@ class _NoteCard extends StatelessWidget {
                 style: DefaultTextStyle.of(context).style,
                 children: [
                   TextSpan(
-                    text: '${_humanLabel(entry.key)}: ',
+                    text: '${_humanLabel(context, entry.key)}: ',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   TextSpan(text: '${entry.value}'),
@@ -351,9 +365,32 @@ class _NoteCard extends StatelessWidget {
     ];
   }
 
-  String _humanLabel(String key) => key
-      .replaceAll('_', ' ')
-      .replaceFirstMapped(RegExp(r'^.'), (m) => m[0]!.toUpperCase());
+  String _humanLabel(BuildContext context, String key) {
+    final strings = AppStrings.of(context);
+    switch (key.trim().toLowerCase()) {
+      case 'subjective':
+        return strings.clinicalNotesSubjective;
+      case 'objective':
+        return strings.clinicalNotesObjective;
+      case 'assessment':
+        return strings.clinicalNotesAssessment;
+      case 'plan':
+        return strings.clinicalNotesPlan;
+      case 'content':
+      case 'free_text':
+        return strings.clinicalNotesContent;
+      case 'findings':
+        return strings.clinicalNotesFindings;
+      case 'procedure_details':
+        return strings.clinicalNotesProcedureDetails;
+      case 'complications':
+        return strings.clinicalNotesComplications;
+      default:
+        return key
+            .replaceAll('_', ' ')
+            .replaceFirstMapped(RegExp(r'^.'), (m) => m[0]!.toUpperCase());
+    }
+  }
 
   String _formatDate(DateTime t) {
     final l = t.toLocal();
@@ -375,10 +412,13 @@ class _NoteCard extends StatelessWidget {
     return AppTheme.textSecondary;
   }
 
-  String _displayNoteType(String type) {
+  String _displayNoteType(AppStrings strings, String type) {
     final normalized = type.toLowerCase();
     if (normalized == 'soap' || normalized == 'progress') {
-      return 'Progress';
+      return strings.lookup('s4.lib.patient_notes_list.type.progress');
+    }
+    if (normalized.isEmpty || normalized == 'note') {
+      return strings.lookup('s4.lib.patient_notes_list.type.note');
     }
     return type;
   }
@@ -448,7 +488,7 @@ class _NoteCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 for (final entry in controllers.entries) ...[
                   Text(
-                    _humanLabel(entry.key),
+                    _humanLabel(sheetCtx, entry.key),
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 4),

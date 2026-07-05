@@ -97,10 +97,12 @@ class _CompositionAlternativesLoadedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final theme = Theme.of(context);
     final subtitle = [
       if ((selectedLabel ?? '').trim().isNotEmpty) selectedLabel!.trim(),
-      if (doNotSubstitute) 'DAW set - information only',
+      if (doNotSubstitute)
+        s.lookup('s4.lib.composition_alternatives_panel.daw_info_only'),
     ].join(' - ');
     return Container(
       margin: const EdgeInsets.only(top: 8),
@@ -232,7 +234,13 @@ class _CompositionAlternativeTile extends StatelessWidget {
                 's4.lib.composition_alternatives_panel.swap',
               ),
             )
-          : _InfoOnlyPill(label: doNotSubstitute ? 'DAW locked' : 'Info only'),
+          : _InfoOnlyPill(
+              label: AppStrings.of(context).lookup(
+                doNotSubstitute
+                    ? 's4.lib.composition_alternatives_panel.daw_locked'
+                    : 's4.lib.composition_alternatives_panel.info_only',
+              ),
+            ),
     );
   }
 }

@@ -179,6 +179,7 @@ class _DischargeHubCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     final admission = _map(hub['admission']);
     final readiness = _map(hub['readiness']);
     final summary = _map(hub['summary']);
@@ -232,10 +233,19 @@ class _DischargeHubCard extends StatelessWidget {
                         Text(
                           [
                             if (hospitalNumber.isNotEmpty)
-                              'Hospital ID $hospitalNumber',
+                              s.format('s4.dynamic.discharge_hub.hospital_id', {
+                                'id': hospitalNumber,
+                              }),
                             if (ward.isNotEmpty) ward,
-                            if (bed.isNotEmpty) 'Bed $bed',
-                            if (admissionId != null) 'Admission #$admissionId',
+                            if (bed.isNotEmpty)
+                              s.format('s4.dynamic.discharge_hub.bed', {
+                                'bed': bed,
+                              }),
+                            if (admissionId != null)
+                              s.format(
+                                's4.dynamic.discharge_hub.admission_id',
+                                {'id': admissionId},
+                              ),
                           ].join(' - '),
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
@@ -253,17 +263,26 @@ class _DischargeHubCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _chip(
-                    ready ? 'Ready' : 'Blocked',
+                    ready
+                        ? s.lookup('s4.lib.discharge_hub_list.ready')
+                        : s.lookup('s4.lib.discharge_hub_list.blocked'),
                     ready ? Colors.green : Colors.orange,
                     ready ? Icons.verified : Icons.rule,
                   ),
                   _chip(
-                    signed ? 'Summary signed' : 'Doctor sign pending',
+                    signed
+                        ? s.lookup('s4.lib.discharge_hub_list.summary_signed')
+                        : s.lookup(
+                            's4.lib.discharge_hub_list.doctor_sign_pending',
+                          ),
                     signed ? Colors.green : Colors.blue,
                     Icons.draw,
                   ),
                   _chip(
-                    '$pending of $total tasks pending',
+                    s.format('s4.dynamic.discharge_hub_list.tasks_pending', {
+                      'pending': pending,
+                      'total': total,
+                    }),
                     pending == 0 ? Colors.green : Colors.deepOrange,
                     Icons.groups,
                   ),

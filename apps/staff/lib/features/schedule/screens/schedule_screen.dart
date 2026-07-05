@@ -198,30 +198,38 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         date.day == now.day;
   }
 
-  String get _weekLabel {
+  String _weekLabel(AppStrings s) {
     final now = DateTime.now();
     final thisWeekStart = _getWeekStart(now);
-    if (_weekStart == thisWeekStart) return 'This Week';
+    if (_weekStart == thisWeekStart) return s.scheduleWeekThis;
     final diff = _weekStart.difference(thisWeekStart).inDays;
-    if (diff == 7) return 'Next Week';
-    if (diff == -7) return 'Last Week';
+    if (diff == 7) return s.scheduleWeekNext;
+    if (diff == -7) return s.scheduleWeekLast;
     return '${DateFormat('d MMM').format(_weekStart)} – ${DateFormat('d MMM').format(_weekStart.add(const Duration(days: 6)))}';
   }
 
-  String _assignmentLocation(Map<String, dynamic> assignment) {
+  String _assignmentLocation(AppStrings s, Map<String, dynamic> assignment) {
     final parts = [
       _asText(assignment['assignment_target_label'], fallback: ''),
       _asText(assignment['floor'], fallback: ''),
       _asText(assignment['building'], fallback: ''),
     ].where((part) => part.isNotEmpty).toList();
-    return parts.isEmpty ? 'Assigned duty' : parts.join(' - ');
+    return parts.isEmpty
+        ? s.lookup('s4.lib.schedule.assigned_duty')
+        : parts.join(' - ');
   }
 
-  Widget _buildRosterLine(Map<String, dynamic> assignment) {
-    final shift = _asText(assignment['shift_label'], fallback: 'Duty');
+  Widget _buildRosterLine(AppStrings s, Map<String, dynamic> assignment) {
+    final shift = _asText(
+      assignment['shift_label'],
+      fallback: s.lookup('s4.lib.schedule.duty'),
+    );
     final start = _formatTime(assignment['shift_start']?.toString());
     final end = _formatTime(assignment['shift_end']?.toString());
     final isLead = assignment['is_lead'] == true;
+    final lineKey = isLead
+        ? 's4.dynamic.schedule.assignment_line_lead'
+        : 's4.dynamic.schedule.assignment_line';
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -244,7 +252,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '$shift  $start-$end${isLead ? '  Lead' : ''}',
+                  s.format(lineKey, {
+                    'shift': shift,
+                    'start': start,
+                    'end': end,
+                  }),
                   style: const TextStyle(
                     color: AppTheme.primaryBlue,
                     fontSize: 13,
@@ -253,7 +265,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _assignmentLocation(assignment),
+                  _assignmentLocation(s, assignment),
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                 ),
               ],
@@ -265,24 +277,25 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Widget _buildShiftActions() {
-    const actions = [
+    final s = AppStrings.of(context);
+    final actions = [
       _RosterAction(
         icon: Icons.swap_calls_outlined,
-        label: 'Duty Request',
+        label: s.lookup('role.feature.duty_preference'),
         route: '/duty-preference',
         color: AppTheme.primaryBlue,
       ),
       _RosterAction(
         icon: Icons.event_available_outlined,
-        label: 'Leave',
+        label: s.leaveTitle,
         route: '/leave',
-        color: Color(0xFF007A64),
+        color: const Color(0xFF007A64),
       ),
       _RosterAction(
         icon: Icons.fingerprint,
-        label: 'Attendance',
+        label: s.attendanceTitle,
         route: '/attendance',
-        color: Color(0xFF6A1B9A),
+        color: const Color(0xFF6A1B9A),
       ),
     ];
 
@@ -364,7 +377,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   onPressed: () => _changeWeek(-1),
                 ),
                 Text(
-                  _weekLabel,
+                  _weekLabel(s),
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -393,7 +406,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${_assignments.length} rostered shift${_assignments.length == 1 ? '' : 's'}',
+                            s.format(
+                              _assignments.length == 1
+                                  ? 's4.dynamic.schedule.rostered_shift_count.one'
+                                  : 's4.dynamic.schedule.rostered_shift_count.other',
+                              {'count': _assignments.length},
+                            ),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 18,
@@ -402,7 +420,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${_records.length} attendance days - ${_totalHours.toStringAsFixed(1)}h logged',
+                            s.format('s4.dynamic.schedule.attendance_summary', {
+                              'days': _records.length,
+                              'hours': _totalHours.toStringAsFixed(1),
+                            }),
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 13,
@@ -432,7 +453,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Published roster unavailable: $_rosterError',
+                          s.format(
+                            's4.dynamic.schedule.published_roster_unavailable',
+                            {'error': _rosterError},
+                          ),
                           style: TextStyle(
                             color: AppTheme.warningOnSurface,
                             fontWeight: FontWeight.w700,
@@ -457,7 +481,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Attendance unavailable: $_error',
+                          s.format(
+                            's4.dynamic.schedule.attendance_unavailable',
+                            {'error': _error},
+                          ),
                           style: TextStyle(
                             color: AppTheme.warningOnSurface,
                             fontWeight: FontWeight.w700,
@@ -537,7 +564,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              ...assignments.map(_buildRosterLine),
+                              ...assignments.map(
+                                (assignment) => _buildRosterLine(s, assignment),
+                              ),
                               if (rec != null)
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,7 +600,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                       Padding(
                                         padding: const EdgeInsets.only(top: 4),
                                         child: Text(
-                                          '${hours.toStringAsFixed(1)}h worked',
+                                          s.format(
+                                            's4.dynamic.schedule.hours_worked',
+                                            {'hours': hours.toStringAsFixed(1)},
+                                          ),
                                           style: const TextStyle(
                                             fontSize: 12,
                                             color: Colors.grey,
@@ -583,10 +615,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                               else
                                 Text(
                                   assignments.isNotEmpty
-                                      ? 'No attendance logged yet'
+                                      ? s.lookup(
+                                          's4.lib.schedule.no_attendance_logged_yet',
+                                        )
                                       : (day.isAfter(DateTime.now())
-                                            ? 'No published duty'
-                                            : 'No record'),
+                                            ? s.lookup(
+                                                's4.lib.schedule.no_published_duty',
+                                              )
+                                            : s.scheduleNoRecord),
                                   style: const TextStyle(
                                     color: Colors.grey,
                                     fontSize: 13,

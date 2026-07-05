@@ -17,7 +17,8 @@ const String _dueMedsAllRoutes = 'all';
 
 List<WardListFilterOption> dueMedsWardFilterOptions(
   List<Map<String, dynamic>> rows, {
-  String allWardsLabel = 'All wards',
+  required String allWardsLabel,
+  required String Function(String value) wardFallbackLabel,
 }) {
   final byValue = <String, String>{};
   for (final row in rows) {
@@ -25,7 +26,7 @@ List<WardListFilterOption> dueMedsWardFilterOptions(
     if (value.isEmpty) continue;
     byValue.putIfAbsent(value, () {
       final label = _filterText(row['ward_name']);
-      return label.isEmpty ? 'Ward $value' : label;
+      return label.isEmpty ? wardFallbackLabel(value) : label;
     });
   }
   final options = byValue.entries.toList()
@@ -39,7 +40,7 @@ List<WardListFilterOption> dueMedsWardFilterOptions(
 
 List<WardListFilterOption> dueMedsRouteFilterOptions(
   List<Map<String, dynamic>> rows, {
-  String allRoutesLabel = 'All routes',
+  required String allRoutesLabel,
 }) {
   final routes =
       rows
@@ -136,12 +137,18 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       if (!mounted) return;
       setState(() {
         _rows = rows;
+        final s = AppStrings.of(context);
         if (_selectedWardValue == _dueMedsAllWards ||
             _wardOptions.length <= 1) {
-          _wardOptions = dueMedsWardFilterOptions(rows);
+          _wardOptions = dueMedsWardFilterOptions(
+            rows,
+            allWardsLabel: s.dueMedsAllWards,
+            wardFallbackLabel: s.dueMedsWardFallback,
+          );
         }
         final routeValues = dueMedsRouteFilterOptions(
           rows,
+          allRoutesLabel: s.dueMedsAllRoutes,
         ).map((option) => option.value).toSet();
         if (!routeValues.contains(_selectedRouteValue)) {
           _selectedRouteValue = _dueMedsAllRoutes;
@@ -326,6 +333,7 @@ class _DueMedTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final scheduled = _parseTime(row['scheduled_time']);
     final minutesDelta = scheduled == null
         ? null
@@ -334,14 +342,15 @@ class _DueMedTile extends StatelessWidget {
     final overdue = minutesDelta != null && minutesDelta > 0;
     final color = overdue ? AppTheme.errorRed : AppTheme.successGreen;
     final timeLabel = scheduled == null
-        ? 'unscheduled'
-        : _relativeLabel(minutesDelta!);
+        ? s.dueMedsUnscheduled
+        : _relativeLabel(s, minutesDelta!);
 
     final patientName = (row['patient_name'] as String?)?.trim();
     final bedNumber = (row['bed_number'] as String?)?.trim();
     final wardName = (row['ward_name'] as String?)?.trim();
     final med =
-        (row['medication_name'] as String?)?.trim() ?? '(unnamed medication)';
+        (row['medication_name'] as String?)?.trim() ??
+        s.dueMedsUnnamedMedication;
     final dose = (row['dose'] as String?) ?? (row['dosage'] as String?) ?? '';
     final route = (row['route'] as String?) ?? '';
     final status = (row['status'] as String?) ?? '';
@@ -349,14 +358,14 @@ class _DueMedTile extends StatelessWidget {
     final subtitle = <String>[
       if (dose.isNotEmpty) dose,
       if (route.isNotEmpty) route,
-      if (status == 'held') 'HELD',
+      if (status == 'held') s.dueMedsHeldBadge,
     ].join(' · ');
 
     final whoLine = <String>[
       patientName == null || patientName.isEmpty
-          ? 'Unknown patient'
+          ? s.dueMedsUnknownPatient
           : patientName,
-      if (bedNumber != null && bedNumber.isNotEmpty) 'Bed $bedNumber',
+      if (bedNumber != null && bedNumber.isNotEmpty) s.bedNumber(bedNumber),
       if (wardName != null && wardName.isNotEmpty) wardName,
     ].join(' · ');
 
@@ -405,13 +414,12 @@ class _DueMedTile extends StatelessWidget {
     }
   }
 
-  static String _relativeLabel(int minutesDelta) {
-    if (minutesDelta == 0) return 'now';
+  static String _relativeLabel(AppStrings s, int minutesDelta) {
+    if (minutesDelta == 0) return s.timeJustNow;
     final abs = minutesDelta.abs();
-    final suffix = minutesDelta > 0 ? 'late' : 'in';
     final value = abs < 60
         ? '${abs}m'
         : '${(abs / 60).toStringAsFixed(abs % 60 == 0 ? 0 : 1)}h';
-    return suffix == 'late' ? '$value late' : 'in $value';
+    return minutesDelta > 0 ? s.dueMedsDueLate(value) : s.dueMedsDueIn(value);
   }
 }

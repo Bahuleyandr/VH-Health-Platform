@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/utils/request_reference.dart';
+import '../../../l10n/app_strings.dart';
 import '../../theme/app_theme.dart';
 
 /// Replaces the 4-second-auto-dismiss [SnackBar] for save actions.
@@ -27,6 +28,7 @@ class SuccessToast {
     SnackBarAction? action,
     Duration duration = const Duration(seconds: 12),
   }) {
+    final strings = AppStrings.of(context);
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -37,7 +39,9 @@ class SuccessToast {
           // happened — they just see no visible UI change.
           content: Semantics(
             liveRegion: true,
-            label: 'Success: $message',
+            label: strings.format('s4.dynamic.success_toast.success_label', {
+              'message': message,
+            }),
             child: Row(
               children: [
                 const Icon(Icons.check_circle, color: Colors.white, size: 20),
@@ -77,6 +81,7 @@ class ErrorToast {
     SnackBarAction? action,
     Duration duration = const Duration(seconds: 8),
   }) {
+    final strings = AppStrings.of(context);
     final displayMessage = formatErrorWithRequestRef(
       message.replaceFirst('Exception: ', ''),
       requestId: requestId,
@@ -89,7 +94,9 @@ class ErrorToast {
           // even more reliable assistive-tech announcement than success.
           content: Semantics(
             liveRegion: true,
-            label: 'Error: $displayMessage',
+            label: strings.format('s4.dynamic.error_toast.error_label', {
+              'message': displayMessage,
+            }),
             child: Row(
               children: [
                 const Icon(Icons.error_outline, color: Colors.white, size: 20),

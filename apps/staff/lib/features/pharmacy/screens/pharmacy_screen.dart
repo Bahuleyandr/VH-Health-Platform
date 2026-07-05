@@ -2080,7 +2080,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final strength = item['strength']?.toString() ?? '';
     final schedule = item['schedule_class']?.toString() ?? '-';
     final reorder = item['reorder_level']?.toString() ?? '-';
-    final unit = item['unit_label']?.toString() ?? 'each';
+    final unit =
+        item['unit_label']?.toString() ?? s.lookup('s4.lib.pharmacy.unit_each');
     final status = item['status']?.toString().toUpperCase() ?? 'ACTIVE';
 
     return Card(
@@ -2231,7 +2232,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final name =
         item['name']?.toString() ?? s.lookup('s4.lib.pharmacy.unnamed_drug');
     final generic = item['generic_name']?.toString() ?? '';
-    final category = item['category']?.toString() ?? 'other';
+    final category =
+        item['category']?.toString() ??
+        s.lookup('s4.lib.pharmacy.category_other');
     final pack = item['pack_size']?.toString() ?? '';
     final stock = item['stock'] ?? item['stock_quantity'] ?? 0;
     final unitPrice = item['unit_price'] ?? item['price'];

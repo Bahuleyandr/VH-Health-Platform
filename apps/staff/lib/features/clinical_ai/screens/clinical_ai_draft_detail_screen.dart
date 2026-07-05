@@ -389,7 +389,7 @@ class _ReviewHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _human(review['module_key']?.toString() ?? '—'),
+              s.clinicalAiModuleLabel(review['module_key']?.toString() ?? '—'),
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 4),
@@ -662,12 +662,4 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
-}
-
-String _human(String moduleKey) {
-  return moduleKey
-      .split('_')
-      .where((p) => p.isNotEmpty)
-      .map((p) => p[0].toUpperCase() + p.substring(1))
-      .join(' ');
 }

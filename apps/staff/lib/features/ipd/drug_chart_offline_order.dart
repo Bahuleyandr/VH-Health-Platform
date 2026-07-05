@@ -27,7 +27,7 @@ class OfflineOrderIntent {
   final String endpoint;
   final Map<String, dynamic> body;
 
-  /// User-facing block reason (null when [enqueue] is true).
+  /// AppStrings key for the block reason (null when [enqueue] is true).
   final String? reason;
 }
 
@@ -92,8 +92,6 @@ OfflineOrderIntent buildOfflineOrderIntent({
       priority: priority,
       startDate: startDate,
     ),
-    reason: block
-        ? 'Medication orders can only be placed from a desktop or tablet workstation.'
-        : null,
+    reason: block ? 'error.clinical_write_desktop_only' : null,
   );
 }

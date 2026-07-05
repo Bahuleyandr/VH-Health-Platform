@@ -262,6 +262,7 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   Widget _buildSurgeryCard(Map<String, dynamic> s) {
+    final str = AppStrings.of(context);
     final status = s['status']?.toString();
     final patientUid = s['patient_uid']?.toString() ?? '';
     final displayUid = patientUid.length > 8
@@ -282,7 +283,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                 children: [
                   Expanded(
                     child: Text(
-                      s['procedure_name']?.toString() ?? 'Procedure',
+                      s['procedure_name']?.toString() ??
+                          str.theatreProcedureFallback,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
@@ -317,7 +319,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                   const SizedBox(width: 12),
                   _infoChip(
                     Icons.meeting_room,
-                    'OT ${s['ot_room']?.toString() ?? '-'}',
+                    str.theatreOtRoom(s['ot_room']?.toString() ?? '-'),
                   ),
                   const SizedBox(width: 12),
                   _infoChip(
@@ -328,7 +330,7 @@ class _TheatreScreenState extends State<TheatreScreen>
               ),
               const SizedBox(height: 6),
               Text(
-                '${AppStrings.of(context).theatreSurgeonPrefix} ${s['surgeon']?.toString() ?? '-'}',
+                '${str.theatreSurgeonPrefix} ${s['surgeon']?.toString() ?? '-'}',
                 style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
               ),
             ],
@@ -417,7 +419,9 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                   _detailRow(
                     str.theatreLabelDuration,
-                    '${s['estimated_duration'] ?? '-'} min',
+                    str.theatreDurationMinutes(
+                      s['estimated_duration']?.toString() ?? '-',
+                    ),
                   ),
                   _detailRow(
                     str.theatreLabelSurgeon,
@@ -717,7 +721,10 @@ class _TheatreScreenState extends State<TheatreScreen>
                     room['available'] == true ||
                     room['status']?.toString().toLowerCase() == 'available';
                 final name =
-                    room['name']?.toString() ?? 'OT ${room['id'] ?? i + 1}';
+                    room['name']?.toString() ??
+                    AppStrings.of(
+                      context,
+                    ).theatreOtRoom((room['id'] ?? i + 1).toString());
 
                 return Card(
                   child: Padding(

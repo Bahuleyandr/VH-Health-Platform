@@ -126,7 +126,7 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                             .map(
                               (fy) => DropdownMenuItem(
                                 value: fy,
-                                child: Text('FY $fy'),
+                                child: Text(str.payrollFyLabel(fy)),
                               ),
                             )
                             .toList(),
@@ -250,7 +250,10 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${summary['months_included'] ?? 0} payslips included in FY $_selectedFY',
+            str.format('s4.dynamic.payroll.payslips_included_fy', {
+              'count': summary['months_included'] ?? 0,
+              'fy': _selectedFY,
+            }),
             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),

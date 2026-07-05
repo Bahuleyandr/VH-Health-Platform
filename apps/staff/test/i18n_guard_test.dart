@@ -1291,10 +1291,17 @@ final _patterns = <_Pattern>[
     'Semantics.label',
     RegExp(r'''Semantics\([^\n]*\blabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
   ),
+  _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
   _Pattern('labelText', RegExp(r'''\blabelText\s*:\s*(?:r)?(['"])(.*?)\1''')),
   _Pattern('hintText', RegExp(r'''\bhintText\s*:\s*(?:r)?(['"])(.*?)\1''')),
   _Pattern('helperText', RegExp(r'''\bhelperText\s*:\s*(?:r)?(['"])(.*?)\1''')),
   _Pattern('errorText', RegExp(r'''\berrorText\s*:\s*(?:r)?(['"])(.*?)\1''')),
+  _Pattern(
+    'Toast.show',
+    RegExp(
+      r'''(?:SuccessToast|ErrorToast|InfoToast)\.show\([^,\n]+,\s*(?:r)?(['"])(.*?)\1''',
+    ),
+  ),
 ];
 
 final _allowlist = <String>{

@@ -316,6 +316,7 @@ class _ChildCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final moduleKey = child['module_key']?.toString() ?? '—';
     final status = child['status']?.toString() ?? '—';
     final reviewId = child['review_id'];
@@ -350,11 +351,8 @@ class _ChildCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    moduleKey,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                    ),
+                    s.clinicalAiModuleLabel(moduleKey),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
                 _StatusChip(label: status),

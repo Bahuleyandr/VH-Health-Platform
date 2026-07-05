@@ -372,6 +372,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     'evening': 'Evening',
     'night': 'Night',
   };
+  // API/store values. Dropdown display labels are localized at render time.
   static const _routes = [
     'Oral',
     'IV',
@@ -536,7 +537,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       }
     });
     await _persistFavorites();
-    if (mounted) SuccessToast.show(context, 'Saved as favorite');
+    if (mounted) {
+      SuccessToast.show(
+        context,
+        AppStrings.of(context).lookup('s4.lib.prescriptions.saved_as_favorite'),
+      );
+    }
   }
 
   Future<void> _removeFavorite(_MedicationEntry med) async {
@@ -865,6 +871,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     required List<Map<String, dynamic>> medications,
   }) async {
     if (_preferredPharmacy != 'In House Dispensary') return null;
+    final strings = AppStrings.of(context);
     try {
       final order = await MedicalApiService.orderPrescriptionToPharmacy(
         prescriptionId,
@@ -874,17 +881,28 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       final orderNumber =
           order['order_number'] ?? order['data']?['order_number'] ?? '';
       return orderNumber.toString().trim().isEmpty
-          ? 'Pharmacy order sent'
-          : 'Pharmacy order $orderNumber sent';
+          ? strings.lookup('s4.lib.prescriptions.pharmacy_order_sent')
+          : strings.format(
+              's4.dynamic.prescriptions.pharmacy_order_sent_number',
+              {'number': orderNumber},
+            );
     } catch (e) {
-      return 'Prescription saved; pharmacy handoff needs formulary match: ${e.toString().replaceFirst('Exception: ', '')}';
+      return strings.format(
+        's4.dynamic.prescriptions.pharmacy_handoff_needs_formulary_match',
+        {'error': e.toString().replaceFirst('Exception: ', '')},
+      );
     }
   }
 
   Future<void> _openPrescriptionPdf(String? url) async {
     final parsed = Uri.tryParse(url ?? '');
     if (parsed == null) {
-      ErrorToast.show(context, 'Prescription PDF is not available yet');
+      ErrorToast.show(
+        context,
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.prescriptions.pdf_not_available_yet'),
+      );
       return;
     }
     final launched = await launchUrl(
@@ -892,7 +910,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       mode: LaunchMode.externalApplication,
     );
     if (!launched && mounted) {
-      ErrorToast.show(context, 'Could not open prescription PDF');
+      ErrorToast.show(
+        context,
+        AppStrings.of(context).lookup('s4.lib.prescriptions.pdf_open_failed'),
+      );
     }
   }
 
@@ -907,7 +928,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         _lastCreatedPrescriptionSigned = true;
         _signingLastPrescription = false;
       });
-      SuccessToast.show(context, 'Prescription signed and locked');
+      SuccessToast.show(
+        context,
+        AppStrings.of(context).lookup('s4.lib.prescriptions.signed_locked'),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _signingLastPrescription = false);
@@ -923,9 +947,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       await ClinicalPrintService.printPrescription(prescriptionId: id);
     } catch (e) {
       if (!mounted) return;
+      final strings = AppStrings.of(context);
       ErrorToast.show(
         context,
-        'Could not open prescription PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+        strings.format('s4.dynamic.prescriptions.pdf_open_failed_detail', {
+          'error': e.toString().replaceFirst('Exception: ', ''),
+        }),
       );
     } finally {
       if (mounted) setState(() => _printingLastPrescription = false);
@@ -949,7 +976,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (_appointmentPrescriptionLocked) {
       ErrorToast.show(
         context,
-        'This visit already has a signed prescription; create a new OP visit for changes.',
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.prescriptions.visit_prescription_locked'),
       );
       return;
     }
@@ -968,7 +997,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       return;
     }
     if (_medications.any((m) => m.days < 1)) {
-      ErrorToast.show(context, 'Days must be at least 1');
+      ErrorToast.show(
+        context,
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.prescriptions.days_must_be_at_least_1'),
+      );
       return;
     }
 
@@ -982,7 +1016,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           if (mounted) {
             ErrorToast.show(
               context,
-              'Photo prescriptions need a connection. Reconnect and try again.',
+              AppStrings.of(
+                context,
+              ).lookup('s4.lib.prescriptions.photo_needs_connection'),
             );
             setState(() => _submitting = false);
           }
@@ -1022,12 +1058,17 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           endpoint: intent.endpoint,
           method: 'POST',
           body: intent.body,
-          contextLabel: 'Prescription — $firstName',
+          contextLabel: AppStrings.of(context).format(
+            's4.dynamic.prescriptions.offline_context',
+            {'name': firstName},
+          ),
         );
         if (mounted) {
           SuccessToast.show(
             context,
-            'Prescription queued — will be safety-checked on sync',
+            AppStrings.of(
+              context,
+            ).lookup('s4.lib.prescriptions.queued_safety_checked_on_sync'),
           );
           _formKey.currentState!.reset();
           setState(() {
@@ -1138,7 +1179,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 's4.lib.prescriptions.prescription_pdf_is_ready',
               ),
               action: SnackBarAction(
-                label: 'Open',
+                label: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.prescriptions.open_pdf'),
                 onPressed: () => _openPrescriptionPdf(pdfUrl),
               ),
             ),
@@ -1267,6 +1310,34 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   }
 
   String _durationForDays(int days) => days <= 1 ? '$days day' : '$days days';
+
+  Map<String, String> _routeLabels(AppStrings s) => {
+    'Oral': s.lookup('s4.lib.prescriptions.route.oral'),
+    'IV': s.lookup('s4.lib.prescriptions.route.iv'),
+    'IM': s.lookup('s4.lib.prescriptions.route.im'),
+    'Topical': s.lookup('s4.lib.prescriptions.route.topical'),
+    'Inhalation': s.lookup('s4.lib.prescriptions.route.inhalation'),
+    'Sublingual': s.lookup('s4.lib.prescriptions.route.sublingual'),
+  };
+
+  Map<String, String> _pharmacyLabels(AppStrings s) => {
+    'In House Dispensary': s.lookup(
+      's4.lib.prescriptions.pharmacy.in_house_dispensary',
+    ),
+    'Patient choice': s.lookup('s4.lib.prescriptions.pharmacy.patient_choice'),
+    'External pharmacy': s.lookup(
+      's4.lib.prescriptions.pharmacy.external_pharmacy',
+    ),
+  };
+
+  Map<String, String> _foodTimingLabels(AppStrings s) => {
+    '': s.lookup('s4.lib.prescriptions.any_time'),
+    'Before food': s.drugChartFoodBefore,
+    'After food': s.drugChartFoodAfter,
+    'With food': s.drugChartFoodWith,
+    'Empty stomach': s.drugChartFoodEmptyStomach,
+    'At bedtime': s.drugChartFoodBedtime,
+  };
 
   String _frequencyForDoseTimes(Set<String> doseTimes) {
     final slots = _doseSlotLabels.keys
@@ -1621,13 +1692,19 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return _stockCount(row) > 0 || explicit == true;
   }
 
-  String _stockLabel(Map<String, dynamic> row) {
+  String _stockLabel(AppStrings s, Map<String, dynamic> row) {
     final availability = _rowText(row, const ['availability_status']);
-    if (availability == 'may_be_available') return 'May be available';
+    if (availability == 'may_be_available') {
+      return s.lookup('s4.lib.prescriptions.may_be_available');
+    }
     final count = _stockCount(row);
-    if (!_isCatalogRowInStock(row)) return 'Out of stock';
-    if (count <= 0) return 'In stock';
-    return '$count in stock';
+    if (!_isCatalogRowInStock(row)) {
+      return s.lookup('s4.lib.prescriptions.out_of_stock');
+    }
+    if (count <= 0) return s.lookup('s4.lib.prescriptions.in_stock');
+    return s.format('s4.dynamic.prescriptions.in_stock_count', {
+      'count': count,
+    });
   }
 
   String _catalogGroupKey(Map<String, dynamic> row) {
@@ -2295,12 +2372,18 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               ),
             ),
             const SizedBox(width: 8),
-            Expanded(child: _miniField(_heightCtrl, 'Height', 'cm')),
+            Expanded(
+              child: _miniField(
+                _heightCtrl,
+                s.lookup('s4.lib.prescriptions.height'),
+                'cm',
+              ),
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: _miniField(
                 _respRateCtrl,
-                'Resp. rate',
+                s.lookup('s4.lib.prescriptions.resp_rate'),
                 VitalUnit.respiratoryRate,
               ),
             ),
@@ -2333,7 +2416,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           prefixIcon: const Icon(Icons.local_pharmacy_outlined),
         ),
         items: _pharmacyOptions
-            .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+            .map(
+              (value) => DropdownMenuItem(
+                value: value,
+                child: Text(_pharmacyLabels(s)[value] ?? value),
+              ),
+            )
             .toList(),
         onChanged: (value) {
           if (value == null) return;
@@ -2525,10 +2613,26 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   DataColumn(label: AppText('s4.lib.prescriptions.drug_form')),
                   DataColumn(label: AppText('drug_chart.column.dose')),
                   DataColumn(label: AppText('drug_chart.column.route')),
-                  DataColumn(label: Text('M')),
-                  DataColumn(label: Text('A')),
-                  DataColumn(label: Text('E')),
-                  DataColumn(label: Text('N')),
+                  DataColumn(
+                    label: AppText(
+                      's4.lib.prescriptions.dose_slot_morning_short',
+                    ),
+                  ),
+                  DataColumn(
+                    label: AppText(
+                      's4.lib.prescriptions.dose_slot_afternoon_short',
+                    ),
+                  ),
+                  DataColumn(
+                    label: AppText(
+                      's4.lib.prescriptions.dose_slot_evening_short',
+                    ),
+                  ),
+                  DataColumn(
+                    label: AppText(
+                      's4.lib.prescriptions.dose_slot_night_short',
+                    ),
+                  ),
                   DataColumn(label: AppText('drug_chart.column.food')),
                   DataColumn(label: AppText('s4.lib.prescriptions.days')),
                   DataColumn(
@@ -2558,6 +2662,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                           width: compact ? 104 : 118,
                           value: med.route.isEmpty ? 'Oral' : med.route,
                           options: _routes,
+                          labels: _routeLabels(AppStrings.of(context)),
                           onChanged: (value) {
                             setState(() {
                               med.route = value;
@@ -2597,7 +2702,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                         _tableTextField(
                           width: notesWidth,
                           value: med.instructions,
-                          hint: 'PRN reason, warning, special advice',
+                          hint: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.prescriptions.instructions_hint'),
                           onChanged: (value) => med.instructions = value,
                         ),
                       ),
@@ -2625,7 +2732,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       return _tableTextField(
         width: width,
         value: medication.strength,
-        hint: 'auto-filled',
+        hint: AppStrings.of(context).lookup('s4.lib.prescriptions.auto_filled'),
         onChanged: (value) {
           medication
             ..strength = value
@@ -2671,7 +2778,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           ? medication.foodTiming
           : '',
       options: _foodTimingOptions,
-      labels: const {'': 'Any time'},
+      labels: _foodTimingLabels(AppStrings.of(context)),
       onChanged: (value) {
         setState(() => medication.foodTiming = value);
       },
@@ -2789,8 +2896,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                       ? const Icon(Icons.check_circle, size: 18)
                       : null,
                 ),
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? 'Required' : null,
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? AppStrings.of(context).labelRequired
+                    : null,
                 onChanged: (value) {
                   final cleanName = _stripDrugDisplayPrefix(value);
                   medication
@@ -2807,6 +2915,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               );
             },
         optionsViewBuilder: (context, onSelected, options) {
+          final s = AppStrings.of(context);
           final rows = options.toList(growable: false);
           if (rows.isEmpty) return const SizedBox.shrink();
           return Align(
@@ -2885,7 +2994,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                           ),
                         ),
                         child: Text(
-                          _stockLabel(row),
+                          _stockLabel(s, row),
                           style: TextStyle(
                             color: stockColor,
                             fontWeight: FontWeight.w800,
@@ -2919,8 +3028,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         initialValue: value,
         decoration: InputDecoration(hintText: hint, isDense: true),
         validator: isRequired
-            ? (value) =>
-                  value == null || value.trim().isEmpty ? 'Required' : null
+            ? (value) => value == null || value.trim().isEmpty
+                  ? AppStrings.of(context).labelRequired
+                  : null
             : null,
         onChanged: onChanged,
       ),
@@ -3012,9 +3122,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       ),
     );
     final submitLabel = _appointmentPrescriptionLocked
-        ? 'Prescription locked'
+        ? s.lookup('s4.lib.prescriptions.prescription_locked')
         : _appointmentPrescriptionId != null
-        ? 'Update prescription'
+        ? s.lookup('s4.lib.prescriptions.update_prescription')
         : s.prescriptionsCreate;
     final submitButton = PrescriptionSubmitButton(
       submitting: _submitting,
@@ -3049,8 +3159,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                     label: Text(
                       _lastCreatedPrescriptionId == null
-                          ? 'Open last PDF'
-                          : 'Open Rx #$_lastCreatedPrescriptionId PDF',
+                          ? s.lookup('s4.lib.prescriptions.open_last_pdf')
+                          : s.format('s4.dynamic.prescriptions.open_rx_pdf', {
+                              'id': _lastCreatedPrescriptionId,
+                            }),
                     ),
                   ),
                 if (_lastCreatedPrescriptionId != null)
@@ -3069,8 +3181,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                         : const Icon(Icons.verified_outlined, size: 18),
                     label: Text(
                       _lastCreatedPrescriptionSigned
-                          ? 'Rx signed'
-                          : 'Sign & lock Rx',
+                          ? s.lookup('s4.lib.prescriptions.rx_signed')
+                          : s.lookup('s4.lib.prescriptions.sign_lock_rx'),
                     ),
                   ),
                 ClinicalPrintPdfAction(
@@ -3825,7 +3937,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
     try {
       await MedicalApiService.signEPrescription(id);
       if (!mounted) return;
-      SuccessToast.show(context, 'Prescription signed and locked');
+      SuccessToast.show(
+        context,
+        AppStrings.of(context).lookup('s4.lib.prescriptions.signed_locked'),
+      );
       await _load();
     } catch (e) {
       if (mounted) {
@@ -3846,7 +3961,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
       if (mounted) {
         ErrorToast.show(
           context,
-          'Could not open prescription PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+          AppStrings.of(context).format(
+            's4.dynamic.prescriptions.pdf_open_failed_detail',
+            {'error': e.toString().replaceFirst('Exception: ', '')},
+          ),
         );
       }
     } finally {
@@ -3889,7 +4007,12 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Patient: ${rx['patient_name'] ?? ''} • Dr. ${rx['doctor_name'] ?? ''}',
+              AppStrings.of(
+                ctx,
+              ).format('s4.dynamic.prescriptions.patient_doctor', {
+                'patient': rx['patient_name'] ?? '',
+                'doctor': rx['doctor_name'] ?? '',
+              }),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 8),
@@ -3899,7 +4022,13 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
               children: [
                 Chip(
                   label: Text(
-                    signed ? 'Signed and locked' : 'Draft',
+                    signed
+                        ? AppStrings.of(
+                            ctx,
+                          ).lookup('s4.lib.prescriptions.signed_locked')
+                        : AppStrings.of(
+                            ctx,
+                          ).lookup('s4.lib.prescriptions.draft'),
                     style: TextStyle(
                       color: signed
                           ? AppTheme.successOnSurface
@@ -3916,7 +4045,10 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                 if (rx['pharmacy_order_status'] != null)
                   Chip(
                     label: Text(
-                      'Pharmacy: ${rx['pharmacy_order_status']}',
+                      AppStrings.of(ctx).format(
+                        's4.dynamic.prescriptions.pharmacy_status',
+                        {'status': rx['pharmacy_order_status']},
+                      ),
                       style: const TextStyle(
                         color: AppTheme.primaryBlue,
                         fontWeight: FontWeight.w800,
@@ -3984,7 +4116,13 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             const SizedBox(height: 12),
             if (rx['follow_up_date'] != null)
               Text(
-                'Follow-up: ${DateFormat('dd MMM yyyy').format(DateTime.parse(rx['follow_up_date']))}',
+                AppStrings.of(
+                  ctx,
+                ).format('s4.dynamic.prescriptions.follow_up_date', {
+                  'date': DateFormat(
+                    'dd MMM yyyy',
+                  ).format(DateTime.parse(rx['follow_up_date'])),
+                }),
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
             const SizedBox(height: 16),
@@ -4007,7 +4145,15 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.verified_outlined, size: 18),
-                    label: Text(signed ? 'Signed' : 'Sign & lock'),
+                    label: Text(
+                      signed
+                          ? AppStrings.of(
+                              ctx,
+                            ).lookup('s4.lib.prescriptions.signed')
+                          : AppStrings.of(
+                              ctx,
+                            ).lookup('s4.lib.prescriptions.sign_lock'),
+                    ),
                   ),
                 if (rx['pdf_url'] != null || rx['id'] != null)
                   OutlinedButton.icon(
@@ -4019,7 +4165,12 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                       final uri = Uri.tryParse(target ?? '');
                       if (uri == null) {
                         if (mounted) {
-                          ErrorToast.show(context, 'PDF is not available');
+                          ErrorToast.show(
+                            context,
+                            AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.prescriptions.pdf_not_available'),
+                          );
                         }
                         return;
                       }

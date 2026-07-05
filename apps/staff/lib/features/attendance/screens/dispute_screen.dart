@@ -11,6 +11,36 @@ class DisputeScreen extends StatefulWidget {
   State<DisputeScreen> createState() => _DisputeScreenState();
 }
 
+String _disputeStatusLabel(AppStrings s, String status) {
+  switch (status) {
+    case 'approved':
+      return s.disputeStatusApproved;
+    case 'rejected':
+      return s.disputeStatusRejected;
+    case 'pending':
+      return s.disputeStatusPending;
+    default:
+      return status;
+  }
+}
+
+String _disputeTypeLabel(AppStrings s, String disputeType) {
+  switch (disputeType) {
+    case 'missed_checkin':
+      return s.disputeTypeMissedCheckin;
+    case 'missed_checkout':
+      return s.disputeTypeMissedCheckout;
+    case 'wrong_time':
+      return s.disputeTypeWrongTime;
+    case 'app_failure':
+      return s.disputeTypeAppFailure;
+    case 'other':
+      return s.disputeTypeOther;
+    default:
+      return disputeType;
+  }
+}
+
 class _DisputeScreenState extends State<DisputeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -121,7 +151,12 @@ class _DisputeScreenState extends State<DisputeScreen>
           indicatorColor: Colors.white,
           tabs: [
             Tab(text: s.disputeTabSubmit),
-            Tab(text: '${s.disputeTabMy} (${_myDisputes.length})'),
+            Tab(
+              text: s.attendanceTabWithCount(
+                s.disputeTabMy,
+                _myDisputes.length,
+              ),
+            ),
           ],
         ),
       ),
@@ -355,6 +390,7 @@ class _DisputeScreenState extends State<DisputeScreen>
   }
 
   Widget _buildMyDisputesTab() {
+    final s = AppStrings.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_myDisputes.isEmpty) {
       return Center(
@@ -367,10 +403,7 @@ class _DisputeScreenState extends State<DisputeScreen>
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 8),
-            Text(
-              AppStrings.of(context).disputeEmpty,
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
+            Text(s.disputeEmpty, style: TextStyle(color: Colors.grey.shade600)),
           ],
         ),
       );
@@ -413,7 +446,7 @@ class _DisputeScreenState extends State<DisputeScreen>
                         border: Border.all(color: statusColor),
                       ),
                       child: Text(
-                        status.toUpperCase(),
+                        _disputeStatusLabel(s, status).toUpperCase(),
                         style: TextStyle(
                           fontSize: 10,
                           color: statusColor,
@@ -425,9 +458,10 @@ class _DisputeScreenState extends State<DisputeScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  (d['dispute_type'] as String? ?? '')
-                      .replaceAll('_', ' ')
-                      .toUpperCase(),
+                  _disputeTypeLabel(
+                    s,
+                    d['dispute_type'] as String? ?? '',
+                  ).toUpperCase(),
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.grey.shade600,
@@ -448,7 +482,7 @@ class _DisputeScreenState extends State<DisputeScreen>
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      'HR: ${d['reviewer_comment']}',
+                      s.disputeHrComment(d['reviewer_comment'].toString()),
                       style: TextStyle(
                         fontSize: 12,
                         color: statusColor.withValues(alpha: 0.8),

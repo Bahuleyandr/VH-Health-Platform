@@ -27,13 +27,13 @@ class VoiceDictateButton extends StatefulWidget {
   final TextEditingController controller;
   final String? patientUid;
   final int? admissionId;
-  final String tooltip;
+  final String? tooltip;
   const VoiceDictateButton({
     super.key,
     required this.controller,
     this.patientUid,
     this.admissionId,
-    this.tooltip = 'Dictate (voice → text)',
+    this.tooltip,
   });
 
   @override
@@ -154,7 +154,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : const Icon(Icons.mic_none),
-      tooltip: widget.tooltip,
+      tooltip: widget.tooltip ?? AppStrings.of(context).voiceDictateTooltip,
       color: AppTheme.primaryBlue,
       onPressed: _busy ? null : _start,
     );

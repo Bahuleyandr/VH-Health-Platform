@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_strings.dart';
+
 class VitalUnit {
   static const pulse = '/min';
   static const respiratoryRate = '/min';
@@ -84,7 +86,11 @@ class VitalTextField extends StatelessWidget {
           ? (value) {
               final text = normalizeVitalValue(value ?? '', unit);
               if (text.isEmpty) return null;
-              return num.tryParse(text) == null ? 'Enter a valid number' : null;
+              return num.tryParse(text) == null
+                  ? AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.vital_text_field.enter_valid_number')
+                  : null;
             }
           : null,
     );

@@ -1,3 +1,4 @@
+import '../../l10n/app_strings.dart';
 import 'models/staff_appointment.dart';
 
 const List<String> appointmentCalendarStatusFilters = [
@@ -10,8 +11,19 @@ const List<String> appointmentCalendarStatusFilters = [
   'cancelled',
 ];
 
-String appointmentStatusFilterLabel(String status) =>
-    status.replaceAll('_', ' ').toUpperCase();
+String appointmentStatusFilterLabel(String status, {AppStrings? strings}) {
+  if (strings == null) return status.replaceAll('_', ' ').toUpperCase();
+  return switch (status.trim().toLowerCase()) {
+    'all' => strings.lookup('appointments.status.all'),
+    'scheduled' => strings.lookup('appointments.status.scheduled'),
+    'confirmed' => strings.lookup('appointments.status.confirmed'),
+    'completed' => strings.lookup('appointments.status.completed'),
+    'rescheduled' => strings.lookup('appointments.status.rescheduled'),
+    'no_show' => strings.lookup('appointments.status.no_show'),
+    'cancelled' => strings.lookup('appointments.status.cancelled'),
+    _ => status.replaceAll('_', ' ').toUpperCase(),
+  };
+}
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
@@ -88,19 +100,20 @@ List<String> appointmentDoctorDepartmentFilterOptions(
 }
 
 Map<String, List<StaffAppointment>> appointmentSlotGroups(
-  Iterable<StaffAppointment> appointments,
-) {
+  Iterable<StaffAppointment> appointments, {
+  required String unscheduledLabel,
+}) {
   final groups = <String, List<StaffAppointment>>{};
   for (final appointment in appointments) {
     final slot = appointment.appointmentTime.trim().isEmpty
-        ? 'Unscheduled'
+        ? unscheduledLabel
         : appointment.appointmentTime.trim();
     groups.putIfAbsent(slot, () => <StaffAppointment>[]).add(appointment);
   }
   final entries = groups.entries.toList()
     ..sort((a, b) {
-      if (a.key == 'Unscheduled') return 1;
-      if (b.key == 'Unscheduled') return -1;
+      if (a.key == unscheduledLabel) return 1;
+      if (b.key == unscheduledLabel) return -1;
       return a.key.compareTo(b.key);
     });
   return Map.fromEntries(entries);

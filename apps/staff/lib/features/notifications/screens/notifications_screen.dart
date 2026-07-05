@@ -174,16 +174,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return AppTheme.primaryBlue;
   }
 
-  String _filterLabel(_AlertFilter filter) {
+  String _filterLabel(_AlertFilter filter, AppStrings s) {
     return switch (filter) {
-      _AlertFilter.all => 'All',
-      _AlertFilter.unread => 'Unread',
-      _AlertFilter.critical => 'Critical',
-      _AlertFilter.appointments => 'Appointments',
-      _AlertFilter.admissions => 'Admissions',
-      _AlertFilter.beds => 'Beds',
-      _AlertFilter.housekeeping => 'Housekeeping',
-      _AlertFilter.investigations => 'Investigations',
+      _AlertFilter.all => s.lookup('s4.lib.notifications.filter.all'),
+      _AlertFilter.unread => s.lookup('s4.lib.notifications.filter.unread'),
+      _AlertFilter.critical => s.lookup('s4.lib.notifications.filter.critical'),
+      _AlertFilter.appointments => s.lookup(
+        's4.lib.notifications.filter.appointments',
+      ),
+      _AlertFilter.admissions => s.lookup(
+        's4.lib.notifications.filter.admissions',
+      ),
+      _AlertFilter.beds => s.lookup('s4.lib.notifications.filter.beds'),
+      _AlertFilter.housekeeping => s.lookup(
+        's4.lib.notifications.filter.housekeeping',
+      ),
+      _AlertFilter.investigations => s.lookup(
+        's4.lib.notifications.filter.investigations',
+      ),
     };
   }
 
@@ -244,7 +252,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               itemBuilder: (context, index) {
                 final filter = _AlertFilter.values[index];
                 return ChoiceChip(
-                  label: Text(_filterLabel(filter)),
+                  label: Text(_filterLabel(filter, s)),
                   selected: _filter == filter,
                   onSelected: (_) => setState(() => _filter = filter),
                 );
@@ -291,7 +299,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       child: Text(
                         s.noMatchesFor(
                           _searchQuery.trim().isEmpty
-                              ? _filterLabel(_filter)
+                              ? _filterLabel(_filter, s)
                               : _searchQuery,
                         ),
                         style: TextStyle(color: colorScheme.outline),
@@ -323,6 +331,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildAlertCard(_AlertRow row) {
     final item = row.item;
+    final s = AppStrings.of(context);
     final isRead = _isRead(item);
     final color = _colorForType(item);
     final colorScheme = Theme.of(context).colorScheme;
@@ -396,15 +405,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         if (row.isLive)
-                          const _AlertChip(
-                            label: 'Live',
-                            color: Color(0xFF00796B),
+                          _AlertChip(
+                            label: s.lookup('s4.lib.notifications.live'),
+                            color: const Color(0xFF00796B),
                             icon: Icons.bolt,
                           ),
                         if (item.isHighPriority)
-                          const _AlertChip(
-                            label: 'High priority',
-                            color: Color(0xFFC62828),
+                          _AlertChip(
+                            label: s.lookup(
+                              's4.lib.notifications.high_priority',
+                            ),
+                            color: const Color(0xFFC62828),
                             icon: Icons.priority_high,
                           ),
                         if (typeLabel.isNotEmpty)

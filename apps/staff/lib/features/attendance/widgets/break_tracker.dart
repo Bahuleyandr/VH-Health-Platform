@@ -46,6 +46,7 @@ class _BreakTrackerState extends State<BreakTracker> {
   @override
   Widget build(BuildContext context) {
     if (!widget.checkedIn) return const SizedBox.shrink();
+    final s = AppStrings.of(context);
 
     return Card(
       child: Padding(
@@ -67,7 +68,7 @@ class _BreakTrackerState extends State<BreakTracker> {
                 ),
                 const Spacer(),
                 Text(
-                  '${_totalBreakMinutes}min total',
+                  s.breakTrackerTotalMinutes(_totalBreakMinutes),
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],
@@ -78,7 +79,9 @@ class _BreakTrackerState extends State<BreakTracker> {
               child: OutlinedButton.icon(
                 onPressed: _loading ? null : () => _toggleBreak(),
                 icon: Icon(_onBreak ? Icons.play_arrow : Icons.pause, size: 16),
-                label: Text(_onBreak ? 'End Break' : 'Take a Break'),
+                label: Text(
+                  _onBreak ? s.breakTrackerEndBreak : s.breakTrackerTakeBreak,
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _onBreak ? Colors.green : Colors.brown,
                   side: BorderSide(
@@ -114,7 +117,7 @@ class _BreakTrackerState extends State<BreakTracker> {
                         ),
                       if (dur != null)
                         Text(
-                          ' (${(dur as num).round()}min)',
+                          s.breakTrackerDurationMinutes((dur as num).round()),
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.grey.shade600,

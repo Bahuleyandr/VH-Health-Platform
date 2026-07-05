@@ -139,9 +139,19 @@ Iterable<Map<String, dynamic>> _filterAppointmentDoctors({
 }
 
 String _doctorLabel(Map<String, dynamic> doctor) {
+  return _doctorLabelWithStrings(doctor);
+}
+
+String _doctorLabelWithStrings(Map<String, dynamic> doctor, {AppStrings? s}) {
+  final strings = s ?? AppStrings.forLocale(const Locale('en'));
   final id = _doctorId(doctor);
   final name =
-      doctor['name']?.toString() ?? (id == null ? 'Doctor' : 'Doctor #$id');
+      doctor['name']?.toString() ??
+      (id == null
+          ? strings.prescriptionsDoctorLabel
+          : strings.format('s4.dynamic.appointments.doctor_number', {
+              'id': id,
+            }));
   final department = _doctorDepartment(doctor);
   final specialization = doctor['specialization']?.toString() ?? '';
   return [
@@ -173,7 +183,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   String _patientSearchQuery = '';
   String _doctorDepartmentQuery = '';
   late DateTime _selectedDate;
-  String _scopeLabel = 'All OP queues';
+  String _scopeLabel = '';
   bool _doctorScoped = false;
   bool _queuePanelCollapsed = false;
   bool _queuePanelManuallyToggled = false;
@@ -181,8 +191,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   bool get _canBookAppointments => !_doctorScoped;
   bool get _doctorWorkspaceMode => widget.workspaceMode && _doctorScoped;
-  String get _screenTitle =>
-      _doctorWorkspaceMode ? 'OP Workspace' : 'Appointments';
+  String get _screenTitle {
+    final s = AppStrings.of(context);
+    return _doctorWorkspaceMode
+        ? s.lookup('s4.lib.appointments.op_workspace')
+        : s.lookup('s4.lib.appointments.appointments');
+  }
 
   List<StaffAppointment> get _filtered => _appointmentsByDate.values
       .expand((rows) => rows)
@@ -263,9 +277,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         ),
       );
       final byDate = <String, List<StaffAppointment>>{};
+      if (!mounted) return;
+      final s = AppStrings.of(context);
       for (var index = 0; index < days.length; index += 1) {
         byDate[_dateParam(days[index])] = StaffAppointment.listFrom(
           results[index],
+          patientFallback: s.patientRecordsUnknownPatient,
         );
       }
       if (mounted) {
@@ -273,8 +290,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           _appointmentsByDate = byDate;
           _doctorScoped = doctorScoped;
           _scopeLabel = doctorScoped
-              ? (widget.workspaceMode ? 'My OP workspace queue' : 'My OP queue')
-              : 'All OP queues';
+              ? (widget.workspaceMode
+                    ? s.lookup('s4.lib.appointments.my_op_workspace_queue')
+                    : s.lookup('s4.lib.appointments.my_op_queue'))
+              : s.lookup('s4.lib.appointments.all_op_queues');
           if (!_queuePanelManuallyToggled) {
             _queuePanelCollapsed = doctorScoped;
           }
@@ -318,7 +337,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     try {
       await ScheduleApiService.updateAppointmentStatus(id, status);
       if (!mounted) return;
-      SuccessToast.show(context, 'Appointment $status successfully');
+      final s = AppStrings.of(context);
+      SuccessToast.show(
+        context,
+        s.format('s4.dynamic.appointments.status_updated_successfully', {
+          'status': appointmentStatusFilterLabel(status, strings: s),
+        }),
+      );
       _load();
     } catch (e) {
       if (!mounted) return;
@@ -611,7 +636,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                               RawAutocomplete<Map<String, dynamic>>(
                                 textEditingController: doctorCtrl,
                                 focusNode: doctorFocus,
-                                displayStringForOption: _doctorLabel,
+                                displayStringForOption: (doctor) =>
+                                    _doctorLabelWithStrings(doctor, s: s),
                                 optionsBuilder: (value) {
                                   if (loading) {
                                     return const Iterable<
@@ -630,7 +656,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                     selectedDoctor = doctor;
                                     selectedDoctorId = _doctorId(doctor);
                                     selectedDoctorUid = _doctorUid(doctor);
-                                    doctorCtrl.text = _doctorLabel(doctor);
+                                    doctorCtrl.text = _doctorLabelWithStrings(
+                                      doctor,
+                                      s: s,
+                                    );
                                     if (department.isNotEmpty) {
                                       departmentCtrl.text = department;
                                     }
@@ -654,10 +683,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                                 'prescriptions.doctor_label',
                                               ),
                                           hintText: loading
-                                              ? 'Loading doctors...'
+                                              ? s.lookup(
+                                                  's4.lib.appointments.loading_doctors',
+                                                )
                                               : snapshot.hasError
-                                              ? 'Could not load doctors'
-                                              : 'Type doctor name',
+                                              ? s.lookup(
+                                                  's4.lib.appointments.could_not_load_doctors',
+                                                )
+                                              : s.lookup(
+                                                  's4.lib.appointments.type_doctor_name',
+                                                ),
                                           prefixIcon: const ExcludeSemantics(
                                             child: Icon(
                                               Icons.medical_services_outlined,
@@ -668,7 +703,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                           final selectedLabel =
                                               selectedDoctor == null
                                               ? ''
-                                              : _doctorLabel(selectedDoctor!);
+                                              : _doctorLabelWithStrings(
+                                                  selectedDoctor!,
+                                                  s: s,
+                                                );
                                           if (selectedDoctor != null &&
                                               text.trim() != selectedLabel) {
                                             setSheetState(() {
@@ -689,68 +727,55 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                             : null,
                                       );
                                     },
-                                optionsViewBuilder:
-                                    (context, onSelected, options) {
-                                      final items = options.toList(
-                                        growable: false,
-                                      );
-                                      return Align(
-                                        alignment: Alignment.topLeft,
-                                        child: Material(
-                                          elevation: 4,
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                          child: ConstrainedBox(
-                                            constraints: const BoxConstraints(
-                                              maxHeight: 260,
-                                              maxWidth: 520,
-                                            ),
-                                            child: ListView.separated(
-                                              padding: EdgeInsets.zero,
-                                              shrinkWrap: true,
-                                              itemCount: items.length,
-                                              separatorBuilder: (_, _) =>
-                                                  const Divider(height: 1),
-                                              itemBuilder: (context, index) {
-                                                final doctor = items[index];
-                                                return ListTile(
-                                                  dense: true,
-                                                  leading: const Icon(
-                                                    Icons.person_outline,
-                                                  ),
-                                                  title: Text(
-                                                    doctor['name']
-                                                            ?.toString() ??
-                                                        'Doctor',
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                  subtitle: Text(
-                                                    [
-                                                          _doctorDepartment(
-                                                            doctor,
-                                                          ),
-                                                          doctor['specialization']
-                                                                  ?.toString() ??
-                                                              '',
-                                                        ]
-                                                        .where(
-                                                          (v) => v.isNotEmpty,
-                                                        )
-                                                        .join(' - '),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                  onTap: () =>
-                                                      onSelected(doctor),
-                                                );
-                                              },
-                                            ),
-                                          ),
+                                optionsViewBuilder: (context, onSelected, options) {
+                                  final items = options.toList(growable: false);
+                                  return Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Material(
+                                      elevation: 4,
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxHeight: 260,
+                                          maxWidth: 520,
                                         ),
-                                      );
-                                    },
+                                        child: ListView.separated(
+                                          padding: EdgeInsets.zero,
+                                          shrinkWrap: true,
+                                          itemCount: items.length,
+                                          separatorBuilder: (_, _) =>
+                                              const Divider(height: 1),
+                                          itemBuilder: (context, index) {
+                                            final doctor = items[index];
+                                            return ListTile(
+                                              dense: true,
+                                              leading: const Icon(
+                                                Icons.person_outline,
+                                              ),
+                                              title: Text(
+                                                doctor['name']?.toString() ??
+                                                    s.prescriptionsDoctorLabel,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              subtitle: Text(
+                                                [
+                                                      _doctorDepartment(doctor),
+                                                      doctor['specialization']
+                                                              ?.toString() ??
+                                                          '',
+                                                    ]
+                                                    .where((v) => v.isNotEmpty)
+                                                    .join(' - '),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              onTap: () => onSelected(doctor),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                               const SizedBox(height: 12),
                               RawAutocomplete<String>(
@@ -1013,7 +1038,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       );
 
       if (created == true && mounted) {
-        SuccessToast.show(context, 'Appointment created successfully');
+        SuccessToast.show(
+          context,
+          s.lookup('s4.lib.appointments.appointment_created_successfully'),
+        );
         _load();
       }
     } finally {
@@ -1036,7 +1064,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       children: [
         for (final status in _statuses)
           ChoiceChip(
-            label: Text(appointmentStatusFilterLabel(status)),
+            label: Text(
+              appointmentStatusFilterLabel(
+                status,
+                strings: AppStrings.of(context),
+              ),
+            ),
             selected: status == _selectedStatus,
             onSelected: (_) {
               setState(() => _selectedStatus = status);
@@ -1168,6 +1201,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       backgroundColor: AppTheme.cardSurface,
       showDragHandle: true,
       builder: (sheetContext) {
+        final s = AppStrings.of(sheetContext);
         final id = appointment.id?.toString() ?? '';
         return SafeArea(
           child: Padding(
@@ -1187,7 +1221,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         ),
                       ),
                     ),
-                    _StatusBadge(label: appointment.status, color: statusColor),
+                    _StatusBadge(
+                      label: appointmentStatusFilterLabel(
+                        appointment.status,
+                        strings: s,
+                      ),
+                      color: statusColor,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -1241,9 +1281,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Widget _buildCalendarSurface() {
     if (_loading) return const SkeletonList();
     if (_error != null) {
+      final s = AppStrings.of(context);
       return ErrorState(
-        message:
-            'Could not load appointments.\n${_error!.replaceFirst('Exception: ', '')}',
+        message: s.format('s4.dynamic.appointments.load_failed_detail', {
+          'error': _error!.replaceFirst('Exception: ', ''),
+        }),
         onRetry: _load,
       );
     }
@@ -1586,7 +1628,11 @@ class _SchedulerSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final groups = appointmentSlotGroups(selectedDayAppointments);
+    final s = AppStrings.of(context);
+    final groups = appointmentSlotGroups(
+      selectedDayAppointments,
+      unscheduledLabel: s.dueMedsUnscheduled,
+    );
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1624,7 +1670,9 @@ class _SchedulerSidebar extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '$visibleCount visible this week',
+                      s.format('s4.dynamic.appointments.visible_this_week', {
+                        'count': visibleCount,
+                      }),
                       style: TextStyle(
                         color: AppTheme.textSecondary,
                         fontSize: 12,
@@ -1696,9 +1744,9 @@ class _SchedulerSidebar extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           if (selectedDayAppointments.isEmpty)
-            const _MutedPanel(
+            _MutedPanel(
               icon: Icons.event_busy_outlined,
-              text: 'No appointments',
+              text: s.lookup('s4.lib.appointments.no_appointments'),
             )
           else
             for (final entry in groups.entries) ...[
@@ -1742,8 +1790,9 @@ class _SchedulerCollapsedRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Tooltip(
-      message: 'Show queue panel',
+      message: s.lookup('s4.lib.appointments.show_queue_panel'),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onExpand,
@@ -1788,7 +1837,7 @@ class _SchedulerCollapsedRail extends StatelessWidget {
                 ),
               ),
               Text(
-                'day',
+                s.lookup('s4.lib.appointments.calendar_day'),
                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
               ),
               const Divider(height: 24),
@@ -1801,7 +1850,7 @@ class _SchedulerCollapsedRail extends StatelessWidget {
                 ),
               ),
               Text(
-                'week',
+                s.lookup('s4.lib.appointments.calendar_week'),
                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
               ),
               const Spacer(),
@@ -2407,6 +2456,7 @@ class _CalendarCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final visibleAppointments = appointments.take(2).toList(growable: false);
     final extra = appointments.length - visibleAppointments.length;
     return InkWell(
@@ -2436,7 +2486,9 @@ class _CalendarCell extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 2),
                 child: Text(
-                  '+$extra more',
+                  s.format('s4.dynamic.appointments.more_count', {
+                    'count': extra,
+                  }),
                   style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 11,
@@ -2462,9 +2514,10 @@ class _CalendarAppointmentPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final color = _appointmentStatusColor(appointment.status);
     final time = appointment.appointmentTime.trim().isEmpty
-        ? 'Flex'
+        ? s.lookup('s4.lib.appointments.flex')
         : appointment.appointmentTime.trim();
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -2526,7 +2579,12 @@ class _SidebarAppointmentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final color = _appointmentStatusColor(appointment.status);
+    final statusLabel = appointmentStatusFilterLabel(
+      appointment.status,
+      strings: s,
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: InkWell(
@@ -2565,8 +2623,11 @@ class _SidebarAppointmentRow extends StatelessWidget {
                     ),
                     Text(
                       appointment.appointmentTime.isEmpty
-                          ? appointment.status
-                          : '${appointment.appointmentTime} - ${appointment.status}',
+                          ? statusLabel
+                          : s.format('s4.dynamic.appointments.time_status', {
+                              'time': appointment.appointmentTime,
+                              'status': statusLabel,
+                            }),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

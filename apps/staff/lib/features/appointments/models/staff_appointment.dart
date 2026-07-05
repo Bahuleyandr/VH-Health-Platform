@@ -1,3 +1,5 @@
+import '../../../l10n/app_strings.dart';
+
 class StaffAppointment {
   final Map<String, dynamic> raw;
   final int? id;
@@ -35,7 +37,10 @@ class StaffAppointment {
     required this.slaBreached,
   });
 
-  factory StaffAppointment.fromJson(Map<String, dynamic> json) {
+  factory StaffAppointment.fromJson(
+    Map<String, dynamic> json, {
+    String patientFallback = '',
+  }) {
     final patient = _mapFrom(json['patient']);
     final doctor = _mapFrom(json['doctor']);
     final profile = _firstMapFrom(doctor?['doctors']);
@@ -80,7 +85,7 @@ class StaffAppointment {
         patient?['uid'],
         patient?['patient_uid'],
       ]),
-      patientName: patientName.isEmpty ? 'Unknown Patient' : patientName,
+      patientName: patientName.isEmpty ? patientFallback : patientName,
       patientPhone: _firstText([
         json['patient_phone'],
         patient?['phone'],
@@ -111,19 +116,25 @@ class StaffAppointment {
     );
   }
 
-  static List<StaffAppointment> listFrom(dynamic value) {
+  static List<StaffAppointment> listFrom(
+    dynamic value, {
+    String patientFallback = '',
+  }) {
     if (value is Map) {
       final map = Map<String, dynamic>.from(value);
       return listFrom(
         map['appointments'] ?? map['pending'] ?? map['queue'] ?? map['data'],
+        patientFallback: patientFallback,
       );
     }
     if (value is List) {
       return value
           .whereType<Map>()
           .map(
-            (item) =>
-                StaffAppointment.fromJson(Map<String, dynamic>.from(item)),
+            (item) => StaffAppointment.fromJson(
+              Map<String, dynamic>.from(item),
+              patientFallback: patientFallback,
+            ),
           )
           .toList();
     }
@@ -139,11 +150,15 @@ class StaffAppointment {
     if (appointmentTime.isNotEmpty) appointmentTime,
   ].join(' ');
 
-  String waitingLabel() {
+  String waitingLabel(AppStrings strings) {
     if (minutesSinceBooking < 60) {
-      return '${minutesSinceBooking.toInt()} min ago';
+      return strings.format('s4.dynamic.appointments.minutes_ago', {
+        'count': minutesSinceBooking.toInt(),
+      });
     }
-    return '${(minutesSinceBooking / 60).toStringAsFixed(1)}h ago';
+    return strings.format('s4.dynamic.appointments.hours_ago', {
+      'count': (minutesSinceBooking / 60).toStringAsFixed(1),
+    });
   }
 
   bool matchesPatientSearch(String query) {

@@ -251,6 +251,7 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
   void _showDraftRestoredBanner(DateTime? updatedAt) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    final s = AppStrings.of(context);
     final when = updatedAt != null
         ? TimeOfDay.fromDateTime(updatedAt.toLocal()).format(context)
         : null;
@@ -259,13 +260,15 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
       SnackBar(
         content: Text(
           when != null
-              ? 'Restored unsaved draft from $when'
-              : 'Restored unsaved draft',
+              ? s.format('s4.dynamic.nursing_notes.restored_draft_from', {
+                  'time': when,
+                })
+              : s.lookup('s4.lib.nursing_notes.restored_draft'),
         ),
         backgroundColor: const Color(0xFF00695C),
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
-          label: 'Discard draft',
+          label: s.lookup('s4.lib.nursing_notes.discard_draft'),
           textColor: Colors.white,
           onPressed: _discardRestoredDraft,
         ),
@@ -386,7 +389,10 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
           endpoint: '/emr/notes',
           method: 'POST',
           body: body,
-          contextLabel: 'Nursing note for ${_phoneCtrl.text.trim()}',
+          contextLabel: AppStrings.of(context).format(
+            's4.dynamic.nursing_notes.offline_context',
+            {'patient': _phoneCtrl.text.trim()},
+          ),
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -849,7 +855,13 @@ class _RecentNursingNotesTabState extends State<RecentNursingNotesTab> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.expand_more),
-                    label: Text(_loadingMore ? 'Loading...' : 'Load more'),
+                    label: Text(
+                      _loadingMore
+                          ? AppStrings.of(context).labelLoading
+                          : AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.nursing_notes.load_more'),
+                    ),
                   ),
                 );
               }
@@ -869,12 +881,16 @@ class _RecentNursingNoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final type = _text(note['note_type'], fallback: 'nursing_assessment');
     final content = note['content'];
     final body = _noteBody(content);
     final category = content is Map
-        ? _text(content['note_category'], fallback: _displayNoteType(type))
-        : _displayNoteType(type);
+        ? _text(
+            content['note_category'],
+            fallback: _displayNoteType(strings, type),
+          )
+        : _displayNoteType(strings, type);
     final author = _firstText([
       note['author_name'],
       note['created_by_name'],
@@ -904,7 +920,9 @@ class _RecentNursingNoteCard extends StatelessWidget {
                 if (signed) ...[
                   const SizedBox(width: 6),
                   _RecentNoteBadge(
-                    label: 'SIGNED',
+                    label: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.nursing_notes.signed'),
                     color: AppTheme.successOnSurface,
                   ),
                 ],
@@ -1013,9 +1031,11 @@ String _formatDateTime(DateTime? value) {
   return '$year-$month-$day $hour:$minute';
 }
 
-String _displayNoteType(String type) {
+String _displayNoteType(AppStrings strings, String type) {
   final normalized = type.trim().toLowerCase().replaceAll('_', ' ');
-  if (normalized.isEmpty) return 'Nursing note';
+  if (normalized.isEmpty || normalized == 'nursing assessment') {
+    return strings.lookup('s4.lib.nursing_notes.nursing_note');
+  }
   return normalized.replaceFirstMapped(
     RegExp(r'^.'),
     (match) => match[0]!.toUpperCase(),

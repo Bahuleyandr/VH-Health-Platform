@@ -6,16 +6,27 @@ import '../../../l10n/app_strings.dart';
 enum _CdsOverrideCategory {
   priorToleranceDocumented(
     'prior-tolerance-documented',
-    'Prior tolerance documented',
+    's4.lib.cds_blocker_modal.category.prior_tolerance_documented',
   ),
-  benefitOutweighsRisk('benefit-outweighs-risk', 'Benefit outweighs risk'),
-  alternativeUnavailable('alternative-unavailable', 'No suitable alternative'),
-  allergyDisputed('allergy-disputed', 'Allergy disputed / mislabelled'),
-  other('other', 'Other (specify below)');
+  benefitOutweighsRisk(
+    'benefit-outweighs-risk',
+    's4.lib.cds_blocker_modal.category.benefit_outweighs_risk',
+  ),
+  alternativeUnavailable(
+    'alternative-unavailable',
+    's4.lib.cds_blocker_modal.category.alternative_unavailable',
+  ),
+  allergyDisputed(
+    'allergy-disputed',
+    's4.lib.cds_blocker_modal.category.allergy_disputed',
+  ),
+  other('other', 's4.lib.cds_blocker_modal.category.other');
 
-  const _CdsOverrideCategory(this.value, this.label);
+  const _CdsOverrideCategory(this.value, this.labelKey);
   final String value;
-  final String label;
+  final String labelKey;
+
+  String label(AppStrings s) => s.lookup(labelKey);
 }
 
 /// Returns true if [text] is a meaningful clinical justification:
@@ -232,7 +243,8 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                 ),
                 items: _CdsOverrideCategory.values
                     .map(
-                      (c) => DropdownMenuItem(value: c, child: Text(c.label)),
+                      (c) =>
+                          DropdownMenuItem(value: c, child: Text(c.label(s))),
                     )
                     .toList(),
                 onChanged: (v) => setState(() => _category = v),
@@ -273,8 +285,12 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                 const SizedBox(height: 4),
                 Text(
                   _justificationCtrl.text.trim().length < 15
-                      ? 'Minimum 15 characters required'
-                      : 'Justification must not be a repeated character',
+                      ? s.lookup(
+                          's4.lib.cds_blocker_modal.minimum_15_characters_required',
+                        )
+                      : s.lookup(
+                          's4.lib.cds_blocker_modal.justification_not_repeated_character',
+                        ),
                   style: const TextStyle(fontSize: 11, color: Colors.red),
                 ),
               ],

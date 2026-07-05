@@ -1109,7 +1109,7 @@ class _ResultMeta extends StatelessWidget {
       children: [
         _StatusChip(
           icon: Icons.extension_outlined,
-          label: moduleKey,
+          label: strings.clinicalAiModuleLabel(moduleKey),
           color: AppTheme.primaryBlue,
         ),
         _StatusChip(
