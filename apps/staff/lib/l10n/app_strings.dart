@@ -285,10 +285,27 @@ class AppStrings {
   String get bedBoardWardFallback => _t('bed_board.ward_fallback');
   String get bedBoardPrintTooltip => _t('bed_board.print_tooltip');
   String get bedBoardRefreshTooltip => _t('bed_board.refresh_tooltip');
+  String get bedBoardLoadWardsFailed => _t('bed_board.load_wards_failed');
+  String get bedBoardServerUnreachable => _t('bed_board.server_unreachable');
   String bedBoardPrintFailed(String reason) =>
       '${_t('bed_board.print_failed_prefix')} $reason';
   String bedBoardNoStatusFiltered(String status) =>
       '${_t('bed_board.no_filtered_prefix')} $status ${_t('bed_board.no_filtered_suffix')}';
+  String bedBoardCleaningAssignee(String assignee) =>
+      format('s4.dynamic.bed_board.cleaning_assignee', {'assignee': assignee});
+  String bedBoardSemanticPatient(String patient) =>
+      format('s4.dynamic.bed_board.semantic.patient', {'patient': patient});
+  String bedBoardSemanticCleaningAssignedTo(String assignee) => format(
+    's4.dynamic.bed_board.semantic.cleaning_assigned_to',
+    {'assignee': assignee},
+  );
+  String bedBoardSemanticHospitalId(String id) =>
+      format('s4.dynamic.bed_board.semantic.hospital_id', {'id': id});
+  String get bedBoardSemanticHasNotes => _t('bed_board.semantic.has_notes');
+  String get bedBoardSemanticViewDetails =>
+      _t('bed_board.semantic.view_details');
+  String get bedBoardSemanticViewDetailsEditNotes =>
+      _t('bed_board.semantic.view_details_edit_notes');
   String get bedBoardAdmitWhichPatient => _t('bed_board.admit_which_patient');
   String get bedBoardAdmitSearchHint => _t('bed_board.admit_search_hint');
   String get bedBoardTypeToFindPatient => _t('bed_board.type_to_find_patient');
@@ -298,17 +315,28 @@ class AppStrings {
 
   // ── Bed sheet ──────────────────────────────────────────────────────
   String get bedSheetActionOpenEmr => _t('bed_sheet.action.open_emr');
+  String get bedSheetActionCaseSheet => _t('bed_sheet.action.case_sheet');
   String get bedSheetActionRecordVitals => _t('bed_sheet.action.record_vitals');
   String get bedSheetActionAddNote => _t('bed_sheet.action.add_note');
+  String get bedSheetActionDrugChart => _t('bed_sheet.action.drug_chart');
   String get bedSheetActionHandover => _t('bed_sheet.action.handover');
+  String get bedSheetActionDischarge => _t('bed_sheet.action.discharge');
   String get bedSheetSectionPatient => _t('bed_sheet.section.patient');
   String get bedSheetSectionAdmission => _t('bed_sheet.section.admission');
   String get bedSheetSectionNotes => _t('bed_sheet.section.notes');
+  String get bedSheetSectionHousekeeping =>
+      _t('bed_sheet.section.housekeeping');
   String get bedSheetNotesHint => _t('bed_sheet.notes_hint');
   String get bedSheetSaveNotes => _t('bed_sheet.save_notes');
+  String get bedSheetSaveFailed => _t('bed_sheet.save_failed');
+  String get bedSheetSaveNotesFailed => _t('bed_sheet.save_notes_failed');
   String get bedSheetNotesSaved => _t('bed_sheet.notes_saved');
+  String get bedSheetMissingBedIdCannotSaveNotes =>
+      _t('bed_sheet.missing_bed_id_cannot_save_notes');
   String get bedSheetAdmitPatient => _t('bed_sheet.admit_patient');
+  String get bedSheetAdmitFailed => _t('bed_sheet.admit_failed');
   String get bedSheetDischarge => _t('bed_sheet.discharge');
+  String get bedSheetDischargeFailed => _t('bed_sheet.discharge_failed');
   String get bedSheetDischargeInitiated => _t('bed_sheet.discharge_initiated');
   String get bedSheetDischargeInitiatedShort =>
       _t('bed_sheet.discharge_initiated_short');
@@ -319,12 +347,29 @@ class AppStrings {
   String get bedSheetTransferReasonHint => _t('bed_sheet.transfer_reason_hint');
   String get bedSheetTransferConsent => _t('bed_sheet.transfer_consent');
   String get bedSheetTransferEmpty => _t('bed_sheet.transfer_empty');
+  String get bedSheetTransferFailed => _t('bed_sheet.transfer_failed');
   String get bedSheetTransferSearchHint => _t('bed_sheet.transfer_search_hint');
   String get bedSheetTransferSucceeded => _t('bed_sheet.transfer_succeeded');
+  String get bedSheetPatientUidMissingCannotTransferBed =>
+      _t('bed_sheet.patient_uid_missing_cannot_transfer_bed');
+  String get bedSheetTargetBedMissing => _t('bed_sheet.target_bed_missing');
   String bedSheetTransferConfirmBody(String bed) =>
       '${_t('bed_sheet.transfer_confirm_prefix')} $bed. ${_t('bed_sheet.transfer_confirm_suffix')}';
   String get bedSheetMarkMaintenance => _t('bed_sheet.mark_maintenance');
   String get bedSheetMarkAvailable => _t('bed_sheet.mark_available');
+  String get bedSheetStatusChangeFailed => _t('bed_sheet.status_change_failed');
+  String get bedSheetBedMarkedAvailable => _t('bed_sheet.bed_marked_available');
+  String get bedSheetMarkReadyFailed => _t('bed_sheet.mark_ready_failed');
+  String get bedSheetLoadAvailableBedsFailed =>
+      _t('bed_sheet.load_available_beds_failed');
+  String get bedSheetPatientSearchFailed =>
+      _t('bed_sheet.patient_search_failed');
+  String bedSheetQuickActionForPatient(String action, String patient) => format(
+    's4.dynamic.bed_sheet.quick_action_for_patient',
+    {'action': action, 'patient': patient},
+  );
+  String bedSheetQuickActionHint(String action) =>
+      format('s4.dynamic.bed_sheet.quick_action_hint', {'action': action});
   String dischargeConfirmTitle(String name) =>
       '${_t('bed_sheet.discharge_confirm_prefix')} $name?';
   String get dischargeConfirmBody => _t('bed_sheet.discharge_confirm_body');
@@ -609,9 +654,12 @@ class AppStrings {
 
   // ── Bed sheet (additional) ─────────────────────────────────────────
   String get bedSheetFieldName => _t('bed_sheet.field.name');
+  String get bedSheetFieldHospitalId => _t('bed_sheet.field.hospital_id');
   String get bedSheetFieldAge => _t('bed_sheet.field.age');
   String get bedSheetFieldGender => _t('bed_sheet.field.gender');
   String get bedSheetFieldPhone => _t('bed_sheet.field.phone');
+  String get bedSheetFieldAssignedCleaning =>
+      _t('bed_sheet.field.assigned_cleaning');
   String get bedSheetFieldChiefComplaint =>
       _t('bed_sheet.field.chief_complaint');
   String get bedSheetFieldDiagnosis => _t('bed_sheet.field.diagnosis');
@@ -3003,20 +3051,41 @@ class AppStrings {
       'bed_board.mark_ready_body':
           'This confirms housekeeping has completed cleaning and makes the bed available for the next patient.',
       'bed_board.discharge_hub': 'Discharge Hub',
+      'bed_board.load_wards_failed': 'Failed to load wards',
+      'bed_board.server_unreachable': 'Could not connect to server',
+      's4.dynamic.bed_board.cleaning_assignee': 'Cleaning: {assignee}',
+      's4.dynamic.bed_board.semantic.patient': 'patient {patient}',
+      's4.dynamic.bed_board.semantic.cleaning_assigned_to':
+          'cleaning assigned to {assignee}',
+      's4.dynamic.bed_board.semantic.hospital_id': 'Hospital ID {id}',
+      'bed_board.semantic.has_notes': 'has notes',
+      'bed_board.semantic.view_details': 'Double tap to view details.',
+      'bed_board.semantic.view_details_edit_notes':
+          'Double tap to view details. Long press to edit notes.',
       // Bed sheet
       'bed_sheet.action.open_emr': 'Open EMR',
+      'bed_sheet.action.case_sheet': 'Case Sheet',
       'bed_sheet.action.record_vitals': 'Record Vitals',
       'bed_sheet.action.add_note': 'Add Note',
+      'bed_sheet.action.drug_chart': 'Drug Chart',
       'bed_sheet.action.handover': 'Handover',
+      'bed_sheet.action.discharge': 'Discharge',
       'bed_sheet.section.patient': 'Patient',
       'bed_sheet.section.admission': 'Admission',
       'bed_sheet.section.notes': 'Notes',
+      'bed_sheet.section.housekeeping': 'Housekeeping',
       'bed_sheet.notes_hint':
           'Type a note for this bed (handover, hazards, IV site, etc.)',
       'bed_sheet.save_notes': 'Save Notes',
+      'bed_sheet.save_failed': 'Failed to save',
+      'bed_sheet.save_notes_failed': 'Failed to save notes',
       'bed_sheet.notes_saved': 'Bed notes saved',
+      'bed_sheet.missing_bed_id_cannot_save_notes':
+          'Bed id missing - cannot save notes.',
       'bed_sheet.admit_patient': 'Admit Patient',
+      'bed_sheet.admit_failed': 'Admit failed',
       'bed_sheet.discharge': 'Start Discharge',
+      'bed_sheet.discharge_failed': 'Discharge failed',
       'bed_sheet.discharge_initiated': 'Discharge workflow initiated',
       'bed_sheet.discharge_initiated_short': 'Discharge initiated',
       'bed_sheet.transfer': 'Transfer',
@@ -3026,14 +3095,25 @@ class AppStrings {
       'bed_sheet.transfer_consent':
           'Class or tariff change consent has been recorded',
       'bed_sheet.transfer_empty': 'No available beds right now',
+      'bed_sheet.transfer_failed': 'Transfer failed',
       'bed_sheet.transfer_search_hint': 'Search bed, ward, or type',
       'bed_sheet.transfer_succeeded':
           'Patient transferred. Previous bed is now cleaning.',
+      'bed_sheet.patient_uid_missing_cannot_transfer_bed':
+          'Patient UID missing - cannot transfer bed.',
+      'bed_sheet.target_bed_missing': 'Target bed id missing.',
       'bed_sheet.transfer_confirm_prefix': 'Move patient to',
       'bed_sheet.transfer_confirm_suffix':
           'The current bed will move to cleaning.',
       'bed_sheet.mark_maintenance': 'Mark Maintenance',
       'bed_sheet.mark_available': 'Mark Available',
+      'bed_sheet.status_change_failed': 'Status change failed',
+      'bed_sheet.bed_marked_available': 'Bed marked available',
+      'bed_sheet.mark_ready_failed': 'Could not mark ready',
+      'bed_sheet.load_available_beds_failed': 'Failed to load available beds',
+      'bed_sheet.patient_search_failed': 'Search failed',
+      's4.dynamic.bed_sheet.quick_action_for_patient': '{action} for {patient}',
+      's4.dynamic.bed_sheet.quick_action_hint': 'Opens the {action} screen',
       'bed_sheet.discharge_confirm_prefix': 'Start discharge for',
       'bed_sheet.discharge_confirm_body':
           'This starts discharge summary, counselling, pharmacy, billing, and consult checks. The bed stays occupied until final discharge is completed.',
@@ -3363,9 +3443,11 @@ class AppStrings {
       'leave.day_count.other': 'days',
       // Bed sheet (additional)
       'bed_sheet.field.name': 'Name',
+      'bed_sheet.field.hospital_id': 'Hospital ID',
       'bed_sheet.field.age': 'Age',
       'bed_sheet.field.gender': 'Gender',
       'bed_sheet.field.phone': 'Phone',
+      'bed_sheet.field.assigned_cleaning': 'Assigned cleaning',
       'bed_sheet.field.chief_complaint': 'Chief complaint',
       'bed_sheet.field.diagnosis': 'Diagnosis',
       'bed_sheet.field.type': 'Type',
@@ -7485,22 +7567,56 @@ class AppStrings {
       'bed_board.mark_ready_body':
           'यह पुष्टि करता है कि हाउसकीपिंग ने सफाई पूरी कर दी है और बेड अगले मरीज़ के लिए उपलब्ध है।',
       'bed_board.discharge_hub': 'डिस्चार्ज हब',
+      // REVIEW: hi AI first-pass S4 bed-board copy.
+      'bed_board.load_wards_failed': 'वार्ड लोड नहीं हो सके',
+      'bed_board.server_unreachable': 'सर्वर से कनेक्ट नहीं हो सका',
+      's4.dynamic.bed_board.cleaning_assignee': 'सफाई: {assignee}',
+      's4.dynamic.bed_board.semantic.patient': 'मरीज़ {patient}',
+      's4.dynamic.bed_board.semantic.cleaning_assigned_to':
+          'सफाई {assignee} को सौंपी गई',
+      's4.dynamic.bed_board.semantic.hospital_id': 'अस्पताल ID {id}',
+      'bed_board.semantic.has_notes': 'नोट्स हैं',
+      'bed_board.semantic.view_details': 'विवरण देखने के लिए डबल टैप करें।',
+      'bed_board.semantic.view_details_edit_notes':
+          'विवरण देखने के लिए डबल टैप करें। नोट्स संपादित करने के लिए लंबा दबाएँ।',
       // Bed sheet
       'bed_sheet.action.open_emr': 'EMR खोलें',
+      'bed_sheet.action.case_sheet': 'केस शीट',
       'bed_sheet.action.record_vitals': 'वाइटल्स दर्ज करें',
       'bed_sheet.action.add_note': 'नोट जोड़ें',
+      'bed_sheet.action.drug_chart': 'ड्रग चार्ट',
       'bed_sheet.action.handover': 'हैंडओवर',
+      'bed_sheet.action.discharge': 'डिस्चार्ज',
       'bed_sheet.section.patient': 'मरीज़',
       'bed_sheet.section.admission': 'भर्ती',
       'bed_sheet.section.notes': 'नोट्स',
+      'bed_sheet.section.housekeeping': 'हाउसकीपिंग',
       'bed_sheet.notes_hint':
           'इस बेड के लिए नोट लिखें (हैंडओवर, ख़तरे, IV साइट आदि)',
       'bed_sheet.save_notes': 'नोट्स सहेजें',
+      'bed_sheet.save_failed': 'सहेजने में विफल',
+      'bed_sheet.save_notes_failed': 'नोट्स सहेजने में विफल',
       'bed_sheet.notes_saved': 'बेड नोट्स सहेज लिए गए',
+      'bed_sheet.missing_bed_id_cannot_save_notes':
+          'बेड ID नहीं है - नोट्स सहेजे नहीं जा सकते।',
       'bed_sheet.admit_patient': 'मरीज़ भर्ती करें',
+      'bed_sheet.admit_failed': 'भर्ती विफल रही',
       'bed_sheet.discharge': 'डिस्चार्ज',
+      'bed_sheet.discharge_failed': 'डिस्चार्ज विफल रहा',
       'bed_sheet.mark_maintenance': 'रखरखाव में डालें',
       'bed_sheet.mark_available': 'उपलब्ध करें',
+      'bed_sheet.status_change_failed': 'स्थिति बदलने में विफल',
+      'bed_sheet.bed_marked_available': 'बेड उपलब्ध चिह्नित हुआ',
+      'bed_sheet.mark_ready_failed': 'तैयार चिह्नित नहीं कर सके',
+      'bed_sheet.load_available_beds_failed': 'उपलब्ध बेड लोड नहीं हो सके',
+      'bed_sheet.patient_search_failed': 'खोज विफल रही',
+      'bed_sheet.transfer_failed': 'स्थानांतरण विफल रहा',
+      'bed_sheet.patient_uid_missing_cannot_transfer_bed':
+          'मरीज़ UID नहीं है - बेड स्थानांतरित नहीं किया जा सकता।',
+      'bed_sheet.target_bed_missing': 'लक्षित बेड ID नहीं है।',
+      's4.dynamic.bed_sheet.quick_action_for_patient':
+          '{patient} के लिए {action}',
+      's4.dynamic.bed_sheet.quick_action_hint': '{action} स्क्रीन खोलता है',
       'bed_sheet.discharge_confirm_prefix': 'डिस्चार्ज करें',
       'bed_sheet.discharge_confirm_body':
           'इससे बेड खाली हो जाएगा और सक्रिय भर्ती समाप्त हो जाएगी। मरीज़ के EMR रिकॉर्ड बने रहेंगे।',
@@ -7877,9 +7993,11 @@ class AppStrings {
       'leave.day_count.other': 'दिन',
       // Bed sheet (additional)
       'bed_sheet.field.name': 'नाम',
+      'bed_sheet.field.hospital_id': 'अस्पताल ID',
       'bed_sheet.field.age': 'आयु',
       'bed_sheet.field.gender': 'लिंग',
       'bed_sheet.field.phone': 'फ़ोन',
+      'bed_sheet.field.assigned_cleaning': 'सौंपी गई सफाई',
       'bed_sheet.field.chief_complaint': 'मुख्य शिकायत',
       'bed_sheet.field.diagnosis': 'निदान',
       'bed_sheet.field.type': 'प्रकार',
@@ -11986,21 +12104,53 @@ class AppStrings {
       'bed_board.mark_ready_body':
           'ஹவுஸ்கீப்பிங் சுத்தம் முடித்தது, படுக்கை அடுத்த நோயாளிக்கு கிடைக்கும் என்பதை இது உறுதிப்படுத்துகிறது.',
       'bed_board.discharge_hub': 'டிஸ்சார்ஜ் ஹப்',
+      // REVIEW: ta AI first-pass S4 bed-board copy.
+      'bed_board.load_wards_failed': 'வார்டுகளை ஏற்ற முடியவில்லை',
+      'bed_board.server_unreachable': 'சேவையகத்துடன் இணைக்க முடியவில்லை',
+      's4.dynamic.bed_board.cleaning_assignee': 'சுத்தம்: {assignee}',
+      's4.dynamic.bed_board.semantic.patient': 'நோயாளி {patient}',
+      's4.dynamic.bed_board.semantic.cleaning_assigned_to':
+          'சுத்தம் {assignee}க்கு ஒதுக்கப்பட்டது',
+      's4.dynamic.bed_board.semantic.hospital_id': 'மருத்துவமனை ID {id}',
+      'bed_board.semantic.has_notes': 'குறிப்புகள் உள்ளன',
+      'bed_board.semantic.view_details':
+          'விவரங்களைப் பார்க்க இருமுறை தட்டவும்.',
+      'bed_board.semantic.view_details_edit_notes':
+          'விவரங்களைப் பார்க்க இருமுறை தட்டவும். குறிப்புகளைத் திருத்த நீண்ட நேரம் அழுத்தவும்.',
       'bed_sheet.action.open_emr': 'EMR திறக்க',
+      'bed_sheet.action.case_sheet': 'கேஸ் ஷீட்',
       'bed_sheet.action.record_vitals': 'உயிர் அளவீடுகள் பதிவு',
       'bed_sheet.action.add_note': 'குறிப்பு சேர்',
+      'bed_sheet.action.drug_chart': 'மருந்து அட்டவணை',
       'bed_sheet.action.handover': 'கையளிப்பு',
+      'bed_sheet.action.discharge': 'டிஸ்சார்ஜ்',
       'bed_sheet.section.patient': 'நோயாளி',
       'bed_sheet.section.admission': 'அனுமதி',
       'bed_sheet.section.notes': 'குறிப்புகள்',
+      'bed_sheet.section.housekeeping': 'ஹவுஸ்கீப்பிங்',
       'bed_sheet.notes_hint':
           'இந்தப் படுக்கைக்கு குறிப்பு எழுது (கையளிப்பு, அபாயங்கள், IV தளம் போன்றவை)',
       'bed_sheet.save_notes': 'குறிப்புகளைச் சேமி',
+      'bed_sheet.save_failed': 'சேமிக்க முடியவில்லை',
+      'bed_sheet.save_notes_failed': 'குறிப்புகளைச் சேமிக்க முடியவில்லை',
       'bed_sheet.notes_saved': 'படுக்கை குறிப்புகள் சேமிக்கப்பட்டன',
+      'bed_sheet.missing_bed_id_cannot_save_notes':
+          'படுக்கை ID இல்லை - குறிப்புகளைச் சேமிக்க முடியாது.',
       'bed_sheet.admit_patient': 'நோயாளியை அனுமதி',
+      'bed_sheet.admit_failed': 'அனுமதி தோல்வியடைந்தது',
       'bed_sheet.discharge': 'வெளியேற்று',
+      'bed_sheet.discharge_failed': 'டிஸ்சார்ஜ் தோல்வியடைந்தது',
       'bed_sheet.mark_maintenance': 'பராமரிப்பு என குறி',
       'bed_sheet.mark_available': 'கிடைக்கிறது என குறி',
+      'bed_sheet.status_change_failed': 'நிலையை மாற்ற முடியவில்லை',
+      'bed_sheet.bed_marked_available':
+          'படுக்கை கிடைக்கிறது என குறிக்கப்பட்டது',
+      'bed_sheet.mark_ready_failed': 'தயார் என குறிக்க முடியவில்லை',
+      'bed_sheet.load_available_beds_failed':
+          'கிடைக்கும் படுக்கைகளை ஏற்ற முடியவில்லை',
+      'bed_sheet.patient_search_failed': 'தேடல் தோல்வியடைந்தது',
+      's4.dynamic.bed_sheet.quick_action_for_patient': '{patient}க்கு {action}',
+      's4.dynamic.bed_sheet.quick_action_hint': '{action} திரையைத் திறக்கும்',
       'bed_sheet.discharge_confirm_prefix': 'வெளியேற்று',
       'bed_sheet.discharge_confirm_body':
           'இது படுக்கையை விடுவித்து செயலில் உள்ள அனுமதியை முடிக்கிறது. நோயாளியின் EMR பதிவுகள் அப்படியே இருக்கும்.',
@@ -12076,11 +12226,15 @@ class AppStrings {
           'வகுப்பு/கட்டண மாற்றத்திற்கான ஒப்புதல் பதிவு செய்யப்பட்டுள்ளது',
       'bed_sheet.transfer_destination': 'மாற்றும் இடம்',
       'bed_sheet.transfer_empty': 'இப்போது படுக்கைகள் காலியாக இல்லை',
+      'bed_sheet.transfer_failed': 'மாற்றம் தோல்வியடைந்தது',
       'bed_sheet.transfer_patient': 'நோயாளியை மாற்று',
       'bed_sheet.transfer_reason_hint': 'காரணம் / பெறும் பிரிவு குறிப்பு',
       'bed_sheet.transfer_search_hint': 'படுக்கை, வார்டு, வகை தேடுங்கள்',
       'bed_sheet.transfer_succeeded':
           'நோயாளி மாற்றப்பட்டார். முந்தைய படுக்கை இப்போது சுத்தத்தில்.',
+      'bed_sheet.patient_uid_missing_cannot_transfer_bed':
+          'நோயாளி UID இல்லை - படுக்கையை மாற்ற முடியாது.',
+      'bed_sheet.target_bed_missing': 'இலக்கு படுக்கை ID இல்லை.',
       'clinical_ai.draft.reviewer_note_button': 'குறிப்புடன் ஏற்கவும்',
       'clinical_ai.draft.reviewer_note_hint':
           'ஏற்கும் முன் நீங்கள் சரிபார்த்ததை ஒரு வாக்கியத்தில்.',
@@ -12399,9 +12553,11 @@ class AppStrings {
       'leave.day_count.other': 'நாட்கள்',
       // Bed sheet (additional) - REVIEW
       'bed_sheet.field.name': 'பெயர்',
+      'bed_sheet.field.hospital_id': 'மருத்துவமனை ID',
       'bed_sheet.field.age': 'வயது',
       'bed_sheet.field.gender': 'பாலினம்',
       'bed_sheet.field.phone': 'தொலைபேசி',
+      'bed_sheet.field.assigned_cleaning': 'ஒதுக்கப்பட்ட சுத்தம்',
       'bed_sheet.field.chief_complaint': 'முக்கிய புகார்',
       'bed_sheet.field.diagnosis': 'நோயறிதல்',
       'bed_sheet.field.type': 'வகை',
@@ -17110,21 +17266,54 @@ class AppStrings {
       'bed_board.mark_ready_body':
           'హౌస్‌కీపింగ్ శుభ్రపరచడం పూర్తయిందని, బెడ్ తదుపరి రోగికి అందుబాటులో ఉందని ఇది నిర్ధారిస్తుంది.',
       'bed_board.discharge_hub': 'డిశ్చార్జ్ హబ్',
+      // REVIEW: te AI first-pass S4 bed-board copy.
+      'bed_board.load_wards_failed': 'వార్డులను లోడ్ చేయలేకపోయాం',
+      'bed_board.server_unreachable': 'సర్వర్‌కు కనెక్ట్ కాలేకపోయాం',
+      's4.dynamic.bed_board.cleaning_assignee': 'శుభ్రపరచడం: {assignee}',
+      's4.dynamic.bed_board.semantic.patient': 'రోగి {patient}',
+      's4.dynamic.bed_board.semantic.cleaning_assigned_to':
+          'శుభ్రపరచడం {assignee}కి కేటాయించబడింది',
+      's4.dynamic.bed_board.semantic.hospital_id': 'ఆసుపత్రి ID {id}',
+      'bed_board.semantic.has_notes': 'గమనికలు ఉన్నాయి',
+      'bed_board.semantic.view_details':
+          'వివరాలను చూడటానికి రెండుసార్లు ట్యాప్ చేయండి.',
+      'bed_board.semantic.view_details_edit_notes':
+          'వివరాలను చూడటానికి రెండుసార్లు ట్యాప్ చేయండి. గమనికలను సవరించడానికి దీర్ఘంగా నొక్కండి.',
       'bed_sheet.action.open_emr': 'EMR తెరువు',
+      'bed_sheet.action.case_sheet': 'కేస్ షీట్',
       'bed_sheet.action.record_vitals': 'వైటల్స్ నమోదు',
       'bed_sheet.action.add_note': 'గమనిక జోడించు',
+      'bed_sheet.action.drug_chart': 'డ్రగ్ చార్ట్',
       'bed_sheet.action.handover': 'హ్యాండోవర్',
+      'bed_sheet.action.discharge': 'డిశ్చార్జ్',
       'bed_sheet.section.patient': 'రోగి',
       'bed_sheet.section.admission': 'అడ్మిషన్',
       'bed_sheet.section.notes': 'గమనికలు',
+      'bed_sheet.section.housekeeping': 'హౌస్‌కీపింగ్',
       'bed_sheet.notes_hint':
           'ఈ బెడ్‌కి గమనిక టైప్ చేయండి (హ్యాండోవర్, ప్రమాదాలు, IV సైట్ మొదలైనవి)',
       'bed_sheet.save_notes': 'గమనికలు సేవ్ చేయి',
+      'bed_sheet.save_failed': 'సేవ్ చేయడంలో విఫలమైంది',
+      'bed_sheet.save_notes_failed': 'గమనికలను సేవ్ చేయడంలో విఫలమైంది',
       'bed_sheet.notes_saved': 'బెడ్ గమనికలు సేవ్ చేయబడ్డాయి',
+      'bed_sheet.missing_bed_id_cannot_save_notes':
+          'బెడ్ ID లేదు - గమనికలను సేవ్ చేయలేము.',
       'bed_sheet.admit_patient': 'రోగిని అడ్మిట్ చేయి',
+      'bed_sheet.admit_failed': 'అడ్మిట్ చేయడం విఫలమైంది',
       'bed_sheet.discharge': 'డిశ్చార్జి',
+      'bed_sheet.discharge_failed': 'డిశ్చార్జ్ విఫలమైంది',
       'bed_sheet.mark_maintenance': 'నిర్వహణగా గుర్తించు',
       'bed_sheet.mark_available': 'అందుబాటులో గుర్తించు',
+      'bed_sheet.status_change_failed': 'స్థితి మార్చడం విఫలమైంది',
+      'bed_sheet.bed_marked_available': 'బెడ్ అందుబాటులోగా గుర్తించబడింది',
+      'bed_sheet.mark_ready_failed': 'సిద్ధంగా గుర్తించలేకపోయాం',
+      'bed_sheet.load_available_beds_failed':
+          'అందుబాటులోని బెడ్‌లను లోడ్ చేయలేకపోయాం',
+      'bed_sheet.patient_search_failed': 'వెతకడం విఫలమైంది',
+      's4.dynamic.bed_sheet.quick_action_for_patient':
+          '{patient} కోసం {action}',
+      's4.dynamic.bed_sheet.quick_action_hint':
+          '{action} స్క్రీన్‌ను తెరుస్తుంది',
       'bed_sheet.discharge_confirm_prefix': 'డిశ్చార్జి చేయి',
       'bed_sheet.discharge_confirm_body':
           'ఇది బెడ్‌ను ఖాళీ చేస్తుంది మరియు చురుకైన అడ్మిషన్‌ను ముగిస్తుంది. రోగి EMR రికార్డులు అలాగే ఉంటాయి.',
@@ -17201,11 +17390,15 @@ class AppStrings {
           'క్లాస్/టారిఫ్ మార్పు సమ్మతి నమోదు చేయబడింది',
       'bed_sheet.transfer_destination': 'బదిలీ గమ్యం',
       'bed_sheet.transfer_empty': 'ప్రస్తుతం బెడ్‌లు ఖాళీగా లేవు',
+      'bed_sheet.transfer_failed': 'బదిలీ విఫలమైంది',
       'bed_sheet.transfer_patient': 'రోగిని బదిలీ చేయండి',
       'bed_sheet.transfer_reason_hint': 'కారణం / స్వీకరించే యూనిట్ నోట్',
       'bed_sheet.transfer_search_hint': 'బెడ్, వార్డు, రకం వెతకండి',
       'bed_sheet.transfer_succeeded':
           'రోగి బదిలీ అయ్యారు. మునుపటి బెడ్ ఇప్పుడు క్లీనింగ్‌లో ఉంది.',
+      'bed_sheet.patient_uid_missing_cannot_transfer_bed':
+          'రోగి UID లేదు - బెడ్‌ను బదిలీ చేయలేము.',
+      'bed_sheet.target_bed_missing': 'లక్ష్య బెడ్ ID లేదు.',
       'clinical_ai.draft.reviewer_note_button': 'నోట్‌తో ఆమోదించండి',
       'clinical_ai.draft.reviewer_note_hint':
           'ఆమోదించే ముందు మీరు తనిఖీ చేసినది ఒక వాక్యంలో.',
@@ -17525,9 +17718,11 @@ class AppStrings {
       'leave.day_count.other': 'రోజులు',
       // Bed sheet (additional) - REVIEW
       'bed_sheet.field.name': 'పేరు',
+      'bed_sheet.field.hospital_id': 'ఆసుపత్రి ID',
       'bed_sheet.field.age': 'వయస్సు',
       'bed_sheet.field.gender': 'లింగం',
       'bed_sheet.field.phone': 'ఫోన్',
+      'bed_sheet.field.assigned_cleaning': 'కేటాయించిన శుభ్రపరచడం',
       'bed_sheet.field.chief_complaint': 'ముఖ్య ఫిర్యాదు',
       'bed_sheet.field.diagnosis': 'రోగనిర్ధారణ',
       'bed_sheet.field.type': 'రకం',

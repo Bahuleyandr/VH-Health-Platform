@@ -71,11 +71,33 @@ String _cleaningAssigneeText(Map<String, dynamic> bed) {
   return _compactString(bed['housekeeping_assigned_to_name']);
 }
 
+String _titleCaseDisplayValue(String value) {
+  final text = value.trim();
+  if (text.isEmpty) return text;
+  return text[0].toUpperCase() + text.substring(1).toLowerCase();
+}
+
+String _bedStatusDisplayLabel(AppStrings strings, String status) {
+  switch (status.toLowerCase()) {
+    case 'available':
+      return strings.bedBoardLegendAvailable;
+    case 'occupied':
+      return strings.bedBoardLegendOccupied;
+    case 'maintenance':
+      return strings.bedBoardLegendMaintenance;
+    case 'cleaning':
+      return strings.bedBoardFilterCleaning;
+    default:
+      return _titleCaseDisplayValue(status);
+  }
+}
+
 const String bedBoardAllStatuses = 'all';
 const String bedBoardCleaningStatus = 'cleaning';
 
 List<WardListFilterOption> bedBoardWardFilterOptions(
   List<Map<String, dynamic>> wards,
+  AppStrings strings,
 ) {
   final options = <WardListFilterOption>[];
   final seen = <String>{};
@@ -85,9 +107,12 @@ List<WardListFilterOption> bedBoardWardFilterOptions(
         .toString()
         .trim();
     if (value.isEmpty || !seen.add(value)) continue;
-    final name = (ward['name'] ?? ward['wardName'] ?? 'Ward ${index + 1}')
-        .toString()
-        .trim();
+    final name =
+        (ward['name'] ??
+                ward['wardName'] ??
+                '${strings.bedBoardWardFallback} ${index + 1}')
+            .toString()
+            .trim();
     options.add(WardListFilterOption(value: value, label: name));
   }
   options.sort(
@@ -193,6 +218,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   bool _loadingBeds = false;
   String? _error;
   StaffRole _role = StaffRole.general;
+  bool _didFetchInitialWards = false;
 
   StreamSubscription<RealtimeEvent>? _bedEventSub;
   Timer? _refreshDebounce;
@@ -250,8 +276,15 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   void initState() {
     super.initState();
     _loadRole();
-    _fetchWards();
     _attachRealtime();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didFetchInitialWards) return;
+    _didFetchInitialWards = true;
+    _fetchWards();
   }
 
   Future<void> _loadRole() async {
@@ -292,6 +325,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   }
 
   Future<void> _fetchWards({bool showLoading = true}) async {
+    final s = AppStrings.of(context);
     if (showLoading) {
       setState(() {
         _loadingWards = true;
@@ -312,12 +346,12 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         );
       } else {
         if (showLoading) {
-          _error = response.failureMessage('Failed to load wards');
+          _error = response.failureMessage(s.bedBoardLoadWardsFailed);
         }
       }
     } catch (e) {
       if (showLoading) {
-        _error = 'Could not connect to server';
+        _error = s.bedBoardServerUnreachable;
       }
     } finally {
       if (mounted) setState(() => _loadingWards = false);
@@ -597,7 +631,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           const SizedBox(width: 16),
           _legendDot(const Color(0xFFF9A825), s.bedBoardLegendMaintenance),
           const SizedBox(width: 16),
-          _legendDot(const Color(0xFF007A64), 'Cleaning'),
+          _legendDot(const Color(0xFF007A64), s.bedBoardFilterCleaning),
         ],
       ),
     );
@@ -836,7 +870,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 )
                 .firstWhere(
                   (ward) => ward['id'] == wardId,
-                  orElse: () => {'id': wardId, 'name': 'Ward $wardId'},
+                  orElse: () => {
+                    'id': wardId,
+                    'name': '${s.bedBoardWardFallback} $wardId',
+                  },
                 )['name']!;
             _selectWard(wardId, wardName);
           },
@@ -929,11 +966,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         ? const Color(0xFFEF6C00)
         : _statusColor(status);
     final selected = selectInPane && _isSelectedBed(bed);
+    final s = AppStrings.of(context);
     final statusLabel = dischargeInitiated
-        ? AppStrings.of(context).bedSheetDischargeInitiatedShort
-        : (status.isNotEmpty
-              ? status[0].toUpperCase() + status.substring(1).toLowerCase()
-              : status);
+        ? s.bedSheetDischargeInitiatedShort
+        : _bedStatusDisplayLabel(s, status);
 
     final card = Container(
       decoration: BoxDecoration(
@@ -963,7 +999,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Bed $bedNumber',
+                  s.bedNumber(bedNumber.toString()),
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: color,
@@ -1021,7 +1057,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               ),
             if (doctorName.toString().isNotEmpty)
               Text(
-                'Dr. $doctorName',
+                '${s.bedSheetDoctorPrefix} $doctorName',
                 style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1041,7 +1077,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    'Cleaning: $cleaningAssigneeText',
+                    s.bedBoardCleaningAssignee(cleaningAssigneeText),
                     style: TextStyle(
                       fontSize: 11,
                       color: AppTheme.textSecondary,
@@ -1062,28 +1098,26 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     // the same information sighted users get from the coloured border.
     // Format: "Bed A-101, Occupied, Demo Patient Ravi" — empty/maintenance
     // beds simply skip the patient segment.
-    final statusCap = status.isEmpty
-        ? ''
-        : '${status[0].toUpperCase()}${status.substring(1).toLowerCase()}';
     final semanticParts = <String>[
-      'Bed $bedNumber',
-      statusCap,
-      if (dischargeInitiated) 'discharge initiated',
+      s.bedNumber(bedNumber.toString()),
+      _bedStatusDisplayLabel(s, status),
+      if (dischargeInitiated) s.bedSheetDischargeInitiatedShort,
       if (status.toLowerCase() == 'occupied' &&
           patientName.toString().isNotEmpty)
-        'patient $patientName',
+        s.bedBoardSemanticPatient(patientName.toString()),
       if (status.toLowerCase() == 'cleaning' && cleaningAssigneeText.isNotEmpty)
-        'cleaning assigned to $cleaningAssigneeText',
-      if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
-      if (hasNotes) 'has notes',
+        s.bedBoardSemanticCleaningAssignedTo(cleaningAssigneeText),
+      if (hospitalNumber.isNotEmpty)
+        s.bedBoardSemanticHospitalId(hospitalNumber),
+      if (hasNotes) s.bedBoardSemanticHasNotes,
     ];
 
     return Semantics(
       button: true,
       label: semanticParts.join(', '),
       hint: notesAllowed
-          ? 'Double tap to view details. Long press to edit notes.'
-          : 'Double tap to view details.',
+          ? s.bedBoardSemanticViewDetailsEditNotes
+          : s.bedBoardSemanticViewDetails,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1184,14 +1218,14 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                         } else {
                           setLocal(() {
                             errorMsg = response.failureMessage(
-                              'Failed to save',
+                              s.bedSheetSaveFailed,
                             );
                             saving = false;
                           });
                         }
                       } catch (e) {
                         setLocal(() {
-                          errorMsg = 'Could not connect to server';
+                          errorMsg = s.bedBoardServerUnreachable;
                           saving = false;
                         });
                       }
@@ -1238,14 +1272,15 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       _isHousekeepingRole ? bedBoardCleaningStatus : bedBoardAllStatuses;
 
   List<WardListFilterOption> get _bedBoardWardOptions {
-    final options = bedBoardWardFilterOptions(_wards);
+    final s = AppStrings.of(context);
+    final options = bedBoardWardFilterOptions(_wards, s);
     final selectedId = _selectedWardId;
     if (selectedId == null || selectedId.isEmpty) return options;
     if (options.any((option) => option.value == selectedId)) return options;
     return [
       WardListFilterOption(
         value: selectedId,
-        label: _selectedWardName ?? 'Ward $selectedId',
+        label: _selectedWardName ?? '${s.bedBoardWardFallback} $selectedId',
       ),
       ...options,
     ];
@@ -1390,7 +1425,11 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
     if (!notesAllowed) return;
     final id = _bedId();
     if (id.isEmpty) {
-      setState(() => _saveError = 'Bed id missing — cannot save notes.');
+      setState(
+        () => _saveError = AppStrings.of(
+          context,
+        ).bedSheetMissingBedIdCannotSaveNotes,
+      );
       return;
     }
     setState(() {
@@ -1415,12 +1454,16 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
         }
       } else {
         setState(() {
-          _saveError = response.failureMessage('Failed to save notes');
+          _saveError = response.failureMessage(
+            AppStrings.of(context).bedSheetSaveNotesFailed,
+          );
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _saveError = 'Could not connect to server');
+        setState(
+          () => _saveError = AppStrings.of(context).bedBoardServerUnreachable,
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1446,7 +1489,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
         .isNotEmpty;
     final statusLabel = dischargeInitiated
         ? AppStrings.of(context).bedSheetDischargeInitiatedShort
-        : _capitalize(status);
+        : _bedStatusDisplayLabel(AppStrings.of(context), status);
 
     final patientName =
         (bed['patient_full_name'] ??
@@ -1599,9 +1642,11 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
 
               if (status.toLowerCase() == 'cleaning' &&
                   cleaningAssigneeText.isNotEmpty) ...[
-                const _SectionHeader(label: 'Housekeeping'),
+                _SectionHeader(
+                  label: AppStrings.of(context).bedSheetSectionHousekeeping,
+                ),
                 _DetailRow(
-                  label: 'Assigned cleaning',
+                  label: AppStrings.of(context).bedSheetFieldAssignedCleaning,
                   value: cleaningAssigneeText,
                   icon: Icons.person_pin_circle_outlined,
                   multiline: true,
@@ -1638,7 +1683,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                 ),
                 if (patientHospitalNumber.isNotEmpty)
                   _DetailRow(
-                    label: 'Hospital ID',
+                    label: AppStrings.of(context).bedSheetFieldHospitalId,
                     value: patientHospitalNumber,
                     icon: Icons.badge_outlined,
                   ),
@@ -1997,7 +2042,7 @@ class _BedQuickActions extends StatelessWidget {
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.assignment_outlined,
-          label: 'Case Sheet',
+          label: s.bedSheetActionCaseSheet,
           color: const Color(0xFF5D4037),
           route: ipCommandBoardRoute(
             patientUid: patientUid,
@@ -2031,7 +2076,7 @@ class _BedQuickActions extends StatelessWidget {
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.medication_liquid_outlined,
-          label: 'Drug Chart',
+          label: s.bedSheetActionDrugChart,
           color: const Color(0xFFE65100),
           route: ipCommandBoardRoute(
             patientUid: patientUid,
@@ -2082,7 +2127,7 @@ class _BedQuickActions extends StatelessWidget {
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.rule_folder_outlined,
-          label: 'Discharge',
+          label: s.bedSheetActionDischarge,
           color: const Color(0xFF3949AB),
           route: ipCommandBoardRoute(
             patientUid: patientUid,
@@ -2105,8 +2150,8 @@ class _BedQuickActions extends StatelessWidget {
             width: 96,
             child: Semantics(
               button: true,
-              label: '${a.label} for $patientName',
-              hint: 'Opens the ${a.label.toLowerCase()} screen',
+              label: s.bedSheetQuickActionForPatient(a.label, patientName),
+              hint: s.bedSheetQuickActionHint(a.label),
               child: Material(
                 color: a.color.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
@@ -2263,17 +2308,23 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       if (!mounted) return;
       final s = AppStrings.of(context);
       if (response.isSuccess) {
-        SuccessToast.show(context, s.bedSheetMarkedAs(newStatus));
+        SuccessToast.show(
+          context,
+          s.bedSheetMarkedAs(_bedStatusDisplayLabel(s, newStatus)),
+        );
         await widget.onChanged();
       } else {
         ErrorToast.show(
           context,
-          response.failureMessage('Status change failed'),
+          response.failureMessage(s.bedSheetStatusChangeFailed),
         );
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, 'Could not connect to server');
+        ErrorToast.show(
+          context,
+          AppStrings.of(context).bedBoardServerUnreachable,
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2299,17 +2350,17 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
       );
       if (!mounted) return;
       if (response.isSuccess) {
-        SuccessToast.show(context, 'Bed marked available');
+        SuccessToast.show(context, s.bedSheetBedMarkedAvailable);
         await widget.onChanged();
       } else {
         ErrorToast.show(
           context,
-          response.failureMessage('Could not mark ready'),
+          response.failureMessage(s.bedSheetMarkReadyFailed),
         );
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, 'Could not connect to server');
+        ErrorToast.show(context, s.bedBoardServerUnreachable);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2343,11 +2394,14 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         );
         await widget.onChanged();
       } else {
-        ErrorToast.show(context, response.failureMessage('Discharge failed'));
+        ErrorToast.show(
+          context,
+          response.failureMessage(s.bedSheetDischargeFailed),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, 'Could not connect to server');
+        ErrorToast.show(context, s.bedBoardServerUnreachable);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2374,7 +2428,10 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   Future<void> _transfer() async {
     final patientUid = (widget.bed['patient_uid'] ?? '').toString();
     if (patientUid.isEmpty) {
-      ErrorToast.show(context, 'Patient UID missing — cannot transfer bed.');
+      ErrorToast.show(
+        context,
+        AppStrings.of(context).bedSheetPatientUidMissingCannotTransferBed,
+      );
       return;
     }
 
@@ -2393,7 +2450,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
     if (target is! Map<String, dynamic>) return;
     final targetId = target['id'];
     if (targetId == null) {
-      ErrorToast.show(context, 'Target bed id missing.');
+      ErrorToast.show(context, AppStrings.of(context).bedSheetTargetBedMissing);
       return;
     }
 
@@ -2426,11 +2483,14 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         SuccessToast.show(context, s.bedSheetTransferSucceeded);
         await widget.onChanged();
       } else {
-        ErrorToast.show(context, response.failureMessage('Transfer failed'));
+        ErrorToast.show(
+          context,
+          response.failureMessage(s.bedSheetTransferFailed),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, 'Could not connect to server');
+        ErrorToast.show(context, s.bedBoardServerUnreachable);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2489,11 +2549,14 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         );
         await widget.onChanged();
       } else {
-        ErrorToast.show(context, response.failureMessage('Admit failed'));
+        ErrorToast.show(
+          context,
+          response.failureMessage(s.bedSheetAdmitFailed),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, 'Could not connect to server');
+        ErrorToast.show(context, s.bedBoardServerUnreachable);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2655,14 +2718,16 @@ class _TransferBedPickerState extends State<_TransferBedPicker> {
         setState(() => _loading = false);
       } else {
         setState(() {
-          _error = response.failureMessage('Failed to load available beds');
+          _error = response.failureMessage(
+            AppStrings.of(context).bedSheetLoadAvailableBedsFailed,
+          );
           _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Could not connect to server';
+          _error = AppStrings.of(context).bedBoardServerUnreachable;
           _loading = false;
         });
       }
@@ -2902,6 +2967,7 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
   }
 
   Future<void> _search(String q) async {
+    final s = AppStrings.of(context);
     if (q.isEmpty) {
       setState(() {
         _rows = [];
@@ -2937,14 +3003,14 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
         setState(() => _loading = false);
       } else {
         setState(() {
-          _error = response.failureMessage('Search failed');
+          _error = response.failureMessage(s.bedSheetPatientSearchFailed);
           _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Could not connect to server';
+          _error = s.bedBoardServerUnreachable;
           _loading = false;
         });
       }
@@ -3066,8 +3132,10 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
             (p['hospital_number'] ?? p['patient_hospital_number'] ?? '')
                 .toString();
         final subtitleParts = <String>[
-          if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
-          if (age != null && age.toString().isNotEmpty) '${age.toString()} yr',
+          if (hospitalNumber.isNotEmpty)
+            AppStrings.of(ctx).bedBoardSemanticHospitalId(hospitalNumber),
+          if (age != null && age.toString().isNotEmpty)
+            '${age.toString()} ${AppStrings.of(ctx).bedSheetYearSuffix}',
           if (gender.isNotEmpty)
             gender[0].toUpperCase() + gender.substring(1).toLowerCase(),
           if (phone.isNotEmpty) phone,
