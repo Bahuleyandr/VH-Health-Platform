@@ -15,15 +15,19 @@ class DutyPreferenceScreen extends StatefulWidget {
 }
 
 class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
-  static const _departmentLabels = <String, String>{
-    'medical': 'Duty Doctors',
-    'nursing': 'Nursing',
-    'op_nursing': 'OP Staff Nursing',
-    'pharmacy': 'Pharmacy',
-    'reception': 'Reception',
-    'housekeeping': 'Housekeeping',
-    'ambulance': 'Ambulance / Drivers',
-    'maintenance': 'Maintenance',
+  static const _departmentLabelKeys = <String, String>{
+    'medical': 'role.roster_department.medical',
+    'nursing': 'role.roster_department.nursing',
+    'op_nursing': 'role.roster_department.op_nursing',
+    'ot_nursing': 'role.roster_department.ot_nursing',
+    'cath_lab': 'role.roster_department.cath_lab',
+    'pharmacy': 'role.roster_department.pharmacy',
+    'stores_purchase': 'role.roster_department.stores_purchase',
+    'housekeeping': 'role.roster_department.housekeeping',
+    'reception': 'role.roster_department.reception',
+    'billing': 'role.roster_department.billing',
+    'ambulance': 'role.roster_department.ambulance',
+    'maintenance': 'role.roster_department.maintenance',
   };
   static const _periods = ['day', 'week', 'month'];
   static const _shifts = ['Morning', 'Afternoon', 'Night', 'Any'];
@@ -71,10 +75,21 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
         .toList();
   }
 
-  String get _departmentLabel {
+  String _departmentLabel(AppStrings s) {
     final department = _department;
-    if (department == null) return 'Not configured';
-    return _departmentLabels[department] ?? _role.rosterDepartmentLabel;
+    if (department == null) {
+      return s.lookup('role.roster_department.not_configured');
+    }
+    return s.lookup(
+      _departmentLabelKeys[department] ??
+          StaffRole.rosterDepartmentLabelKeyFor(department),
+    );
+  }
+
+  String _requestDepartmentLabel(AppStrings s, dynamic value) {
+    final department = _asText(value);
+    final key = _departmentLabelKeys[department];
+    return key == null ? department : s.lookup(key);
   }
 
   Future<void> _load() async {
@@ -130,12 +145,15 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
   }
 
   Future<void> _submit() async {
+    final s = AppStrings.of(context);
     final department = _department;
     if (department == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Duty requests are not configured for ${_role.displayName}.',
+            s.format('s4.dynamic.duty_preference.not_configured_for_role', {
+              'role': s.lookup(_role.displayNameKey),
+            }),
           ),
           backgroundColor: AppTheme.errorRed,
         ),
@@ -220,7 +238,7 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                         prefixIcon: const Icon(Icons.apartment_outlined),
                       ),
                       child: Text(
-                        _departmentLabel,
+                        _departmentLabel(s),
                         style: TextStyle(
                           color: _department == null
                               ? AppTheme.errorRed
@@ -377,7 +395,18 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                       color: AppTheme.primaryBlue,
                     ),
                     title: Text(
-                      '${_departmentLabels[_asText(request['department'])] ?? _asText(request['department'])} - ${_asText(request['shift_label'], fallback: 'Any shift')}',
+                      s.format('s4.dynamic.duty_preference.request_row_title', {
+                        'department': _requestDepartmentLabel(
+                          s,
+                          request['department'],
+                        ),
+                        'shift': _asText(
+                          request['shift_label'],
+                          fallback: s.lookup(
+                            's4.lib.duty_preference.any_shift',
+                          ),
+                        ),
+                      }),
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w700,

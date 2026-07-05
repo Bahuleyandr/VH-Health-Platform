@@ -408,7 +408,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             child: Text(
-                              _role.displayName,
+                              s.lookup(_role.displayNameKey),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -1065,8 +1065,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ],
       StaffRole.otNurse || StaffRole.otIncharge => [
         _ClinicalServiceGroup(
-          label: 'OT Services',
-          emptyLabel: 'No OT services available for this role',
+          label: s.lookup('s4.lib.dashboard.ot_services'),
+          emptyLabel: s.lookup(
+            's4.lib.dashboard.no_ot_services_available_for_this_role',
+          ),
           tiles: _serviceTilesForIds(
             features,
             [
@@ -1077,9 +1079,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'blood_bank',
             ],
             titleOverrides: {
-              'patient_records': 'OT Patient Records',
-              'lab_bookings': 'OT Lab Bookings',
-              'investigation_results': 'OT Lab Results',
+              'patient_records': s.lookup(
+                's4.lib.dashboard.ot_patient_records',
+              ),
+              'lab_bookings': s.lookup('s4.lib.dashboard.ot_lab_bookings'),
+              'investigation_results': s.lookup(
+                's4.lib.dashboard.ot_lab_results',
+              ),
             },
             routeOverrides: _serviceContextRoutes('ot'),
           ),
@@ -1087,8 +1093,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ],
       StaffRole.cathLabStaff || StaffRole.cathLabIncharge => [
         _ClinicalServiceGroup(
-          label: 'Cath Lab',
-          emptyLabel: 'No Cath Lab services available for this role',
+          label: s.lookup('s4.lib.dashboard.cath_lab'),
+          emptyLabel: s.lookup(
+            's4.lib.dashboard.no_cath_lab_services_available_for_this_role',
+          ),
           tiles: _serviceTilesForIds(
             features,
             [
@@ -1099,9 +1107,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'blood_bank',
             ],
             titleOverrides: {
-              'patient_records': 'Cath Lab Patient Records',
-              'lab_bookings': 'Cath Lab Lab Bookings',
-              'investigation_results': 'Cath Lab Results',
+              'patient_records': s.lookup(
+                's4.lib.dashboard.cath_lab_patient_records',
+              ),
+              'lab_bookings': s.lookup(
+                's4.lib.dashboard.cath_lab_lab_bookings',
+              ),
+              'investigation_results': s.lookup(
+                's4.lib.dashboard.cath_lab_results',
+              ),
             },
             routeOverrides: _serviceContextRoutes('cath_lab'),
           ),
