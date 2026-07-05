@@ -77,6 +77,8 @@ class _SmokeClinicalInboxApi extends ClinicalInboxApi {
 
 class _SmokeApi {
   var loginPosts = 0;
+  var emrOrderPosts = 0;
+  Map<String, dynamic>? lastEmrOrderBody;
 
   http.Response handle(http.Request request) {
     final path = request.url.path;
@@ -154,6 +156,11 @@ class _SmokeApi {
         'medication_orders': [],
         'permissions': {'can_prescribe': true, 'can_administer': true},
       });
+    }
+    if (method == 'POST' && path.endsWith('/emr/orders')) {
+      emrOrderPosts++;
+      lastEmrOrderBody = jsonDecode(request.body) as Map<String, dynamic>;
+      return _ok({'id': 77});
     }
     if (method == 'GET' && path.endsWith('/prescriptions/all')) {
       return _ok([]);
@@ -368,4 +375,40 @@ void main() {
       await _expectScreen(tester, router, '/prescriptions', 'E-Prescriptions');
     },
   );
+
+  testWidgets('drug chart draft save still uses the existing order path', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1800, 1000);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final api = _SmokeApi();
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async => api.handle(request)),
+    );
+    final router = _smokeRouter();
+    await tester.pumpWidget(_smokeApp(router));
+
+    router.go('/drug-chart/42?name=Demo%20Patient');
+    await _pumpUntilFound(tester, find.text('Drug Chart'));
+    await _pumpUntilFound(tester, find.text('Add row'));
+    await tester.tap(find.text('Add row').first);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextField, 'Drug'), 'Aspirin');
+    await tester.enterText(find.widgetWithText(TextField, 'Dose'), '75 mg');
+    final saveButton = find.widgetWithText(FilledButton, 'Save');
+    await _pumpUntilFound(tester, saveButton);
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(api.emrOrderPosts, 1);
+    final details = api.lastEmrOrderBody?['details'] as Map<String, dynamic>?;
+    expect(details?['medication_name'], 'Aspirin');
+    expect(details?['dose'], '75 mg');
+  });
 }

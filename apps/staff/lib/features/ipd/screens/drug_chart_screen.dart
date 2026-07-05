@@ -17,6 +17,7 @@ import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
+import '../dictated_order_parser.dart';
 import '../drug_chart_offline_order.dart';
 import '../utils/drug_chart_utils.dart';
 import '../../pharmacy/widgets/composition_alternatives_panel.dart';
@@ -893,6 +894,8 @@ class _DrugChartDraftTableRow extends StatefulWidget {
 }
 
 class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
+  static const _parser = DictatedOrderParser();
+
   void _applyDerivedDose(String drug, {bool overwrite = false}) {
     widget.row.applyDerivedDose(drug: drug, overwrite: overwrite);
   }
@@ -918,6 +921,173 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
       selection: TextSelection.collapsed(offset: cleaned.length),
     );
     action();
+  }
+
+  Future<bool> _applyDictatedOrder(BuildContext _, String transcript) async {
+    final parsed = _parser.parse(transcript);
+    final candidates = parsed.drugQuery.isEmpty
+        ? const <DictatedCatalogCandidate>[]
+        : await _catalogCandidates(parsed.drugQuery);
+    final decision = DictatedOrderParser.chooseCatalogMatch(
+      parsed.drugQuery,
+      candidates,
+    );
+
+    if (!mounted) return false;
+    setState(() {
+      widget.row.rawDictation = transcript.trim();
+      widget.row.dictatedFields.clear();
+      if (decision.autoSelected != null) {
+        widget.row.applyCatalogRow(decision.autoSelected!.row);
+        widget.row.dictatedFields.add('drug');
+      } else {
+        widget.row.clearCatalogIdentity();
+        widget.row.drugCtrl.clear();
+      }
+      _applyParsedOrder(parsed);
+    });
+
+    if (decision.autoSelected == null &&
+        parsed.drugQuery.isNotEmpty &&
+        decision.candidates.isNotEmpty) {
+      final selected = await _showDictatedDrugPicker(
+        context,
+        decision.candidates,
+      );
+      if (!mounted) return true;
+      if (selected != null) {
+        setState(() {
+          widget.row.applyCatalogRow(selected.row);
+          widget.row.dictatedFields.add('drug');
+          if (parsed.dose.isNotEmpty) {
+            widget.row.doseCtrl.text = parsed.dose;
+            widget.row.dictatedFields.add('dose');
+          }
+        });
+      }
+    }
+
+    return parsed.hasStructuredFields ||
+        parsed.drugQuery.isNotEmpty ||
+        parsed.notes.isNotEmpty;
+  }
+
+  Future<List<DictatedCatalogCandidate>> _catalogCandidates(
+    String query,
+  ) async {
+    try {
+      final rows = await MedicalApiService.searchMedicationCatalog(query);
+      return rows
+          .take(5)
+          .map(
+            (row) => DictatedCatalogCandidate(
+              label: _catalogDrugLabel(row),
+              row: row,
+            ),
+          )
+          .where((candidate) => candidate.label.trim().isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<DictatedCatalogCandidate?> _showDictatedDrugPicker(
+    BuildContext pickerContext,
+    List<DictatedCatalogCandidate> candidates,
+  ) {
+    final s = AppStrings.of(pickerContext);
+    return showModalBottomSheet<DictatedCatalogCandidate>(
+      context: pickerContext,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: Text(
+                s.drugChartPickDictatedDrug,
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            for (final candidate in candidates)
+              ListTile(
+                title: Text(candidate.label),
+                subtitle: Text(
+                  [
+                    _catalogStrength(candidate.row),
+                    _catalogForm(candidate.row),
+                  ].where((value) => value.trim().isNotEmpty).join(' - '),
+                ),
+                onTap: () => Navigator.of(context).pop(candidate),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _applyParsedOrder(DictatedOrderParseResult parsed) {
+    final row = widget.row;
+    if (parsed.dose.isNotEmpty) {
+      row.doseCtrl.text = parsed.dose;
+      row.dictatedFields.add('dose');
+    }
+    if (parsed.route != null && _routeOptions.containsKey(parsed.route)) {
+      row.route = parsed.route!;
+      row.dictatedFields.add('route');
+    }
+    if (parsed.doseTimes.isNotEmpty) {
+      row.selectedTimes
+        ..clear()
+        ..addAll(parsed.doseTimes);
+      row.dictatedFields.add('frequency');
+    }
+    if (parsed.foodTiming != null &&
+        _foodOptions.containsKey(parsed.foodTiming)) {
+      row.foodTiming = parsed.foodTiming!;
+      row.dictatedFields.add(parsed.foodTiming == 'prn' ? 'prn' : 'food');
+    }
+
+    final notes = <String>[
+      if (parsed.notes.isNotEmpty) parsed.notes,
+      if (parsed.durationDays != null)
+        AppStrings.of(
+          context,
+        ).drugChartDictatedDurationNote(parsed.durationDays!),
+    ].join('\n');
+    if (notes.trim().isNotEmpty) {
+      _appendController(row.notesCtrl, notes);
+      row.dictatedFields.add(
+        parsed.durationDays != null ? 'duration' : 'notes',
+      );
+    }
+  }
+
+  void _appendController(TextEditingController controller, String text) {
+    final existing = controller.text.trimRight();
+    final glue = existing.isEmpty ? '' : '\n';
+    final next = '$existing$glue${text.trim()}';
+    controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: next.length),
+    );
+  }
+
+  String _dictatedFieldLabel(AppStrings s, String field) {
+    return switch (field) {
+      'drug' => s.drugChartColumnDrug,
+      'dose' => s.drugChartColumnDose,
+      'route' => s.drugChartColumnRoute,
+      'frequency' => s.ordersFrequency,
+      'food' => s.drugChartColumnFood,
+      'prn' => s.drugChartFoodPrn,
+      'duration' => s.prescriptionsDuration,
+      'notes' => s.drugChartNotesLabel,
+      _ => field,
+    };
   }
 
   @override
@@ -1077,15 +1247,25 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                       hintText: s.drugChartNotesHint,
                       isDense: true,
                       suffixIcon: VoiceDictateButton(
-                        controller: row.notesCtrl,
+                        controller: row.dictationCtrl,
                         patientUid: _text(widget.patientUid).isEmpty
                             ? null
                             : widget.patientUid,
                         admissionId: widget.admissionId,
+                        onTranscript: _applyDictatedOrder,
                       ),
                     ),
                   ),
                   const SizedBox(height: 6),
+                  if (row.dictatedFields.isNotEmpty ||
+                      _text(row.rawDictation).isNotEmpty) ...[
+                    _DictationProvenance(
+                      fields: row.dictatedFields,
+                      rawTranscript: row.rawDictation,
+                      fieldLabel: (field) => _dictatedFieldLabel(s, field),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
                   Align(
                     alignment: Alignment.centerLeft,
                     child: FilterChip(
@@ -1130,6 +1310,73 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DictationProvenance extends StatelessWidget {
+  final Set<String> fields;
+  final String? rawTranscript;
+  final String Function(String field) fieldLabel;
+
+  const _DictationProvenance({
+    required this.fields,
+    required this.rawTranscript,
+    required this.fieldLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final raw = _text(rawTranscript);
+    return SizedBox(
+      height: raw.isEmpty ? 30 : 56,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: fields
+                  .map(
+                    (field) => _MiniPill(
+                      label: s.drugChartDictatedField(fieldLabel(field)),
+                      color: AppTheme.primaryBlue,
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+            if (raw.isNotEmpty)
+              Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  dense: true,
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  title: Text(
+                    s.drugChartRawDictation,
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        raw,
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -1635,7 +1882,10 @@ class _DrugChartDraftRow {
   final drugCtrl = TextEditingController();
   final doseCtrl = TextEditingController();
   final notesCtrl = TextEditingController();
+  final dictationCtrl = TextEditingController();
   final selectedTimes = <String>{'08:00', '20:00'};
+  final dictatedFields = <String>{};
+  String? rawDictation;
   String? lastAutoDose;
   int? catalogId;
   int? originalCatalogId;
@@ -1711,6 +1961,7 @@ class _DrugChartDraftRow {
     drugCtrl.dispose();
     doseCtrl.dispose();
     notesCtrl.dispose();
+    dictationCtrl.dispose();
   }
 }
 
@@ -1731,7 +1982,7 @@ const double _foodCol = 150;
 const double _actionCol = 240;
 const double _headerRowHeight = 54;
 const double _orderRowHeight = 142;
-const double _draftRowHeight = 168;
+const double _draftRowHeight = 220;
 const double _chartWidth =
     _drugCol +
     _doseCol +

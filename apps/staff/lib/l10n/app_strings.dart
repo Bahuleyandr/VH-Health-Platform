@@ -1364,8 +1364,14 @@ class AppStrings {
   String get drugChartNotesLabel => _t('drug_chart.notes_label');
   String get drugChartNotesHint => _t('drug_chart.notes_hint');
   String get drugChartDawLabel => _t('drug_chart.daw_label');
+  String drugChartDictatedField(String field) =>
+      format('drug_chart.dictated_field', {'field': field});
+  String drugChartDictatedDurationNote(int days) =>
+      format('drug_chart.dictated_duration_note', {'days': days});
   String get drugChartDoseHint => _t('drug_chart.dose_hint');
   String get drugChartDoseHelper => _t('drug_chart.dose_helper');
+  String get drugChartPickDictatedDrug => _t('drug_chart.pick_dictated_drug');
+  String get drugChartRawDictation => _t('drug_chart.raw_dictation');
   String get drugChartRouteOral => _t('drug_chart.route.oral');
   String get drugChartRouteIv => _t('drug_chart.route.iv');
   String get drugChartRouteIm => _t('drug_chart.route.im');
@@ -3424,8 +3430,12 @@ class AppStrings {
       'drug_chart.notes_label': 'Notes',
       'drug_chart.notes_hint': 'Dilution, PRN reason, hold rules',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'Dictated {field}',
+      'drug_chart.dictated_duration_note': 'Duration: {days} days',
       'drug_chart.dose_hint': 'auto-filled from drug strength',
       'drug_chart.dose_helper': 'Edit only if dose differs',
+      'drug_chart.pick_dictated_drug': 'Pick dictated drug',
+      'drug_chart.raw_dictation': 'Raw dictation',
       'drug_chart.route.oral': 'Oral',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -8458,8 +8468,12 @@ class AppStrings {
       'drug_chart.notes_label': 'नोट्स',
       'drug_chart.notes_hint': 'डायल्यूशन, PRN कारण, रोकने के नियम',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'डिक्टेटेड {field}',
+      'drug_chart.dictated_duration_note': 'अवधि: {days} दिन',
       'drug_chart.dose_hint': 'दवा की ताकत से अपने आप भरेगा',
       'drug_chart.dose_helper': 'खुराक अलग हो तो ही बदलें',
+      'drug_chart.pick_dictated_drug': 'डिक्टेटेड दवा चुनें',
+      'drug_chart.raw_dictation': 'मूल डिक्टेशन',
       'drug_chart.route.oral': 'मौखिक',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -13514,6 +13528,10 @@ class AppStrings {
       'drug_chart.notes_label': 'குறிப்புகள்',
       'drug_chart.notes_hint': 'கரைத்தல், PRN காரணம், நிறுத்த விதிகள்',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'டிக்டேட் செய்த {field}',
+      'drug_chart.dictated_duration_note': 'காலம்: {days} நாட்கள்',
+      'drug_chart.pick_dictated_drug': 'டிக்டேட் செய்த மருந்தைத் தேர்வு செய்',
+      'drug_chart.raw_dictation': 'மூல டிக்டேஷன்',
       'drug_chart.route.oral': 'வாய் வழி',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -19223,6 +19241,10 @@ class AppStrings {
       'drug_chart.notes_label': 'గమనికలు',
       'drug_chart.notes_hint': 'డైల్యూషన్, PRN కారణం, నిలిపే నియమాలు',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'డిక్టేట్ చేసిన {field}',
+      'drug_chart.dictated_duration_note': 'వ్యవధి: {days} రోజులు',
+      'drug_chart.pick_dictated_drug': 'డిక్టేట్ చేసిన మందును ఎంచుకోండి',
+      'drug_chart.raw_dictation': 'మూల డిక్టేషన్',
       'drug_chart.route.oral': 'నోటి ద్వారా',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
