@@ -142,6 +142,16 @@ The five separate source repos these were merged from are archived on GitHub as 
 - `OfflineSyncBadge` is mounted in `StaffScaffold` app-bar actions; hidden when online + empty + no conflicts. Tap opens `SyncStatusSheet` with per-conflict Discard/Retry.
 - UI reads sync state via `ListenableBuilder(listenable: ConnectivitySyncService.instance, ...)` — the service is a `ChangeNotifier`.
 
+## Dictation
+
+Staff dictation is an editor-fill aid only. It must not submit, save, sign, or bypass any existing CDS, composition, signoff, offline queue, or double-submit guard. Current surfaces are OP doctor workspace note fields, clinical/ward progress-note editors, drug-chart draft/notes affordances, and vitals notes; each surface still relies on its existing save path after the clinician reviews inserted text.
+
+Multi-section note editors use `DictationSectionRouter`, which recognizes English and Hindi section keywords for chief complaint, history, examination, diagnosis, plan, and advice. Unmatched leading text routes to the currently focused field. The review sheet shows every destination with editable text; Insert applies to controllers and Cancel discards the transcript.
+
+Drug-chart structured dictation uses `DictatedOrderParser` with the chart's existing AppStrings-backed route, frequency, dose-slot, food, PRN, and enum vocabulary. Drug names are resolved through the existing catalog search path only when the top match clears the conservative confidence threshold; ambiguous names require a clinician pick from candidates and leave the name empty until selected. Filled fields show dictated provenance chips, and the raw transcript remains expandable. Duration is surfaced in notes because the current draft-row save path has no duration field.
+
+Backend STT remains disabled by default. Operator setup uses `STT_PROVIDER=openai-compatible`, `STT_BASE_URL`, `STT_MODEL`, `STT_TIMEOUT_MS`, and optional `STT_LANGUAGE` / `STT_PROMPT` / `STT_API_KEY`; see `../../docs/SCRIPTS_INDEX.md` for the local faster-whisper smoke command.
+
 
 ## Testing (added 2026-04-15)
 

@@ -3083,6 +3083,18 @@ describe('future-proof clinical AI and privacy foundations', () => {
       expect(uploaded.body.data.stt_provider).toBe('mock');
       expect(String(uploaded.body.data.transcript || '')).toMatch(/mock transcript/i);
 
+      const persistedVoiceNote = await prisma.$queryRawUnsafe(
+        `SELECT patient_uid::text AS patient_uid, admission_id, transcript_status, stt_provider
+         FROM clinical_voice_notes
+         WHERE id = $1`,
+        voiceNoteId
+      );
+      expect(persistedVoiceNote).toHaveLength(1);
+      expect(String(persistedVoiceNote[0].patient_uid)).toBe(PATIENT_UID);
+      expect(Number(persistedVoiceNote[0].admission_id)).toBe(admissionId);
+      expect(persistedVoiceNote[0].transcript_status).toBe('completed');
+      expect(persistedVoiceNote[0].stt_provider).toBe('mock');
+
       // Generate SOAP draft from transcript.
       const generated = await doctor.post(`/api/v1/clinical/voice-note/${voiceNoteId}/generate-soap`).send({});
       expectStatus(generated, 200, 'generate SOAP from voice note');
