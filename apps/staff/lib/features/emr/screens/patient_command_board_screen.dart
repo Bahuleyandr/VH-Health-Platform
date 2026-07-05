@@ -230,7 +230,109 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final uid = _text(widget.initialPatientUid);
     if (uid.isNotEmpty) return uid;
     final id = widget.initialAdmissionId;
-    return id == null ? 'selected patient' : 'admission #$id';
+    final s = AppStrings.of(context);
+    return id == null
+        ? s.lookup('s4.lib.patient_command_board.selected_patient')
+        : s.format('s4.dynamic.patient_command_board.admission_number', {
+            'id': id,
+          });
+  }
+
+  String _scopeLabel(Map<String, dynamic> board) {
+    final s = AppStrings.of(context);
+    final scope = _patientCommandBoardRoleScope(board);
+    final type = _patientCommandBoardText(scope['type']);
+    final source = _patientCommandBoardText(scope['source']);
+    if (type == 'ward_nursing' &&
+        source == 'all_locations_fallback_no_current_roster') {
+      return s.lookup('s4.lib.patient_command_board.scope.all_active');
+    }
+    return switch (type) {
+      'full' => s.lookup('s4.lib.patient_command_board.scope.all_active'),
+      'own_patients' => s.lookup(
+        's4.lib.patient_command_board.scope.own_patients',
+      ),
+      'duty_doctor' => s.lookup(
+        's4.lib.patient_command_board.scope.duty_doctor',
+      ),
+      'ward_nursing' => s.lookup(
+        's4.lib.patient_command_board.scope.ward_nursing',
+      ),
+      'op_nursing' => s.lookup('s4.lib.patient_command_board.scope.op_nursing'),
+      'housekeeping' => s.lookup(
+        's4.lib.patient_command_board.scope.housekeeping',
+      ),
+      'none' => s.lookup('s4.lib.patient_command_board.scope.none'),
+      _ => s.lookup('s4.lib.patient_command_board.scope.role_based'),
+    };
+  }
+
+  String _scopeDetail(Map<String, dynamic> board) {
+    final s = AppStrings.of(context);
+    final scope = _patientCommandBoardRoleScope(board);
+    if (scope['all_floors'] == true) {
+      return s.lookup('s4.lib.patient_command_board.all_floors');
+    }
+
+    final wards = _patientCommandBoardTextList(scope['wards']);
+    if (wards.isNotEmpty) return wards.join(', ');
+
+    final floors = _patientCommandBoardTextList(scope['floors']);
+    if (floors.isNotEmpty) {
+      return floors.length == 1
+          ? s.format('s4.dynamic.patient_command_board.floor', {
+              'floor': floors.first,
+            })
+          : s.format('s4.dynamic.patient_command_board.floors', {
+              'floors': floors.join(', '),
+            });
+    }
+
+    final source = _patientCommandBoardText(
+      scope['source'],
+    ).replaceAll('_', ' ');
+    final assignmentCount = _patientCommandBoardInt(scope['assignment_count']);
+    if (source.isNotEmpty && assignmentCount > 0) {
+      return s.format('s4.dynamic.patient_command_board.postings', {
+        'source': source,
+        'count': assignmentCount,
+      });
+    }
+    return source;
+  }
+
+  String _loadedSummary({
+    required Map<String, dynamic> board,
+    required int loadedRows,
+    required int visibleRows,
+    required String filter,
+  }) {
+    final s = AppStrings.of(context);
+    final counts = _patientCommandBoardMap(board['counts']);
+    final countedTotal = _patientCommandBoardInt(counts['total']);
+    final countedLoaded = _patientCommandBoardInt(
+      counts['loaded'] ?? counts['returned'],
+    );
+    final loaded = countedLoaded > 0 ? countedLoaded : loadedRows;
+    final total = countedTotal > 0 ? countedTotal : loaded;
+
+    if (filter != 'all') {
+      return s.format('s4.dynamic.patient_command_board.loaded_filtered', {
+        'visible': visibleRows,
+        'loaded': loaded,
+        'total': total,
+      });
+    }
+    if (total > loaded) {
+      return s.format('s4.dynamic.patient_command_board.loaded_first', {
+        'loaded': loaded,
+        'total': total,
+      });
+    }
+    return s.format('s4.dynamic.patient_command_board.loaded_current', {
+      'loaded': loaded,
+      'total': total,
+    });
   }
 
   @override
@@ -440,15 +542,18 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   }
 
   void _openAllergies(Map<String, dynamic> row) {
+    final s = AppStrings.of(context);
     final allergies = _asListOfMaps(_asMap(row['allergies'])['items']);
     _showListSheet(
-      title: 'Allergies',
+      title: s.lookup('s4.lib.patient_command_board.allergies'),
       rows: allergies,
-      empty: 'No allergies documented.',
+      empty: s.lookup('s4.lib.patient_command_board.no_allergies_documented'),
       itemBuilder: (item) => ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.warning_amber_outlined),
-        title: Text(_text(item['name'], 'Allergy')),
+        title: Text(
+          _text(item['name'], s.lookup('s4.lib.patient_command_board.allergy')),
+        ),
         subtitle: Text(
           [
             if (_text(item['severity']).isNotEmpty) _text(item['severity']),
@@ -461,11 +566,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   }
 
   void _openAlerts(Map<String, dynamic> row) {
+    final s = AppStrings.of(context);
     final alerts = _asListOfMaps(_asMap(row['alerts'])['items']);
     _showListSheet(
-      title: 'Active alerts',
+      title: s.lookup('s4.lib.patient_command_board.active_alerts'),
       rows: alerts,
-      empty: 'No active alerts.',
+      empty: s.lookup('s4.lib.patient_command_board.no_active_alerts'),
       itemBuilder: (item) => ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(
@@ -474,7 +580,9 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
               ? AppTheme.errorOnSurface
               : AppTheme.warningOnSurface,
         ),
-        title: Text(_text(item['title'], 'Alert')),
+        title: Text(
+          _text(item['title'], s.lookup('s4.lib.patient_command_board.alert')),
+        ),
         subtitle: Text(
           [
             _text(item['severity']).toUpperCase(),
@@ -486,15 +594,18 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   }
 
   void _openTasks(Map<String, dynamic> row) {
+    final s = AppStrings.of(context);
     final tasks = _asListOfMaps(_asMap(row['tasks'])['items']);
     _showListSheet(
-      title: 'Open tasks and referrals',
+      title: s.lookup('s4.lib.patient_command_board.open_tasks_referrals'),
       rows: tasks,
-      empty: 'No open tasks.',
+      empty: s.lookup('s4.lib.patient_command_board.no_open_tasks'),
       itemBuilder: (item) => ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.task_alt_outlined),
-        title: Text(_text(item['label'], 'Task')),
+        title: Text(
+          _text(item['label'], s.lookup('s4.lib.patient_command_board.task')),
+        ),
         subtitle: Text(
           [
             _text(item['kind']).replaceAll('_', ' '),
@@ -510,7 +621,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final patient = _asMap(row['patient']);
     final patientUid = _text(patient['uid']);
     if (patientUid.isEmpty) return;
-    final patientName = _text(patient['name'], 'Patient');
+    final patientName = _text(
+      patient['name'],
+      AppStrings.of(context).lookup('s4.lib.patient_command_board.patient'),
+    );
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -524,14 +638,20 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   void _openAction(Map<String, dynamic> row, Map<String, dynamic> action) {
     final rawRoute = _text(action['route']);
     if (rawRoute.isEmpty) return;
+    final s = AppStrings.of(context);
     final patient = _asMap(row['patient']);
-    final patientName = _text(patient['name'], 'Patient');
+    final patientName = _text(
+      patient['name'],
+      s.lookup('s4.lib.patient_command_board.patient'),
+    );
     final patientUid = _text(patient['uid']);
     final admissionId = _int(row['admission_id']);
     final patientRef = [
       _text(row['ward']),
       if (_text(row['bed_number']).isNotEmpty)
-        'Bed ${_text(row['bed_number'])}',
+        s.format('s4.dynamic.patient_command_board.bed', {
+          'bed': _text(row['bed_number']),
+        }),
       patientName,
     ].where((part) => part.isNotEmpty).join(' - ');
     final route = patientCommandBoardActionDestination(
@@ -674,9 +794,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final counts = _asMap(_board['counts']);
     final total = _int(counts['total']);
     final visibleRows = _visibleRows.length;
-    final scopeLabel = patientCommandBoardScopeLabel(_board);
-    final scopeDetail = patientCommandBoardScopeDetail(_board);
-    final loadedSummary = patientCommandBoardLoadedSummary(
+    final s = AppStrings.of(context);
+    final scopeLabel = _scopeLabel(_board);
+    final scopeDetail = _scopeDetail(_board);
+    final loadedSummary = _loadedSummary(
       board: _board,
       loadedRows: _rows.length,
       visibleRows: visibleRows,
@@ -712,7 +833,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _text(actor['view_label'], 'Patient command board'),
+                      _text(
+                        actor['view_label'],
+                        s.lookup(
+                          's4.lib.patient_command_board.patient_command_board',
+                        ),
+                      ),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -740,11 +866,23 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _metricChip('Patients', total, Icons.bed),
-              _metricChip('Tasks', _loadedTaskCount, Icons.task_alt),
-              _metricChip('Alerts', _loadedAlertCount, Icons.health_and_safety),
               _metricChip(
-                'Discharge',
+                s.lookup('s4.lib.patient_command_board.metric.patients'),
+                total,
+                Icons.bed,
+              ),
+              _metricChip(
+                s.lookup('s4.lib.patient_command_board.metric.tasks'),
+                _loadedTaskCount,
+                Icons.task_alt,
+              ),
+              _metricChip(
+                s.lookup('s4.lib.patient_command_board.metric.alerts'),
+                _loadedAlertCount,
+                Icons.health_and_safety,
+              ),
+              _metricChip(
+                s.lookup('s4.lib.patient_command_board.metric.discharge'),
                 _loadedDischargeCount,
                 Icons.rule_folder,
               ),
@@ -822,9 +960,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final total = _int(counts['total']);
     final remaining = total > _rows.length ? total - _rows.length : _pageSize;
     final nextCount = remaining < _pageSize ? remaining : _pageSize;
+    final s = AppStrings.of(context);
     final label = nextCount > 0
-        ? 'Load next $nextCount patients'
-        : 'Load more patients';
+        ? s.format('s4.dynamic.patient_command_board.load_next_patients', {
+            'count': nextCount,
+          })
+        : s.lookup('s4.lib.patient_command_board.load_more_patients');
     return Center(
       child: FilledButton.tonalIcon(
         onPressed: _loadingMore ? null : _loadMore,
@@ -838,7 +979,11 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                 ),
               )
             : const Icon(Icons.expand_more),
-        label: Text(_loadingMore ? 'Loading patients...' : label),
+        label: Text(
+          _loadingMore
+              ? s.lookup('s4.lib.patient_command_board.loading_patients')
+              : label,
+        ),
       ),
     );
   }
@@ -852,11 +997,36 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _filterChip('all', 'All'),
-              _filterChip('emergency', 'Emergency'),
-              _filterChip('alerts', 'Alerts'),
-              _filterChip('tasks', 'Tasks'),
-              _filterChip('discharge', 'Discharge'),
+              _filterChip(
+                'all',
+                AppStrings.of(
+                  context,
+                ).lookup('s4.lib.patient_command_board.filter.all'),
+              ),
+              _filterChip(
+                'emergency',
+                AppStrings.of(
+                  context,
+                ).lookup('s4.lib.patient_command_board.filter.emergency'),
+              ),
+              _filterChip(
+                'alerts',
+                AppStrings.of(
+                  context,
+                ).lookup('s4.lib.patient_command_board.filter.alerts'),
+              ),
+              _filterChip(
+                'tasks',
+                AppStrings.of(
+                  context,
+                ).lookup('s4.lib.patient_command_board.filter.tasks'),
+              ),
+              _filterChip(
+                'discharge',
+                AppStrings.of(
+                  context,
+                ).lookup('s4.lib.patient_command_board.filter.discharge'),
+              ),
             ],
           ),
         ),
@@ -904,6 +1074,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   }
 
   Widget _buildRowCard(ThemeData theme, Map<String, dynamic> row) {
+    final s = AppStrings.of(context);
     final patient = _asMap(row['patient']);
     final location = _asMap(row['location']);
     final priority = _asMap(row['priority']);
@@ -915,7 +1086,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final discharge = _asMap(row['discharge']);
     final actions = _asListOfMaps(row['actions']);
     final color = _colorFor(_text(priority['color']));
-    final name = _text(patient['name'], 'Patient');
+    final name = _text(
+      patient['name'],
+      s.lookup('s4.lib.patient_command_board.patient'),
+    );
     final hospitalNumber = _text(patient['hospital_number']);
     final ward = _text(location['ward']);
     final bed = _text(location['bed_number']);
@@ -923,11 +1097,17 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
         _text(diagnosis['source']).toLowerCase() == 'minimized' ||
         _text(diagnosis['status']).toLowerCase() == 'hidden';
     final diagnosisText = diagnosisHidden
-        ? 'Clinical details hidden for this role'
-        : _text(diagnosis['text'], 'Diagnosis pending');
+        ? s.lookup('s4.lib.patient_command_board.clinical_details_hidden')
+        : _text(
+            diagnosis['text'],
+            s.lookup('s4.lib.patient_command_board.diagnosis_pending'),
+          );
     final diagnosisType = diagnosisHidden
-        ? 'Location only'
-        : _text(diagnosis['type'], 'working');
+        ? s.lookup('s4.lib.patient_command_board.location_only')
+        : _text(
+            diagnosis['type'],
+            s.lookup('s4.lib.patient_command_board.working'),
+          );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -960,10 +1140,20 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                               Text(
                                 [
                                   if (hospitalNumber.isNotEmpty)
-                                    'Hospital ID $hospitalNumber',
+                                    s.format(
+                                      's4.dynamic.patient_command_board.hospital_id',
+                                      {'id': hospitalNumber},
+                                    ),
                                   if (ward.isNotEmpty) ward,
-                                  if (bed.isNotEmpty) 'Bed $bed',
-                                  'Admission #${row['admission_id']}',
+                                  if (bed.isNotEmpty)
+                                    s.format(
+                                      's4.dynamic.patient_command_board.bed',
+                                      {'bed': bed},
+                                    ),
+                                  s.format(
+                                    's4.dynamic.patient_command_board.admission_number',
+                                    {'id': row['admission_id']},
+                                  ),
                                 ].join(' - '),
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.onSurfaceVariant,
@@ -988,7 +1178,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                           },
                         ),
                         _statusBadge(
-                          _text(priority['label'], 'Routine'),
+                          _text(
+                            priority['label'],
+                            s.lookup('s4.lib.patient_command_board.routine'),
+                          ),
                           color,
                           Icons.priority_high,
                         ),
@@ -1000,7 +1193,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                       runSpacing: 8,
                       children: [
                         _statusBadge(
-                          _text(age['label'], 'No time'),
+                          _text(
+                            age['label'],
+                            s.lookup('s4.lib.patient_command_board.no_time'),
+                          ),
                           _colorFor(_text(age['color'])),
                           Icons.schedule,
                         ),
@@ -1047,7 +1243,9 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                           _statusBadge(
                             _text(
                               discharge['checklist_state'],
-                              'discharge',
+                              s.lookup(
+                                's4.lib.patient_command_board.filter.discharge',
+                              ),
                             ).replaceAll('_', ' '),
                             discharge['checklist_state'] == 'ready'
                                 ? AppTheme.successOnSurface
@@ -1072,7 +1270,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                             (action) => OutlinedButton.icon(
                               onPressed: () => _openAction(row, action),
                               icon: Icon(_iconForAction(_text(action['key']))),
-                              label: Text(_text(action['label'], 'Open')),
+                              label: Text(
+                                _text(
+                                  action['label'],
+                                  s.lookup('s4.lib.patient_command_board.open'),
+                                ),
+                              ),
                             ),
                           )
                           .toList(),
@@ -1243,9 +1446,27 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
     });
   }
 
+  String _localizedCarePlanSummary(Map<String, dynamic> plan) {
+    final s = AppStrings.of(context);
+    final goals = _patientCommandBoardListCount(plan['goals']);
+    final activities = _patientCommandBoardListCount(plan['activities']);
+    final pieces = <String>[
+      s.format('s4.dynamic.patient_command_board.goals_count', {
+        'count': goals,
+      }),
+      s.format('s4.dynamic.patient_command_board.activities_count', {
+        'count': activities,
+      }),
+    ];
+    final status = _carePlanText(plan['status']);
+    if (status.isNotEmpty) pieces.add(status.replaceAll('_', ' '));
+    return pieces.join(' - ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return SafeArea(
       child: DraggableScrollableSheet(
         expand: false,
@@ -1298,7 +1519,9 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
             else if (_error != null)
               _CarePlanMessage(
                 icon: Icons.cloud_off_outlined,
-                title: 'Could not load care plans',
+                title: s.lookup(
+                  's4.lib.patient_command_board.could_not_load_care_plans',
+                ),
                 body: _error!,
                 action: FilledButton.icon(
                   onPressed: _load,
@@ -1307,10 +1530,12 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
                 ),
               )
             else if (_carePlans.isEmpty)
-              const _CarePlanMessage(
+              _CarePlanMessage(
                 icon: Icons.assignment_outlined,
-                title: 'No care plans',
-                body: 'No active care plan has been recorded for this patient.',
+                title: s.lookup('s4.lib.patient_command_board.no_care_plans'),
+                body: s.lookup(
+                  's4.lib.patient_command_board.no_active_care_plan',
+                ),
               )
             else
               ..._carePlans.map(_buildCarePlanCard),
@@ -1322,6 +1547,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
 
   Widget _buildCarePlanCard(Map<String, dynamic> plan) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     final goals = _carePlanList(plan['goals']);
     final activities = _carePlanList(plan['activities']);
     return Card(
@@ -1332,14 +1558,17 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _carePlanText(plan['display_name'], 'Care plan'),
+              _carePlanText(
+                plan['display_name'],
+                s.lookup('s4.lib.patient_command_board.care_plan'),
+              ),
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 4),
             Text(
-              patientCommandBoardCarePlanSummary(plan),
+              _localizedCarePlanSummary(plan),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -1351,7 +1580,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
             const SizedBox(height: 12),
             _CarePlanSubheading(
               icon: Icons.flag_outlined,
-              title: 'Goals',
+              title: s.lookup('s4.lib.patient_command_board.goals'),
               count: goals.length,
             ),
             const SizedBox(height: 6),
@@ -1362,7 +1591,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
             const SizedBox(height: 12),
             _CarePlanSubheading(
               icon: Icons.playlist_add_check_circle_outlined,
-              title: 'Activities',
+              title: s.lookup('s4.lib.patient_command_board.activities'),
               count: activities.length,
             ),
             const SizedBox(height: 6),
@@ -1386,15 +1615,26 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.flag_outlined),
-      title: Text(_carePlanText(goal['description'], 'Goal')),
+      title: Text(
+        _carePlanText(
+          goal['description'],
+          AppStrings.of(context).lookup('s4.lib.patient_command_board.goal'),
+        ),
+      ),
       subtitle: Text(
         [
           _carePlanText(goal['priority']),
           status.replaceAll('_', ' '),
           if (_carePlanText(goal['target_value']).isNotEmpty)
-            'Target ${_carePlanText(goal['target_value'])}',
+            AppStrings.of(context).format(
+              's4.dynamic.patient_command_board.target_value',
+              {'value': _carePlanText(goal['target_value'])},
+            ),
           if (_carePlanText(goal['current_value']).isNotEmpty)
-            'Current ${_carePlanText(goal['current_value'])}',
+            AppStrings.of(context).format(
+              's4.dynamic.patient_command_board.current_value',
+              {'value': _carePlanText(goal['current_value'])},
+            ),
         ].where((part) => part.isNotEmpty).join(' - '),
       ),
       trailing: achieved
@@ -1421,13 +1661,23 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.playlist_add_check_outlined),
-      title: Text(_carePlanText(activity['title'], 'Activity')),
+      title: Text(
+        _carePlanText(
+          activity['title'],
+          AppStrings.of(
+            context,
+          ).lookup('s4.lib.patient_command_board.activity'),
+        ),
+      ),
       subtitle: Text(
         [
           _carePlanText(activity['activity_kind']).replaceAll('_', ' '),
           status.replaceAll('_', ' '),
           if (_carePlanDate(activity['next_due_at']).isNotEmpty)
-            'Due ${_carePlanDate(activity['next_due_at'])}',
+            AppStrings.of(context).format(
+              's4.dynamic.patient_command_board.due_date',
+              {'date': _carePlanDate(activity['next_due_at'])},
+            ),
         ].where((part) => part.isNotEmpty).join(' - '),
       ),
       trailing: done
@@ -1460,12 +1710,16 @@ class _CarePlanSubheading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Row(
       children: [
         Icon(icon, size: 18, color: AppTheme.primaryTeal),
         const SizedBox(width: 6),
         Text(
-          '$title ($count)',
+          s.format('s4.dynamic.patient_command_board.subheading_count', {
+            'title': title,
+            'count': count,
+          }),
           style: Theme.of(
             context,
           ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
@@ -1546,6 +1800,7 @@ class _FocusedPatientBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -1564,7 +1819,9 @@ class _FocusedPatientBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Focused patient: $patientLabel',
+                  s.format('s4.dynamic.patient_command_board.focused_patient', {
+                    'patient': patientLabel,
+                  }),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
@@ -1572,8 +1829,13 @@ class _FocusedPatientBanner extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   actionLabel == null
-                      ? 'Only this patient is loaded from the command board scope.'
-                      : 'Opening ${actionLabel!.toLowerCase()} from the command board workflow.',
+                      ? s.lookup(
+                          's4.lib.patient_command_board.only_this_patient_loaded',
+                        )
+                      : s.format(
+                          's4.dynamic.patient_command_board.opening_action',
+                          {'action': actionLabel!.toLowerCase()},
+                        ),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -1595,6 +1857,7 @@ class _EmptyBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: 72),
       child: Column(
@@ -1606,7 +1869,9 @@ class _EmptyBoard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            filter == 'all' ? 'No active patients' : 'No matching patients',
+            filter == 'all'
+                ? s.lookup('s4.lib.patient_command_board.no_active_patients')
+                : s.lookup('s4.lib.patient_command_board.no_matching_patients'),
             style: theme.textTheme.titleMedium,
           ),
         ],

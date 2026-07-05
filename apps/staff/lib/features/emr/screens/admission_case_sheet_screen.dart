@@ -220,6 +220,7 @@ class _AdmissionCaseSheetScreenState extends State<AdmissionCaseSheetScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
@@ -250,56 +251,127 @@ class _AdmissionCaseSheetScreenState extends State<AdmissionCaseSheetScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                 children: [
                   if (_error != null) _errorBox(theme),
-                  _sectionTitle(theme, 'History'),
-                  _field('Chief Complaints', _chiefComplaintsCtrl, lines: 2),
-                  _field('History of Presenting Illness', _hpiCtrl, lines: 5),
-                  _field('Past History', _pastHistoryCtrl, lines: 3),
+                  _sectionTitle(
+                    theme,
+                    s.lookup('s4.lib.admission_case_sheet.section.history'),
+                  ),
                   _field(
-                    'Past Medical/Surgical History',
+                    s.lookup('s4.lib.admission_case_sheet.chief_complaints'),
+                    _chiefComplaintsCtrl,
+                    lines: 2,
+                  ),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.hpi'),
+                    _hpiCtrl,
+                    lines: 5,
+                  ),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.past_history'),
+                    _pastHistoryCtrl,
+                    lines: 3,
+                  ),
+                  _field(
+                    s.lookup(
+                      's4.lib.admission_case_sheet.past_medical_surgical_history',
+                    ),
                     _pastMedicalSurgicalCtrl,
                     lines: 3,
                   ),
-                  _field('Personal History', _personalHistoryCtrl, lines: 3),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.personal_history'),
+                    _personalHistoryCtrl,
+                    lines: 3,
+                  ),
                   if (_showMenstrualPregnancy)
                     _field(
-                      'Menstrual/Pregnancy History',
+                      s.lookup(
+                        's4.lib.admission_case_sheet.menstrual_pregnancy_history',
+                      ),
                       _menstrualPregnancyCtrl,
                       lines: 3,
                     ),
-                  _field('Family History', _familyHistoryCtrl, lines: 3),
-                  _field('Allergies', _allergiesCtrl, lines: 2),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.family_history'),
+                    _familyHistoryCtrl,
+                    lines: 3,
+                  ),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.allergies'),
+                    _allergiesCtrl,
+                    lines: 2,
+                  ),
                   const SizedBox(height: 12),
-                  _sectionTitle(theme, 'Examination'),
+                  _sectionTitle(
+                    theme,
+                    s.lookup('s4.lib.admission_case_sheet.section.examination'),
+                  ),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      _smallField('Pulse Rate', _pulseCtrl, VitalUnit.pulse),
                       _smallField(
-                        'BP',
+                        s.lookup('s4.lib.admission_case_sheet.pulse_rate'),
+                        _pulseCtrl,
+                        VitalUnit.pulse,
+                      ),
+                      _smallField(
+                        s.lookup('s4.lib.admission_case_sheet.bp'),
                         _bpCtrl,
                         VitalUnit.bp,
                         keyboardType: TextInputType.text,
                       ),
-                      _smallField('SpO2', _spo2Ctrl, VitalUnit.spo2),
-                      _smallField('CBG', _cbgCtrl, VitalUnit.cbg),
-                      _smallField('Weight', _weightCtrl, VitalUnit.weight),
                       _smallField(
-                        'Temperature',
+                        s.lookup('s4.lib.admission_case_sheet.spo2'),
+                        _spo2Ctrl,
+                        VitalUnit.spo2,
+                      ),
+                      _smallField(
+                        s.lookup('s4.lib.admission_case_sheet.cbg'),
+                        _cbgCtrl,
+                        VitalUnit.cbg,
+                      ),
+                      _smallField(
+                        s.lookup('s4.lib.admission_case_sheet.weight'),
+                        _weightCtrl,
+                        VitalUnit.weight,
+                      ),
+                      _smallField(
+                        s.lookup('s4.lib.admission_case_sheet.temperature'),
                         _temperatureCtrl,
                         VitalUnit.temperature,
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _field('CVS', _cvsCtrl, lines: 2),
-                  _field('RS', _rsCtrl, lines: 2),
-                  _field('P/A', _paCtrl, lines: 2),
-                  _field('CNS', _cnsCtrl, lines: 2),
-                  const SizedBox(height: 12),
-                  _sectionTitle(theme, 'Assessment'),
                   _field(
-                    'Provisional Diagnosis',
+                    s.lookup('s4.lib.admission_case_sheet.cvs'),
+                    _cvsCtrl,
+                    lines: 2,
+                  ),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.rs'),
+                    _rsCtrl,
+                    lines: 2,
+                  ),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.pa'),
+                    _paCtrl,
+                    lines: 2,
+                  ),
+                  _field(
+                    s.lookup('s4.lib.admission_case_sheet.cns'),
+                    _cnsCtrl,
+                    lines: 2,
+                  ),
+                  const SizedBox(height: 12),
+                  _sectionTitle(
+                    theme,
+                    s.lookup('s4.lib.admission_case_sheet.section.assessment'),
+                  ),
+                  _field(
+                    s.lookup(
+                      's4.lib.admission_case_sheet.provisional_diagnosis',
+                    ),
                     _provisionalDiagnosisCtrl,
                     lines: 3,
                   ),
@@ -318,7 +390,11 @@ class _AdmissionCaseSheetScreenState extends State<AdmissionCaseSheetScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.save),
-            label: Text(_saving ? 'Saving' : 'Save Case Sheet'),
+            label: Text(
+              _saving
+                  ? s.lookup('s4.lib.admission_case_sheet.saving')
+                  : s.lookup('s4.lib.admission_case_sheet.save_case_sheet'),
+            ),
           ),
         ),
       ),

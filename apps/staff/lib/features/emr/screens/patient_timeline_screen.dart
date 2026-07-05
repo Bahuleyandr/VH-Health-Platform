@@ -181,6 +181,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   }
 
   String _eventTitle(Map<String, dynamic> event) {
+    final s = AppStrings.of(context);
     final type = _normalizedEventType(event['event_type']);
     final rawTitle = (event['title'] ?? '').toString().trim();
     if (rawTitle.isNotEmpty) return rawTitle;
@@ -194,8 +195,13 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
           .toString()
           .trim();
       return author.isEmpty
-          ? '${_formatKey(noteType)} note'
-          : '${_formatKey(noteType)} note - $author';
+          ? s.format('s4.dynamic.patient_timeline.note_type', {
+              'type': _formatKey(noteType),
+            })
+          : s.format('s4.dynamic.patient_timeline.note_type_author', {
+              'type': _formatKey(noteType),
+              'author': author,
+            });
     }
     if (type == 'drug_chart') {
       final details = _asMap(payload['details']);
@@ -204,19 +210,23 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   details['name'] ??
                   details['medication'] ??
                   payload['medication_name'] ??
-                  'Medication order')
+                  s.lookup('s4.lib.patient_timeline.medication_order'))
               .toString()
               .trim();
-      return 'Drug chart - $med';
+      return s.format('s4.dynamic.patient_timeline.drug_chart_med', {
+        'medication': med,
+      });
     }
     if (type == 'referral') {
       final dept =
           (payload['referred_to_department'] ??
                   payload['department'] ??
-                  'specialist')
+                  s.lookup('s4.lib.patient_timeline.specialist'))
               .toString()
               .trim();
-      return 'Referral - $dept';
+      return s.format('s4.dynamic.patient_timeline.referral_department', {
+        'department': dept,
+      });
     }
     return AppStrings.of(context).timelineEventTitle(type);
   }
@@ -286,14 +296,23 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     return value.toString();
   }
 
-  String _formatTimestamp(String? ts) {
+  String _formatTimestamp(BuildContext context, String? ts) {
     if (ts == null) return '-';
+    final s = AppStrings.of(context);
     try {
       final dt = DateTime.parse(ts);
       final now = DateTime.now();
       final diff = now.difference(dt);
-      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inMinutes < 60) {
+        return s.format('s4.dynamic.patient_timeline.minutes_ago', {
+          'count': diff.inMinutes,
+        });
+      }
+      if (diff.inHours < 24) {
+        return s.format('s4.dynamic.patient_timeline.hours_ago', {
+          'count': diff.inHours,
+        });
+      }
       return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return ts;
@@ -358,7 +377,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                             ),
                           ),
                           Text(
-                            _formatTimestamp(event['timestamp'] as String?),
+                            _formatTimestamp(
+                              context,
+                              event['timestamp'] as String?,
+                            ),
                             style: TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 13,
@@ -471,13 +493,13 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       case 'order':
         return s.timelineFilterOrder;
       case 'drug_chart':
-        return 'Drug chart';
+        return s.lookup('s4.lib.patient_timeline.filter.drug_chart');
       case 'medication':
         return s.timelineFilterMedication;
       case 'investigation':
         return s.timelineFilterInvestigation;
       case 'referral':
-        return 'Referrals';
+        return s.lookup('s4.lib.patient_timeline.filter.referrals');
       case 'discharge':
         return s.timelineFilterDischarge;
       default:
@@ -585,25 +607,26 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     }
 
     final query = _patientRouteQuery();
+    final s = AppStrings.of(context);
     final actions = [
       _TimelineAction(
         icon: Icons.note_add_outlined,
-        label: 'Add note',
+        label: s.lookup('s4.lib.patient_timeline.action.add_note'),
         route: '/emr/notes/${widget.patientUid}$query',
       ),
       _TimelineAction(
         icon: Icons.receipt_long_outlined,
-        label: 'Orders',
+        label: s.lookup('s4.lib.patient_timeline.action.orders'),
         route: '/emr/orders/${widget.patientUid}$query',
       ),
       _TimelineAction(
         icon: Icons.monitor_heart_outlined,
-        label: 'Vitals',
+        label: s.lookup('s4.lib.patient_timeline.action.vitals'),
         route: '/emr/vitals/${widget.patientUid}$query',
       ),
       _TimelineAction(
         icon: Icons.biotech_outlined,
-        label: 'Investigations',
+        label: s.lookup('s4.lib.patient_timeline.action.investigations'),
         route:
             '/investigations?patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
       ),
@@ -700,7 +723,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                             ),
                             const Spacer(),
                             Text(
-                              _formatTimestamp(event['timestamp'] as String?),
+                              _formatTimestamp(
+                                context,
+                                event['timestamp'] as String?,
+                              ),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: AppTheme.textSecondary,
