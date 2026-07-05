@@ -243,7 +243,12 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                     final zone = z as Map<String, dynamic>;
                     return DropdownMenuItem<int?>(
                       value: zone['id'] as int,
-                      child: Text('${zone['name']} (${zone['zone_type']})'),
+                      child: Text(
+                        s.format('s4.dynamic.housekeeping.zone_with_type', {
+                          'name': zone['name'],
+                          'type': zone['zone_type'],
+                        }),
+                      ),
                     );
                   }),
                 ],

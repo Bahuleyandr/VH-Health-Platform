@@ -391,6 +391,94 @@ void main() {
     );
   });
 
+  test('S4 housekeeping copy stores keys with required locale entries', () {
+    final files = [
+      File(
+        'lib/features/housekeeping/screens/housekeeping_command_screen.dart',
+      ),
+      File(
+        'lib/features/housekeeping/screens/housekeeping_roster_board_screen.dart',
+      ),
+      File('lib/features/housekeeping/screens/log_cleaning_screen.dart'),
+      File('lib/features/housekeeping/screens/my_housekeeping_screen.dart'),
+      File('lib/features/housekeeping/screens/raise_request_screen.dart'),
+      File('lib/features/housekeeping/screens/tasks_screen.dart'),
+    ];
+    final hits = <String>[];
+    final patterns = [
+      _Pattern(
+        'AppText display copy',
+        RegExp(
+          r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
+        ),
+      ),
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('subtitle', RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('message', RegExp(r'''\bmessage\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('text', RegExp(r'''\btext\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('fallback', RegExp(r'''\bfallback\s*:\s*(?:r)?(['"])(.*?)\1''')),
+    ];
+    final allowedPrefixes = [
+      'action.',
+      'bed_board.',
+      'bed_sheet.',
+      'clinical_ai.',
+      'drug_chart.',
+      'housekeeping.',
+      'investigations.',
+      'prescriptions.',
+      'priority.',
+      'profile.',
+      'role.',
+      's4.dynamic.housekeeping.',
+      's4.dynamic.housekeeping_command.',
+      's4.dynamic.housekeeping_roster_board.',
+      's4.dynamic.housekeeping_task.',
+      's4.lib.housekeeping_command.',
+      's4.lib.housekeeping_roster_board.',
+      's4.lib.housekeeping_task.',
+      's4.lib.leave_approvals.',
+      's4.lib.staff_roster_hub.',
+      'urgency.',
+    ];
+
+    for (final file in files) {
+      for (final entry in _literalHits(file, patterns)) {
+        if (_housekeepingGuardAllowlist.any(entry.contains)) continue;
+        hits.add(entry);
+      }
+      for (final entry in _interpolatedLiteralHits(file, patterns)) {
+        if (_housekeepingGuardAllowlist.any(entry.contains)) continue;
+        hits.add(entry);
+      }
+    }
+
+    final keys = <String>{};
+    for (final file in files) {
+      keys.addAll(_appStringKeysFrom(file.readAsStringSync(), allowedPrefixes));
+    }
+    keys.addAll(
+      _appStringKeysFrom(
+        File('lib/core/navigation/app_router.dart').readAsStringSync(),
+        allowedPrefixes,
+      ),
+    );
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 housekeeping labels, messages, and interpolated UI copy should '
+          'use AppStrings/AppText keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 housekeeping keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',
@@ -494,6 +582,11 @@ final _allowlist = <String>{
   'lib/features/doctor/screens/prescriptions_screen.dart|N',
 };
 
+final _housekeepingGuardAllowlist = <String>{
+  'fallback: "08:00:00"',
+  'fallback: "16:00:00"',
+};
+
 Iterable<File> _guardedFiles() sync* {
   final roots = [
     Directory('lib/core/navigation'),
@@ -526,6 +619,28 @@ Iterable<String> _literalHits(
         final value = match.group(2) ?? '';
         if (allowedPrefix != null && value.startsWith(allowedPrefix)) continue;
         if (!_isVisibleStaticCopy(value)) continue;
+        yield '$path:${index + 1}: ${pattern.name}: "$value"';
+      }
+    }
+  }
+}
+
+Iterable<String> _interpolatedLiteralHits(
+  File file,
+  List<_Pattern> patterns,
+) sync* {
+  final path = file.path.replaceAll('\\', '/');
+  final lines = file.readAsLinesSync();
+  for (var index = 0; index < lines.length; index += 1) {
+    final line = lines[index];
+    final trimmed = line.trimLeft();
+    if (trimmed.startsWith('//') || trimmed.startsWith('///')) continue;
+    for (final pattern in patterns) {
+      for (final match in pattern.regex.allMatches(line)) {
+        final value = match.group(2) ?? '';
+        if (!value.contains(r'$')) continue;
+        final copyOnly = value.replaceAll(RegExp(r'\$\{?[\w.?!\[\] ]+\}?'), '');
+        if (!RegExp(r'[A-Za-z]').hasMatch(copyOnly)) continue;
         yield '$path:${index + 1}: ${pattern.name}: "$value"';
       }
     }

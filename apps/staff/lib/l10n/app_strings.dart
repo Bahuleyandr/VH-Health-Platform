@@ -5501,36 +5501,131 @@ class AppStrings {
           "Housekeeping Command",
       's4.lib.housekeeping_command.housekeeping_staff_delegated':
           "Housekeeping staff delegated",
+      // REVIEW: AI first-pass S4 housekeeping i18n sweep - confirm wording before production.
+      's4.lib.housekeeping_command.active_assignments': "Active assignments",
+      's4.lib.housekeeping_command.building_not_set': "Building not set",
+      's4.lib.housekeeping_command.current_shift': "current",
       's4.lib.housekeeping_command.move_open_requests_in_this_zone':
           "Move open requests in this zone",
+      's4.lib.housekeeping_command.no_active_floor_assignments_yet':
+          "No active floor assignments yet",
+      's4.lib.housekeeping_command.no_id': "no ID",
       's4.lib.housekeeping_command.redeploy_staff': "Redeploy staff",
       's4.lib.housekeeping_command.staff_member': "Staff member",
+      's4.lib.housekeeping_command.this_staff_member': "This staff member",
       's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another':
           "Useful when one floor has more work than another.",
+      's4.lib.housekeeping_command.zone_workload': "Zone workload",
       's4.lib.housekeeping_roster_board.07_30': "07:30",
       's4.lib.housekeeping_roster_board.12_30': "12:30",
       's4.lib.housekeeping_roster_board.accept_for_planning':
           "Accept for planning",
+      's4.lib.housekeeping_roster_board.accepted': "Accepted",
+      's4.lib.housekeeping_roster_board.add': "Add",
       's4.lib.housekeeping_roster_board.add_custom_shift': "Add custom shift",
+      's4.lib.housekeeping_roster_board.add_more': "Add more",
       's4.lib.housekeeping_roster_board.add_staff': "Add staff",
       's4.lib.housekeeping_roster_board.ai_rules_roster_forecast':
           "AI/rules roster forecast",
+      's4.lib.housekeeping_roster_board.already_added_to_floor':
+          "Already added to this floor",
+      's4.lib.housekeeping_roster_board.already_assigned_elsewhere':
+          "Already assigned elsewhere on this date",
+      's4.lib.housekeeping_roster_board.another_floor': "another floor",
+      's4.lib.housekeeping_roster_board.any_post': "Any post",
+      's4.lib.housekeeping_roster_board.any_shift': "Any shift",
       's4.lib.housekeeping_roster_board.approve': "Approve",
+      's4.lib.housekeeping_roster_board.approved_leave': "Approved leave",
+      's4.lib.housekeeping_roster_board.approved_leave_on_date':
+          "Approved leave on this date",
       's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve':
           "Assign each ward, unit, or floor under Morning, Evening, Night, or a custom shift.",
+      's4.lib.housekeeping_roster_board.copied_day_to_week':
+          "Selected day copied across the week",
       's4.lib.housekeeping_roster_board.copy_day_to_week': "Copy day to week",
+      's4.lib.housekeeping_roster_board.copy_permission_required':
+          "Copying rosters needs the department incharge or Admin role.",
       's4.lib.housekeeping_roster_board.copy_previous_day': "Copy previous day",
+      's4.lib.housekeeping_roster_board.custom_shift_added':
+          "Custom shift added",
+      's4.lib.housekeeping_roster_board.custom_shift_permission_required':
+          "Custom shifts need the department incharge or Admin role.",
+      's4.lib.housekeeping_roster_board.day.fri': "Fri",
+      's4.lib.housekeeping_roster_board.day.mon': "Mon",
+      's4.lib.housekeeping_roster_board.day.sat': "Sat",
+      's4.lib.housekeeping_roster_board.day.sun': "Sun",
+      's4.lib.housekeeping_roster_board.day.thu': "Thu",
+      's4.lib.housekeeping_roster_board.day.tue': "Tue",
+      's4.lib.housekeeping_roster_board.day.wed': "Wed",
+      's4.lib.housekeeping_roster_board.discarded': "Discarded",
       's4.lib.housekeeping_roster_board.discard_forecast': "Discard forecast",
       's4.lib.housekeeping_roster_board.duty_requests': "Duty requests",
+      's4.lib.housekeeping_roster_board.edit_permission_required':
+          "Roster editing needs the department incharge or Admin role.",
+      's4.lib.housekeeping_roster_board.forecast_empty_narrative':
+          "Generate a 12-week forecast to see staffing risk signals.",
+      's4.lib.housekeeping_roster_board.forecast_generate_permission_required':
+          "Forecast generation needs HR or department incharge access.",
+      's4.lib.housekeeping_roster_board.forecast_generated':
+          "12-week advisory forecast generated for HR review",
+      's4.lib.housekeeping_roster_board.forecast_review_permission_required':
+          "Forecast review needs HR or department incharge access.",
+      's4.lib.housekeeping_roster_board.forecast_state.ai': "AI",
+      's4.lib.housekeeping_roster_board.forecast_state.not_generated':
+          "not generated",
+      's4.lib.housekeeping_roster_board.forecast_state.schema_unavailable':
+          "schema unavailable",
       's4.lib.housekeeping_roster_board.generate_12_week_forecast':
           "Generate 12-week forecast",
+      's4.lib.housekeeping_roster_board.generate_forecast_first':
+          "Generate a forecast first.",
       's4.lib.housekeeping_roster_board.leave_and_alternate_cover':
           "Leave and alternate cover",
+      's4.lib.housekeeping_roster_board.leave_fallback': "leave",
+      's4.lib.housekeeping_roster_board.no_active_shifts_configured':
+          "No active shifts configured",
+      's4.lib.housekeeping_roster_board.no_active_staff_found':
+          "No active staff found for this department",
+      's4.lib.housekeeping_roster_board.no_alternate_approved':
+          "No alternate approved",
+      's4.lib.housekeeping_roster_board.no_assigned_shifts_to_publish':
+          "Saved week draft; no assigned shifts to publish.",
+      's4.lib.housekeeping_roster_board.no_previous_roster_found':
+          "No previous roster found for these shifts.",
+      's4.lib.housekeeping_roster_board.no_roster_shifts_configured':
+          "No roster shifts are configured.",
       's4.lib.housekeeping_roster_board.off_unassigned': "Off / Unassigned",
       's4.lib.housekeeping_roster_board.publish_roster': "Publish roster",
+      's4.lib.housekeeping_roster_board.publish_permission_required':
+          "Publishing needs the department incharge or Admin role.",
+      's4.lib.housekeeping_roster_board.review_permission_required':
+          "Duty request review needs HR or department incharge access.",
       's4.lib.housekeeping_roster_board.save_draft': "Save draft",
+      's4.lib.housekeeping_roster_board.weekly_draft_saved':
+          "Weekly draft saved",
+      's4.lib.housekeeping_roster_board.select_shift_before_floor':
+          "Select a shift before selecting a floor.",
+      's4.lib.housekeeping_roster_board.shift_name_required':
+          "Shift name is required",
+      's4.lib.housekeeping_roster_board.staff_fallback': "Staff",
+      's4.lib.housekeeping_roster_board.staff_on_leave': "Staff on leave",
+      's4.lib.housekeeping_roster_board.status.draft': "Draft",
+      's4.lib.housekeeping_roster_board.status.published': "Published",
+      's4.lib.housekeeping_roster_board.tab.by_staff': "By staff",
+      's4.lib.housekeeping_roster_board.tab.by_ward': "By ward",
+      's4.lib.housekeeping_roster_board.time_format_hhmm': "Use HH:MM",
       's4.lib.housekeeping_roster_board.unassigned': "Unassigned",
+      's4.lib.housekeeping_roster_board.unknown': "unknown",
+      's4.lib.housekeeping_roster_board.viewing_only_roster_edits':
+          "Viewing only: roster edits need the department incharge or Admin role.",
       's4.lib.housekeeping_roster_board.ward_unit': "Ward / Unit",
+      's4.lib.housekeeping_task.status.assigned': "Assigned",
+      's4.lib.housekeeping_task.status.closed': "Closed",
+      's4.lib.housekeeping_task.status.completed': "Completed",
+      's4.lib.housekeeping_task.status.in_progress': "In progress",
+      's4.lib.housekeeping_task.status.open': "Open",
+      's4.lib.housekeeping_task.status.verified': "Verified",
+      's4.lib.housekeeping_task.unspecified': "Unspecified",
       's4.lib.hr_dashboard.no_staff_records_loaded_yet':
           "No staff records loaded yet.",
       's4.lib.hr_dashboard.open_onboarding': "Open onboarding",
@@ -6356,7 +6451,80 @@ class AppStrings {
       's4.dynamic.note_draft_status.hours_ago': "{count}h ago",
       's4.dynamic.note_draft_status.days_ago': "{count}d ago",
       's4.dynamic.housekeeping.week_label': "Week {range}",
+      // REVIEW: AI first-pass S4 housekeeping dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.housekeeping.building_floor_label':
+          "{building} - Floor {floor}",
+      's4.dynamic.housekeeping.floor_label': "Floor {floor}",
+      's4.dynamic.housekeeping.high_count': "{count} high",
+      's4.dynamic.housekeeping.open_count': "{count} open",
       's4.dynamic.housekeeping.shift_name_label': "{department} shift name",
+      's4.dynamic.housekeeping.shift_label': "Shift {shift}",
+      's4.dynamic.housekeeping.staff_employee_id': "{name} - {employeeId}",
+      's4.dynamic.housekeeping.urgent_count': "{count} urgent",
+      's4.dynamic.housekeeping.week_range': "{start} to {end}",
+      's4.dynamic.housekeeping.zone_floor_label': "{name} - Floor {floor}",
+      's4.dynamic.housekeeping.zone_with_type': "{name} ({type})",
+      's4.dynamic.housekeeping_command.end_assignment_body':
+          "{staff} will stop receiving requests for this floor.",
+      's4.dynamic.housekeeping_roster_board.active_count': "{count} active",
+      's4.dynamic.housekeeping_roster_board.already_assigned_on_date':
+          "{staff} is already assigned to {target} on this date.",
+      's4.dynamic.housekeeping_roster_board.approved_leave':
+          "{staff} is on approved {leaveType} leave from {start} to {end}.",
+      's4.dynamic.housekeeping_roster_board.approved_leave_with_cover':
+          "{staff} is on approved {leaveType} leave from {start} to {end}. Alternate cover: {replacement}.",
+      's4.dynamic.housekeeping_roster_board.area_count': "{count} areas",
+      's4.dynamic.housekeeping_roster_board.assignment_count':
+          "{count} assignments",
+      's4.dynamic.housekeeping_roster_board.cannot_assign_on_date':
+          "Cannot assign on {date}: {message}",
+      's4.dynamic.housekeeping_roster_board.clear_assignment_before_saving':
+          "{message} Clear the {shift} assignment on {date} before saving.",
+      's4.dynamic.housekeeping_roster_board.copied_day_skipped_leave':
+          "Selected day copied; {count} approved-leave assignments skipped.",
+      's4.dynamic.housekeeping_roster_board.copied_previous_rosters':
+          "Copied {count} previous shift rosters",
+      's4.dynamic.housekeeping_roster_board.custom_shift_default_name':
+          "Custom {hour}",
+      's4.dynamic.housekeeping_roster_board.day_assignment_summary':
+          "{assigned} assigned - {open} open",
+      's4.dynamic.housekeeping_roster_board.day_label': "{day} {date}",
+      's4.dynamic.housekeeping_roster_board.duty_deployment_title':
+          "{department} duty deployment",
+      's4.dynamic.housekeeping_roster_board.duty_request_reviewed':
+          "Duty request {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_review_state':
+          "Review {review}",
+      's4.dynamic.housekeeping_roster_board.forecast_reviewed':
+          "Forecast {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_source_count':
+          "{count} sources",
+      's4.dynamic.housekeeping_roster_board.forecast_state': "Forecast {state}",
+      's4.dynamic.housekeeping_roster_board.forecast_today_buffer':
+          "{risk} today - buffer {buffer}",
+      's4.dynamic.housekeeping_roster_board.open_cell_count':
+          "{count} open cells",
+      's4.dynamic.housekeeping_roster_board.no_active_roster_targets':
+          "No active {department} roster targets configured",
+      's4.dynamic.housekeeping_roster_board.previous_rosters_missing':
+          "{count} shifts had no previous roster.",
+      's4.dynamic.housekeeping_roster_board.published_roster_count':
+          "Published {count} weekly shift rosters",
+      's4.dynamic.housekeeping_roster_board.risk_buffer':
+          "{risk} risk - buffer {buffer}",
+      's4.dynamic.housekeeping_roster_board.risk_label': "{risk} risk",
+      's4.dynamic.housekeeping_roster_board.risk_score': "{risk} {score}",
+      's4.dynamic.housekeeping_roster_board.shift_assigned_summary':
+          "{window} - {count} assigned",
+      's4.dynamic.housekeeping_roster_board.shift_count': "{count} shifts",
+      's4.dynamic.housekeeping_roster_board.source_state': "{source}: {state}",
+      's4.dynamic.housekeeping_roster_board.staff_count': "{count} staff",
+      's4.dynamic.housekeeping_roster_board.state_review': "{state} - {review}",
+      's4.dynamic.housekeeping_roster_board.viewing_date': "Viewing {date}",
+      's4.dynamic.housekeeping_roster_board.viewing_only_note':
+          "Viewing only: {note}",
+      's4.dynamic.housekeeping_task.sla_label': "SLA {date}",
+      's4.dynamic.housekeeping_task.title': "{category} - {location}",
       's4.dynamic.leave_approvals.decision_title': "{decision} leave",
       // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
       's4.dynamic.leave_approvals.date_range_days':
@@ -9057,41 +9225,136 @@ class AppStrings {
       's4.lib.housekeeping_command.housekeeping_command': "हाउसकीपिंग कमांड",
       's4.lib.housekeeping_command.housekeeping_staff_delegated':
           "हाउसकीपिंग स्टाफ को प्रत्यायोजित किया गया",
+      // REVIEW: AI first-pass S4 housekeeping i18n sweep - confirm wording before production.
+      's4.lib.housekeeping_command.active_assignments': "सक्रिय असाइनमेंट",
+      's4.lib.housekeeping_command.building_not_set': "भवन सेट नहीं है",
+      's4.lib.housekeeping_command.current_shift': "वर्तमान",
       's4.lib.housekeeping_command.move_open_requests_in_this_zone':
           "इस क्षेत्र में खुले अनुरोधों को स्थानांतरित करें",
+      's4.lib.housekeeping_command.no_active_floor_assignments_yet':
+          "अभी कोई सक्रिय फ्लोर असाइनमेंट नहीं",
+      's4.lib.housekeeping_command.no_id': "आईडी नहीं",
       's4.lib.housekeeping_command.redeploy_staff':
           "कर्मचारियों को पुनः तैनात करें",
       's4.lib.housekeeping_command.staff_member': "स्टाफ के सदस्य",
+      's4.lib.housekeeping_command.this_staff_member': "यह स्टाफ सदस्य",
       's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another':
           "तब उपयोगी जब एक मंजिल पर दूसरे की तुलना में अधिक काम हो।",
+      's4.lib.housekeeping_command.zone_workload': "ज़ोन कार्यभार",
       's4.lib.housekeeping_roster_board.07_30': "07:30",
       's4.lib.housekeeping_roster_board.12_30': "12:30",
       's4.lib.housekeeping_roster_board.accept_for_planning':
           "योजना के लिए स्वीकार करें",
+      's4.lib.housekeeping_roster_board.accepted': "स्वीकार किया गया",
+      's4.lib.housekeeping_roster_board.add': "जोड़ें",
       's4.lib.housekeeping_roster_board.add_custom_shift': "कस्टम शिफ्ट जोड़ें",
+      's4.lib.housekeeping_roster_board.add_more': "और जोड़ें",
       's4.lib.housekeeping_roster_board.add_staff': "कर्मचारी जोड़ें",
       's4.lib.housekeeping_roster_board.ai_rules_roster_forecast':
           "एआई/नियम रोस्टर पूर्वानुमान",
+      's4.lib.housekeeping_roster_board.already_added_to_floor':
+          "इस फ्लोर में पहले से जोड़ा गया है",
+      's4.lib.housekeeping_roster_board.already_assigned_elsewhere':
+          "इस तारीख पर कहीं और पहले से असाइन है",
+      's4.lib.housekeeping_roster_board.another_floor': "दूसरा फ्लोर",
+      's4.lib.housekeeping_roster_board.any_post': "कोई भी पोस्ट",
+      's4.lib.housekeeping_roster_board.any_shift': "कोई भी शिफ्ट",
       's4.lib.housekeeping_roster_board.approve': "मंज़ूरी देना",
+      's4.lib.housekeeping_roster_board.approved_leave': "स्वीकृत छुट्टी",
+      's4.lib.housekeeping_roster_board.approved_leave_on_date':
+          "इस तारीख पर स्वीकृत छुट्टी",
       's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve':
           "प्रत्येक वार्ड, इकाई, या मंजिल को सुबह, शाम, रात, या एक कस्टम शिफ्ट के तहत निर्दिष्ट करें।",
+      's4.lib.housekeeping_roster_board.copied_day_to_week':
+          "चयनित दिन पूरे सप्ताह में कॉपी किया गया",
       's4.lib.housekeeping_roster_board.copy_day_to_week':
           "दिन दर सप्ताह कॉपी करें",
+      's4.lib.housekeeping_roster_board.copy_permission_required':
+          "रोस्टर कॉपी करने के लिए विभाग प्रभारी या एडमिन भूमिका चाहिए।",
       's4.lib.housekeeping_roster_board.copy_previous_day':
           "पिछले दिन कॉपी करें",
+      's4.lib.housekeeping_roster_board.custom_shift_added':
+          "कस्टम शिफ्ट जोड़ी गई",
+      's4.lib.housekeeping_roster_board.custom_shift_permission_required':
+          "कस्टम शिफ्ट के लिए विभाग प्रभारी या एडमिन भूमिका चाहिए।",
+      's4.lib.housekeeping_roster_board.day.fri': "शुक्र",
+      's4.lib.housekeeping_roster_board.day.mon': "सोम",
+      's4.lib.housekeeping_roster_board.day.sat': "शनि",
+      's4.lib.housekeeping_roster_board.day.sun': "रवि",
+      's4.lib.housekeeping_roster_board.day.thu': "गुरु",
+      's4.lib.housekeeping_roster_board.day.tue': "मंगल",
+      's4.lib.housekeeping_roster_board.day.wed': "बुध",
+      's4.lib.housekeeping_roster_board.discarded': "त्यागा गया",
       's4.lib.housekeeping_roster_board.discard_forecast':
           "पूर्वानुमान त्यागें",
       's4.lib.housekeeping_roster_board.duty_requests': "कर्तव्य अनुरोध",
+      's4.lib.housekeeping_roster_board.edit_permission_required':
+          "रोस्टर संपादन के लिए विभाग प्रभारी या एडमिन भूमिका चाहिए।",
+      's4.lib.housekeeping_roster_board.forecast_empty_narrative':
+          "स्टाफिंग जोखिम संकेत देखने के लिए 12-सप्ताह का पूर्वानुमान बनाएं।",
+      's4.lib.housekeeping_roster_board.forecast_generate_permission_required':
+          "पूर्वानुमान बनाने के लिए HR या विभाग प्रभारी पहुंच चाहिए।",
+      's4.lib.housekeeping_roster_board.forecast_generated':
+          "HR समीक्षा के लिए 12-सप्ताह का सलाहकारी पूर्वानुमान बनाया गया",
+      's4.lib.housekeeping_roster_board.forecast_review_permission_required':
+          "पूर्वानुमान समीक्षा के लिए HR या विभाग प्रभारी पहुंच चाहिए।",
+      's4.lib.housekeeping_roster_board.forecast_state.ai': "AI",
+      's4.lib.housekeeping_roster_board.forecast_state.not_generated':
+          "नहीं बनाया गया",
+      's4.lib.housekeeping_roster_board.forecast_state.schema_unavailable':
+          "स्कीमा उपलब्ध नहीं",
       's4.lib.housekeeping_roster_board.generate_12_week_forecast':
           "12-सप्ताह का पूर्वानुमान उत्पन्न करें",
+      's4.lib.housekeeping_roster_board.generate_forecast_first':
+          "पहले पूर्वानुमान बनाएं।",
       's4.lib.housekeeping_roster_board.leave_and_alternate_cover':
           "छोड़ें और वैकल्पिक कवर करें",
+      's4.lib.housekeeping_roster_board.leave_fallback': "छुट्टी",
+      's4.lib.housekeeping_roster_board.no_active_shifts_configured':
+          "कोई सक्रिय शिफ्ट कॉन्फ़िगर नहीं है",
+      's4.lib.housekeeping_roster_board.no_active_staff_found':
+          "इस विभाग के लिए कोई सक्रिय स्टाफ नहीं मिला",
+      's4.lib.housekeeping_roster_board.no_alternate_approved':
+          "कोई वैकल्पिक कवर स्वीकृत नहीं",
+      's4.lib.housekeeping_roster_board.no_assigned_shifts_to_publish':
+          "सप्ताह का मसौदा सेव हुआ; प्रकाशित करने के लिए कोई असाइन शिफ्ट नहीं।",
+      's4.lib.housekeeping_roster_board.no_previous_roster_found':
+          "इन शिफ्टों के लिए पिछला रोस्टर नहीं मिला।",
+      's4.lib.housekeeping_roster_board.no_roster_shifts_configured':
+          "कोई रोस्टर शिफ्ट कॉन्फ़िगर नहीं है।",
       's4.lib.housekeeping_roster_board.off_unassigned':
           "बंद/असाइन नहीं किया गया",
       's4.lib.housekeeping_roster_board.publish_roster': "रोस्टर प्रकाशित करें",
+      's4.lib.housekeeping_roster_board.publish_permission_required':
+          "प्रकाशन के लिए विभाग प्रभारी या एडमिन भूमिका चाहिए।",
+      's4.lib.housekeeping_roster_board.review_permission_required':
+          "ड्यूटी अनुरोध समीक्षा के लिए HR या विभाग प्रभारी पहुंच चाहिए।",
       's4.lib.housekeeping_roster_board.save_draft': "मसौदा सेव करें",
+      's4.lib.housekeeping_roster_board.weekly_draft_saved':
+          "साप्ताहिक मसौदा सेव हुआ",
+      's4.lib.housekeeping_roster_board.select_shift_before_floor':
+          "फ्लोर चुनने से पहले शिफ्ट चुनें।",
+      's4.lib.housekeeping_roster_board.shift_name_required':
+          "शिफ्ट नाम आवश्यक है",
+      's4.lib.housekeeping_roster_board.staff_fallback': "स्टाफ",
+      's4.lib.housekeeping_roster_board.staff_on_leave': "छुट्टी पर स्टाफ",
+      's4.lib.housekeeping_roster_board.status.draft': "मसौदा",
+      's4.lib.housekeeping_roster_board.status.published': "प्रकाशित",
+      's4.lib.housekeeping_roster_board.tab.by_staff': "स्टाफ के अनुसार",
+      's4.lib.housekeeping_roster_board.tab.by_ward': "वार्ड के अनुसार",
+      's4.lib.housekeeping_roster_board.time_format_hhmm': "HH:MM उपयोग करें",
       's4.lib.housekeeping_roster_board.unassigned': "सौंपे नहीं गए",
+      's4.lib.housekeeping_roster_board.unknown': "अज्ञात",
+      's4.lib.housekeeping_roster_board.viewing_only_roster_edits':
+          "केवल देखना: रोस्टर संपादन के लिए विभाग प्रभारी या एडमिन भूमिका चाहिए।",
       's4.lib.housekeeping_roster_board.ward_unit': "वार्ड/यूनिट",
+      's4.lib.housekeeping_task.status.assigned': "असाइन किया गया",
+      's4.lib.housekeeping_task.status.closed': "बंद",
+      's4.lib.housekeeping_task.status.completed': "पूर्ण",
+      's4.lib.housekeeping_task.status.in_progress': "प्रगति में",
+      's4.lib.housekeeping_task.status.open': "खुला",
+      's4.lib.housekeeping_task.status.verified': "सत्यापित",
+      's4.lib.housekeeping_task.unspecified': "निर्दिष्ट नहीं",
       's4.lib.hr_dashboard.no_staff_records_loaded_yet':
           "अभी तक कोई स्टाफ रिकॉर्ड लोड नहीं किया गया है.",
       's4.lib.hr_dashboard.open_onboarding': "ऑनबोर्डिंग खोलें",
@@ -9922,7 +10185,81 @@ class AppStrings {
       's4.dynamic.note_draft_status.hours_ago': "{count}घं पहले",
       's4.dynamic.note_draft_status.days_ago': "{count}दि पहले",
       's4.dynamic.housekeeping.week_label': "सप्ताह {range}",
+      // REVIEW: AI first-pass S4 housekeeping dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.housekeeping.building_floor_label':
+          "{building} - फ्लोर {floor}",
+      's4.dynamic.housekeeping.floor_label': "फ्लोर {floor}",
+      's4.dynamic.housekeeping.high_count': "{count} उच्च",
+      's4.dynamic.housekeeping.open_count': "{count} खुले",
       's4.dynamic.housekeeping.shift_name_label': "{department} शिफ्ट नाम",
+      's4.dynamic.housekeeping.shift_label': "शिफ्ट {shift}",
+      's4.dynamic.housekeeping.staff_employee_id': "{name} - {employeeId}",
+      's4.dynamic.housekeeping.urgent_count': "{count} तत्काल",
+      's4.dynamic.housekeeping.week_range': "{start} से {end}",
+      's4.dynamic.housekeeping.zone_floor_label': "{name} - फ्लोर {floor}",
+      's4.dynamic.housekeeping.zone_with_type': "{name} ({type})",
+      's4.dynamic.housekeeping_command.end_assignment_body':
+          "{staff} इस फ्लोर के अनुरोध प्राप्त करना बंद करेगा।",
+      's4.dynamic.housekeeping_roster_board.active_count': "{count} सक्रिय",
+      's4.dynamic.housekeeping_roster_board.already_assigned_on_date':
+          "{staff} इस तारीख पर पहले से {target} में असाइन है।",
+      's4.dynamic.housekeeping_roster_board.approved_leave':
+          "{staff} {start} से {end} तक स्वीकृत {leaveType} छुट्टी पर है।",
+      's4.dynamic.housekeeping_roster_board.approved_leave_with_cover':
+          "{staff} {start} से {end} तक स्वीकृत {leaveType} छुट्टी पर है। वैकल्पिक कवर: {replacement}।",
+      's4.dynamic.housekeeping_roster_board.area_count': "{count} क्षेत्र",
+      's4.dynamic.housekeeping_roster_board.assignment_count':
+          "{count} असाइनमेंट",
+      's4.dynamic.housekeeping_roster_board.cannot_assign_on_date':
+          "{date} पर असाइन नहीं कर सकते: {message}",
+      's4.dynamic.housekeeping_roster_board.clear_assignment_before_saving':
+          "{message} सेव करने से पहले {date} पर {shift} असाइनमेंट हटाएं।",
+      's4.dynamic.housekeeping_roster_board.copied_day_skipped_leave':
+          "चयनित दिन कॉपी हुआ; {count} स्वीकृत-छुट्टी असाइनमेंट छोड़े गए।",
+      's4.dynamic.housekeeping_roster_board.copied_previous_rosters':
+          "{count} पिछले शिफ्ट रोस्टर कॉपी किए गए",
+      's4.dynamic.housekeeping_roster_board.custom_shift_default_name':
+          "कस्टम {hour}",
+      's4.dynamic.housekeeping_roster_board.day_assignment_summary':
+          "{assigned} असाइन - {open} खुले",
+      's4.dynamic.housekeeping_roster_board.day_label': "{day} {date}",
+      's4.dynamic.housekeeping_roster_board.duty_deployment_title':
+          "{department} ड्यूटी तैनाती",
+      's4.dynamic.housekeeping_roster_board.duty_request_reviewed':
+          "ड्यूटी अनुरोध {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_review_state':
+          "समीक्षा {review}",
+      's4.dynamic.housekeeping_roster_board.forecast_reviewed':
+          "पूर्वानुमान {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_source_count':
+          "{count} स्रोत",
+      's4.dynamic.housekeeping_roster_board.forecast_state':
+          "पूर्वानुमान {state}",
+      's4.dynamic.housekeeping_roster_board.forecast_today_buffer':
+          "आज {risk} - बफ़र {buffer}",
+      's4.dynamic.housekeeping_roster_board.open_cell_count':
+          "{count} खुले सेल",
+      's4.dynamic.housekeeping_roster_board.no_active_roster_targets':
+          "कोई सक्रिय {department} रोस्टर लक्ष्य कॉन्फ़िगर नहीं",
+      's4.dynamic.housekeeping_roster_board.previous_rosters_missing':
+          "{count} शिफ्टों के लिए पिछला रोस्टर नहीं था।",
+      's4.dynamic.housekeeping_roster_board.published_roster_count':
+          "{count} साप्ताहिक शिफ्ट रोस्टर प्रकाशित किए गए",
+      's4.dynamic.housekeeping_roster_board.risk_buffer':
+          "{risk} जोखिम - बफ़र {buffer}",
+      's4.dynamic.housekeeping_roster_board.risk_label': "{risk} जोखिम",
+      's4.dynamic.housekeeping_roster_board.risk_score': "{risk} {score}",
+      's4.dynamic.housekeeping_roster_board.shift_assigned_summary':
+          "{window} - {count} असाइन",
+      's4.dynamic.housekeeping_roster_board.shift_count': "{count} शिफ्ट",
+      's4.dynamic.housekeeping_roster_board.source_state': "{source}: {state}",
+      's4.dynamic.housekeeping_roster_board.staff_count': "{count} स्टाफ",
+      's4.dynamic.housekeeping_roster_board.state_review': "{state} - {review}",
+      's4.dynamic.housekeeping_roster_board.viewing_date': "{date} देख रहे हैं",
+      's4.dynamic.housekeeping_roster_board.viewing_only_note':
+          "केवल देखना: {note}",
+      's4.dynamic.housekeeping_task.sla_label': "SLA {date}",
+      's4.dynamic.housekeeping_task.title': "{category} - {location}",
       's4.dynamic.leave_approvals.decision_title': "{decision} छोड़ें",
       // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
       's4.dynamic.leave_approvals.date_range_days':
@@ -13153,8 +13490,108 @@ class AppStrings {
           "ஆஃப் / ஒதுக்கப்படாதது",
       's4.lib.housekeeping_roster_board.publish_roster': "பட்டியலை வெளியிடவும்",
       's4.lib.housekeeping_roster_board.save_draft': "வரைவைச் சேமிக்கவும்",
+      's4.lib.housekeeping_roster_board.weekly_draft_saved':
+          "வார வரைவு சேமிக்கப்பட்டது",
       's4.lib.housekeeping_roster_board.unassigned': "ஒதுக்கப்படாதது",
       's4.lib.housekeeping_roster_board.ward_unit': "வார்டு / அலகு",
+      // REVIEW: AI first-pass S4 housekeeping i18n sweep - confirm wording before production.
+      's4.lib.housekeeping_command.active_assignments':
+          "செயலில் உள்ள ஒதுக்கீடுகள்",
+      's4.lib.housekeeping_command.building_not_set':
+          "கட்டிடம் அமைக்கப்படவில்லை",
+      's4.lib.housekeeping_command.current_shift': "தற்போதைய",
+      's4.lib.housekeeping_command.no_active_floor_assignments_yet':
+          "இன்னும் செயலில் உள்ள தள ஒதுக்கீடுகள் இல்லை",
+      's4.lib.housekeeping_command.no_id': "ஐடி இல்லை",
+      's4.lib.housekeeping_command.this_staff_member': "இந்த பணியாளர்",
+      's4.lib.housekeeping_command.zone_workload': "மண்டல பணிச்சுமை",
+      's4.lib.housekeeping_roster_board.accepted': "ஏற்கப்பட்டது",
+      's4.lib.housekeeping_roster_board.add': "சேர்",
+      's4.lib.housekeeping_roster_board.add_more': "மேலும் சேர்",
+      's4.lib.housekeeping_roster_board.already_added_to_floor':
+          "இந்த தளத்தில் ஏற்கனவே சேர்க்கப்பட்டுள்ளது",
+      's4.lib.housekeeping_roster_board.already_assigned_elsewhere':
+          "இந்த தேதியில் வேறொரு இடத்தில் ஏற்கனவே ஒதுக்கப்பட்டுள்ளது",
+      's4.lib.housekeeping_roster_board.another_floor': "மற்றொரு தளம்",
+      's4.lib.housekeeping_roster_board.any_post': "எந்தப் பதவியும்",
+      's4.lib.housekeeping_roster_board.any_shift': "எந்த ஷிப்டும்",
+      's4.lib.housekeeping_roster_board.approved_leave':
+          "அங்கீகரிக்கப்பட்ட விடுப்பு",
+      's4.lib.housekeeping_roster_board.approved_leave_on_date':
+          "இந்த தேதியில் அங்கீகரிக்கப்பட்ட விடுப்பு",
+      's4.lib.housekeeping_roster_board.copied_day_to_week':
+          "தேர்ந்தெடுத்த நாள் வாரம் முழுவதும் நகலெடுக்கப்பட்டது",
+      's4.lib.housekeeping_roster_board.copy_permission_required':
+          "பட்டியலை நகலெடுக்க துறை பொறுப்பாளர் அல்லது Admin பங்கு தேவை.",
+      's4.lib.housekeeping_roster_board.custom_shift_added':
+          "தனிப்பயன் ஷிப்ட் சேர்க்கப்பட்டது",
+      's4.lib.housekeeping_roster_board.custom_shift_permission_required':
+          "தனிப்பயன் ஷிப்ட்களுக்கு துறை பொறுப்பாளர் அல்லது Admin பங்கு தேவை.",
+      's4.lib.housekeeping_roster_board.day.fri': "வெள்",
+      's4.lib.housekeeping_roster_board.day.mon': "தி",
+      's4.lib.housekeeping_roster_board.day.sat': "சனி",
+      's4.lib.housekeeping_roster_board.day.sun': "ஞாயி",
+      's4.lib.housekeeping_roster_board.day.thu': "வியா",
+      's4.lib.housekeeping_roster_board.day.tue': "செவ்",
+      's4.lib.housekeeping_roster_board.day.wed': "புத",
+      's4.lib.housekeeping_roster_board.discarded': "நிராகரிக்கப்பட்டது",
+      's4.lib.housekeeping_roster_board.edit_permission_required':
+          "பட்டியல் திருத்தத்திற்கு துறை பொறுப்பாளர் அல்லது Admin பங்கு தேவை.",
+      's4.lib.housekeeping_roster_board.forecast_empty_narrative':
+          "பணியாளர் அபாயச் சிக்னல்களைப் பார்க்க 12 வார முன்னறிவிப்பை உருவாக்கவும்.",
+      's4.lib.housekeeping_roster_board.forecast_generate_permission_required':
+          "முன்னறிவிப்பு உருவாக்க HR அல்லது துறை பொறுப்பாளர் அணுகல் தேவை.",
+      's4.lib.housekeeping_roster_board.forecast_generated':
+          "HR மதிப்பாய்வுக்காக 12 வார ஆலோசனை முன்னறிவிப்பு உருவாக்கப்பட்டது",
+      's4.lib.housekeeping_roster_board.forecast_review_permission_required':
+          "முன்னறிவிப்பு மதிப்பாய்வுக்கு HR அல்லது துறை பொறுப்பாளர் அணுகல் தேவை.",
+      's4.lib.housekeeping_roster_board.forecast_state.ai': "AI",
+      's4.lib.housekeeping_roster_board.forecast_state.not_generated':
+          "உருவாக்கப்படவில்லை",
+      's4.lib.housekeeping_roster_board.forecast_state.schema_unavailable':
+          "ஸ்கீமா கிடைக்கவில்லை",
+      's4.lib.housekeeping_roster_board.generate_forecast_first':
+          "முதலில் முன்னறிவிப்பை உருவாக்கவும்.",
+      's4.lib.housekeeping_roster_board.leave_fallback': "விடுப்பு",
+      's4.lib.housekeeping_roster_board.no_active_shifts_configured':
+          "செயலில் உள்ள ஷிப்ட்கள் அமைக்கப்படவில்லை",
+      's4.lib.housekeeping_roster_board.no_active_staff_found':
+          "இந்த துறைக்கு செயலில் உள்ள பணியாளர்கள் இல்லை",
+      's4.lib.housekeeping_roster_board.no_alternate_approved':
+          "மாற்று கவர் அங்கீகரிக்கப்படவில்லை",
+      's4.lib.housekeeping_roster_board.no_assigned_shifts_to_publish':
+          "வார வரைவு சேமிக்கப்பட்டது; வெளியிட ஒதுக்கப்பட்ட ஷிப்ட்கள் இல்லை.",
+      's4.lib.housekeeping_roster_board.no_previous_roster_found':
+          "இந்த ஷிப்ட்களுக்கு முந்தைய பட்டியல் கிடைக்கவில்லை.",
+      's4.lib.housekeeping_roster_board.no_roster_shifts_configured':
+          "பட்டியல் ஷிப்ட்கள் அமைக்கப்படவில்லை.",
+      's4.lib.housekeeping_roster_board.publish_permission_required':
+          "வெளியிட துறை பொறுப்பாளர் அல்லது Admin பங்கு தேவை.",
+      's4.lib.housekeeping_roster_board.review_permission_required':
+          "கடமை கோரிக்கை மதிப்பாய்வுக்கு HR அல்லது துறை பொறுப்பாளர் அணுகல் தேவை.",
+      's4.lib.housekeeping_roster_board.select_shift_before_floor':
+          "தளத்தைத் தேர்வதற்கு முன் ஷிப்டைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.housekeeping_roster_board.shift_name_required':
+          "ஷிப்ட் பெயர் அவசியம்",
+      's4.lib.housekeeping_roster_board.staff_fallback': "பணியாளர்",
+      's4.lib.housekeeping_roster_board.staff_on_leave':
+          "விடுப்பில் உள்ள பணியாளர்",
+      's4.lib.housekeeping_roster_board.status.draft': "வரைவு",
+      's4.lib.housekeeping_roster_board.status.published': "வெளியிடப்பட்டது",
+      's4.lib.housekeeping_roster_board.tab.by_staff': "பணியாளர் படி",
+      's4.lib.housekeeping_roster_board.tab.by_ward': "வார்டு படி",
+      's4.lib.housekeeping_roster_board.time_format_hhmm':
+          "HH:MM பயன்படுத்தவும்",
+      's4.lib.housekeeping_roster_board.unknown': "தெரியாதது",
+      's4.lib.housekeeping_roster_board.viewing_only_roster_edits':
+          "பார்வைக்கு மட்டும்: பட்டியல் திருத்தத்திற்கு துறை பொறுப்பாளர் அல்லது Admin பங்கு தேவை.",
+      's4.lib.housekeeping_task.status.assigned': "ஒதுக்கப்பட்டது",
+      's4.lib.housekeeping_task.status.closed': "மூடப்பட்டது",
+      's4.lib.housekeeping_task.status.completed': "முடிந்தது",
+      's4.lib.housekeeping_task.status.in_progress': "நடந்து கொண்டிருக்கிறது",
+      's4.lib.housekeeping_task.status.open': "திறந்தது",
+      's4.lib.housekeeping_task.status.verified': "சரிபார்க்கப்பட்டது",
+      's4.lib.housekeeping_task.unspecified': "குறிப்பிடப்படவில்லை",
       's4.lib.hr_dashboard.no_staff_records_loaded_yet':
           "ஊழியர்களின் பதிவுகள் எதுவும் இன்னும் ஏற்றப்படவில்லை.",
       's4.lib.hr_dashboard.open_onboarding': "ஆன்போர்டிங்கைத் திறக்கவும்",
@@ -14030,6 +14467,81 @@ class AppStrings {
       's4.dynamic.note_draft_status.days_ago': "{count}நா முன்பு",
       's4.dynamic.housekeeping.week_label': "வாரம் {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} ஷிப்ட் பெயர்",
+      // REVIEW: AI first-pass S4 housekeeping dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.housekeeping.building_floor_label':
+          "{building} - தளம் {floor}",
+      's4.dynamic.housekeeping.floor_label': "தளம் {floor}",
+      's4.dynamic.housekeeping.high_count': "{count} உயர்",
+      's4.dynamic.housekeeping.open_count': "{count} திறந்தவை",
+      's4.dynamic.housekeeping.shift_label': "ஷிப்ட் {shift}",
+      's4.dynamic.housekeeping.staff_employee_id': "{name} - {employeeId}",
+      's4.dynamic.housekeeping.urgent_count': "{count} அவசரம்",
+      's4.dynamic.housekeeping.week_range': "{start} முதல் {end}",
+      's4.dynamic.housekeeping.zone_floor_label': "{name} - தளம் {floor}",
+      's4.dynamic.housekeeping.zone_with_type': "{name} ({type})",
+      's4.dynamic.housekeeping_command.end_assignment_body':
+          "{staff} இந்த தளத்திற்கான கோரிக்கைகளைப் பெறுவதை நிறுத்துவார்.",
+      's4.dynamic.housekeeping_roster_board.active_count': "{count} செயலில்",
+      's4.dynamic.housekeeping_roster_board.already_assigned_on_date':
+          "{staff} இந்த தேதியில் ஏற்கனவே {target}க்கு ஒதுக்கப்பட்டுள்ளார்.",
+      's4.dynamic.housekeeping_roster_board.approved_leave':
+          "{staff} {start} முதல் {end} வரை அங்கீகரிக்கப்பட்ட {leaveType} விடுப்பில் உள்ளார்.",
+      's4.dynamic.housekeeping_roster_board.approved_leave_with_cover':
+          "{staff} {start} முதல் {end} வரை அங்கீகரிக்கப்பட்ட {leaveType} விடுப்பில் உள்ளார். மாற்று கவர்: {replacement}.",
+      's4.dynamic.housekeeping_roster_board.area_count': "{count} பகுதிகள்",
+      's4.dynamic.housekeeping_roster_board.assignment_count':
+          "{count} ஒதுக்கீடுகள்",
+      's4.dynamic.housekeeping_roster_board.cannot_assign_on_date':
+          "{date} அன்று ஒதுக்க முடியாது: {message}",
+      's4.dynamic.housekeeping_roster_board.clear_assignment_before_saving':
+          "{message} சேமிப்பதற்கு முன் {date} அன்று {shift} ஒதுக்கீட்டை அகற்றவும்.",
+      's4.dynamic.housekeeping_roster_board.copied_day_skipped_leave':
+          "தேர்ந்தெடுத்த நாள் நகலெடுக்கப்பட்டது; {count} அங்கீகரிக்கப்பட்ட விடுப்பு ஒதுக்கீடுகள் தவிர்க்கப்பட்டன.",
+      's4.dynamic.housekeeping_roster_board.copied_previous_rosters':
+          "{count} முந்தைய ஷிப்ட் பட்டியல்கள் நகலெடுக்கப்பட்டன",
+      's4.dynamic.housekeeping_roster_board.custom_shift_default_name':
+          "தனிப்பயன் {hour}",
+      's4.dynamic.housekeeping_roster_board.day_assignment_summary':
+          "{assigned} ஒதுக்கப்பட்டது - {open} திறந்தவை",
+      's4.dynamic.housekeeping_roster_board.day_label': "{day} {date}",
+      's4.dynamic.housekeeping_roster_board.duty_deployment_title':
+          "{department} கடமை பணியமர்த்தல்",
+      's4.dynamic.housekeeping_roster_board.duty_request_reviewed':
+          "கடமை கோரிக்கை {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_review_state':
+          "மதிப்பாய்வு {review}",
+      's4.dynamic.housekeeping_roster_board.forecast_reviewed':
+          "முன்னறிவிப்பு {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_source_count':
+          "{count} மூலங்கள்",
+      's4.dynamic.housekeeping_roster_board.forecast_state':
+          "முன்னறிவிப்பு {state}",
+      's4.dynamic.housekeeping_roster_board.forecast_today_buffer':
+          "இன்று {risk} - பஃபர் {buffer}",
+      's4.dynamic.housekeeping_roster_board.open_cell_count':
+          "{count} திறந்த செல்கள்",
+      's4.dynamic.housekeeping_roster_board.no_active_roster_targets':
+          "செயலில் உள்ள {department} பட்டியல் இலக்குகள் அமைக்கப்படவில்லை",
+      's4.dynamic.housekeeping_roster_board.previous_rosters_missing':
+          "{count} ஷிப்ட்களுக்கு முந்தைய பட்டியல் இல்லை.",
+      's4.dynamic.housekeeping_roster_board.published_roster_count':
+          "{count} வாராந்திர ஷிப்ட் பட்டியல்கள் வெளியிடப்பட்டன",
+      's4.dynamic.housekeeping_roster_board.risk_buffer':
+          "{risk} அபாயம் - பஃபர் {buffer}",
+      's4.dynamic.housekeeping_roster_board.risk_label': "{risk} அபாயம்",
+      's4.dynamic.housekeeping_roster_board.risk_score': "{risk} {score}",
+      's4.dynamic.housekeeping_roster_board.shift_assigned_summary':
+          "{window} - {count} ஒதுக்கப்பட்டது",
+      's4.dynamic.housekeeping_roster_board.shift_count': "{count} ஷிப்ட்கள்",
+      's4.dynamic.housekeeping_roster_board.source_state': "{source}: {state}",
+      's4.dynamic.housekeeping_roster_board.staff_count': "{count} பணியாளர்",
+      's4.dynamic.housekeeping_roster_board.state_review': "{state} - {review}",
+      's4.dynamic.housekeeping_roster_board.viewing_date':
+          "{date} பார்க்கப்படுகிறது",
+      's4.dynamic.housekeeping_roster_board.viewing_only_note':
+          "பார்வைக்கு மட்டும்: {note}",
+      's4.dynamic.housekeeping_task.sla_label': "SLA {date}",
+      's4.dynamic.housekeeping_task.title': "{category} - {location}",
       's4.dynamic.leave_approvals.decision_title': "{decision} விடுப்பு",
       // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
       's4.dynamic.leave_approvals.date_range_days':
@@ -17224,8 +17736,104 @@ class AppStrings {
           "జాబితాను ప్రచురించండి",
       's4.lib.housekeeping_roster_board.save_draft':
           "చిత్తుప్రతిని సేవ్ చేయండి",
+      's4.lib.housekeeping_roster_board.weekly_draft_saved':
+          "వారపు డ్రాఫ్ట్ సేవ్ అయింది",
       's4.lib.housekeeping_roster_board.unassigned': "కేటాయించబడలేదు",
       's4.lib.housekeeping_roster_board.ward_unit': "వార్డు / యూనిట్",
+      // REVIEW: AI first-pass S4 housekeeping i18n sweep - confirm wording before production.
+      's4.lib.housekeeping_command.active_assignments': "సక్రియ అసైన్‌మెంట్‌లు",
+      's4.lib.housekeeping_command.building_not_set': "భవనం సెట్ చేయలేదు",
+      's4.lib.housekeeping_command.current_shift': "ప్రస్తుత",
+      's4.lib.housekeeping_command.no_active_floor_assignments_yet':
+          "ఇంకా సక్రియ ఫ్లోర్ అసైన్‌మెంట్‌లు లేవు",
+      's4.lib.housekeeping_command.no_id': "ఐడి లేదు",
+      's4.lib.housekeeping_command.this_staff_member': "ఈ సిబ్బంది సభ్యుడు",
+      's4.lib.housekeeping_command.zone_workload': "జోన్ పనిభారం",
+      's4.lib.housekeeping_roster_board.accepted': "అంగీకరించబడింది",
+      's4.lib.housekeeping_roster_board.add': "జోడించు",
+      's4.lib.housekeeping_roster_board.add_more': "మరింత జోడించు",
+      's4.lib.housekeeping_roster_board.already_added_to_floor':
+          "ఈ ఫ్లోర్‌కు ఇప్పటికే జోడించబడింది",
+      's4.lib.housekeeping_roster_board.already_assigned_elsewhere':
+          "ఈ తేదీన ఇప్పటికే మరెక్కడో కేటాయించబడింది",
+      's4.lib.housekeeping_roster_board.another_floor': "మరో ఫ్లోర్",
+      's4.lib.housekeeping_roster_board.any_post': "ఏదైనా పోస్ట్",
+      's4.lib.housekeeping_roster_board.any_shift': "ఏదైనా షిఫ్ట్",
+      's4.lib.housekeeping_roster_board.approved_leave': "ఆమోదిత సెలవు",
+      's4.lib.housekeeping_roster_board.approved_leave_on_date':
+          "ఈ తేదీన ఆమోదిత సెలవు",
+      's4.lib.housekeeping_roster_board.copied_day_to_week':
+          "ఎంచుకున్న రోజు వారమంతా కాపీ చేయబడింది",
+      's4.lib.housekeeping_roster_board.copy_permission_required':
+          "రోస్టర్‌లను కాపీ చేయడానికి విభాగ ఇన్‌చార్జ్ లేదా Admin పాత్ర అవసరం.",
+      's4.lib.housekeeping_roster_board.custom_shift_added':
+          "కస్టమ్ షిఫ్ట్ జోడించబడింది",
+      's4.lib.housekeeping_roster_board.custom_shift_permission_required':
+          "కస్టమ్ షిఫ్ట్‌లకు విభాగ ఇన్‌చార్జ్ లేదా Admin పాత్ర అవసరం.",
+      's4.lib.housekeeping_roster_board.day.fri': "శుక్ర",
+      's4.lib.housekeeping_roster_board.day.mon': "సోమ",
+      's4.lib.housekeeping_roster_board.day.sat': "శని",
+      's4.lib.housekeeping_roster_board.day.sun': "ఆది",
+      's4.lib.housekeeping_roster_board.day.thu': "గురు",
+      's4.lib.housekeeping_roster_board.day.tue': "మంగళ",
+      's4.lib.housekeeping_roster_board.day.wed': "బుధ",
+      's4.lib.housekeeping_roster_board.discarded': "విస్మరించబడింది",
+      's4.lib.housekeeping_roster_board.edit_permission_required':
+          "రోస్టర్ సవరణకు విభాగ ఇన్‌చార్జ్ లేదా Admin పాత్ర అవసరం.",
+      's4.lib.housekeeping_roster_board.forecast_empty_narrative':
+          "సిబ్బంది ప్రమాద సంకేతాలను చూడటానికి 12 వారాల అంచనాను రూపొందించండి.",
+      's4.lib.housekeeping_roster_board.forecast_generate_permission_required':
+          "అంచనాను రూపొందించడానికి HR లేదా విభాగ ఇన్‌చార్జ్ యాక్సెస్ అవసరం.",
+      's4.lib.housekeeping_roster_board.forecast_generated':
+          "HR సమీక్ష కోసం 12 వారాల సలహా అంచనా రూపొందించబడింది",
+      's4.lib.housekeeping_roster_board.forecast_review_permission_required':
+          "అంచనా సమీక్షకు HR లేదా విభాగ ఇన్‌చార్జ్ యాక్సెస్ అవసరం.",
+      's4.lib.housekeeping_roster_board.forecast_state.ai': "AI",
+      's4.lib.housekeeping_roster_board.forecast_state.not_generated':
+          "రూపొందించబడలేదు",
+      's4.lib.housekeeping_roster_board.forecast_state.schema_unavailable':
+          "స్కీమా అందుబాటులో లేదు",
+      's4.lib.housekeeping_roster_board.generate_forecast_first':
+          "ముందుగా అంచనాను రూపొందించండి.",
+      's4.lib.housekeeping_roster_board.leave_fallback': "సెలవు",
+      's4.lib.housekeeping_roster_board.no_active_shifts_configured':
+          "సక్రియ షిఫ్ట్‌లు కాన్ఫిగర్ చేయబడలేదు",
+      's4.lib.housekeeping_roster_board.no_active_staff_found':
+          "ఈ విభాగానికి సక్రియ సిబ్బంది కనుగొనబడలేదు",
+      's4.lib.housekeeping_roster_board.no_alternate_approved':
+          "ప్రత్యామ్నాయ కవర్ ఆమోదించబడలేదు",
+      's4.lib.housekeeping_roster_board.no_assigned_shifts_to_publish':
+          "వారపు డ్రాఫ్ట్ సేవ్ అయింది; ప్రచురించడానికి కేటాయించిన షిఫ్ట్‌లు లేవు.",
+      's4.lib.housekeeping_roster_board.no_previous_roster_found':
+          "ఈ షిఫ్ట్‌లకు మునుపటి రోస్టర్ కనుగొనబడలేదు.",
+      's4.lib.housekeeping_roster_board.no_roster_shifts_configured':
+          "రోస్టర్ షిఫ్ట్‌లు కాన్ఫిగర్ చేయబడలేదు.",
+      's4.lib.housekeeping_roster_board.publish_permission_required':
+          "ప్రచురించడానికి విభాగ ఇన్‌చార్జ్ లేదా Admin పాత్ర అవసరం.",
+      's4.lib.housekeeping_roster_board.review_permission_required':
+          "డ్యూటీ అభ్యర్థన సమీక్షకు HR లేదా విభాగ ఇన్‌చార్జ్ యాక్సెస్ అవసరం.",
+      's4.lib.housekeeping_roster_board.select_shift_before_floor':
+          "ఫ్లోర్ ఎంచుకునే ముందు షిఫ్ట్ ఎంచుకోండి.",
+      's4.lib.housekeeping_roster_board.shift_name_required':
+          "షిఫ్ట్ పేరు అవసరం",
+      's4.lib.housekeeping_roster_board.staff_fallback': "సిబ్బంది",
+      's4.lib.housekeeping_roster_board.staff_on_leave':
+          "సెలవులో ఉన్న సిబ్బంది",
+      's4.lib.housekeeping_roster_board.status.draft': "డ్రాఫ్ట్",
+      's4.lib.housekeeping_roster_board.status.published': "ప్రచురించబడింది",
+      's4.lib.housekeeping_roster_board.tab.by_staff': "సిబ్బంది వారీగా",
+      's4.lib.housekeeping_roster_board.tab.by_ward': "వార్డ్ వారీగా",
+      's4.lib.housekeeping_roster_board.time_format_hhmm': "HH:MM ఉపయోగించండి",
+      's4.lib.housekeeping_roster_board.unknown': "తెలియదు",
+      's4.lib.housekeeping_roster_board.viewing_only_roster_edits':
+          "కేవలం వీక్షణ: రోస్టర్ సవరణకు విభాగ ఇన్‌చార్జ్ లేదా Admin పాత్ర అవసరం.",
+      's4.lib.housekeeping_task.status.assigned': "కేటాయించబడింది",
+      's4.lib.housekeeping_task.status.closed': "మూసివేయబడింది",
+      's4.lib.housekeeping_task.status.completed': "పూర్తయింది",
+      's4.lib.housekeeping_task.status.in_progress': "ప్రగతిలో ఉంది",
+      's4.lib.housekeeping_task.status.open': "తెరచి ఉంది",
+      's4.lib.housekeeping_task.status.verified': "ధృవీకరించబడింది",
+      's4.lib.housekeeping_task.unspecified': "నిర్దిష్టం కాదు",
       's4.lib.hr_dashboard.no_staff_records_loaded_yet':
           "సిబ్బంది రికార్డులు ఇంకా లోడ్ కాలేదు.",
       's4.lib.hr_dashboard.open_onboarding': "ఆన్‌బోర్డింగ్‌ని తెరవండి",
@@ -18081,6 +18689,80 @@ class AppStrings {
       's4.dynamic.note_draft_status.days_ago': "{count}రో క్రితం",
       's4.dynamic.housekeeping.week_label': "వారం {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} షిఫ్ట్ పేరు",
+      // REVIEW: AI first-pass S4 housekeeping dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.housekeeping.building_floor_label':
+          "{building} - ఫ్లోర్ {floor}",
+      's4.dynamic.housekeeping.floor_label': "ఫ్లోర్ {floor}",
+      's4.dynamic.housekeeping.high_count': "{count} అధిక",
+      's4.dynamic.housekeeping.open_count': "{count} తెరిచి ఉన్నాయి",
+      's4.dynamic.housekeeping.shift_label': "షిఫ్ట్ {shift}",
+      's4.dynamic.housekeeping.staff_employee_id': "{name} - {employeeId}",
+      's4.dynamic.housekeeping.urgent_count': "{count} అత్యవసరం",
+      's4.dynamic.housekeeping.week_range': "{start} నుండి {end}",
+      's4.dynamic.housekeeping.zone_floor_label': "{name} - ఫ్లోర్ {floor}",
+      's4.dynamic.housekeeping.zone_with_type': "{name} ({type})",
+      's4.dynamic.housekeeping_command.end_assignment_body':
+          "{staff} ఈ ఫ్లోర్‌కు అభ్యర్థనలు స్వీకరించడం ఆపుతారు.",
+      's4.dynamic.housekeeping_roster_board.active_count': "{count} సక్రియం",
+      's4.dynamic.housekeeping_roster_board.already_assigned_on_date':
+          "{staff} ఈ తేదీన ఇప్పటికే {target}కు కేటాయించబడ్డారు.",
+      's4.dynamic.housekeeping_roster_board.approved_leave':
+          "{staff} {start} నుండి {end} వరకు ఆమోదిత {leaveType} సెలవులో ఉన్నారు.",
+      's4.dynamic.housekeeping_roster_board.approved_leave_with_cover':
+          "{staff} {start} నుండి {end} వరకు ఆమోదిత {leaveType} సెలవులో ఉన్నారు. ప్రత్యామ్నాయ కవర్: {replacement}.",
+      's4.dynamic.housekeeping_roster_board.area_count': "{count} ప్రాంతాలు",
+      's4.dynamic.housekeeping_roster_board.assignment_count':
+          "{count} అసైన్‌మెంట్‌లు",
+      's4.dynamic.housekeeping_roster_board.cannot_assign_on_date':
+          "{date}న కేటాయించలేరు: {message}",
+      's4.dynamic.housekeeping_roster_board.clear_assignment_before_saving':
+          "{message} సేవ్ చేయడానికి ముందు {date}న {shift} అసైన్‌మెంట్‌ను తొలగించండి.",
+      's4.dynamic.housekeeping_roster_board.copied_day_skipped_leave':
+          "ఎంచుకున్న రోజు కాపీ అయింది; {count} ఆమోదిత సెలవు అసైన్‌మెంట్‌లు దాటవేయబడ్డాయి.",
+      's4.dynamic.housekeeping_roster_board.copied_previous_rosters':
+          "{count} మునుపటి షిఫ్ట్ రోస్టర్లు కాపీ చేయబడ్డాయి",
+      's4.dynamic.housekeeping_roster_board.custom_shift_default_name':
+          "కస్టమ్ {hour}",
+      's4.dynamic.housekeeping_roster_board.day_assignment_summary':
+          "{assigned} కేటాయించబడింది - {open} తెరిచి ఉన్నాయి",
+      's4.dynamic.housekeeping_roster_board.day_label': "{day} {date}",
+      's4.dynamic.housekeeping_roster_board.duty_deployment_title':
+          "{department} డ్యూటీ నియామకం",
+      's4.dynamic.housekeeping_roster_board.duty_request_reviewed':
+          "డ్యూటీ అభ్యర్థన {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_review_state':
+          "సమీక్ష {review}",
+      's4.dynamic.housekeeping_roster_board.forecast_reviewed':
+          "అంచనా {decision}",
+      's4.dynamic.housekeeping_roster_board.forecast_source_count':
+          "{count} మూలాలు",
+      's4.dynamic.housekeeping_roster_board.forecast_state': "అంచనా {state}",
+      's4.dynamic.housekeeping_roster_board.forecast_today_buffer':
+          "ఈ రోజు {risk} - బఫర్ {buffer}",
+      's4.dynamic.housekeeping_roster_board.open_cell_count':
+          "{count} తెరిచి ఉన్న సెల్లు",
+      's4.dynamic.housekeeping_roster_board.no_active_roster_targets':
+          "సక్రియ {department} రోస్టర్ లక్ష్యాలు కాన్ఫిగర్ చేయబడలేదు",
+      's4.dynamic.housekeeping_roster_board.previous_rosters_missing':
+          "{count} షిఫ్ట్‌లకు మునుపటి రోస్టర్ లేదు.",
+      's4.dynamic.housekeeping_roster_board.published_roster_count':
+          "{count} వారపు షిఫ్ట్ రోస్టర్లు ప్రచురించబడ్డాయి",
+      's4.dynamic.housekeeping_roster_board.risk_buffer':
+          "{risk} ప్రమాదం - బఫర్ {buffer}",
+      's4.dynamic.housekeeping_roster_board.risk_label': "{risk} ప్రమాదం",
+      's4.dynamic.housekeeping_roster_board.risk_score': "{risk} {score}",
+      's4.dynamic.housekeeping_roster_board.shift_assigned_summary':
+          "{window} - {count} కేటాయించబడింది",
+      's4.dynamic.housekeeping_roster_board.shift_count': "{count} షిఫ్ట్‌లు",
+      's4.dynamic.housekeeping_roster_board.source_state': "{source}: {state}",
+      's4.dynamic.housekeeping_roster_board.staff_count': "{count} సిబ్బంది",
+      's4.dynamic.housekeeping_roster_board.state_review': "{state} - {review}",
+      's4.dynamic.housekeeping_roster_board.viewing_date':
+          "{date} చూస్తున్నారు",
+      's4.dynamic.housekeeping_roster_board.viewing_only_note':
+          "కేవలం వీక్షణ: {note}",
+      's4.dynamic.housekeeping_task.sla_label': "SLA {date}",
+      's4.dynamic.housekeeping_task.title': "{category} - {location}",
       's4.dynamic.leave_approvals.decision_title': "{decision} సెలవు",
       // REVIEW: AI first-pass S4 HR i18n sweep - confirm wording before production.
       's4.dynamic.leave_approvals.date_range_days':
