@@ -38,6 +38,8 @@ class VoiceDictateButton extends StatefulWidget {
   final int? admissionId;
   final String? tooltip;
   final VoiceDictateButtonController? dictateController;
+  final Future<bool> Function(BuildContext context, String transcript)?
+  onTranscript;
   const VoiceDictateButton({
     super.key,
     required this.controller,
@@ -45,6 +47,7 @@ class VoiceDictateButton extends StatefulWidget {
     this.admissionId,
     this.tooltip,
     this.dictateController,
+    this.onTranscript,
   });
 
   @override
@@ -195,12 +198,21 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _appendTranscript(transcript);
+      final inserted = widget.onTranscript == null
+          ? _appendTranscript(transcript)
+          : await widget.onTranscript!(context, transcript);
+      if (!mounted) return;
       Telemetry.event('voice_dictation.completed', {
         'has_patient': widget.patientUid != null ? 'true' : 'false',
+        'inserted': inserted ? 'true' : 'false',
         'transcript_chars': transcript.length.toString(),
       });
-      SuccessToast.show(context, AppStrings.of(context).voiceDictateAddedToast);
+      if (inserted) {
+        SuccessToast.show(
+          context,
+          AppStrings.of(context).voiceDictateAddedToast,
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -297,7 +309,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     if (mounted) setState(() => _busy = false);
   }
 
-  void _appendTranscript(String transcript) {
+  bool _appendTranscript(String transcript) {
     final ctrl = widget.controller;
     final existing = ctrl.text;
     final glue = existing.isEmpty || existing.endsWith('\n') ? '' : ' ';
@@ -305,6 +317,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     ctrl.selection = TextSelection.fromPosition(
       TextPosition(offset: ctrl.text.length),
     );
+    return transcript.trim().isNotEmpty;
   }
 
   @override

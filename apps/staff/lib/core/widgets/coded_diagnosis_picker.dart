@@ -14,6 +14,7 @@ class CodedDiagnosisPicker extends StatefulWidget {
   final Map<String, dynamic>? selectedCoding;
   final ValueChanged<Map<String, dynamic>?> onCodingChanged;
   final Widget? suffixAction;
+  final FocusNode? focusNode;
 
   const CodedDiagnosisPicker({
     super.key,
@@ -25,6 +26,7 @@ class CodedDiagnosisPicker extends StatefulWidget {
     this.minLines = 2,
     this.selectedCoding,
     this.suffixAction,
+    this.focusNode,
   });
 
   @override
@@ -32,23 +34,36 @@ class CodedDiagnosisPicker extends StatefulWidget {
 }
 
 class _CodedDiagnosisPickerState extends State<CodedDiagnosisPicker> {
-  final _focusNode = FocusNode();
+  late final FocusNode _ownedFocusNode;
   Timer? _debounce;
   bool _loading = false;
   List<Map<String, dynamic>> _suggestions = const [];
 
+  FocusNode get _focusNode => widget.focusNode ?? _ownedFocusNode;
+
   @override
   void initState() {
     super.initState();
+    _ownedFocusNode = FocusNode();
     widget.controller.addListener(_queueSearch);
     _focusNode.addListener(_queueSearch);
+  }
+
+  @override
+  void didUpdateWidget(covariant CodedDiagnosisPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      (oldWidget.focusNode ?? _ownedFocusNode).removeListener(_queueSearch);
+      _focusNode.addListener(_queueSearch);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_queueSearch);
     _debounce?.cancel();
-    _focusNode.dispose();
+    _focusNode.removeListener(_queueSearch);
+    _ownedFocusNode.dispose();
     super.dispose();
   }
 

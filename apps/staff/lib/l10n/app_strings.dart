@@ -815,6 +815,8 @@ class AppStrings {
       _t('voice_dictate.recording_started');
   String get voiceDictateRecordingStopped =>
       _t('voice_dictate.recording_stopped');
+  String get voiceDictateReviewInsert => _t('voice_dictate.review_insert');
+  String get voiceDictateReviewTitle => _t('voice_dictate.review_title');
 
   // ── Doctor queue screen ────────────────────────────────────────────
   String get queueTitle => _t('queue.title');
@@ -3771,6 +3773,8 @@ class AppStrings {
       'voice_dictate.added_toast': 'Dictation added to notes',
       'voice_dictate.recording_started': 'Recording started',
       'voice_dictate.recording_stopped': 'Recording stopped, transcribing',
+      'voice_dictate.review_insert': 'Insert',
+      'voice_dictate.review_title': 'Review dictation',
       'voice_dictate.mic_denied':
           'Microphone permission denied. Enable it in your OS / app settings.',
       // Bed Board (additions)
@@ -8803,6 +8807,8 @@ class AppStrings {
       'voice_dictate.recording_started': 'रिकॉर्डिंग शुरू',
       'voice_dictate.recording_stopped':
           'रिकॉर्डिंग रुकी, ट्रांसक्राइब हो रहा है',
+      'voice_dictate.review_insert': 'जोड़ें',
+      'voice_dictate.review_title': 'डिक्टेशन की समीक्षा करें',
       'voice_dictate.mic_denied':
           'माइक्रोफ़ोन की अनुमति नहीं है। OS / ऐप सेटिंग्स में अनुमति दें।',
       // Bed Board (additions)
@@ -13882,6 +13888,8 @@ class AppStrings {
       'voice_dictate.recording_started': 'பதிவு தொடங்கியது',
       // REVIEW:
       'voice_dictate.recording_stopped': 'பதிவு நின்றது, உரையாக்குகிறது',
+      'voice_dictate.review_insert': 'சேர்',
+      'voice_dictate.review_title': 'டிக்டேஷனைச் சரிபார்',
       'voice_dictate.mic_denied':
           'மைக்ரோஃபோன் அனுமதி மறுக்கப்பட்டது. OS / பயன்பாட்டு அமைப்புகளில் இயக்கவும்.',
       // Bed Board (additions) - REVIEW
@@ -19585,6 +19593,8 @@ class AppStrings {
       // REVIEW:
       'voice_dictate.recording_stopped':
           'రికార్డింగ్ ఆగింది, ట్రాన్స్‌క్రైబ్ అవుతోంది',
+      'voice_dictate.review_insert': 'చేర్చండి',
+      'voice_dictate.review_title': 'డిక్టేషన్‌ను సమీక్షించండి',
       'voice_dictate.mic_denied':
           'మైక్రోఫోన్ అనుమతి తిరస్కరించబడింది. OS / యాప్ సెట్టింగ్‌లలో ప్రారంభించండి.',
       // Bed Board (additions) - REVIEW

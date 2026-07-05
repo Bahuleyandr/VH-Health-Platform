@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/dictation/dictation_section_router.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/coded_diagnosis_picker.dart';
+import '../../../core/widgets/dictation_review_sheet.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -69,6 +71,11 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
   final _examCtrl = TextEditingController();
   final _diagnosisCtrl = TextEditingController();
   final _planCtrl = TextEditingController();
+  final _chiefFocus = FocusNode();
+  final _historyFocus = FocusNode();
+  final _examFocus = FocusNode();
+  final _diagnosisFocus = FocusNode();
+  final _planFocus = FocusNode();
 
   // Autosave the in-progress consultation note to the server-side draft
   // scratchpad (no canonical timeline/audit events). Finalize (Save/Sign)
@@ -144,6 +151,11 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     _examCtrl.dispose();
     _diagnosisCtrl.dispose();
     _planCtrl.dispose();
+    _chiefFocus.dispose();
+    _historyFocus.dispose();
+    _examFocus.dispose();
+    _diagnosisFocus.dispose();
+    _planFocus.dispose();
     super.dispose();
   }
 
@@ -667,6 +679,107 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     return parts.join('\n\n');
   }
 
+  DictationSection _opDictationFallback(DictationSection invokedSection) {
+    if (_chiefFocus.hasFocus) return DictationSection.chiefComplaint;
+    if (_historyFocus.hasFocus) return DictationSection.history;
+    if (_examFocus.hasFocus) return DictationSection.examination;
+    if (_diagnosisFocus.hasFocus) return DictationSection.diagnosis;
+    if (_planFocus.hasFocus) return DictationSection.plan;
+    return invokedSection;
+  }
+
+  Future<bool> _reviewOpDictation(
+    BuildContext sheetContext,
+    String transcript,
+    DictationSection invokedSection,
+  ) {
+    final route = const DictationSectionRouter().route(
+      transcript,
+      fallbackSection: _opDictationFallback(invokedSection),
+    );
+    return showDictationReviewSheet(
+      context: sheetContext,
+      destinations: _opDictationDestinations(route.sections),
+    );
+  }
+
+  List<DictationReviewDestination> _opDictationDestinations(
+    Map<DictationSection, String> sections,
+  ) {
+    final labels = <String, String>{};
+    final controllers = <String, TextEditingController>{};
+    final routed = <String, String>{};
+
+    void add({
+      required String id,
+      required String label,
+      required TextEditingController controller,
+      required String text,
+    }) {
+      if (text.trim().isEmpty) return;
+      labels[id] = label;
+      controllers[id] = controller;
+      routed[id] = routed[id] == null ? text : '${routed[id]}\n$text';
+    }
+
+    for (final entry in sections.entries) {
+      switch (entry.key) {
+        case DictationSection.chiefComplaint:
+          add(
+            id: 'chief_complaint',
+            label: _label('s4.lib.op_doctor_workspace.chief_complaint'),
+            controller: _chiefCtrl,
+            text: entry.value,
+          );
+          break;
+        case DictationSection.history:
+          add(
+            id: 'history',
+            label: _label('s4.lib.op_doctor_workspace.history'),
+            controller: _historyCtrl,
+            text: entry.value,
+          );
+          break;
+        case DictationSection.examination:
+          add(
+            id: 'examination',
+            label: _label('s4.lib.op_doctor_workspace.examination'),
+            controller: _examCtrl,
+            text: entry.value,
+          );
+          break;
+        case DictationSection.diagnosis:
+          add(
+            id: 'diagnosis',
+            label: _label('s4.lib.op_doctor_workspace.diagnosis'),
+            controller: _diagnosisCtrl,
+            text: entry.value,
+          );
+          break;
+        case DictationSection.plan:
+        case DictationSection.advice:
+          add(
+            id: 'plan',
+            label: _label('s4.lib.op_doctor_workspace.plan'),
+            controller: _planCtrl,
+            text: entry.value,
+          );
+          break;
+      }
+    }
+
+    return routed.entries
+        .map(
+          (entry) => DictationReviewDestination(
+            id: entry.key,
+            label: labels[entry.key]!,
+            controller: controllers[entry.key]!,
+            text: entry.value,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<void> _openInvestigationsAfterNote() async {
     await context.push(_investigationsRoute);
     if (mounted) _loadTimeline();
@@ -885,33 +998,49 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
             const SizedBox(height: 14),
             _ClinicalTextField(
               controller: _chiefCtrl,
+              focusNode: _chiefFocus,
               label: _label('s4.lib.op_doctor_workspace.chief_complaint'),
               hint: _label('s4.lib.op_doctor_workspace.main_complaint_hint'),
               minLines: 2,
               enabled: noteFieldsEnabled,
               patientUid: widget.patientUid,
+              onTranscript: (ctx, transcript) => _reviewOpDictation(
+                ctx,
+                transcript,
+                DictationSection.chiefComplaint,
+              ),
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
               controller: _historyCtrl,
+              focusNode: _historyFocus,
               label: _label('s4.lib.op_doctor_workspace.history'),
               hint: _label('s4.lib.op_doctor_workspace.history_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
               patientUid: widget.patientUid,
+              onTranscript: (ctx, transcript) =>
+                  _reviewOpDictation(ctx, transcript, DictationSection.history),
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
               controller: _examCtrl,
+              focusNode: _examFocus,
               label: _label('s4.lib.op_doctor_workspace.examination'),
               hint: _label('s4.lib.op_doctor_workspace.examination_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
               patientUid: widget.patientUid,
+              onTranscript: (ctx, transcript) => _reviewOpDictation(
+                ctx,
+                transcript,
+                DictationSection.examination,
+              ),
             ),
             const SizedBox(height: 10),
             CodedDiagnosisPicker(
               controller: _diagnosisCtrl,
+              focusNode: _diagnosisFocus,
               label: _label('s4.lib.op_doctor_workspace.diagnosis'),
               hint: _label('s4.lib.op_doctor_workspace.diagnosis_hint'),
               enabled: noteFieldsEnabled,
@@ -925,17 +1054,25 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                   ? VoiceDictateButton(
                       controller: _diagnosisCtrl,
                       patientUid: widget.patientUid,
+                      onTranscript: (ctx, transcript) => _reviewOpDictation(
+                        ctx,
+                        transcript,
+                        DictationSection.diagnosis,
+                      ),
                     )
                   : null,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
               controller: _planCtrl,
+              focusNode: _planFocus,
               label: _label('s4.lib.op_doctor_workspace.plan'),
               hint: _label('s4.lib.op_doctor_workspace.plan_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
               patientUid: widget.patientUid,
+              onTranscript: (ctx, transcript) =>
+                  _reviewOpDictation(ctx, transcript, DictationSection.plan),
             ),
             const SizedBox(height: 14),
             if (noteFieldsEnabled) ...[
@@ -1528,25 +1665,31 @@ class _SectionTitle extends StatelessWidget {
 
 class _ClinicalTextField extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode? focusNode;
   final String label;
   final String hint;
   final int minLines;
   final bool enabled;
   final String? patientUid;
+  final Future<bool> Function(BuildContext context, String transcript)?
+  onTranscript;
 
   const _ClinicalTextField({
     required this.controller,
+    this.focusNode,
     required this.label,
     required this.hint,
     this.minLines = 2,
     this.enabled = true,
     this.patientUid,
+    this.onTranscript,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       minLines: minLines,
       maxLines: minLines + 4,
       enabled: enabled,
@@ -1561,7 +1704,11 @@ class _ClinicalTextField extends StatelessWidget {
             : AppTheme.divider.withValues(alpha: 0.45),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         suffixIcon: enabled
-            ? VoiceDictateButton(controller: controller, patientUid: patientUid)
+            ? VoiceDictateButton(
+                controller: controller,
+                patientUid: patientUid,
+                onTranscript: onTranscript,
+              )
             : null,
       ),
     );

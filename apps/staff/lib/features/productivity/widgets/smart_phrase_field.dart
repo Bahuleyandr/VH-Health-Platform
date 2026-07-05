@@ -25,6 +25,7 @@ class SmartPhraseField extends StatefulWidget {
     super.key,
     required this.controller,
     this.decoration,
+    this.focusNode,
     this.minLines = 3,
     this.maxLines = 12,
     this.tokenResolver,
@@ -33,6 +34,7 @@ class SmartPhraseField extends StatefulWidget {
   /// External controller — caller owns disposal.
   final TextEditingController controller;
   final InputDecoration? decoration;
+  final FocusNode? focusNode;
   final int minLines;
   final int? maxLines;
 
@@ -141,6 +143,7 @@ class _SmartPhraseFieldState extends State<SmartPhraseField> {
       children: [
         TextField(
           controller: widget.controller,
+          focusNode: widget.focusNode,
           minLines: widget.minLines,
           maxLines: widget.maxLines,
           decoration: (widget.decoration ?? const InputDecoration()).copyWith(
