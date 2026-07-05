@@ -32,7 +32,7 @@ class _WardModeScreenState extends State<WardModeScreen> {
   Widget build(BuildContext context) {
     final actions = _actionsForRole(_role);
     return StaffScaffold(
-      title: 'Ward Mode',
+      title: AppStrings.of(context).lookup('role.feature.ward_mode'),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
         children: [
@@ -101,12 +101,12 @@ class _WardModeScreenState extends State<WardModeScreen> {
                     context,
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
-                Text(
+                AppText(
                   _role == StaffRole.nurse ||
                           _role == StaffRole.nursingIncharge ||
                           _role == StaffRole.nursingSuperintendent
-                      ? 'Vitals, nursing notes, medication rounds, and handover.'
-                      : 'Notes, investigations, orders, admissions, and discharge work.',
+                      ? 's4.lib.ward_mode.nursing_header'
+                      : 's4.lib.ward_mode.clinical_header',
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],
@@ -162,43 +162,43 @@ class _WardModeScreenState extends State<WardModeScreen> {
     if (isNursing) {
       return const [
         _WardAction(
-          title: 'Command Board',
-          subtitle: 'Patients, alerts, tasks',
+          titleKey: 's4.lib.ward_mode.command_board',
+          subtitleKey: 's4.lib.ward_mode.command_board_nursing_subtitle',
           icon: Icons.view_timeline_outlined,
           color: AppTheme.primaryBlue,
           route: '/patient-command-board',
         ),
         _WardAction(
-          title: 'Bed Board',
-          subtitle: 'Ward and ICU census',
+          titleKey: 's4.lib.ward_mode.bed_board',
+          subtitleKey: 's4.lib.ward_mode.bed_board_nursing_subtitle',
           icon: Icons.local_hotel,
           color: AppTheme.primaryBlue,
           route: '/beds',
         ),
         _WardAction(
-          title: 'Nursing Notes',
-          subtitle: 'IP notes',
+          titleKey: 's4.lib.ward_mode.nursing_notes',
+          subtitleKey: 's4.lib.ward_mode.nursing_notes_subtitle',
           icon: Icons.edit_note,
           color: AppTheme.primaryTeal,
           route: '/nursing-notes',
         ),
         _WardAction(
-          title: 'Due Medications',
-          subtitle: 'Medication rounds',
+          titleKey: 's4.lib.ward_mode.due_medications',
+          subtitleKey: 's4.lib.ward_mode.due_medications_subtitle',
           icon: Icons.medication,
           color: AppTheme.warningAmber,
           route: '/mar/due',
         ),
         _WardAction(
-          title: 'Shift Handover',
-          subtitle: 'General shift notes',
+          titleKey: 's4.lib.ward_mode.shift_handover',
+          subtitleKey: 's4.lib.ward_mode.shift_handover_subtitle',
           icon: Icons.swap_horiz,
           color: AppTheme.primaryTeal,
           route: '/handover',
         ),
         _WardAction(
-          title: 'IP Records',
-          subtitle: 'Current admission files',
+          titleKey: 's4.lib.ward_mode.ip_records',
+          subtitleKey: 's4.lib.ward_mode.ip_records_subtitle',
           icon: Icons.folder_shared,
           color: AppTheme.primaryBlue,
           route: '/patient-records?context=ip',
@@ -208,50 +208,50 @@ class _WardModeScreenState extends State<WardModeScreen> {
 
     return const [
       _WardAction(
-        title: 'Command Board',
-        subtitle: 'Priority, diagnosis, tasks',
+        titleKey: 's4.lib.ward_mode.command_board',
+        subtitleKey: 's4.lib.ward_mode.command_board_clinical_subtitle',
         icon: Icons.view_timeline_outlined,
         color: AppTheme.primaryBlue,
         route: '/patient-command-board',
       ),
       _WardAction(
-        title: 'Bed Board',
-        subtitle: 'Select admitted patient',
+        titleKey: 's4.lib.ward_mode.bed_board',
+        subtitleKey: 's4.lib.ward_mode.bed_board_clinical_subtitle',
         icon: Icons.local_hotel,
         color: AppTheme.primaryBlue,
         route: '/beds',
       ),
       _WardAction(
-        title: 'IP Records',
-        subtitle: 'Current admission files',
+        titleKey: 's4.lib.ward_mode.ip_records',
+        subtitleKey: 's4.lib.ward_mode.ip_records_subtitle',
         icon: Icons.folder_shared,
         color: AppTheme.primaryBlue,
         route: '/patient-records?context=ip',
       ),
       _WardAction(
-        title: 'Investigations',
-        subtitle: 'Orders and results',
+        titleKey: 's4.lib.ward_mode.investigations',
+        subtitleKey: 's4.lib.ward_mode.investigations_subtitle',
         icon: Icons.biotech,
         color: AppTheme.accentCyan,
         route: '/investigations',
       ),
       _WardAction(
-        title: 'Prescriptions',
-        subtitle: 'OP and IP medicines',
+        titleKey: 's4.lib.ward_mode.prescriptions',
+        subtitleKey: 's4.lib.ward_mode.prescriptions_subtitle',
         icon: Icons.medication_liquid,
         color: AppTheme.primaryTeal,
         route: '/prescriptions',
       ),
       _WardAction(
-        title: 'Discharge Hub',
-        subtitle: 'Pending discharge work',
+        titleKey: 's4.lib.ward_mode.discharge_hub',
+        subtitleKey: 's4.lib.ward_mode.discharge_hub_subtitle',
         icon: Icons.rule_folder,
         color: AppTheme.warningAmber,
         route: '/emr/discharge-hub',
       ),
       _WardAction(
-        title: 'Clinical AI',
-        subtitle: 'Review queued drafts',
+        titleKey: 's4.lib.ward_mode.clinical_ai',
+        subtitleKey: 's4.lib.ward_mode.clinical_ai_subtitle',
         icon: Icons.fact_check_outlined,
         color: AppTheme.accentCyan,
         route: '/clinical-ai/queue',
@@ -261,15 +261,15 @@ class _WardModeScreenState extends State<WardModeScreen> {
 }
 
 class _WardAction {
-  final String title;
-  final String subtitle;
+  final String titleKey;
+  final String subtitleKey;
   final IconData icon;
   final Color color;
   final String route;
 
   const _WardAction({
-    required this.title,
-    required this.subtitle,
+    required this.titleKey,
+    required this.subtitleKey,
     required this.icon,
     required this.color,
     required this.route,
@@ -309,8 +309,8 @@ class _WardActionTile extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  action.title,
+                AppText(
+                  action.titleKey,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -318,8 +318,8 @@ class _WardActionTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  action.subtitle,
+                AppText(
+                  action.subtitleKey,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: AppTheme.textSecondary),

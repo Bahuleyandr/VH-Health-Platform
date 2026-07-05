@@ -76,7 +76,7 @@ class _CathLabScreenState extends State<CathLabScreen>
         children: [
           _CathLabEmptyState(
             icon: Icons.event_busy,
-            title: 'No Cath Lab cases',
+            title: AppStrings.of(context).lookup('s4.lib.cath_lab.no_cases'),
             detail: _dateLabel,
           ),
           _CathLabReadiness(dateLabel: _dateLabel),
@@ -104,22 +104,26 @@ class _CathLabReadiness extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        const _ReadinessRow(
+        _ReadinessRow(
           icon: Icons.meeting_room_outlined,
-          label: 'Cath Lab room',
-          value: 'Not configured',
+          label: AppStrings.of(context).lookup('s4.lib.cath_lab.room'),
+          value: AppStrings.of(
+            context,
+          ).lookup('s4.lib.cath_lab.not_configured'),
           color: AppTheme.primaryBlue,
         ),
-        const _ReadinessRow(
+        _ReadinessRow(
           icon: Icons.medical_services_outlined,
-          label: 'Cath team',
-          value: 'Not assigned',
+          label: AppStrings.of(context).lookup('s4.lib.cath_lab.team'),
+          value: AppStrings.of(context).lookup('s4.lib.cath_lab.not_assigned'),
           color: AppTheme.warningAmber,
         ),
-        const _ReadinessRow(
+        _ReadinessRow(
           icon: Icons.monitor_heart_outlined,
-          label: 'Equipment',
-          value: 'Pending checklist',
+          label: AppStrings.of(context).lookup('s4.lib.cath_lab.equipment'),
+          value: AppStrings.of(
+            context,
+          ).lookup('s4.lib.cath_lab.pending_checklist'),
           color: AppTheme.warningAmber,
         ),
       ],
