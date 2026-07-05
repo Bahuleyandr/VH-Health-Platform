@@ -206,7 +206,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             if (testsCtrl.text.trim().isEmpty && pickedSlip?.path == null) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 const SnackBar(
-                  content: Text('Enter test names or attach a prescription'),
+                  content: AppText(
+                    's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription',
+                  ),
                   backgroundColor: AppTheme.errorRed,
                 ),
               );
@@ -257,8 +259,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     Row(
                       children: [
                         const Expanded(
-                          child: Text(
-                            'New Lab Booking',
+                          child: AppText(
+                            's4.lib.lab_bookings.new_lab_booking',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -278,9 +280,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     TextFormField(
                       controller: phoneCtrl,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Patient phone',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('reception_counter.patient.phone'),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.phone_outlined),
                         ),
                       ),
@@ -291,10 +295,14 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: patientNameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Patient name',
-                        helperText: 'Used if this phone is not registered yet',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('reception_counter.patient.name'),
+                        helperText: AppStrings.of(context).lookup(
+                          's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet',
+                        ),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.person_outline),
                         ),
                       ),
@@ -302,10 +310,14 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: testsCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Tests',
-                        hintText: 'CBC, RFT, urine routine...',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.lab_bookings.tests'),
+                        hintText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.lab_bookings.cbc_rft_urine_routine'),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.science),
                         ),
                       ),
@@ -318,12 +330,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                         ButtonSegment(
                           value: 'walk_in',
                           icon: Icon(Icons.local_hospital_outlined),
-                          label: Text('Visit lab'),
+                          label: AppText('s4.lib.lab_bookings.visit_lab'),
                         ),
                         ButtonSegment(
                           value: 'home',
                           icon: Icon(Icons.home_outlined),
-                          label: Text('Home'),
+                          label: AppText('lab_bookings.home_collection'),
                         ),
                       ],
                       selected: {collectionType},
@@ -407,9 +419,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     const SizedBox(height: 12),
                     TextField(
                       controller: notesCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes (optional)',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('appt_queue.notes_optional'),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.notes_outlined),
                         ),
                       ),
@@ -488,15 +502,15 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Book and track OP/IP lab requests',
+                  child: AppText(
+                    's4.lib.lab_bookings.book_and_track_op_ip_lab_requests',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppTheme.textSecondary,
                     ),
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: AppStrings.of(context).lookup('action.refresh'),
                   onPressed: _fetchBookings,
                   icon: const Icon(Icons.refresh),
                 ),
@@ -504,7 +518,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 ElevatedButton.icon(
                   onPressed: _showCreateBookingDialog,
                   icon: const Icon(Icons.add, color: Colors.white),
-                  label: const Text('New'),
+                  label: const AppText('lab_bookings.tab.new'),
                   // The app theme gives ElevatedButton a full-width
                   // (double.infinity) minimumSize — right for buttons stacked
                   // in a Column, but it forces an infinite width inside this
@@ -693,7 +707,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 }).toList(),
               ),
             if (customTests != null && customTests.isNotEmpty)
-              Text('Tests: $customTests', style: const TextStyle(fontSize: 12)),
+              AppText(
+                's4.dynamic.lab_bookings.tests_prefix',
+                values: {'tests': customTests},
+                style: const TextStyle(fontSize: 12),
+              ),
 
             const SizedBox(height: 6),
 
@@ -1015,8 +1033,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               const SizedBox(height: 12),
               TextField(
                 controller: notesCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Notes',
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('bed_sheet.section.notes'),
                   isDense: true,
                 ),
                 maxLines: 2,
@@ -1077,8 +1097,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             const SizedBox(height: 12),
             TextField(
               controller: notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Notes',
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('bed_sheet.section.notes'),
                 isDense: true,
               ),
             ),
@@ -1212,8 +1234,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               const SizedBox(height: 12),
               TextField(
                 controller: notesCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Notes',
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('bed_sheet.section.notes'),
                   isDense: true,
                 ),
               ),
@@ -1228,7 +1252,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               onPressed: pickedFile != null
                   ? () => Navigator.of(ctx).pop(true)
                   : null,
-              child: const Text('Upload'),
+              child: const AppText('s4.lib.lab_bookings.upload'),
             ),
           ],
         ),

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class StaffPhoneMoreScreen extends StatefulWidget {
   const StaffPhoneMoreScreen({super.key});
@@ -84,7 +85,7 @@ class _StaffPhoneMoreScreenState extends State<StaffPhoneMoreScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('More')),
+      appBar: AppBar(title: const AppText('s4.lib.staff_phone_more.more')),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [

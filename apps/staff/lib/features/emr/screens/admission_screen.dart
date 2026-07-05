@@ -418,10 +418,14 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                           final doctors = snapshot.data ?? const [];
                           return DropdownButtonFormField<String>(
                             initialValue: selectedDoctorUid,
-                            decoration: const InputDecoration(
-                              labelText: 'Admitting doctor',
-                              prefixIcon: Icon(Icons.medical_services_outlined),
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              labelText: AppStrings.of(
+                                context,
+                              ).lookup('s4.lib.admission.admitting_doctor'),
+                              prefixIcon: const Icon(
+                                Icons.medical_services_outlined,
+                              ),
+                              border: const OutlineInputBorder(),
                             ),
                             items: doctors
                                 .where(
@@ -1153,7 +1157,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                       ActionChip(
                         avatar: const Icon(Icons.rule_folder, size: 18),
-                        label: const Text('Discharge Hub'),
+                        label: const AppText('bed_board.discharge_hub'),
                         onPressed: () {
                           Navigator.pop(context);
                           final id = widget.admissionId;

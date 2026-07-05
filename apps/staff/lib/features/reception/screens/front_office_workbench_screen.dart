@@ -868,7 +868,11 @@ class _FrontOfficeWorkbenchScreenState
     final queuePatient = _patientFromQueueRow(row);
     if (queuePatient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Queue row has no patient details.')),
+        const SnackBar(
+          content: AppText(
+            's4.lib.front_office_workbench.queue_row_has_no_patient_details',
+          ),
+        ),
       );
       return;
     }
@@ -895,7 +899,11 @@ class _FrontOfficeWorkbenchScreenState
     final advicePatient = frontOfficeAdmissionAdvicePatientFrom(row);
     if (advicePatient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Advice row has no patient details.')),
+        const SnackBar(
+          content: AppText(
+            's4.lib.front_office_workbench.advice_row_has_no_patient_details',
+          ),
+        ),
       );
       return;
     }
@@ -930,7 +938,7 @@ class _FrontOfficeWorkbenchScreenState
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('OPD to IPD advice'),
+        title: const AppText('s4.lib.front_office_workbench.opd_to_ipd_advice'),
         content: SizedBox(
           width: 520,
           child: Column(
@@ -954,7 +962,7 @@ class _FrontOfficeWorkbenchScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
+            child: const AppText('action.close'),
           ),
           FilledButton.icon(
             onPressed: () {
@@ -962,7 +970,9 @@ class _FrontOfficeWorkbenchScreenState
               _startAdmissionFromAdvice(row);
             },
             icon: const Icon(Icons.local_hospital_outlined),
-            label: const Text('Assign ward/bed'),
+            label: const AppText(
+              's4.lib.front_office_workbench.assign_ward_bed',
+            ),
           ),
         ],
       ),
@@ -1000,7 +1010,11 @@ class _FrontOfficeWorkbenchScreenState
     final uid = patient?['uid']?.toString();
     if (!_canBilling || patient == null || uid == null || uid.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a patient before billing.')),
+        const SnackBar(
+          content: AppText(
+            's4.lib.front_office_workbench.select_a_patient_before_billing',
+          ),
+        ),
       );
       return;
     }
@@ -1023,7 +1037,9 @@ class _FrontOfficeWorkbenchScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Draft OP invoice created'),
+          content: AppText(
+            's4.lib.front_office_workbench.draft_op_invoice_created',
+          ),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -1050,7 +1066,7 @@ class _FrontOfficeWorkbenchScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Invoice issued'),
+          content: AppText('s4.lib.billing_desk.invoice_issued'),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -1078,7 +1094,7 @@ class _FrontOfficeWorkbenchScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Payment collected'),
+          content: AppText('s4.lib.billing_desk.payment_collected'),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -1175,15 +1191,17 @@ class _FrontOfficeWorkbenchScreenState
     return showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Possible existing patient'),
+        title: const AppText(
+          's4.lib.front_office_workbench.possible_existing_patient',
+        ),
         content: SizedBox(
           width: 560,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'A similar patient already exists. Select the existing patient or create a separate new record only if this is truly different.',
+              AppText(
+                's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis',
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 12),
@@ -1205,13 +1223,15 @@ class _FrontOfficeWorkbenchScreenState
           TextButton(
             onPressed: () =>
                 Navigator.pop(dialogContext, {'_action': 'cancel'}),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton.tonalIcon(
             onPressed: () =>
                 Navigator.pop(dialogContext, {'_action': 'create'}),
             icon: const Icon(Icons.person_add_alt_1),
-            label: const Text('Create separate record'),
+            label: const AppText(
+              's4.lib.front_office_workbench.create_separate_record',
+            ),
           ),
         ],
       ),
@@ -1330,9 +1350,11 @@ class _FrontOfficeWorkbenchScreenState
                       TextField(
                         controller: nameCtrl,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Patient name',
-                          prefixIcon: Icon(Icons.badge_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.patient.name'),
+                          prefixIcon: const Icon(Icons.badge_outlined),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -1340,9 +1362,11 @@ class _FrontOfficeWorkbenchScreenState
                         controller: phoneCtrl,
                         keyboardType: TextInputType.phone,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone',
-                          prefixIcon: Icon(Icons.phone_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('profile.field.phone'),
+                          prefixIcon: const Icon(Icons.phone_outlined),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -1352,9 +1376,11 @@ class _FrontOfficeWorkbenchScreenState
                             child: TextField(
                               controller: genderCtrl,
                               textInputAction: TextInputAction.next,
-                              decoration: const InputDecoration(
-                                labelText: 'Gender',
-                                prefixIcon: Icon(Icons.wc_outlined),
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('bed_sheet.field.gender'),
+                                prefixIcon: const Icon(Icons.wc_outlined),
                               ),
                             ),
                           ),
@@ -1364,10 +1390,14 @@ class _FrontOfficeWorkbenchScreenState
                               controller: birthdayCtrl,
                               keyboardType: TextInputType.datetime,
                               textInputAction: TextInputAction.next,
-                              decoration: const InputDecoration(
-                                labelText: 'Birth date',
-                                hintText: 'YYYY-MM-DD',
-                                prefixIcon: Icon(Icons.cake_outlined),
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(context).lookup(
+                                  's4.lib.front_office_workbench.birth_date',
+                                ),
+                                hintText: AppStrings.of(context).lookup(
+                                  's4.lib.front_office_workbench.yyyy_mm_dd',
+                                ),
+                                prefixIcon: const Icon(Icons.cake_outlined),
                               ),
                             ),
                           ),
@@ -1378,9 +1408,11 @@ class _FrontOfficeWorkbenchScreenState
                         controller: addressCtrl,
                         minLines: 2,
                         maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Address',
-                          prefixIcon: Icon(Icons.home_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('profile.field.address'),
+                          prefixIcon: const Icon(Icons.home_outlined),
                         ),
                       ),
                       if (dialogError != null) ...[
@@ -1400,7 +1432,7 @@ class _FrontOfficeWorkbenchScreenState
               actions: [
                 TextButton(
                   onPressed: saving ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: const AppText('action.cancel'),
                 ),
                 FilledButton.icon(
                   onPressed: saving ? null : save,
@@ -1411,7 +1443,7 @@ class _FrontOfficeWorkbenchScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save_outlined),
-                  label: const Text('Save'),
+                  label: const AppText('action.save'),
                 ),
               ],
             );
@@ -1446,7 +1478,9 @@ class _FrontOfficeWorkbenchScreenState
     if (!_canBookOp) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Walk-in registration is not enabled for this role.'),
+          content: AppText(
+            's4.lib.front_office_workbench.walk_in_registration_is_not_enabled_for_this_rol',
+          ),
         ),
       );
       return;
@@ -1454,7 +1488,9 @@ class _FrontOfficeWorkbenchScreenState
     if (patient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Select a patient before registering a walk-in.'),
+          content: AppText(
+            's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in',
+          ),
         ),
       );
       return;
@@ -1574,7 +1610,7 @@ class _FrontOfficeWorkbenchScreenState
 
             return FocusTraversalGroup(
               child: AlertDialog(
-                title: const Text('Register Walk-in'),
+                title: const AppText('appt_queue.register_walk_in'),
                 content: SizedBox(
                   width: 620,
                   child: SingleChildScrollView(
@@ -1598,8 +1634,8 @@ class _FrontOfficeWorkbenchScreenState
                               );
                             }
                             if (snapshot.hasError) {
-                              return Text(
-                                'Could not load doctors.',
+                              return AppText(
+                                'reception_counter.doctor.could_not_load',
                                 style: TextStyle(
                                   color: AppTheme.errorOnSurface,
                                 ),
@@ -1615,7 +1651,9 @@ class _FrontOfficeWorkbenchScreenState
                               doctors: doctors,
                               selectedDoctor: selectedDoctor,
                               enabled: !saving,
-                              labelText: 'Consulting doctor',
+                              labelText: AppStrings.of(context).lookup(
+                                's4.lib.front_office_workbench.consulting_doctor',
+                              ),
                               requireNumericId: true,
                               onSelected: (doctor) {
                                 setDialogState(() {
@@ -1636,9 +1674,11 @@ class _FrontOfficeWorkbenchScreenState
                           controller: departmentCtrl,
                           textInputAction: TextInputAction.next,
                           onSubmitted: (_) => focusNextField(),
-                          decoration: const InputDecoration(
-                            labelText: 'Department / counter',
-                            prefixIcon: Icon(Icons.apartment_outlined),
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(context).lookup(
+                              's4.lib.front_office_workbench.department_counter',
+                            ),
+                            prefixIcon: const Icon(Icons.apartment_outlined),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1647,30 +1687,42 @@ class _FrontOfficeWorkbenchScreenState
                             Expanded(
                               child: DropdownButtonFormField<String>(
                                 initialValue: selectedVisitType,
-                                decoration: const InputDecoration(
-                                  labelText: 'Visit type',
-                                  prefixIcon: Icon(Icons.assignment_outlined),
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(context).lookup(
+                                    's4.lib.front_office_workbench.visit_type',
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.assignment_outlined,
+                                  ),
                                 ),
                                 items: const [
                                   DropdownMenuItem(
                                     value: 'NEW',
-                                    child: Text('New consultation'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.new_consultation',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'FOLLOW_UP',
-                                    child: Text('Follow-up'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.follow_up',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'EMERGENCY',
-                                    child: Text('Emergency'),
+                                    child: AppText('department.emergency'),
                                   ),
                                   DropdownMenuItem(
                                     value: 'LAB_ONLY',
-                                    child: Text('Lab only'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.lab_only',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'PAEDIATRIC_OPD',
-                                    child: Text('Paediatric OPD'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.paediatric_opd',
+                                    ),
                                   ),
                                 ].toList(),
                                 onChanged: saving
@@ -1693,30 +1745,44 @@ class _FrontOfficeWorkbenchScreenState
                             Expanded(
                               child: DropdownButtonFormField<String>(
                                 initialValue: patientCategory,
-                                decoration: const InputDecoration(
-                                  labelText: 'Payment category',
-                                  prefixIcon: Icon(Icons.payments_outlined),
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(context).lookup(
+                                    's4.lib.front_office_workbench.payment_category',
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.payments_outlined,
+                                  ),
                                 ),
                                 items: const [
                                   DropdownMenuItem(
                                     value: 'cash',
-                                    child: Text('Cash'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.cash',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'corporate',
-                                    child: Text('Corporate'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.corporate',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'insurance',
-                                    child: Text('Insurance'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.insurance',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'tpa',
-                                    child: Text('TPA'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.tpa',
+                                    ),
                                   ),
                                   DropdownMenuItem(
                                     value: 'scheme',
-                                    child: Text('Govt scheme'),
+                                    child: AppText(
+                                      's4.lib.front_office_workbench.govt_scheme',
+                                    ),
                                   ),
                                 ].toList(),
                                 onChanged: saving
@@ -1733,9 +1799,11 @@ class _FrontOfficeWorkbenchScreenState
                           controller: reasonCtrl,
                           textInputAction: TextInputAction.next,
                           onSubmitted: (_) => focusNextField(),
-                          decoration: const InputDecoration(
-                            labelText: 'Visit reason / chief complaint',
-                            prefixIcon: Icon(Icons.short_text),
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(context).lookup(
+                              's4.lib.front_office_workbench.visit_reason_chief_complaint',
+                            ),
+                            prefixIcon: const Icon(Icons.short_text),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1748,9 +1816,11 @@ class _FrontOfficeWorkbenchScreenState
                               handleNewline(notesCtrl, value, focusNextField),
                           minLines: 2,
                           maxLines: 3,
-                          decoration: const InputDecoration(
-                            labelText: 'Counter intake notes',
-                            prefixIcon: Icon(Icons.notes_outlined),
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(context).lookup(
+                              's4.lib.front_office_workbench.counter_intake_notes',
+                            ),
+                            prefixIcon: const Icon(Icons.notes_outlined),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1761,9 +1831,11 @@ class _FrontOfficeWorkbenchScreenState
                                 controller: allergiesCtrl,
                                 textInputAction: TextInputAction.next,
                                 onSubmitted: (_) => focusNextField(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Known allergies',
-                                  prefixIcon: Icon(
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(context).lookup(
+                                    's4.lib.front_office_workbench.known_allergies',
+                                  ),
+                                  prefixIcon: const Icon(
                                     Icons.warning_amber_outlined,
                                   ),
                                 ),
@@ -1775,9 +1847,13 @@ class _FrontOfficeWorkbenchScreenState
                                 controller: medicationsCtrl,
                                 textInputAction: TextInputAction.next,
                                 onSubmitted: (_) => focusNextField(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Current medicines',
-                                  prefixIcon: Icon(Icons.medication_outlined),
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(context).lookup(
+                                    's4.lib.front_office_workbench.current_medicines',
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.medication_outlined,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1791,9 +1867,11 @@ class _FrontOfficeWorkbenchScreenState
                                 controller: insurerCtrl,
                                 textInputAction: TextInputAction.next,
                                 onSubmitted: (_) => focusNextField(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Insurer / TPA',
-                                  prefixIcon: Icon(Icons.account_balance),
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(context).lookup(
+                                    's4.lib.front_office_workbench.insurer_tpa',
+                                  ),
+                                  prefixIcon: const Icon(Icons.account_balance),
                                 ),
                               ),
                             ),
@@ -1803,9 +1881,13 @@ class _FrontOfficeWorkbenchScreenState
                                 controller: policyCtrl,
                                 textInputAction: TextInputAction.next,
                                 onSubmitted: (_) => focusNextField(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Policy number',
-                                  prefixIcon: Icon(Icons.confirmation_number),
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(context).lookup(
+                                    's4.lib.front_office_workbench.policy_number',
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.confirmation_number,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1824,9 +1906,13 @@ class _FrontOfficeWorkbenchScreenState
                               register();
                             }
                           },
-                          decoration: const InputDecoration(
-                            labelText: 'Scheme name',
-                            prefixIcon: Icon(Icons.health_and_safety_outlined),
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(context).lookup(
+                              's4.lib.front_office_workbench.scheme_name',
+                            ),
+                            prefixIcon: const Icon(
+                              Icons.health_and_safety_outlined,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -1838,7 +1924,9 @@ class _FrontOfficeWorkbenchScreenState
                                     setDialogState(() => mlc = value ?? false),
                           contentPadding: EdgeInsets.zero,
                           controlAffinity: ListTileControlAffinity.leading,
-                          title: const Text('Medico-legal case'),
+                          title: const AppText(
+                            's4.lib.front_office_workbench.medico_legal_case',
+                          ),
                         ),
                         if (mlc) ...[
                           Row(
@@ -1848,9 +1936,13 @@ class _FrontOfficeWorkbenchScreenState
                                   controller: mlcNumberCtrl,
                                   textInputAction: TextInputAction.next,
                                   onSubmitted: (_) => focusNextField(),
-                                  decoration: const InputDecoration(
-                                    labelText: 'MLC number',
-                                    prefixIcon: Icon(Icons.gavel_outlined),
+                                  decoration: InputDecoration(
+                                    labelText: AppStrings.of(context).lookup(
+                                      's4.lib.front_office_workbench.mlc_number',
+                                    ),
+                                    prefixIcon: const Icon(
+                                      Icons.gavel_outlined,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1860,9 +1952,11 @@ class _FrontOfficeWorkbenchScreenState
                                   controller: mlcNotesCtrl,
                                   textInputAction: TextInputAction.done,
                                   onSubmitted: (_) => register(),
-                                  decoration: const InputDecoration(
-                                    labelText: 'MLC notes',
-                                    prefixIcon: Icon(
+                                  decoration: InputDecoration(
+                                    labelText: AppStrings.of(context).lookup(
+                                      's4.lib.front_office_workbench.mlc_notes',
+                                    ),
+                                    prefixIcon: const Icon(
                                       Icons.description_outlined,
                                     ),
                                   ),
@@ -1887,7 +1981,7 @@ class _FrontOfficeWorkbenchScreenState
                     onPressed: saving
                         ? null
                         : () => Navigator.pop(context, null),
-                    child: const Text('Cancel'),
+                    child: const AppText('action.cancel'),
                   ),
                   FilledButton.icon(
                     onPressed: saving ? null : register,
@@ -1945,14 +2039,20 @@ class _FrontOfficeWorkbenchScreenState
     if (!_canBookOp) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('OP booking is not enabled for this role.'),
+          content: AppText(
+            's4.lib.front_office_workbench.op_booking_is_not_enabled_for_this_role',
+          ),
         ),
       );
       return;
     }
     if (patient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a patient before booking OP.')),
+        const SnackBar(
+          content: AppText(
+            's4.lib.front_office_workbench.select_a_patient_before_booking_op',
+          ),
+        ),
       );
       return;
     }
@@ -2060,7 +2160,9 @@ class _FrontOfficeWorkbenchScreenState
             }
 
             return AlertDialog(
-              title: const Text('Book OP Appointment'),
+              title: const AppText(
+                's4.lib.front_office_workbench.book_op_appointment',
+              ),
               content: SizedBox(
                 width: 560,
                 child: SingleChildScrollView(
@@ -2082,8 +2184,8 @@ class _FrontOfficeWorkbenchScreenState
                             return const LinearProgressIndicator(minHeight: 2);
                           }
                           if (snapshot.hasError) {
-                            return Text(
-                              'Could not load doctors.',
+                            return AppText(
+                              'reception_counter.doctor.could_not_load',
                               style: TextStyle(color: AppTheme.errorOnSurface),
                             );
                           }
@@ -2166,30 +2268,42 @@ class _FrontOfficeWorkbenchScreenState
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         initialValue: selectedVisitType,
-                        decoration: const InputDecoration(
-                          labelText: 'Visit type',
-                          prefixIcon: Icon(Icons.assignment_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.front_office_workbench.visit_type'),
+                          prefixIcon: const Icon(Icons.assignment_outlined),
                         ),
                         items: const [
                           DropdownMenuItem(
                             value: 'NEW',
-                            child: Text('New consultation'),
+                            child: AppText(
+                              's4.lib.front_office_workbench.new_consultation',
+                            ),
                           ),
                           DropdownMenuItem(
                             value: 'FOLLOW_UP',
-                            child: Text('Follow-up'),
+                            child: AppText(
+                              's4.lib.front_office_workbench.follow_up',
+                            ),
                           ),
                           DropdownMenuItem(
                             value: 'TELE',
-                            child: Text('Teleconsult'),
+                            child: AppText(
+                              's4.lib.front_office_workbench.teleconsult',
+                            ),
                           ),
                           DropdownMenuItem(
                             value: 'LAB_ONLY',
-                            child: Text('Lab-only visit'),
+                            child: AppText(
+                              's4.lib.front_office_workbench.lab_only_visit',
+                            ),
                           ),
                           DropdownMenuItem(
                             value: 'PAEDIATRIC_OPD',
-                            child: Text('Paediatric OPD'),
+                            child: AppText(
+                              's4.lib.front_office_workbench.paediatric_opd',
+                            ),
                           ),
                         ],
                         onChanged: saving
@@ -2203,9 +2317,11 @@ class _FrontOfficeWorkbenchScreenState
                       TextField(
                         controller: reasonCtrl,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Reason / chief complaint',
-                          prefixIcon: Icon(Icons.short_text),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.opd.reason'),
+                          prefixIcon: const Icon(Icons.short_text),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -2213,9 +2329,11 @@ class _FrontOfficeWorkbenchScreenState
                         controller: notesCtrl,
                         minLines: 2,
                         maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Counter notes',
-                          prefixIcon: Icon(Icons.notes_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.opd.notes'),
+                          prefixIcon: const Icon(Icons.notes_outlined),
                         ),
                       ),
                       if (dialogError != null) ...[
@@ -2234,7 +2352,7 @@ class _FrontOfficeWorkbenchScreenState
                   onPressed: saving
                       ? null
                       : () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
+                  child: const AppText('action.cancel'),
                 ),
                 FilledButton.icon(
                   onPressed: saving ? null : book,
@@ -2245,7 +2363,7 @@ class _FrontOfficeWorkbenchScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.event_available),
-                  label: const Text('Book OP'),
+                  label: const AppText('s4.lib.appointments.book_op'),
                 ),
               ],
             );
@@ -2264,7 +2382,7 @@ class _FrontOfficeWorkbenchScreenState
     if (booked != true || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('OP appointment booked'),
+        content: AppText('s4.lib.front_office_workbench.op_appointment_booked'),
         backgroundColor: AppTheme.successGreen,
       ),
     );
@@ -2282,14 +2400,20 @@ class _FrontOfficeWorkbenchScreenState
     if (!_canAdmitIp) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('IP admission is not enabled for this role.'),
+          content: AppText(
+            's4.lib.front_office_workbench.ip_admission_is_not_enabled_for_this_role',
+          ),
         ),
       );
       return;
     }
     if (patient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a patient before admitting IP.')),
+        const SnackBar(
+          content: AppText(
+            's4.lib.front_office_workbench.select_a_patient_before_admitting_ip',
+          ),
+        ),
       );
       return;
     }
@@ -2396,7 +2520,9 @@ class _FrontOfficeWorkbenchScreenState
             }
 
             return AlertDialog(
-              title: const Text('Create IP Admission'),
+              title: const AppText(
+                's4.lib.front_office_workbench.create_ip_admission',
+              ),
               content: SizedBox(
                 width: 620,
                 child: SingleChildScrollView(
@@ -2425,8 +2551,8 @@ class _FrontOfficeWorkbenchScreenState
                             return const LinearProgressIndicator(minHeight: 2);
                           }
                           if (snapshot.hasError) {
-                            return Text(
-                              'Could not load doctors.',
+                            return AppText(
+                              'reception_counter.doctor.could_not_load',
                               style: TextStyle(color: AppTheme.errorOnSurface),
                             );
                           }
@@ -2440,7 +2566,9 @@ class _FrontOfficeWorkbenchScreenState
                             doctors: doctors,
                             selectedDoctor: selectedDoctor,
                             enabled: !saving,
-                            labelText: 'Admitting doctor',
+                            labelText: AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.admission.admitting_doctor'),
                             requireUid: true,
                             onSelected: (doctor) {
                               setDialogState(() => selectedDoctor = doctor);
@@ -2454,18 +2582,22 @@ class _FrontOfficeWorkbenchScreenState
                         minLines: 2,
                         maxLines: 3,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Chief complaint',
-                          prefixIcon: Icon(Icons.report_problem_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('bed_sheet.field.chief_complaint'),
+                          prefixIcon: const Icon(Icons.report_problem_outlined),
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: diagnosisCtrl,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Provisional diagnosis',
-                          prefixIcon: Icon(Icons.assignment_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.ip.diagnosis'),
+                          prefixIcon: const Icon(Icons.assignment_outlined),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -2485,9 +2617,13 @@ class _FrontOfficeWorkbenchScreenState
                               return DropdownButtonFormField<int>(
                                 initialValue: _wardId(selectedWard),
                                 isExpanded: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Ward / floor',
-                                  prefixIcon: Icon(Icons.apartment_outlined),
+                                decoration: InputDecoration(
+                                  labelText: AppStrings.of(
+                                    context,
+                                  ).lookup('reception_counter.ip.ward'),
+                                  prefixIcon: const Icon(
+                                    Icons.apartment_outlined,
+                                  ),
                                 ),
                                 items: wards
                                     .map(
@@ -2548,9 +2684,13 @@ class _FrontOfficeWorkbenchScreenState
                                   return DropdownButtonFormField<int>(
                                     initialValue: _bedId(selectedBed),
                                     isExpanded: true,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Bed',
-                                      prefixIcon: Icon(Icons.bed_outlined),
+                                    decoration: InputDecoration(
+                                      labelText: AppStrings.of(
+                                        context,
+                                      ).lookup('bed.label'),
+                                      prefixIcon: const Icon(
+                                        Icons.bed_outlined,
+                                      ),
                                     ),
                                     items: beds
                                         .map(
@@ -2605,8 +2745,10 @@ class _FrontOfficeWorkbenchScreenState
                           Expanded(
                             child: DropdownButtonFormField<String>(
                               initialValue: priority,
-                              decoration: const InputDecoration(
-                                labelText: 'Priority',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('clinical_inbox.priority'),
                               ),
                               items:
                                   const [
@@ -2633,8 +2775,10 @@ class _FrontOfficeWorkbenchScreenState
                           Expanded(
                             child: DropdownButtonFormField<String>(
                               initialValue: codeStatus,
-                              decoration: const InputDecoration(
-                                labelText: 'Code status',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('reception_counter.ip.code_status'),
                               ),
                               items:
                                   const [
@@ -2669,11 +2813,11 @@ class _FrontOfficeWorkbenchScreenState
                               ),
                         contentPadding: EdgeInsets.zero,
                         controlAffinity: ListTileControlAffinity.leading,
-                        title: const Text(
-                          'Treatment consent captured at counter',
+                        title: const AppText(
+                          'reception_counter.ip.consent_title',
                         ),
-                        subtitle: Text(
-                          'Emergency admissions can proceed without a bed; routine admissions require a selected bed.',
+                        subtitle: AppText(
+                          's4.lib.front_office_workbench.emergency_admissions_can_proceed_without_a_bed_r',
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ),
@@ -2691,7 +2835,7 @@ class _FrontOfficeWorkbenchScreenState
               actions: [
                 TextButton(
                   onPressed: saving ? null : () => Navigator.pop(context, null),
-                  child: const Text('Cancel'),
+                  child: const AppText('action.cancel'),
                 ),
                 FilledButton.icon(
                   onPressed: saving ? null : admit,
@@ -2702,7 +2846,9 @@ class _FrontOfficeWorkbenchScreenState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.local_hospital),
-                  label: const Text('Create IP'),
+                  label: const AppText(
+                    's4.lib.front_office_workbench.create_ip',
+                  ),
                 ),
               ],
             );
@@ -2750,7 +2896,7 @@ class _FrontOfficeWorkbenchScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton(
             style: confirmColor == null
@@ -2773,7 +2919,11 @@ class _FrontOfficeWorkbenchScreenState
     final id = _appointmentId(row);
     if (id == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Appointment ID is missing.')),
+        const SnackBar(
+          content: AppText(
+            's4.lib.front_office_workbench.appointment_id_is_missing',
+          ),
+        ),
       );
       return;
     }
@@ -2801,9 +2951,10 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _confirmQueueAppointment(Map<String, dynamic> row) async {
+    final s = AppStrings.of(context);
     await _runQueueAction(
       row,
-      successMessage: 'Patient checked in',
+      successMessage: s.apptQueueConfirmedToast,
       action: (id) => ScheduleApiService.confirmAppointment(id, {
         'confirmation_notes': 'Checked in from Front Office Workbench',
       }).then((_) {}),
@@ -2811,23 +2962,31 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _completeQueueAppointment(Map<String, dynamic> row) async {
+    final successMessage = AppStrings.of(context).apptQueueCompletedToast;
     final notesCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Complete appointment'),
+        title: const AppText(
+          's4.lib.front_office_workbench.complete_appointment',
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Mark ${_queuePatientName(row)} as completed?'),
+            AppText(
+              's4.dynamic.front_office.mark_completed',
+              values: {'patient': _queuePatientName(row)},
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: notesCtrl,
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Visit notes (optional)',
-                prefixIcon: Icon(Icons.notes_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.front_office_workbench.visit_notes_optional'),
+                prefixIcon: const Icon(Icons.notes_outlined),
               ),
             ),
           ],
@@ -2835,12 +2994,12 @@ class _FrontOfficeWorkbenchScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.done_all),
-            label: const Text('Complete'),
+            label: const AppText('front_office.appointment_status.completed'),
           ),
         ],
       ),
@@ -2851,7 +3010,7 @@ class _FrontOfficeWorkbenchScreenState
 
     await _runQueueAction(
       row,
-      successMessage: 'Appointment completed',
+      successMessage: successMessage,
       action: (id) => ScheduleApiService.completeAppointmentStaff(
         id,
         notes: notes.isEmpty ? null : notes,
@@ -2862,15 +3021,15 @@ class _FrontOfficeWorkbenchScreenState
   Future<void> _markQueueNoShow(Map<String, dynamic> row) async {
     final s = AppStrings.of(context);
     final confirmed = await _confirmQueueAction(
-      title: 'Mark no-show',
-      message: 'Mark ${_queuePatientName(row)} as no-show?',
+      title: s.apptQueueNoShowTitle,
+      message: s.apptQueueNoShowBody(_queuePatientName(row)),
       confirmLabel: s.frontOfficeAppointmentStatusLabel('NO_SHOW'),
       confirmColor: AppTheme.textSecondary,
     );
     if (!confirmed) return;
     await _runQueueAction(
       row,
-      successMessage: 'Appointment marked no-show',
+      successMessage: s.apptQueueNoShowMarked,
       action: (id) => ScheduleApiService.markNoShow(id).then((_) {}),
     );
   }
@@ -2909,7 +3068,9 @@ class _FrontOfficeWorkbenchScreenState
           }
 
           return AlertDialog(
-            title: const Text('Reschedule appointment'),
+            title: const AppText(
+              's4.lib.front_office_workbench.reschedule_appointment',
+            ),
             content: SizedBox(
               width: 420,
               child: Column(
@@ -2943,9 +3104,11 @@ class _FrontOfficeWorkbenchScreenState
                   TextField(
                     controller: notesCtrl,
                     maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Reschedule note',
-                      prefixIcon: Icon(Icons.notes_outlined),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.front_office_workbench.reschedule_note'),
+                      prefixIcon: const Icon(Icons.notes_outlined),
                     ),
                   ),
                 ],
@@ -2954,12 +3117,14 @@ class _FrontOfficeWorkbenchScreenState
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancel'),
+                child: const AppText('action.cancel'),
               ),
               FilledButton.icon(
                 onPressed: () => Navigator.pop(dialogContext, true),
                 icon: const Icon(Icons.event_repeat_outlined),
-                label: const Text('Reschedule'),
+                label: const AppText(
+                  's4.lib.front_office_workbench.reschedule',
+                ),
               ),
             ],
           );
@@ -2989,7 +3154,9 @@ class _FrontOfficeWorkbenchScreenState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Cancel appointment'),
+        title: const AppText(
+          's4.lib.front_office_workbench.cancel_appointment',
+        ),
         content: SizedBox(
           width: 420,
           child: Column(
@@ -3001,9 +3168,11 @@ class _FrontOfficeWorkbenchScreenState
               TextField(
                 controller: reasonCtrl,
                 maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Cancellation reason',
-                  prefixIcon: Icon(Icons.notes_outlined),
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.front_office_workbench.cancellation_reason'),
+                  prefixIcon: const Icon(Icons.notes_outlined),
                 ),
               ),
             ],
@@ -3012,12 +3181,16 @@ class _FrontOfficeWorkbenchScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep appointment'),
+            child: const AppText(
+              's4.lib.front_office_workbench.keep_appointment',
+            ),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Cancel appointment'),
+            child: const AppText(
+              's4.lib.front_office_workbench.cancel_appointment',
+            ),
           ),
         ],
       ),
@@ -3215,8 +3388,8 @@ class _FrontOfficeWorkbenchScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Front Office Workbench',
+                AppText(
+                  's4.lib.front_office_workbench.front_office_workbench',
                   style: Theme.of(
                     context,
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
@@ -3258,10 +3431,12 @@ class _FrontOfficeWorkbenchScreenState
             FilledButton.icon(
               onPressed: _showOpBookingDialog,
               icon: const Icon(Icons.event_available_outlined),
-              label: const Text('Book OP Appointment'),
+              label: const AppText(
+                's4.lib.front_office_workbench.book_op_appointment',
+              ),
             ),
           IconButton.filledTonal(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _refreshWorklists,
             icon: const Icon(Icons.refresh),
           ),
@@ -3325,7 +3500,7 @@ class _FrontOfficeWorkbenchScreenState
               TextButton.icon(
                 onPressed: _clearSelectedPatient,
                 icon: const Icon(Icons.close),
-                label: const Text('Clear'),
+                label: const AppText('investigations.clear_file'),
               ),
             ],
           ),
@@ -3363,24 +3538,28 @@ class _FrontOfficeWorkbenchScreenState
                 FilledButton.icon(
                   onPressed: _showOpBookingDialog,
                   icon: const Icon(Icons.event_available_outlined),
-                  label: const Text('Book OP'),
+                  label: const AppText('s4.lib.appointments.book_op'),
                 ),
               if (_canBookOp)
                 OutlinedButton.icon(
                   onPressed: _showWalkInRegistrationDialog,
                   icon: const Icon(Icons.how_to_reg_outlined),
-                  label: const Text('Register Walk-in'),
+                  label: const AppText('appt_queue.register_walk_in'),
                 ),
               if (_canBilling)
                 OutlinedButton.icon(
                   onPressed: _billingActionBusy ? null : _createDraftInvoice,
                   icon: const Icon(Icons.receipt_long_outlined),
-                  label: const Text('Draft Bill'),
+                  label: const AppText(
+                    's4.lib.front_office_workbench.draft_bill',
+                  ),
                 ),
               OutlinedButton.icon(
                 onPressed: () => context.push(_patientRecordsUploadRoute()),
                 icon: const Icon(Icons.upload_file),
-                label: const Text('Upload Prior Record'),
+                label: const AppText(
+                  's4.lib.patient_records.upload_prior_record',
+                ),
               ),
             ],
           ),
@@ -3435,7 +3614,9 @@ class _FrontOfficeWorkbenchScreenState
               children: [
                 if (selected != null && _canPatientRegistryWrite)
                   IconButton.filledTonal(
-                    tooltip: 'Edit patient',
+                    tooltip: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.front_office_workbench.edit_patient'),
                     onPressed: () => _showPatientDialog(patient: selected),
                     icon: const Icon(Icons.edit_outlined),
                   ),
@@ -3445,7 +3626,9 @@ class _FrontOfficeWorkbenchScreenState
                       initialPhone: _patientDialogInitialPhone(),
                     ),
                     icon: const Icon(Icons.person_add_alt_1),
-                    label: const Text('New Patient'),
+                    label: const AppText(
+                      's4.lib.front_office_workbench.new_patient',
+                    ),
                   ),
               ],
             ),
@@ -3470,7 +3653,9 @@ class _FrontOfficeWorkbenchScreenState
                       onChanged: _queuePatientLookup,
                       onSubmitted: _handlePatientSearchSubmitted,
                       decoration: InputDecoration(
-                        labelText: 'Hospital ID / phone / name',
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('reception_counter.patient_lookup.hint'),
                         prefixIcon: const Icon(Icons.search),
                         suffixIcon: _lookupBusy
                             ? const Padding(
@@ -3490,7 +3675,7 @@ class _FrontOfficeWorkbenchScreenState
                 ),
                 const SizedBox(width: 10),
                 IconButton.filledTonal(
-                  tooltip: 'Search',
+                  tooltip: AppStrings.of(context).lookup('action.search'),
                   onPressed: () => _searchPatients(_searchCtrl.text),
                   icon: const Icon(Icons.search),
                 ),
@@ -3504,8 +3689,8 @@ class _FrontOfficeWorkbenchScreenState
               ),
             ] else if (shortPhoneQuery) ...[
               const SizedBox(height: 8),
-              Text(
-                'Enter at least 10 digits to search or create by phone.',
+              AppText(
+                's4.lib.front_office_workbench.enter_at_least_10_digits_to_search_or_create_by',
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
             ],
@@ -3536,7 +3721,9 @@ class _FrontOfficeWorkbenchScreenState
                 initialPhone: _patientDialogInitialPhone(),
               ),
               icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('Create New Patient'),
+              label: const AppText(
+                's4.lib.front_office_workbench.create_new_patient',
+              ),
             ),
           ] else if (!_canPatientRegistryCreate &&
               !_lookupBusy &&
@@ -3658,12 +3845,12 @@ class _FrontOfficeWorkbenchScreenState
                   onPressed: () =>
                       context.push('/appointments?date=$dateParam'),
                   icon: const Icon(Icons.calendar_month_outlined),
-                  label: const Text('Calendar'),
+                  label: const AppText('attendance.tab.calendar'),
                 ),
                 TextButton.icon(
                   onPressed: _refreshWorklists,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Refresh'),
+                  label: const AppText('action.refresh'),
                 ),
               ],
             ),
@@ -3874,7 +4061,7 @@ class _FrontOfficeWorkbenchScreenState
                         onPressed: () =>
                             context.push(_patientRoute('/billing-desk')),
                         icon: const Icon(Icons.open_in_new),
-                        label: const Text('Open'),
+                        label: const AppText('s4.lib.patient_records.open'),
                       ),
                       FilledButton.icon(
                         onPressed: _billingActionBusy
@@ -3889,7 +4076,7 @@ class _FrontOfficeWorkbenchScreenState
                                 ),
                               )
                             : const Icon(Icons.add),
-                        label: const Text('Draft OP'),
+                        label: const AppText('s4.lib.billing_desk.draft_op'),
                       ),
                     ],
                   ),
@@ -3926,7 +4113,9 @@ class _FrontOfficeWorkbenchScreenState
     final actions = <Widget>[
       if (canPrintTax)
         IconButton.filledTonal(
-          tooltip: 'Print tax invoice',
+          tooltip: AppStrings.of(
+            context,
+          ).lookup('s4.lib.billing_desk.print_tax_invoice'),
           onPressed: _billingActionBusy
               ? null
               : () => _printInvoiceDocument(
@@ -3937,7 +4126,9 @@ class _FrontOfficeWorkbenchScreenState
         ),
       if (canPrintReceipt)
         IconButton.filledTonal(
-          tooltip: 'Print receipt',
+          tooltip: AppStrings.of(
+            context,
+          ).lookup('s4.lib.billing_desk.print_receipt'),
           onPressed: _billingActionBusy
               ? null
               : () =>
@@ -3950,7 +4141,7 @@ class _FrontOfficeWorkbenchScreenState
           child: OutlinedButton.icon(
             onPressed: _billingActionBusy ? null : () => _issueInvoice(invoice),
             icon: const Icon(Icons.publish_outlined, size: 16),
-            label: const Text('Issue'),
+            label: const AppText('s4.lib.billing_desk.issue'),
           ),
         ),
       if (canCollect)
@@ -4079,12 +4270,14 @@ class _FrontOfficeWorkbenchScreenState
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.add),
-                    label: const Text('Admit IP'),
+                    label: const AppText(
+                      's4.lib.front_office_workbench.admit_ip',
+                    ),
                   ),
                 TextButton.icon(
                   onPressed: () => context.push('/emr/admissions'),
                   icon: const Icon(Icons.open_in_new),
-                  label: const Text('Open'),
+                  label: const AppText('s4.lib.patient_records.open'),
                 ),
               ],
             ),
@@ -4096,8 +4289,8 @@ class _FrontOfficeWorkbenchScreenState
                 const Icon(Icons.move_down_outlined, size: 18),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(
-                    'OPD -> IPD Handoff',
+                  child: AppText(
+                    's4.lib.front_office_workbench.opd_ipd_handoff',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -4210,19 +4403,25 @@ class _FrontOfficeWorkbenchScreenState
                 OutlinedButton.icon(
                   onPressed: () => _showAdmissionAdviceDialog(row),
                   icon: const Icon(Icons.visibility_outlined, size: 16),
-                  label: const Text('View advice'),
+                  label: const AppText(
+                    's4.lib.front_office_workbench.view_advice',
+                  ),
                 ),
                 FilledButton.icon(
                   onPressed: busy ? null : () => _startAdmissionFromAdvice(row),
                   icon: const Icon(Icons.bed_outlined, size: 16),
-                  label: const Text('Assign ward/bed'),
+                  label: const AppText(
+                    's4.lib.front_office_workbench.assign_ward_bed',
+                  ),
                 ),
                 OutlinedButton.icon(
                   onPressed: patient == null
                       ? null
                       : () => _openBillingForAdvice(row),
                   icon: const Icon(Icons.account_balance_wallet_outlined),
-                  label: const Text('Billing deposit'),
+                  label: const AppText(
+                    's4.lib.front_office_workbench.billing_deposit',
+                  ),
                 ),
               ],
             ),
@@ -4586,10 +4785,14 @@ class _OpBookingClinicianFields extends StatelessWidget {
               focusNode: focusNode,
               enabled: enabled,
               textInputAction: TextInputAction.search,
-              decoration: const InputDecoration(
-                labelText: 'Consulting doctor',
-                hintText: 'Optional if department is selected',
-                prefixIcon: Icon(Icons.medical_services_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.front_office_workbench.consulting_doctor'),
+                hintText: AppStrings.of(context).lookup(
+                  's4.lib.front_office_workbench.optional_if_department_is_selected',
+                ),
+                prefixIcon: const Icon(Icons.medical_services_outlined),
               ),
               onChanged: onDoctorTextChanged,
             );
@@ -4666,10 +4869,14 @@ class _OpBookingClinicianFields extends StatelessWidget {
               controller: textController,
               focusNode: focusNode,
               enabled: enabled,
-              decoration: const InputDecoration(
-                labelText: 'Department',
-                hintText: 'Any available doctor',
-                prefixIcon: Icon(Icons.business),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('profile.field.department'),
+                hintText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.appointments.any_available_doctor'),
+                prefixIcon: const Icon(Icons.business),
               ),
               onChanged: onDepartmentChanged,
             );
@@ -4702,7 +4909,9 @@ class _OpBookingClinicianFields extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         trailing: selectedDoctor == null
-                            ? const Text('Any doctor')
+                            ? const AppText(
+                                's4.lib.front_office_workbench.any_doctor',
+                              )
                             : null,
                         onTap: () => onOptionSelected(department),
                       );

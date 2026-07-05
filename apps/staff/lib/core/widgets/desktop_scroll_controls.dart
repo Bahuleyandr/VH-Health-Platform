@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DesktopScrollControls extends StatefulWidget {
   final Widget child;
@@ -131,12 +132,16 @@ class _ButtonRow extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                tooltip: 'Scroll back',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.desktop_scroll_controls.scroll_back'),
                 onPressed: onFirst,
                 icon: Icon(firstIcon),
               ),
               IconButton(
-                tooltip: 'Scroll forward',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.desktop_scroll_controls.scroll_forward'),
                 onPressed: onSecond,
                 icon: Icon(secondIcon),
               ),
@@ -177,12 +182,16 @@ class _ButtonRail extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                tooltip: 'Scroll up',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.desktop_scroll_controls.scroll_up'),
                 onPressed: onFirst,
                 icon: Icon(firstIcon),
               ),
               IconButton(
-                tooltip: 'Scroll down',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.desktop_scroll_controls.scroll_down'),
                 onPressed: onSecond,
                 icon: Icon(secondIcon),
               ),

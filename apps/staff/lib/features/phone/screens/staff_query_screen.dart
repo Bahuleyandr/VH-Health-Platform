@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../phone/services/staff_phone_api_service.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class StaffQueryScreen extends StatefulWidget {
   const StaffQueryScreen({super.key});
@@ -49,9 +50,9 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
       if (!mounted) return;
       _subjectCtrl.clear();
       _bodyCtrl.clear();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Query submitted')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: AppText('s4.lib.staff_query.query_submitted')),
+      );
       await _refresh();
     } catch (e) {
       if (!mounted) return;
@@ -66,7 +67,7 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Staff Query')),
+      appBar: AppBar(title: const AppText('s4.lib.staff_query.staff_query')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
@@ -80,34 +81,42 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        'Raise query',
+                      AppText(
+                        's4.lib.staff_query.raise_query',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         initialValue: _category,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('vitals_chart.category'),
                         ),
                         items: const [
                           DropdownMenuItem(
                             value: 'general',
-                            child: Text('General'),
+                            child: AppText('department.general'),
                           ),
-                          DropdownMenuItem(value: 'hr', child: Text('HR')),
+                          DropdownMenuItem(
+                            value: 'hr',
+                            child: AppText('vitals_chart.col.hr'),
+                          ),
                           DropdownMenuItem(
                             value: 'roster',
-                            child: Text('Roster'),
+                            child: AppText('s4.lib.hr_dashboard.roster'),
                           ),
                           DropdownMenuItem(
                             value: 'payroll',
-                            child: Text('Payroll'),
+                            child: AppText('s4.lib.staff_query.payroll'),
                           ),
-                          DropdownMenuItem(value: 'it', child: Text('IT')),
+                          DropdownMenuItem(
+                            value: 'it',
+                            child: AppText('s4.lib.staff_query.it'),
+                          ),
                           DropdownMenuItem(
                             value: 'maintenance',
-                            child: Text('Maintenance'),
+                            child: AppText('bed.status.maintenance'),
                           ),
                         ],
                         onChanged: (v) =>
@@ -116,19 +125,27 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         initialValue: _priority,
-                        decoration: const InputDecoration(
-                          labelText: 'Priority',
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('clinical_inbox.priority'),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'low', child: Text('Low')),
+                          DropdownMenuItem(
+                            value: 'low',
+                            child: AppText('priority.low'),
+                          ),
                           DropdownMenuItem(
                             value: 'normal',
-                            child: Text('Normal'),
+                            child: AppText('priority.normal'),
                           ),
-                          DropdownMenuItem(value: 'high', child: Text('High')),
+                          DropdownMenuItem(
+                            value: 'high',
+                            child: AppText('priority.high'),
+                          ),
                           DropdownMenuItem(
                             value: 'urgent',
-                            child: Text('Urgent'),
+                            child: AppText('priority.urgent'),
                           ),
                         ],
                         onChanged: (v) =>
@@ -137,7 +154,11 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       const SizedBox(height: 10),
                       TextFormField(
                         controller: _subjectCtrl,
-                        decoration: const InputDecoration(labelText: 'Subject'),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.messaging_inbox.subject'),
+                        ),
                         textInputAction: TextInputAction.next,
                         validator: (v) => (v ?? '').trim().isEmpty
                             ? 'Subject is required'
@@ -146,7 +167,11 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                       const SizedBox(height: 10),
                       TextFormField(
                         controller: _bodyCtrl,
-                        decoration: const InputDecoration(labelText: 'Details'),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('timeline.details'),
+                        ),
                         minLines: 4,
                         maxLines: 8,
                         validator: (v) => (v ?? '').trim().isEmpty
@@ -165,7 +190,7 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                                 ),
                               )
                             : const Icon(Icons.send),
-                        label: const Text('Submit query'),
+                        label: const AppText('s4.lib.staff_query.submit_query'),
                       ),
                     ],
                   ),
@@ -173,7 +198,10 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('My queries', style: Theme.of(context).textTheme.titleMedium),
+            AppText(
+              's4.lib.staff_query.my_queries',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             FutureBuilder<List<Map<String, dynamic>>>(
               future: _queriesFuture,
@@ -191,7 +219,9 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                   return const Card(
                     child: Padding(
                       padding: EdgeInsets.all(18),
-                      child: Text('No queries raised yet.'),
+                      child: AppText(
+                        's4.lib.staff_query.no_queries_raised_yet',
+                      ),
                     ),
                   );
                 }

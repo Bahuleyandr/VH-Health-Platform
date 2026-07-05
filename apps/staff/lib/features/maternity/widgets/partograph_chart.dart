@@ -17,6 +17,7 @@
 // Pure widget — caller orchestrates fetching.
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class PartographPoint {
   const PartographPoint({
@@ -71,8 +72,8 @@ class PartographChart extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.only(left: 8, bottom: 8),
-              child: Text(
-                'Cervical dilation (cm) vs hours in active phase',
+              child: AppText(
+                's4.lib.partograph_chart.cervical_dilation_cm_vs_hours_in_active_phase',
                 style: theme.textTheme.labelMedium,
               ),
             ),

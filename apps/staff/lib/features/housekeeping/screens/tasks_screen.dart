@@ -244,7 +244,7 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
       role: StaffRole.housekeeping,
       actions: [
         IconButton(
-          tooltip: 'Refresh',
+          tooltip: AppStrings.of(context).lookup('action.refresh'),
           onPressed: _loading ? null : () => _loadTasks(),
           icon: const Icon(Icons.refresh),
         ),

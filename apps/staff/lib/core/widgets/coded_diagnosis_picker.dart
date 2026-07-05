@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/medical_api_service.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class CodedDiagnosisPicker extends StatefulWidget {
   final TextEditingController controller;
@@ -151,7 +152,9 @@ class _CodedDiagnosisPickerState extends State<CodedDiagnosisPicker> {
                     ),
                   )
                 : IconButton(
-                    tooltip: 'Search ICD-11',
+                    tooltip: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.coded_diagnosis_picker.search_icd_11'),
                     icon: const Icon(Icons.search),
                     onPressed: widget.enabled
                         ? () => _search(widget.controller.text.trim())

@@ -219,7 +219,11 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           tabs: [
             Tab(text: s.bloodBankTabInventory),
             Tab(text: s.bloodBankTabRequests),
-            const Tab(text: 'Transfusions'),
+            Tab(
+              text: AppStrings.of(
+                context,
+              ).lookup('s4.lib.blood_bank.transfusions'),
+            ),
             Tab(text: s.bloodBankTabDonations),
           ],
         ),
@@ -583,8 +587,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
-            Text(
-              'No issued units awaiting bedside verification',
+            AppText(
+              's4.lib.blood_bank.no_issued_units_awaiting_bedside_verification',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
@@ -658,7 +662,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                           verifierRole: 'first',
                         ),
                   icon: const Icon(Icons.filter_1),
-                  label: const Text('First verifier'),
+                  label: const AppText('s4.lib.blood_bank.first_verifier'),
                 ),
                 ElevatedButton.icon(
                   onPressed: requestId == null
@@ -669,7 +673,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                           verifierRole: 'second',
                         ),
                   icon: const Icon(Icons.filter_2),
-                  label: const Text('Second verifier'),
+                  label: const AppText('s4.lib.blood_bank.second_verifier'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.errorRed,
                     foregroundColor: Colors.white,
@@ -698,7 +702,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     if (verified != true || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Bedside verification recorded'),
+        content: AppText('s4.lib.blood_bank.bedside_verification_recorded'),
         backgroundColor: AppTheme.successGreen,
       ),
     );

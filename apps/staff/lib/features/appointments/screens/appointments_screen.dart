@@ -16,6 +16,7 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../appointment_calendar_helpers.dart';
 import '../models/staff_appointment.dart';
 import '../../opd/op_doctor_workspace_route.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 export '../appointment_calendar_helpers.dart';
 
@@ -438,7 +439,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               if (selectedDoctorId == null && selectedDepartment.isEmpty) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   const SnackBar(
-                    content: Text('Select a doctor or department'),
+                    content: AppText(
+                      's4.lib.appointments.select_a_doctor_or_department',
+                    ),
                     backgroundColor: AppTheme.errorRed,
                   ),
                 );
@@ -493,8 +496,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       Row(
                         children: [
                           const Expanded(
-                            child: Text(
-                              'Create Appointment',
+                            child: AppText(
+                              's4.lib.appointments.create_appointment',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -503,7 +506,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            tooltip: 'Close',
+                            tooltip: AppStrings.of(
+                              context,
+                            ).lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -515,7 +520,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         controller: patientPhoneCtrl,
                         keyboardType: TextInputType.phone,
                         decoration: InputDecoration(
-                          labelText: 'Patient phone',
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.patient.phone'),
                           helperText: lookupMessage,
                           suffixIcon: patientLookupBusy
                               ? const Padding(
@@ -555,9 +562,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       TextFormField(
                         controller: patientNameCtrl,
                         readOnly: patientNameReadOnly,
-                        decoration: const InputDecoration(
-                          labelText: 'Patient name',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.patient.name'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.person_outline),
                           ),
                         ),
@@ -625,7 +634,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                         focusNode: focusNode,
                                         enabled: !submitting && !loading,
                                         decoration: InputDecoration(
-                                          labelText: 'Doctor',
+                                          labelText: AppStrings.of(context)
+                                              .lookup(
+                                                'prescriptions.doctor_label',
+                                              ),
                                           hintText: loading
                                               ? 'Loading doctors...'
                                               : snapshot.hasError
@@ -767,10 +779,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                         controller: textController,
                                         focusNode: focusNode,
                                         enabled: !submitting,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Department',
-                                          hintText: 'Any available doctor',
-                                          prefixIcon: ExcludeSemantics(
+                                        decoration: InputDecoration(
+                                          labelText: AppStrings.of(
+                                            context,
+                                          ).lookup('profile.field.department'),
+                                          hintText: AppStrings.of(context).lookup(
+                                            's4.lib.appointments.any_available_doctor',
+                                          ),
+                                          prefixIcon: const ExcludeSemantics(
                                             child: Icon(Icons.business),
                                           ),
                                         ),
@@ -907,9 +923,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: reasonCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Reason',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('drug_chart.stop_reason_label'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.subject_outlined),
                           ),
                         ),
@@ -925,9 +943,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: notesCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Notes (optional)',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('appt_queue.notes_optional'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.notes_outlined),
                           ),
                         ),
@@ -1036,15 +1056,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   minimumSize: const Size(0, 40),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
-                child: const Text('Today'),
+                child: const AppText('attendance.tab.today'),
               ),
               IconButton(
-                tooltip: 'Previous week',
+                tooltip: AppStrings.of(context).lookup('schedule.prev_week'),
                 onPressed: () => _shiftWeek(-1),
                 icon: const Icon(Icons.chevron_left),
               ),
               IconButton(
-                tooltip: 'Next week',
+                tooltip: AppStrings.of(context).lookup('schedule.next_week'),
                 onPressed: () => _shiftWeek(1),
                 icon: const Icon(Icons.chevron_right),
               ),
@@ -1064,7 +1084,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 width: searchWidth,
                 child: TextField(
                   decoration: InputDecoration(
-                    hintText: 'Search patient or phone',
+                    hintText: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.appointments.search_patient_or_phone'),
                     prefixIcon: const Icon(Icons.search),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
@@ -1097,7 +1119,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 FilledButton.icon(
                   onPressed: _createAppointment,
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Book OP'),
+                  label: const AppText('s4.lib.appointments.book_op'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1162,7 +1184,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                             _updateStatus(id, 'cancelled');
                           },
                           icon: const Icon(Icons.close, size: 18),
-                          label: const Text('Cancel'),
+                          label: const AppText('action.cancel'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.errorOnSurface,
                             side: BorderSide(color: AppTheme.errorOnSurface),
@@ -1177,7 +1199,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                             _updateStatus(id, 'confirmed');
                           },
                           icon: const Icon(Icons.check, size: 18),
-                          label: const Text('Confirm'),
+                          label: const AppText('action.confirm'),
                         ),
                       ),
                     ],
@@ -1322,8 +1344,8 @@ class _CalendarModePill extends StatelessWidget {
         children: [
           const Icon(Icons.view_week_outlined, size: 18),
           const SizedBox(width: 8),
-          Text(
-            'Week',
+          AppText(
+            's4.lib.appointments.week',
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontWeight: FontWeight.w800,
@@ -1412,12 +1434,16 @@ class _DoctorDepartmentFilterFieldState
           controller: _controller,
           focusNode: _focusNode,
           decoration: InputDecoration(
-            hintText: 'Filter doctor or department',
+            hintText: AppStrings.of(
+              context,
+            ).lookup('s4.lib.appointments.filter_doctor_or_department'),
             prefixIcon: const Icon(Icons.manage_search_outlined),
             suffixIcon: _controller.text.trim().isEmpty
                 ? const Icon(Icons.arrow_drop_down)
                 : IconButton(
-                    tooltip: 'Clear doctor or department filter',
+                    tooltip: AppStrings.of(context).lookup(
+                      's4.lib.appointments.clear_doctor_or_department_filter',
+                    ),
                     onPressed: () {
                       _controller.clear();
                       widget.onChanged('');
@@ -1456,8 +1482,8 @@ class _DoctorDepartmentFilterFieldState
               child: widget.options.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Text(
-                        'No doctor or department matches',
+                      child: AppText(
+                        's4.lib.appointments.no_doctor_or_department_matches',
                         style: TextStyle(color: AppTheme.textSecondary),
                       ),
                     )
@@ -1584,7 +1610,9 @@ class _SchedulerSidebar extends StatelessWidget {
               ),
               if (onCollapse != null)
                 IconButton(
-                  tooltip: 'Collapse queue panel',
+                  tooltip: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.appointments.collapse_queue_panel'),
                   onPressed: onCollapse,
                   icon: const Icon(Icons.keyboard_double_arrow_left),
                 ),
@@ -1603,12 +1631,16 @@ class _SchedulerSidebar extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Previous month',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.appointments.previous_month'),
                 onPressed: onPreviousMonth,
                 icon: const Icon(Icons.chevron_left),
               ),
               IconButton(
-                tooltip: 'Next month',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.appointments.next_month'),
                 onPressed: onNextMonth,
                 icon: const Icon(Icons.chevron_right),
               ),
@@ -1620,8 +1652,8 @@ class _SchedulerSidebar extends StatelessWidget {
             onDateSelected: onDateSelected,
           ),
           const SizedBox(height: 18),
-          Text(
-            'Queue filter',
+          AppText(
+            's4.lib.appointments.queue_filter',
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontWeight: FontWeight.w900,
@@ -2094,8 +2126,8 @@ class _WeekHeader extends StatelessWidget {
               alignment: Alignment.bottomCenter,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: Text(
-                  'GMT+5:30',
+                child: AppText(
+                  's4.lib.appointments.gmt_5_30',
                   style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 11,
@@ -2240,8 +2272,8 @@ class _FloatingAppointmentRow extends StatelessWidget {
           SizedBox(
             width: _calendarTimeGutterWidth,
             child: Center(
-              child: Text(
-                'Flex',
+              child: AppText(
+                's4.lib.appointments.flex',
                 style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 12,

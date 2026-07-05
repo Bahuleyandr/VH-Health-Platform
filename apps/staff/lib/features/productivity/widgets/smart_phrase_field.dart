@@ -18,6 +18,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class SmartPhraseField extends StatefulWidget {
   const SmartPhraseField({
@@ -169,8 +170,8 @@ class _SmartPhraseFieldState extends State<SmartPhraseField> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   const SizedBox(width: 6),
-                  Text(
-                    'expanding…',
+                  AppText(
+                    's4.lib.smart_phrase_field.expanding',
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
                 ],

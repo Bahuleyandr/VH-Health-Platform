@@ -367,7 +367,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     if (threadId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Send a first message before attaching a file.'),
+          content: AppText(
+            's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file',
+          ),
           backgroundColor: AppTheme.warningAmber,
         ),
       );
@@ -455,9 +457,14 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       final saved = await _saveAttachmentBytes(attachment, bytes);
       await _openSavedAttachment(saved);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Saved to ${saved.path}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: AppText(
+            's4.dynamic.messaging.saved_to_path',
+            values: {'path': saved.path},
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -590,24 +597,32 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
           ),
           if ((_threadId ?? '').isNotEmpty)
             PopupMenuButton<String>(
-              tooltip: 'Conversation actions',
+              tooltip: AppStrings.of(
+                context,
+              ).lookup('s4.lib.messaging_inbox.conversation_actions'),
               onSelected: _handleThreadAction,
               itemBuilder: (_) => [
-                const PopupMenuItem(value: 'archive', child: Text('Archive')),
+                const PopupMenuItem(
+                  value: 'archive',
+                  child: AppText('s4.lib.messaging_inbox.archive'),
+                ),
                 const PopupMenuItem(
                   value: 'mark-unread',
-                  child: Text('Mark unread'),
+                  child: AppText('s4.lib.messaging_inbox.mark_unread'),
                 ),
                 if (_isMuted || _urgentOnly)
                   const PopupMenuItem(
                     value: 'unmute',
-                    child: Text('Restore alerts'),
+                    child: AppText('s4.lib.messaging_inbox.restore_alerts'),
                   )
                 else ...[
-                  const PopupMenuItem(value: 'mute', child: Text('Mute 8h')),
+                  const PopupMenuItem(
+                    value: 'mute',
+                    child: AppText('s4.lib.messaging_inbox.mute_8h'),
+                  ),
                   const PopupMenuItem(
                     value: 'urgent-only',
-                    child: Text('Urgent only'),
+                    child: AppText('s4.lib.messaging_inbox.urgent_only'),
                   ),
                 ],
               ],
@@ -720,19 +735,19 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Copy clinical message?'),
-        content: const Text(
-          'This message may contain patient-sensitive information. '
+        title: const AppText('s4.lib.messaging_thread.copy_clinical_message'),
+        content: const AppText(
+          's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor'
           'The clipboard will be cleared automatically after 60 seconds.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Copy'),
+            child: const AppText('s4.lib.messaging_thread.copy'),
           ),
         ],
       ),
@@ -743,7 +758,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Message copied — clipboard clears in 60 s'),
+        content: AppText(
+          's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s',
+        ),
       ),
     );
     // Clear clipboard after 60 s regardless of widget lifecycle.
@@ -953,7 +970,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.attach_file),
-                    tooltip: 'Attach file',
+                    tooltip: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.messaging_thread.attach_file'),
                     onPressed: (_uploadingAttachment || _sending)
                         ? null
                         : _attachFile,
@@ -1015,7 +1034,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: 'Reply in this conversation',
+                        hintText: AppStrings.of(context).lookup(
+                          's4.lib.messaging_thread.reply_in_this_conversation',
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                           borderSide: BorderSide.none,

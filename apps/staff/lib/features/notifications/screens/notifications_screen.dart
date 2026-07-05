@@ -197,7 +197,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         title: Text(s.notificationsTitle),
         actions: [
           IconButton(
-            tooltip: 'Refresh alerts',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.notifications.refresh_alerts'),
             onPressed: _loadNotifications,
             icon: const Icon(Icons.refresh),
           ),
@@ -455,7 +457,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           TextButton.icon(
                             onPressed: () => _acknowledge(item),
                             icon: const Icon(Icons.done, size: 16),
-                            label: const Text('Acknowledge'),
+                            label: const AppText('clinical_inbox.acknowledge'),
                           ),
                         if (route != null)
                           FilledButton.tonalIcon(

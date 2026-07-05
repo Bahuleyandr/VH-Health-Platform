@@ -524,12 +524,12 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
           ButtonSegment<_TimelineView>(
             value: _TimelineView.healthJourney,
             icon: Icon(Icons.insights_outlined, size: 18),
-            label: Text('Health journey'),
+            label: AppText('s4.lib.patient_timeline.health_journey'),
           ),
           ButtonSegment<_TimelineView>(
             value: _TimelineView.eventLog,
             icon: Icon(Icons.list_alt_outlined, size: 18),
-            label: Text('Event log'),
+            label: AppText('s4.lib.patient_timeline.event_log'),
           ),
         ],
         selected: {_view},
@@ -574,8 +574,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
               Icon(Icons.visibility_outlined, color: AppTheme.primaryBlue),
               SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  'Read-only on phone. Clinical entries must be completed on Staff Desktop.',
+                child: AppText(
+                  's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp',
                 ),
               ),
             ],
@@ -754,8 +754,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                         ],
                         if (normalizedType == 'drug_chart') ...[
                           const SizedBox(height: 6),
-                          Text(
-                            'Current IP medication order',
+                          AppText(
+                            's4.lib.patient_timeline.current_ip_medication_order',
                             style: TextStyle(
                               fontSize: 11,
                               color: AppTheme.warningOnSurface,

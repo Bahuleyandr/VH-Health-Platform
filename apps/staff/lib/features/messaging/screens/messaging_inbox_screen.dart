@@ -386,7 +386,11 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                 TabBar(
                   tabs: [
                     Tab(text: s.messagingInboxTitle),
-                    const Tab(text: 'Admin log'),
+                    Tab(
+                      text: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.messaging_inbox.admin_log'),
+                    ),
                   ],
                 ),
                 Expanded(
@@ -488,7 +492,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              labelText: 'Search conversations',
+              labelText: AppStrings.of(
+                context,
+              ).lookup('s4.lib.messaging_inbox.search_conversations'),
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _threadSearch.isEmpty
                   ? null
@@ -758,30 +764,38 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
               ),
             ),
             PopupMenuButton<String>(
-              tooltip: 'Conversation actions',
+              tooltip: AppStrings.of(
+                context,
+              ).lookup('s4.lib.messaging_inbox.conversation_actions'),
               onSelected: (action) => _handleThreadAction(thread, action),
               itemBuilder: (_) => [
                 if (thread.archived)
                   const PopupMenuItem(
                     value: 'unarchive',
-                    child: Text('Restore'),
+                    child: AppText('s4.lib.messaging_inbox.restore'),
                   )
                 else
-                  const PopupMenuItem(value: 'archive', child: Text('Archive')),
+                  const PopupMenuItem(
+                    value: 'archive',
+                    child: AppText('s4.lib.messaging_inbox.archive'),
+                  ),
                 const PopupMenuItem(
                   value: 'mark-unread',
-                  child: Text('Mark unread'),
+                  child: AppText('s4.lib.messaging_inbox.mark_unread'),
                 ),
                 if (thread.isMuted || thread.urgentOnly)
                   const PopupMenuItem(
                     value: 'unmute',
-                    child: Text('Restore alerts'),
+                    child: AppText('s4.lib.messaging_inbox.restore_alerts'),
                   )
                 else ...[
-                  const PopupMenuItem(value: 'mute', child: Text('Mute 8h')),
+                  const PopupMenuItem(
+                    value: 'mute',
+                    child: AppText('s4.lib.messaging_inbox.mute_8h'),
+                  ),
                   const PopupMenuItem(
                     value: 'urgent-only',
-                    child: Text('Urgent only'),
+                    child: AppText('s4.lib.messaging_inbox.urgent_only'),
                   ),
                 ],
               ],
@@ -1133,9 +1147,11 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                       Expanded(
                         child: TextField(
                           controller: _subjectController,
-                          decoration: const InputDecoration(
-                            labelText: 'Subject',
-                            prefixIcon: Icon(Icons.subject),
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.messaging_inbox.subject'),
+                            prefixIcon: const Icon(Icons.subject),
                           ),
                         ),
                       ),
@@ -1144,21 +1160,23 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                         width: 150,
                         child: DropdownButtonFormField<String>(
                           initialValue: _priority,
-                          decoration: const InputDecoration(
-                            labelText: 'Priority',
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(
+                              context,
+                            ).lookup('clinical_inbox.priority'),
                           ),
                           items: const [
                             DropdownMenuItem(
                               value: 'normal',
-                              child: Text('Normal'),
+                              child: AppText('priority.normal'),
                             ),
                             DropdownMenuItem(
                               value: 'urgent',
-                              child: Text('Urgent'),
+                              child: AppText('priority.urgent'),
                             ),
                             DropdownMenuItem(
                               value: 'critical',
-                              child: Text('Critical'),
+                              child: AppText('clinical_inbox.group.critical'),
                             ),
                           ],
                           onChanged: (value) =>
@@ -1185,9 +1203,11 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                   if (_mode == 'department')
                     DropdownButtonFormField<String>(
                       initialValue: _department,
-                      decoration: const InputDecoration(
-                        labelText: 'Department',
-                        prefixIcon: Icon(Icons.groups_outlined),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('profile.field.department'),
+                        prefixIcon: const Icon(Icons.groups_outlined),
                       ),
                       items: (_canAll ? _departments : [_viewerDepartment])
                           .where((d) => d.isNotEmpty)
@@ -1205,16 +1225,22 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                   else if (_mode != 'all') ...[
                     TextField(
                       controller: _searchController,
-                      decoration: const InputDecoration(
-                        labelText: 'Search staff',
-                        prefixIcon: Icon(Icons.search),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.messaging_inbox.search_staff'),
+                        prefixIcon: const Icon(Icons.search),
                       ),
                       onChanged: (value) => setState(() => _search = value),
                     ),
                     const SizedBox(height: 8),
                     Expanded(
                       child: _filteredTargets.isEmpty
-                          ? const Center(child: Text('No matching staff'))
+                          ? const Center(
+                              child: AppText(
+                                's4.lib.messaging_inbox.no_matching_staff',
+                              ),
+                            )
                           : ListView.builder(
                               itemCount: _filteredTargets.length,
                               itemBuilder: (context, index) {
@@ -1239,8 +1265,8 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                   ] else
                     Expanded(
                       child: Center(
-                        child: Text(
-                          'This will send one saved message to every active staff member.',
+                        child: AppText(
+                          's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.outline,

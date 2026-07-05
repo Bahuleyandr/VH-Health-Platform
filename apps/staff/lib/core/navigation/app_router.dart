@@ -1138,10 +1138,13 @@ final GoRouter appRouter = GoRouter(
         children: [
           const Icon(Icons.error_outline, size: 48, color: Colors.red),
           const SizedBox(height: 16),
-          Text('Page not found: ${state.matchedLocation}'),
+          AppText(
+            's4.dynamic.app_router.page_not_found',
+            values: {'route': state.matchedLocation},
+          ),
           TextButton(
             onPressed: () => context.go('/dashboard'),
-            child: const Text('Go Home'),
+            child: const AppText('s4.lib.app_router.go_home'),
           ),
         ],
       ),

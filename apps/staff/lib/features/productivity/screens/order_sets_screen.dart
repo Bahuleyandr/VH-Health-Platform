@@ -156,16 +156,18 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Order Sets')),
+      appBar: AppBar(title: const AppText('s4.lib.order_sets.order_sets')),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Search (pneumonia, sepsis, …)',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.order_sets.search_pneumonia_sepsis'),
+                prefixIcon: const Icon(Icons.search),
+                border: const OutlineInputBorder(),
                 isDense: true,
               ),
               onSubmitted: (v) {
@@ -185,7 +187,9 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
                     ),
                   )
                 : _sets.isEmpty
-                ? const Center(child: Text('No order sets'))
+                ? const Center(
+                    child: AppText('s4.lib.order_sets.no_order_sets'),
+                  )
                 : RefreshIndicator(
                     onRefresh: _fetch,
                     child: ListView.separated(
@@ -514,10 +518,16 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
                         ),
                       ),
                       if (it.kind == 'med' && it.payload['route'] != null)
-                        Text('via ${it.payload['route']}'),
+                        AppText(
+                          's4.dynamic.order_sets.via_route',
+                          values: {'route': it.payload['route']},
+                        ),
                       if (it.kind == 'med' &&
                           it.payload['duration_days'] != null)
-                        Text('× ${it.payload['duration_days']}d'),
+                        AppText(
+                          's4.dynamic.order_sets.duration_days',
+                          values: {'days': it.payload['duration_days']},
+                        ),
                     ],
                   ),
                 );

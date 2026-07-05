@@ -9,6 +9,7 @@ import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../op_ai_assist_availability.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class OpAiAssistScreen extends StatefulWidget {
   const OpAiAssistScreen({super.key, this.initialAppointmentId});
@@ -364,7 +365,7 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Close',
+                        tooltip: AppStrings.of(context).lookup('action.close'),
                         onPressed: () => Navigator.pop(sheetContext),
                         icon: const Icon(Icons.close),
                       ),
@@ -401,7 +402,9 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
                           context.push('/clinical-ai/queue');
                         },
                         icon: const Icon(Icons.fact_check_outlined, size: 16),
-                        label: const Text('Review queue'),
+                        label: const AppText(
+                          's4.lib.op_ai_assist.review_queue',
+                        ),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(0, 40),
                         ),
@@ -417,7 +420,9 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
                             );
                           },
                           icon: const Icon(Icons.open_in_new, size: 16),
-                          label: const Text('Open draft'),
+                          label: const AppText(
+                            's4.lib.op_ai_assist.open_draft',
+                          ),
                         ),
                     ],
                   ),
@@ -436,7 +441,9 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
       title: 'OP AI Assist',
       actions: [
         IconButton(
-          tooltip: 'Refresh services',
+          tooltip: AppStrings.of(
+            context,
+          ).lookup('s4.lib.op_ai_assist.refresh_services'),
           onPressed: _loadingModules ? null : _loadModules,
           icon: const Icon(Icons.refresh),
         ),
@@ -755,8 +762,8 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
           ? () => context.push('/clinical-ai/voice-notes')
           : null,
       submitLabel: 'Open voice notes',
-      child: Text(
-        'Completed transcripts can be converted into SOAP drafts for clinician review.',
+      child: AppText(
+        's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap',
         style: TextStyle(color: AppTheme.textSecondary),
       ),
     );
@@ -1095,8 +1102,8 @@ class _AccessRestrictedPanel extends StatelessWidget {
                 const Icon(Icons.lock_outline, color: AppTheme.primaryBlue),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'OP Doctor Assist unavailable',
+                  child: AppText(
+                    's4.lib.op_ai_assist.op_doctor_assist_unavailable',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -1117,7 +1124,7 @@ class _AccessRestrictedPanel extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: () => context.push('/clinical-ai/queue'),
                   icon: const Icon(Icons.fact_check_outlined, size: 16),
-                  label: const Text('Review queue'),
+                  label: const AppText('s4.lib.op_ai_assist.review_queue'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 40),
                   ),
@@ -1125,7 +1132,7 @@ class _AccessRestrictedPanel extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: () => context.go('/dashboard'),
                   icon: const Icon(Icons.dashboard_outlined, size: 16),
-                  label: const Text('Dashboard'),
+                  label: const AppText('s4.lib.op_ai_assist.dashboard'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 40),
                   ),
@@ -1164,7 +1171,7 @@ class _ErrorState extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Retry'),
+              label: const AppText('action.retry'),
             ),
           ],
         ),

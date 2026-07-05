@@ -604,13 +604,15 @@ class _OverrideSectionState extends State<_OverrideSection> {
           const SizedBox(height: 12),
           // ── Step 1: structured category ──
           DropdownButtonFormField<_MarOverrideCategory>(
-            decoration: const InputDecoration(
-              labelText: 'Override category *',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: AppStrings.of(
+                context,
+              ).lookup('s4.lib.cds_blocker_modal.override_category'),
+              border: const OutlineInputBorder(),
               isDense: true,
             ),
             initialValue: _category,
-            hint: const Text('Select a category'),
+            hint: const AppText('s4.lib.mar_scan.select_a_category'),
             items: _MarOverrideCategory.values
                 .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
                 .toList(),
@@ -622,8 +624,12 @@ class _OverrideSectionState extends State<_OverrideSection> {
             controller: _justification,
             maxLines: 3,
             decoration: InputDecoration(
-              labelText: 'Clinical justification *',
-              hintText: 'Min 15 characters — describe the specific situation',
+              labelText: AppStrings.of(
+                context,
+              ).lookup('s4.lib.cds_blocker_modal.clinical_justification'),
+              hintText: AppStrings.of(context).lookup(
+                's4.lib.mar_scan.min_15_characters_describe_the_specific_situatio',
+              ),
               border: const OutlineInputBorder(),
               // Live validation indicator
               suffixIcon: _justification.text.isEmpty

@@ -371,8 +371,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Vitals',
+          const AppText(
+            'dashboard.action.vitals',
             style: TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 14,
@@ -557,7 +557,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                                 onPressed: () =>
                                     _showProgressNoteForm(existingNote: note),
                                 icon: const Icon(Icons.edit_outlined, size: 18),
-                                label: const Text('Edit'),
+                                label: const AppText('action.edit'),
                               ),
                             TextButton.icon(
                               onPressed: () => _signNoteAction(noteId),
@@ -768,7 +768,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                             _showProgressNoteForm(existingNote: note);
                           },
                           icon: const Icon(Icons.edit_outlined),
-                          label: const Text('Edit consultation note'),
+                          label: const AppText(
+                            's4.lib.clinical_notes.edit_consultation_note',
+                          ),
                         ),
                       if (_isOpConsultation)
                         FilledButton.icon(
@@ -777,7 +779,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                             _openPrescriptionFromNote(note);
                           },
                           icon: const Icon(Icons.medication_outlined),
-                          label: const Text('Prescription'),
+                          label: const AppText('prescriptions.created_prefix'),
                         ),
                     ],
                   ),
@@ -1045,8 +1047,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text(
-                'This OP consultation note is signed or no longer editable.',
+              content: AppText(
+                's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer',
               ),
               backgroundColor: AppTheme.warningAmber,
             ),
@@ -1213,8 +1215,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           : s.clinicalNotesNewProgress,
       formKey: formKey,
       fields: [
-        Text(
-          'Vitals',
+        AppText(
+          'dashboard.action.vitals',
           style: TextStyle(
             color: _sheetTextPrimary,
             fontWeight: FontWeight.w700,
@@ -1618,7 +1620,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                             OutlinedButton.icon(
                               onPressed: () => onSubmit(openPrescription: true),
                               icon: const Icon(Icons.biotech_outlined),
-                              label: const Text('Save & investigations'),
+                              label: const AppText(
+                                's4.lib.clinical_notes.save_and_investigations',
+                              ),
                             ),
                           FilledButton.icon(
                             onPressed: () => onSubmit(openPrescription: false),

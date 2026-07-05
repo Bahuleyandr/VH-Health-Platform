@@ -82,6 +82,16 @@ class AppStrings {
     return _byLang[lang]?[key] ?? _byLang['en']![key] ?? key;
   }
 
+  String lookup(String key) => _t(key);
+
+  String format(String key, Map<String, Object?> values) {
+    var result = _t(key);
+    for (final entry in values.entries) {
+      result = result.replaceAll('{${entry.key}}', '${entry.value}');
+    }
+    return result;
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Public string accessors. Group by screen; keep keys alphabetised
   // within a section so additions don't conflict.
@@ -5098,6 +5108,624 @@ class AppStrings {
       'reception_counter.open_front_office': 'Front Office',
       'reception_counter.open_admissions': 'Admissions',
       'reception_counter.search_tooltip': 'Search',
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.admission.admitting_doctor': "Admitting doctor",
+      's4.lib.admission_case_sheet.case_sheet_saved': "Case sheet saved",
+      's4.lib.app_router.go_home': "Go Home",
+      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
+          "Appointment queue workflows now run from the consolidated workbench.",
+      's4.lib.appointment_queue.open_front_office': "Open Front Office",
+      's4.lib.appointment_queue.opening_front_office_workbench':
+          "Opening Front Office Workbench",
+      's4.lib.appointments.any_available_doctor': "Any available doctor",
+      's4.lib.appointments.book_op': "Book OP",
+      's4.lib.appointments.clear_doctor_or_department_filter':
+          "Clear doctor or department filter",
+      's4.lib.appointments.collapse_queue_panel': "Collapse queue panel",
+      's4.lib.appointments.create_appointment': "Create Appointment",
+      's4.lib.appointments.filter_doctor_or_department':
+          "Filter doctor or department",
+      's4.lib.appointments.flex': "Flex",
+      's4.lib.appointments.gmt_5_30': "GMT+5:30",
+      's4.lib.appointments.next_month': "Next month",
+      's4.lib.appointments.no_doctor_or_department_matches':
+          "No doctor or department matches",
+      's4.lib.appointments.previous_month': "Previous month",
+      's4.lib.appointments.queue_filter': "Queue filter",
+      's4.lib.appointments.search_patient_or_phone': "Search patient or phone",
+      's4.lib.appointments.select_a_doctor_or_department':
+          "Select a doctor or department",
+      's4.lib.appointments.week': "Week",
+      's4.lib.audit_logs.action': "Action",
+      's4.lib.audit_logs.action_resource_ip_user': "Action, resource, IP, user",
+      's4.lib.audit_logs.actor_role': "Actor role",
+      's4.lib.audit_logs.all_dates': "All dates",
+      's4.lib.audit_logs.audit_logs': "Audit Logs",
+      's4.lib.audit_logs.custom': "Custom",
+      's4.lib.audit_logs.last_30_days': "Last 30 days",
+      's4.lib.audit_logs.last_7_days': "Last 7 days",
+      's4.lib.audit_logs.next_page': "Next page",
+      's4.lib.audit_logs.previous_page': "Previous page",
+      's4.lib.audit_logs.refresh_logs': "Refresh logs",
+      's4.lib.audit_logs.reset': "Reset",
+      's4.lib.audit_logs.resource': "Resource",
+      's4.lib.billing_desk.billing_desk': "Billing Desk",
+      's4.lib.billing_desk.draft_invoice_created': "Draft invoice created",
+      's4.lib.billing_desk.draft_op': "Draft OP",
+      's4.lib.billing_desk.invoice_issued': "Invoice issued",
+      's4.lib.billing_desk.issue': "Issue",
+      's4.lib.billing_desk.payment_collected': "Payment collected",
+      's4.lib.billing_desk.print_receipt': "Print receipt",
+      's4.lib.billing_desk.print_tax_invoice': "Print tax invoice",
+      's4.lib.blood_bank.bedside_verification_recorded':
+          "Bedside verification recorded",
+      's4.lib.blood_bank.first_verifier': "First verifier",
+      's4.lib.blood_bank.no_issued_units_awaiting_bedside_verification':
+          "No issued units awaiting bedside verification",
+      's4.lib.blood_bank.second_verifier': "Second verifier",
+      's4.lib.blood_bank.transfusions': "Transfusions",
+      's4.lib.break_tracker.breaks': "Breaks",
+      's4.lib.break_tracker.ongoing': " (ongoing)",
+      's4.lib.calculators.clinical_calculators': "Clinical Calculators",
+      's4.lib.calculators.result': "Result",
+      's4.lib.cath_lab.cath_lab': "Cath Lab",
+      's4.lib.cath_lab.readiness': "Readiness",
+      's4.lib.cds_blocker_modal.clinical_justification':
+          "Clinical justification *",
+      's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
+          "e.g. Dr. Sharma — EMP-1042",
+      's4.lib.cds_blocker_modal.enter_the_supervising_clinician_name_or_staff_id':
+          "Enter the supervising clinician name or staff ID",
+      's4.lib.cds_blocker_modal.min_15_characters_describe_the_specific_rational':
+          "Min 15 characters — describe the specific rationale",
+      's4.lib.cds_blocker_modal.override_category': "Override category *",
+      's4.lib.cds_blocker_modal.select_a_reason_category':
+          "Select a reason category",
+      's4.lib.cds_blocker_modal.severe_allergy_conflict_a_supervising_clinician':
+          "SEVERE allergy conflict: a supervising clinician ",
+      's4.lib.cds_blocker_modal.supervising_clinician_name_staff_id':
+          "Supervising clinician name / staff ID *",
+      's4.lib.clinical_ai_review_queue.op_ai_assist': "OP AI Assist",
+      's4.lib.clinical_notes.edit_consultation_note': "Edit consultation note",
+      's4.lib.clinical_notes.save_and_investigations': "Save & investigations",
+      's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
+          "This OP consultation note is signed or no longer editable.",
+      's4.lib.clinical_print_pdf_action.print_share_pdf': "Print / Share PDF",
+      's4.lib.coded_diagnosis_picker.search_icd_11': "Search ICD-11",
+      's4.lib.composition_alternatives_panel.composition_alternatives':
+          "Composition alternatives",
+      's4.lib.composition_alternatives_panel.swap': "Swap",
+      's4.lib.desktop_scroll_controls.scroll_back': "Scroll back",
+      's4.lib.desktop_scroll_controls.scroll_down': "Scroll down",
+      's4.lib.desktop_scroll_controls.scroll_forward': "Scroll forward",
+      's4.lib.desktop_scroll_controls.scroll_up': "Scroll up",
+      's4.lib.discharge_hub.advice_given_handover_completed_bill_cleared':
+          "Advice given, handover completed, bill cleared...",
+      's4.lib.discharge_hub.ai_discharge_package_started':
+          "AI discharge package started",
+      's4.lib.discharge_hub.completion_note': "Completion note",
+      's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
+          "Creates the reviewed discharge package from medication reconciliation, aftercare, readiness, and coding modules. It is draft-only until a doctor reviews and signs.",
+      's4.lib.discharge_hub.finish': "Finish",
+      's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
+          "Finishing this also requires discharge drugs dispensed.",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.discharge_hub.work_item': "work item",
+      's4.lib.discharge_hub.generate_ai_package': "Generate AI package",
+      's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
+          "No safety flags are attached to this summary.",
+      's4.lib.discharge_hub.signature_details': "Signature details",
+      's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
+          "Start discharge to open dietary, counselling, pharmacy, physiotherapy, and billing tasks.",
+      's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
+          "This discharge summary still needs doctor sign-off.",
+      's4.lib.discharge_hub_list.no_active_discharge_work':
+          "No active discharge work",
+      's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
+          "Patients appear here after discharge is initiated and stay until final discharge is complete.",
+      's4.lib.discharge_summary.correct_summary': "Correct summary",
+      's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
+          "This summary has not been signed yet.",
+      's4.lib.drug_chart.active_until_stopped': "Active until stopped",
+      's4.lib.drug_chart.inpatient_drug_chart': "Inpatient Drug Chart",
+      's4.lib.drug_chart.starts_today': "Starts today",
+      's4.lib.duty_preference.duty_request': "Duty Request",
+      's4.lib.duty_preference.duty_request_submitted': "Duty request submitted",
+      's4.lib.duty_preference.my_requests': "My requests",
+      's4.lib.duty_preference.no_duty_requests_yet': "No duty requests yet",
+      's4.lib.duty_preference.request_preferred_duty': "Request preferred duty",
+      's4.lib.duty_preference.submit_request': "Submit request",
+      's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
+          "A similar patient already exists. Select the existing patient or create a separate new record only if this is truly different.",
+      's4.lib.front_office_workbench.admit_ip': "Admit IP",
+      's4.lib.front_office_workbench.advice_row_has_no_patient_details':
+          "Advice row has no patient details.",
+      's4.lib.front_office_workbench.any_doctor': "Any doctor",
+      's4.lib.front_office_workbench.appointment_id_is_missing':
+          "Appointment ID is missing.",
+      's4.lib.front_office_workbench.assign_ward_bed': "Assign ward/bed",
+      's4.lib.front_office_workbench.billing_deposit': "Billing deposit",
+      's4.lib.front_office_workbench.birth_date': "Birth date",
+      's4.lib.front_office_workbench.book_op_appointment':
+          "Book OP Appointment",
+      's4.lib.front_office_workbench.cancel_appointment': "Cancel appointment",
+      's4.lib.front_office_workbench.cancellation_reason':
+          "Cancellation reason",
+      's4.lib.front_office_workbench.cash': "Cash",
+      's4.lib.front_office_workbench.complete_appointment':
+          "Complete appointment",
+      's4.lib.front_office_workbench.consulting_doctor': "Consulting doctor",
+      's4.lib.front_office_workbench.corporate': "Corporate",
+      's4.lib.front_office_workbench.counter_intake_notes':
+          "Counter intake notes",
+      's4.lib.front_office_workbench.create_ip': "Create IP",
+      's4.lib.front_office_workbench.create_ip_admission':
+          "Create IP Admission",
+      's4.lib.front_office_workbench.create_new_patient': "Create New Patient",
+      's4.lib.front_office_workbench.create_separate_record':
+          "Create separate record",
+      's4.lib.front_office_workbench.current_medicines': "Current medicines",
+      's4.lib.front_office_workbench.department_counter':
+          "Department / counter",
+      's4.lib.front_office_workbench.draft_bill': "Draft Bill",
+      's4.lib.front_office_workbench.draft_op_invoice_created':
+          "Draft OP invoice created",
+      's4.lib.front_office_workbench.edit_patient': "Edit patient",
+      's4.lib.front_office_workbench.emergency_admissions_can_proceed_without_a_bed_r':
+          "Emergency admissions can proceed without a bed; routine admissions require a selected bed.",
+      's4.lib.front_office_workbench.enter_at_least_10_digits_to_search_or_create_by':
+          "Enter at least 10 digits to search or create by phone.",
+      's4.lib.front_office_workbench.follow_up': "Follow-up",
+      's4.lib.front_office_workbench.front_office_workbench':
+          "Front Office Workbench",
+      's4.lib.front_office_workbench.govt_scheme': "Govt scheme",
+      's4.lib.front_office_workbench.insurance': "Insurance",
+      's4.lib.front_office_workbench.insurer_tpa': "Insurer / TPA",
+      's4.lib.front_office_workbench.ip_admission_is_not_enabled_for_this_role':
+          "IP admission is not enabled for this role.",
+      's4.lib.front_office_workbench.keep_appointment': "Keep appointment",
+      's4.lib.front_office_workbench.known_allergies': "Known allergies",
+      's4.lib.front_office_workbench.lab_only': "Lab only",
+      's4.lib.front_office_workbench.lab_only_visit': "Lab-only visit",
+      's4.lib.front_office_workbench.medico_legal_case': "Medico-legal case",
+      's4.lib.front_office_workbench.mlc_notes': "MLC notes",
+      's4.lib.front_office_workbench.mlc_number': "MLC number",
+      's4.lib.front_office_workbench.new_consultation': "New consultation",
+      's4.lib.front_office_workbench.new_patient': "New Patient",
+      's4.lib.front_office_workbench.op_appointment_booked':
+          "OP appointment booked",
+      's4.lib.front_office_workbench.op_booking_is_not_enabled_for_this_role':
+          "OP booking is not enabled for this role.",
+      's4.lib.front_office_workbench.opd_ipd_handoff': "OPD -> IPD Handoff",
+      's4.lib.front_office_workbench.opd_to_ipd_advice': "OPD to IPD advice",
+      's4.lib.front_office_workbench.optional_if_department_is_selected':
+          "Optional if department is selected",
+      's4.lib.front_office_workbench.paediatric_opd': "Paediatric OPD",
+      's4.lib.front_office_workbench.payment_category': "Payment category",
+      's4.lib.front_office_workbench.policy_number': "Policy number",
+      's4.lib.front_office_workbench.possible_existing_patient':
+          "Possible existing patient",
+      's4.lib.front_office_workbench.queue_row_has_no_patient_details':
+          "Queue row has no patient details.",
+      's4.lib.front_office_workbench.reschedule': "Reschedule",
+      's4.lib.front_office_workbench.reschedule_appointment':
+          "Reschedule appointment",
+      's4.lib.front_office_workbench.reschedule_note': "Reschedule note",
+      's4.lib.front_office_workbench.scheme_name': "Scheme name",
+      's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
+          "Select a patient before admitting IP.",
+      's4.lib.front_office_workbench.select_a_patient_before_billing':
+          "Select a patient before billing.",
+      's4.lib.front_office_workbench.select_a_patient_before_booking_op':
+          "Select a patient before booking OP.",
+      's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
+          "Select a patient before registering a walk-in.",
+      's4.lib.front_office_workbench.teleconsult': "Teleconsult",
+      's4.lib.front_office_workbench.tpa': "TPA",
+      's4.lib.front_office_workbench.view_advice': "View advice",
+      's4.lib.front_office_workbench.visit_notes_optional':
+          "Visit notes (optional)",
+      's4.lib.front_office_workbench.visit_reason_chief_complaint':
+          "Visit reason / chief complaint",
+      's4.lib.front_office_workbench.visit_type': "Visit type",
+      's4.lib.front_office_workbench.walk_in_registration_is_not_enabled_for_this_rol':
+          "Walk-in registration is not enabled for this role.",
+      's4.lib.front_office_workbench.yyyy_mm_dd': "YYYY-MM-DD",
+      's4.lib.housekeeping_command.delegate_staff': "Delegate staff",
+      's4.lib.housekeeping_command.end': "End",
+      's4.lib.housekeeping_command.end_assignment': "End assignment?",
+      's4.lib.housekeeping_command.floor_or_zone': "Floor or zone",
+      's4.lib.housekeeping_command.housekeeping_command':
+          "Housekeeping Command",
+      's4.lib.housekeeping_command.housekeeping_staff_delegated':
+          "Housekeeping staff delegated",
+      's4.lib.housekeeping_command.move_open_requests_in_this_zone':
+          "Move open requests in this zone",
+      's4.lib.housekeeping_command.redeploy_staff': "Redeploy staff",
+      's4.lib.housekeeping_command.staff_member': "Staff member",
+      's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another':
+          "Useful when one floor has more work than another.",
+      's4.lib.housekeeping_roster_board.07_30': "07:30",
+      's4.lib.housekeeping_roster_board.12_30': "12:30",
+      's4.lib.housekeeping_roster_board.accept_for_planning':
+          "Accept for planning",
+      's4.lib.housekeeping_roster_board.add_custom_shift': "Add custom shift",
+      's4.lib.housekeeping_roster_board.add_staff': "Add staff",
+      's4.lib.housekeeping_roster_board.ai_rules_roster_forecast':
+          "AI/rules roster forecast",
+      's4.lib.housekeeping_roster_board.approve': "Approve",
+      's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve':
+          "Assign each ward, unit, or floor under Morning, Evening, Night, or a custom shift.",
+      's4.lib.housekeeping_roster_board.copy_day_to_week': "Copy day to week",
+      's4.lib.housekeeping_roster_board.copy_previous_day': "Copy previous day",
+      's4.lib.housekeeping_roster_board.discard_forecast': "Discard forecast",
+      's4.lib.housekeeping_roster_board.duty_requests': "Duty requests",
+      's4.lib.housekeeping_roster_board.generate_12_week_forecast':
+          "Generate 12-week forecast",
+      's4.lib.housekeeping_roster_board.leave_and_alternate_cover':
+          "Leave and alternate cover",
+      's4.lib.housekeeping_roster_board.off_unassigned': "Off / Unassigned",
+      's4.lib.housekeeping_roster_board.publish_roster': "Publish roster",
+      's4.lib.housekeeping_roster_board.save_draft': "Save draft",
+      's4.lib.housekeeping_roster_board.unassigned': "Unassigned",
+      's4.lib.housekeeping_roster_board.ward_unit': "Ward / Unit",
+      's4.lib.hr_dashboard.no_staff_records_loaded_yet':
+          "No staff records loaded yet.",
+      's4.lib.hr_dashboard.open_onboarding': "Open onboarding",
+      's4.lib.hr_dashboard.roster': "Roster",
+      's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
+          "Seeded and onboarded staff currently visible to HR",
+      's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
+          "Use onboarding to add the first staff account.",
+      's4.lib.investigations.cbc_x_ray_chest_ecg': "CBC, X-Ray chest, ECG...",
+      's4.lib.investigations.clinical_notes_optional':
+          "Clinical notes (optional)",
+      's4.lib.investigations.continue_to_prescription':
+          "Continue to prescription",
+      's4.lib.investigations.investigation_ordered': "Investigation ordered",
+      's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
+          "Result has been marked ready, but no structured summary is attached yet.",
+      's4.lib.investigations.test_name': "Test name",
+      's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
+          "Book and track OP/IP lab requests",
+      's4.lib.lab_bookings.cbc_rft_urine_routine': "CBC, RFT, urine routine...",
+      's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
+          "Enter test names or attach a prescription",
+      's4.lib.lab_bookings.new_lab_booking': "New Lab Booking",
+      's4.lib.lab_bookings.tests': "Tests",
+      's4.lib.lab_bookings.upload': "Upload",
+      's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
+          "Used if this phone is not registered yet",
+      's4.lib.lab_bookings.visit_lab': "Visit lab",
+      's4.lib.leave_approvals.optional_note_for_audit':
+          "Optional note for audit",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.leave_approved': "Leave approved",
+      's4.lib.leave_approvals.leave_rejected': "Leave rejected",
+      's4.lib.main_scaffold.pending_clinical_tasks': "pending clinical tasks",
+      's4.lib.main_scaffold.unread_alerts': "unread alerts",
+      's4.lib.mar_scan.min_15_characters_describe_the_specific_situatio':
+          "Min 15 characters — describe the specific situation",
+      's4.lib.mar_scan.select_a_category': "Select a category",
+      's4.lib.messaging_inbox.admin_log': "Admin log",
+      's4.lib.messaging_inbox.archive': "Archive",
+      's4.lib.messaging_inbox.conversation_actions': "Conversation actions",
+      's4.lib.messaging_inbox.mark_unread': "Mark unread",
+      's4.lib.messaging_inbox.mute_8h': "Mute 8h",
+      's4.lib.messaging_inbox.no_matching_staff': "No matching staff",
+      's4.lib.messaging_inbox.restore': "Restore",
+      's4.lib.messaging_inbox.restore_alerts': "Restore alerts",
+      's4.lib.messaging_inbox.search_conversations': "Search conversations",
+      's4.lib.messaging_inbox.search_staff': "Search staff",
+      's4.lib.messaging_inbox.subject': "Subject",
+      's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
+          "This will send one saved message to every active staff member.",
+      's4.lib.messaging_inbox.urgent_only': "Urgent only",
+      's4.lib.messaging_thread.attach_file': "Attach file",
+      's4.lib.messaging_thread.copy': "Copy",
+      's4.lib.messaging_thread.copy_clinical_message': "Copy clinical message?",
+      's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
+          "Message copied — clipboard clears in 60 s",
+      's4.lib.messaging_thread.reply_in_this_conversation':
+          "Reply in this conversation",
+      's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
+          "Send a first message before attaching a file.",
+      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
+          "This message may contain patient-sensitive information. ",
+      's4.lib.notifications.refresh_alerts': "Refresh alerts",
+      's4.lib.nursing_notes.all_notes': "All Notes",
+      's4.lib.nursing_notes.draft_discarded': "Draft discarded",
+      's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
+          "Open this screen from the bed board to see all notes for a patient.",
+      's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
+          "Completed transcripts can be converted into SOAP drafts for clinician review.",
+      's4.lib.op_ai_assist.dashboard': "Dashboard",
+      's4.lib.op_ai_assist.op_doctor_assist_unavailable':
+          "OP Doctor Assist unavailable",
+      's4.lib.op_ai_assist.open_draft': "Open draft",
+      's4.lib.op_ai_assist.refresh_services': "Refresh services",
+      's4.lib.op_ai_assist.review_queue': "Review queue",
+      's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
+          "No clinical timeline entries yet",
+      's4.lib.op_doctor_workspace.open_full': "Open full",
+      's4.lib.op_doctor_workspace.save_note': "Save note",
+      's4.lib.op_doctor_workspace.save_then_investigations':
+          "Save, then investigations",
+      's4.lib.op_doctor_workspace.sign_note': "Sign note",
+      's4.lib.order_sets.no_order_sets': "No order sets",
+      's4.lib.order_sets.order_sets': "Order Sets",
+      's4.lib.order_sets.search_pneumonia_sepsis':
+          "Search (pneumonia, sepsis, …)",
+      's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
+          "Central hierarchy and role map",
+      's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
+          "No registered staff found under this role.",
+      's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
+          "No registered staff under this role yet",
+      's4.lib.partograph_chart.cervical_dilation_cm_vs_hours_in_active_phase':
+          "Cervical dilation (cm) vs hours in active phase",
+      's4.lib.patient_command_board.achieve': "Achieve",
+      's4.lib.patient_command_board.care_plan_updated': "Care plan updated",
+      's4.lib.patient_command_board.care_plans': "Care plans",
+      's4.lib.patient_command_board.no_activities_recorded':
+          "No activities recorded.",
+      's4.lib.patient_command_board.no_goals_recorded': "No goals recorded.",
+      's4.lib.patient_command_board.patient_command_board':
+          "Patient Command Board",
+      's4.lib.patient_command_board.ward_area': "Ward / area",
+      's4.lib.patient_context_chip.clear_patient_context':
+          "Clear patient context",
+      's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
+          "Canonical timeline of notes, prescriptions, investigations, vitals, and patient-generated wellness data.",
+      's4.lib.patient_health_journey_panel.clinical_events_and_patient_app_activity_will_ap':
+          "Clinical events and patient-app activity will appear here once available.",
+      's4.lib.patient_health_journey_panel.no_timeline_data_yet':
+          "No timeline data yet",
+      's4.lib.patient_health_journey_panel.patient_health_journey':
+          "Patient health journey",
+      's4.lib.patient_notes_list.admin_edit': "Admin edit",
+      's4.lib.patient_notes_list.admin_edit_prior_note':
+          "Admin: edit prior note",
+      's4.lib.patient_notes_list.failed_to_load_notes': "Failed to load notes",
+      's4.lib.patient_notes_list.no_notes_to_show': "No notes to show",
+      's4.lib.patient_notes_list.note_updated': "Note updated",
+      's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
+          "Overwrites the original prose. The note's author, role, and creation time are preserved.",
+      's4.lib.patient_records.ai_assisted_record_review':
+          "AI-assisted record review",
+      's4.lib.patient_records.attach_at_least_one_file_or_photo':
+          "Attach at least one file or photo",
+      's4.lib.patient_records.check': "Check",
+      's4.lib.patient_records.current_admission_notes':
+          "Current Admission Notes",
+      's4.lib.patient_records.discharge_summary': "Discharge summary",
+      's4.lib.patient_records.document_link_unavailable':
+          "Document link unavailable",
+      's4.lib.patient_records.document_type': "Document type",
+      's4.lib.patient_records.draft_not_imported_to_chart':
+          "Draft, not imported to chart",
+      's4.lib.patient_records.extraction_review_saved':
+          "Extraction review saved",
+      's4.lib.patient_records.lab_report': "Lab report",
+      's4.lib.patient_records.needs_revision': "Needs Revision",
+      's4.lib.patient_records.no_clear_text_extracted':
+          "No clear text extracted",
+      's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
+          "No notes recorded for this admission yet.",
+      's4.lib.patient_records.old_discharge_summary_prior_scan':
+          "Old discharge summary, prior scan...",
+      's4.lib.patient_records.open': "Open",
+      's4.lib.patient_records.open_notes': "Open Notes",
+      's4.lib.patient_records.patient_record_uploaded':
+          "Patient record uploaded",
+      's4.lib.patient_records.prior_record': "Prior record",
+      's4.lib.patient_records.prior_records': "Prior Records",
+      's4.lib.patient_records.record_title': "Record title",
+      's4.lib.patient_records.remove_file': "Remove file",
+      's4.lib.patient_records.review_note': "Review note",
+      's4.lib.patient_records.source_hospital': "Source hospital",
+      's4.lib.patient_records.upload_prior_record': "Upload Prior Record",
+      's4.lib.patient_records.upload_prior_record_2': "Upload prior record",
+      's4.lib.patient_search_action.find_patient': "Find patient",
+      's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
+          "Find a patient by Hospital ID, name, phone, or ABHA…",
+      's4.lib.patient_timeline.current_ip_medication_order':
+          "Current IP medication order",
+      's4.lib.patient_timeline.event_log': "Event log",
+      's4.lib.patient_timeline.health_journey': "Health journey",
+      's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
+          "Read-only on phone. Clinical entries must be completed on Staff Desktop.",
+      's4.lib.pharmacy.10_digit_mobile_number': "10-digit mobile number",
+      's4.lib.pharmacy.10_tablets_strip': "10 tablets / strip",
+      's4.lib.pharmacy.650_mg': "650 mg",
+      's4.lib.pharmacy.add_inventory_item': "Add Inventory Item",
+      's4.lib.pharmacy.add_item': "Add Item",
+      's4.lib.pharmacy.available_in_formulary': "Available in formulary",
+      's4.lib.pharmacy.brand_name': "Brand name",
+      's4.lib.pharmacy.cold_chain_item': "Cold-chain item",
+      's4.lib.pharmacy.controlled_narcotic_item': "Controlled / narcotic item",
+      's4.lib.pharmacy.create_pharmacy_order': "Create Pharmacy Order",
+      's4.lib.pharmacy.display_name': "Display name",
+      's4.lib.pharmacy.drug_generic_or_strength': "Drug, generic, or strength",
+      's4.lib.pharmacy.drug_name_with_strength': "Drug name with strength",
+      's4.lib.pharmacy.edit_formulary_drug': "Edit formulary drug",
+      's4.lib.pharmacy.expiry_alerts': "Expiry alerts",
+      's4.lib.pharmacy.form': "Form",
+      's4.lib.pharmacy.generic_name': "Generic name",
+      's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase_oversight':
+          "Inventory & Purchase Oversight",
+      's4.lib.pharmacy.inventory_items': "Inventory items",
+      's4.lib.pharmacy.manufacturer': "Manufacturer",
+      's4.lib.pharmacy.mark_urgent': "Mark urgent",
+      's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
+          "Medicine names, dose, quantity, or Rx note",
+      's4.lib.pharmacy.no_formulary_drugs_found': "No formulary drugs found",
+      's4.lib.pharmacy.no_inventory_items_found': "No inventory items found",
+      's4.lib.pharmacy.none': "None",
+      's4.lib.pharmacy.order_note': "Order note",
+      's4.lib.pharmacy.otc': "OTC",
+      's4.lib.pharmacy.pack_size': "Pack size",
+      's4.lib.pharmacy.pack_strength_note': "Pack / strength note",
+      's4.lib.pharmacy.para_650_tab': "PARA-650-TAB",
+      's4.lib.pharmacy.paracetamol_650_mg': "Paracetamol 650 mg",
+      's4.lib.pharmacy.paracetamol_650_mg_tablet': "Paracetamol 650 mg tablet",
+      's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
+          "Pharmacy dispensing workflow is handled by Pharmacy staff. Use Inventory for stock, expiry, and purchase oversight.",
+      's4.lib.pharmacy.prescription_required': "Prescription required",
+      's4.lib.pharmacy.remove': "Remove",
+      's4.lib.pharmacy.remove_from_formulary': "Remove from formulary?",
+      's4.lib.pharmacy.remove_from_formulary_2': "Remove from formulary",
+      's4.lib.pharmacy.reorder_level': "Reorder level",
+      's4.lib.pharmacy.reorder_quantity': "Reorder quantity",
+      's4.lib.pharmacy.run_expiry_scan': "Run Expiry Scan",
+      's4.lib.pharmacy.search_formulary': "Search formulary",
+      's4.lib.pharmacy.search_inventory': "Search inventory",
+      's4.lib.pharmacy.shared_pharmacy_formulary': "Shared Pharmacy Formulary",
+      's4.lib.pharmacy.sku_code': "SKU code",
+      's4.lib.pharmacy.sku_drug_brand_or_generic':
+          "SKU, drug, brand, or generic",
+      's4.lib.pharmacy.stock_quantity': "Stock quantity",
+      's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
+          "Stores/Purchase can maintain the drug master, stock visibility, and expiry oversight without dispensing patient medications.",
+      's4.lib.pharmacy.strength': "Strength",
+      's4.lib.pharmacy.unit_label': "Unit label",
+      's4.lib.pharmacy.unit_price': "Unit price",
+      's4.lib.pharmacy.x': "X",
+      's4.lib.phone_patient_lookup.no_matching_patient_found':
+          "No matching patient found.",
+      's4.lib.phone_patient_lookup.patient_lookup_on_phone_is_limited_to_doctor_cla':
+          "Patient lookup on phone is limited to doctor-class read-only access. Use Staff Desktop for clinical workflows.",
+      's4.lib.phone_patient_lookup.read_only_patient_lookup':
+          "Read-Only Patient Lookup",
+      's4.lib.prescriptions.add_drug': "Add Drug",
+      's4.lib.prescriptions.clear_draft': "Clear draft",
+      's4.lib.prescriptions.clear_prescription_draft':
+          "Clear prescription draft?",
+      's4.lib.prescriptions.continue': "Continue",
+      's4.lib.prescriptions.days': "Days",
+      's4.lib.prescriptions.delete_row': "Delete row",
+      's4.lib.prescriptions.drug_form': "Drug / form*",
+      's4.lib.prescriptions.notes_safety': "Notes / safety",
+      's4.lib.prescriptions.op_consultation_context': "OP consultation context",
+      's4.lib.prescriptions.open_pdf': "Open PDF",
+      's4.lib.prescriptions.prescription_pdf_is_ready':
+          "Prescription PDF is ready",
+      's4.lib.prescriptions.review_draft': "Review draft",
+      's4.lib.prescriptions.review_prescription_warnings':
+          "Review prescription warnings",
+      's4.lib.prescriptions.save_favorite': "Save favorite",
+      's4.lib.prescriptions.signed': "Signed",
+      's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
+          "The server returned non-blocking CDS warnings for this prescription.",
+      's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
+          "This removes the medicines, notes, vitals and follow-up currently on this draft. Created prescriptions are not deleted.",
+      's4.lib.prescriptions.type_drug_name': "Type drug name",
+      's4.lib.prescriptions.use_favorite': "Use favorite",
+      's4.lib.referrals.ai_assisted_clinical_summary':
+          "AI assisted clinical summary",
+      's4.lib.referrals.audit': "Audit",
+      's4.lib.referrals.clinical_summary': "Clinical summary",
+      's4.lib.referrals.consultant_name': "Consultant name",
+      's4.lib.referrals.department_specialty': "Department / specialty",
+      's4.lib.referrals.edit_and_confirm_this_draft_it_is_not_sent_until':
+          "Edit and confirm this draft. It is not sent until you press Request referral.",
+      's4.lib.referrals.incoming': "Incoming",
+      's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart':
+          "Leave consultant unselected to notify the department.",
+      's4.lib.referrals.no_referral_audit_rows': "No referral audit rows",
+      's4.lib.referrals.open_patient': "Open patient",
+      's4.lib.referrals.outgoing': "Outgoing",
+      's4.lib.referrals.reason_for_referral': "Reason for referral",
+      's4.lib.referrals.referral_audit_is_available_to_admin_superadmin':
+          "Referral audit is available to Admin/SuperAdmin roles.",
+      's4.lib.referrals.referral_clinical_summary': "Referral clinical summary",
+      's4.lib.referrals.use_summary': "Use summary",
+      's4.lib.reports_admin_queue.hr_admin_access_required':
+          "HR/Admin access required",
+      's4.lib.reports_admin_queue.internal_hr_admin_note':
+          "Internal HR/Admin note",
+      's4.lib.reports_admin_queue.no_activity_recorded': "No activity recorded",
+      's4.lib.reports_admin_queue.public_update': "Public update",
+      's4.lib.reports_admin_queue.report_update_saved': "Report update saved",
+      's4.lib.reports_admin_queue.reports_review': "Reports Review",
+      's4.lib.reports_admin_queue.save_update': "Save update",
+      's4.lib.schedule.shift_actions': "Shift actions",
+      's4.lib.smart_phrase_field.expanding': "expanding…",
+      's4.lib.specimen_scan.patient_wristband_mismatch':
+          "Patient wristband mismatch",
+      's4.lib.specimen_scan.specimen_hard_stop': "Specimen hard-stop",
+      's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "This cannot be overridden. Re-scan the correct wristband and tube.",
+      's4.lib.staff_diagnostics.no_details_returned': "No details returned.",
+      's4.lib.staff_diagnostics.refresh_diagnostics': "Refresh diagnostics",
+      's4.lib.staff_diagnostics.staff_diagnostics': "Staff Diagnostics",
+      's4.lib.staff_management.default_shift': "Default shift",
+      's4.lib.staff_management.leave_blank_to_auto_generate':
+          "Leave blank to auto-generate",
+      's4.lib.staff_management.position': "Position",
+      's4.lib.staff_management.show_department_options':
+          "Show department options",
+      's4.lib.staff_management.temporary_password': "Temporary password",
+      's4.lib.staff_phone_more.more': "More",
+      's4.lib.staff_query.it': "IT",
+      's4.lib.staff_query.my_queries': "My queries",
+      's4.lib.staff_query.no_queries_raised_yet': "No queries raised yet.",
+      's4.lib.staff_query.payroll': "Payroll",
+      's4.lib.staff_query.query_submitted': "Query submitted",
+      's4.lib.staff_query.raise_query': "Raise query",
+      's4.lib.staff_query.staff_query': "Staff Query",
+      's4.lib.staff_query.submit_query': "Submit query",
+      's4.lib.staff_roster_hub.choose_a_department_to_manage_weekly_duties_leav':
+          "Choose a department to manage weekly duties, leave blocks, requests, and roster forecast overlays.",
+      's4.lib.staff_roster_hub.department_roster_boards':
+          "Department roster boards",
+      's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
+          "No department roster board is assigned to this role.",
+      's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "This cannot be overridden. Re-scan the correct wristband and unit.",
+      's4.lib.transfusion_scan.transfusion_hard_stop': "Transfusion hard-stop",
+      's4.lib.ward_mode.built_for_ward_specific_flows':
+          "Built for ward-specific flows",
+      's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
+          "This uses the same workbench pattern as Reception Counter; the next step is patient-aware shortcuts from the bed board into notes, vitals, investigations, and drug charts.",
+      's4.lib.ward_mode.ward_workbench': "Ward workbench",
+      // REVIEW: AI first-pass S4 dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.app_router.page_not_found': "Page not found: {route}",
+      's4.dynamic.patient_notes.update_failed': "Update failed: {error}",
+      's4.dynamic.patient_records.notes_count': "{count} notes",
+      's4.dynamic.patient_records.confidence': "Confidence {confidence}",
+      's4.dynamic.admission_case_sheet.title_for_patient':
+          "Case Sheet - {patient}",
+      's4.dynamic.common.user_id': "User ID: {userId}",
+      's4.dynamic.common.signed_at': "Signed at: {signedAt}",
+      's4.dynamic.discharge_hub.ai_package_failed':
+          "AI package failed: {error}",
+      's4.dynamic.discharge_hub.finish_task_title': "Finish {label}",
+      's4.dynamic.discharge_hub.task_finished': "{label} finished",
+      's4.dynamic.discharge_hub.finish_task_failed':
+          "Could not finish task: {error}",
+      's4.dynamic.discharge_hub.title_for_patient': "Discharge Hub - {patient}",
+      's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.patient_command_board.allergies_count': "{count} allergies",
+      's4.dynamic.patient_command_board.alerts_count': "{count} alerts",
+      's4.dynamic.patient_command_board.tasks_count': "{count} tasks",
+      's4.dynamic.housekeeping.week_label': "Week {range}",
+      's4.dynamic.housekeeping.shift_name_label': "{department} shift name",
+      's4.dynamic.leave_approvals.decision_title': "{decision} leave",
+      's4.dynamic.lab_bookings.tests_prefix': "Tests: {tests}",
+      's4.dynamic.messaging.saved_to_path': "Saved to {path}",
+      's4.dynamic.pharmacy.cancel_order_confirm': "Cancel order {orderNumber}?",
+      's4.dynamic.pharmacy.formulary_count': "Formulary ({count})",
+      's4.dynamic.pharmacy.inventory_count': "Inventory ({count})",
+      's4.dynamic.order_sets.via_route': "via {route}",
+      's4.dynamic.order_sets.duration_days': "× {days}d",
+      's4.dynamic.front_office.mark_completed': "Mark {patient} as completed?",
+      's4.dynamic.reports.incidents_count': "Incidents ({count})",
+      's4.dynamic.reports.grievances_count': "Grievances ({count})",
+      's4.dynamic.duty_preference.date_label': "Date  {date}",
+      's4.dynamic.duty_preference.from_label': "From  {date}",
+      's4.dynamic.duty_preference.to_label': "To  {date}",
     },
     // ── हिन्दी (Hindi) ────────────────────────────────────────────────
     // Second-pass reviewed for register, common clinical-staff
@@ -7359,6 +7987,643 @@ class AppStrings {
       'error.restart_or_contact':
           'कृपया ऐप को पुनरारंभ करें या समर्थन से संपर्क करें।',
       'appointments.no_today': 'आज कोई अपॉइंटमेंट नहीं',
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.admission.admitting_doctor': "भर्ती कर रहे डॉक्टर",
+      's4.lib.admission_case_sheet.case_sheet_saved': "केस शीट सहेजी गई",
+      's4.lib.app_router.go_home': "घर जाओ",
+      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
+          "अपॉइंटमेंट कतार वर्कफ़्लो अब समेकित कार्यक्षेत्र से चलते हैं।",
+      's4.lib.appointment_queue.open_front_office': "फ्रंट ऑफिस खोलें",
+      's4.lib.appointment_queue.opening_front_office_workbench':
+          "फ्रंट ऑफिस कार्यक्षेत्र खोलना",
+      's4.lib.appointments.any_available_doctor': "कोई भी उपलब्ध डॉक्टर",
+      's4.lib.appointments.book_op': "बुक ओपी",
+      's4.lib.appointments.clear_doctor_or_department_filter':
+          "डॉक्टर या विभाग फ़िल्टर साफ़ करें",
+      's4.lib.appointments.collapse_queue_panel': "कतार पैनल को संक्षिप्त करें",
+      's4.lib.appointments.create_appointment': "अपॉइंटमेंट बनाएं",
+      's4.lib.appointments.filter_doctor_or_department':
+          "डॉक्टर या विभाग को फ़िल्टर करें",
+      's4.lib.appointments.flex': "मोड़ना",
+      's4.lib.appointments.gmt_5_30': "जीएमटी+5:30",
+      's4.lib.appointments.next_month': "अगले महीने",
+      's4.lib.appointments.no_doctor_or_department_matches':
+          "कोई डॉक्टर या विभाग मेल नहीं खाता",
+      's4.lib.appointments.previous_month': "पिछला महीना",
+      's4.lib.appointments.queue_filter': "कतार फ़िल्टर",
+      's4.lib.appointments.search_patient_or_phone': "मरीज़ खोजें या फ़ोन करें",
+      's4.lib.appointments.select_a_doctor_or_department':
+          "एक डॉक्टर या विभाग का चयन करें",
+      's4.lib.appointments.week': "सप्ताह",
+      's4.lib.audit_logs.action': "कार्रवाई",
+      's4.lib.audit_logs.action_resource_ip_user':
+          "क्रिया, संसाधन, आईपी, उपयोगकर्ता",
+      's4.lib.audit_logs.actor_role': "अभिनेता की भूमिका",
+      's4.lib.audit_logs.all_dates': "सभी तिथियाँ",
+      's4.lib.audit_logs.audit_logs': "ऑडिट लॉग",
+      's4.lib.audit_logs.custom': "रिवाज़",
+      's4.lib.audit_logs.last_30_days': "पिछले 30 दिन",
+      's4.lib.audit_logs.last_7_days': "पिछले 7 दिन",
+      's4.lib.audit_logs.next_page': "अगला पृष्ठ",
+      's4.lib.audit_logs.previous_page': "पिछला पृष्ठ",
+      's4.lib.audit_logs.refresh_logs': "लॉग ताज़ा करें",
+      's4.lib.audit_logs.reset': "रीसेट करें",
+      's4.lib.audit_logs.resource': "संसाधन",
+      's4.lib.billing_desk.billing_desk': "बिलिंग डेस्क",
+      's4.lib.billing_desk.draft_invoice_created': "ड्राफ्ट चालान बनाया गया",
+      's4.lib.billing_desk.draft_op': "ड्राफ्ट ओपी",
+      's4.lib.billing_desk.invoice_issued': "चालान जारी किया गया",
+      's4.lib.billing_desk.issue': "मुद्दा",
+      's4.lib.billing_desk.payment_collected': "भुगतान एकत्र किया गया",
+      's4.lib.billing_desk.print_receipt': "रसीद प्रिंट करें",
+      's4.lib.billing_desk.print_tax_invoice': "टैक्स चालान प्रिंट करें",
+      's4.lib.blood_bank.bedside_verification_recorded':
+          "बेडसाइड सत्यापन दर्ज किया गया",
+      's4.lib.blood_bank.first_verifier': "पहला सत्यापनकर्ता",
+      's4.lib.blood_bank.no_issued_units_awaiting_bedside_verification':
+          "कोई भी जारी इकाई बेडसाइड सत्यापन की प्रतीक्षा में नहीं है",
+      's4.lib.blood_bank.second_verifier': "दूसरा सत्यापनकर्ता",
+      's4.lib.blood_bank.transfusions': "आधान",
+      's4.lib.break_tracker.breaks': "ब्रेक",
+      's4.lib.break_tracker.ongoing': "(चल रहे)",
+      's4.lib.calculators.clinical_calculators': "क्लिनिकल कैलकुलेटर",
+      's4.lib.calculators.result': "परिणाम",
+      's4.lib.cath_lab.cath_lab': "कैथ लैब",
+      's4.lib.cath_lab.readiness': "तत्परता",
+      's4.lib.cds_blocker_modal.clinical_justification': "नैदानिक ​​औचित्य *",
+      's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
+          "जैसे डॉ. शर्मा - ईएमपी-1042",
+      's4.lib.cds_blocker_modal.enter_the_supervising_clinician_name_or_staff_id':
+          "पर्यवेक्षण करने वाले चिकित्सक का नाम या स्टाफ आईडी दर्ज करें",
+      's4.lib.cds_blocker_modal.min_15_characters_describe_the_specific_rational':
+          "न्यूनतम 15 अक्षर - विशिष्ट तर्क का वर्णन करें",
+      's4.lib.cds_blocker_modal.override_category': "ओवरराइड श्रेणी *",
+      's4.lib.cds_blocker_modal.select_a_reason_category': "कारण श्रेणी चुनें",
+      's4.lib.cds_blocker_modal.severe_allergy_conflict_a_supervising_clinician':
+          "गंभीर एलर्जी संघर्ष: एक पर्यवेक्षण चिकित्सक",
+      's4.lib.cds_blocker_modal.supervising_clinician_name_staff_id':
+          "पर्यवेक्षण चिकित्सक का नाम / स्टाफ आईडी *",
+      's4.lib.clinical_ai_review_queue.op_ai_assist': "ओपी एआई सहायता",
+      's4.lib.clinical_notes.edit_consultation_note':
+          "परामर्श नोट संपादित करें",
+      's4.lib.clinical_notes.save_and_investigations': "सहेजें और जांचें",
+      's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
+          "यह ओपी परामर्श नोट हस्ताक्षरित है या अब संपादन योग्य नहीं है।",
+      's4.lib.clinical_print_pdf_action.print_share_pdf':
+          "पीडीएफ प्रिंट/शेयर करें",
+      's4.lib.coded_diagnosis_picker.search_icd_11': "ICD-11 खोजें",
+      's4.lib.composition_alternatives_panel.composition_alternatives':
+          "रचना विकल्प",
+      's4.lib.composition_alternatives_panel.swap': "बदलना",
+      's4.lib.desktop_scroll_controls.scroll_back': "पीछे स्क्रॉल करें",
+      's4.lib.desktop_scroll_controls.scroll_down': "नीचे स्क्रॉल करें",
+      's4.lib.desktop_scroll_controls.scroll_forward': "आगे स्क्रॉल करें",
+      's4.lib.desktop_scroll_controls.scroll_up': "ऊपर स्क्रॉल करें",
+      's4.lib.discharge_hub.advice_given_handover_completed_bill_cleared':
+          "सलाह दी गई, हैंडओवर पूरा हुआ, बिल का भुगतान किया गया...",
+      's4.lib.discharge_hub.ai_discharge_package_started':
+          "एआई डिस्चार्ज पैकेज शुरू हुआ",
+      's4.lib.discharge_hub.completion_note': "समापन नोट",
+      's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
+          "दवा समाधान, देखभाल, तैयारी और कोडिंग मॉड्यूल से समीक्षा किए गए डिस्चार्ज पैकेज बनाता है। यह केवल तब तक ड्राफ्ट है जब तक कोई डॉक्टर समीक्षा और हस्ताक्षर नहीं करता।",
+      's4.lib.discharge_hub.finish': "खत्म करना",
+      's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
+          "इसे ख़त्म करने के लिए डिस्चार्ज दवाओं के वितरण की भी आवश्यकता होती है।",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.discharge_hub.work_item': "कार्य आइटम",
+      's4.lib.discharge_hub.generate_ai_package': "एआई पैकेज जेनरेट करें",
+      's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
+          "इस सारांश के साथ कोई सुरक्षा ध्वज संलग्न नहीं हैं।",
+      's4.lib.discharge_hub.signature_details': "हस्ताक्षर विवरण",
+      's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
+          "खुले आहार, परामर्श, फार्मेसी, फिजियोथेरेपी और बिलिंग कार्यों के लिए छुट्टी शुरू करें।",
+      's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
+          "इस डिस्चार्ज सारांश को अभी भी डॉक्टर के हस्ताक्षर की आवश्यकता है।",
+      's4.lib.discharge_hub_list.no_active_discharge_work':
+          "कोई सक्रिय निर्वहन कार्य नहीं",
+      's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
+          "मरीज डिस्चार्ज शुरू होने के बाद यहां आते हैं और अंतिम डिस्चार्ज पूरा होने तक यहीं रहते हैं।",
+      's4.lib.discharge_summary.correct_summary': "सही सारांश",
+      's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
+          "इस सारांश पर अभी तक हस्ताक्षर नहीं किए गए हैं.",
+      's4.lib.drug_chart.active_until_stopped': "रुकने तक सक्रिय",
+      's4.lib.drug_chart.inpatient_drug_chart': "रोगी दवा चार्ट",
+      's4.lib.drug_chart.starts_today': "आज से शुरू हो रहा है",
+      's4.lib.duty_preference.duty_request': "कर्तव्य अनुरोध",
+      's4.lib.duty_preference.duty_request_submitted':
+          "शुल्क अनुरोध प्रस्तुत किया गया",
+      's4.lib.duty_preference.my_requests': "मेरा अनुभव",
+      's4.lib.duty_preference.no_duty_requests_yet':
+          "अभी तक कोई शुल्क अनुरोध नहीं",
+      's4.lib.duty_preference.request_preferred_duty':
+          "पसंदीदा कर्तव्य का अनुरोध करें",
+      's4.lib.duty_preference.submit_request': "अनुरोध सबमिट करें",
+      's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
+          "ऐसा ही एक मरीज पहले से मौजूद है. मौजूदा मरीज़ का चयन करें या एक अलग नया रिकॉर्ड तभी बनाएं जब यह वास्तव में अलग हो।",
+      's4.lib.front_office_workbench.admit_ip': "आईपी ​​स्वीकार करें",
+      's4.lib.front_office_workbench.advice_row_has_no_patient_details':
+          "सलाह पंक्ति में रोगी का कोई विवरण नहीं है।",
+      's4.lib.front_office_workbench.any_doctor': "कोई डॉक्टर",
+      's4.lib.front_office_workbench.appointment_id_is_missing':
+          "अपॉइंटमेंट आईडी गायब है.",
+      's4.lib.front_office_workbench.assign_ward_bed':
+          "वार्ड/बिस्तर निर्दिष्ट करें",
+      's4.lib.front_office_workbench.billing_deposit': "बिलिंग जमा",
+      's4.lib.front_office_workbench.birth_date': "जन्म तिथि",
+      's4.lib.front_office_workbench.book_op_appointment':
+          "ओपी अपॉइंटमेंट बुक करें",
+      's4.lib.front_office_workbench.cancel_appointment':
+          "अपॉइंटमेंट रद्द करें",
+      's4.lib.front_office_workbench.cancellation_reason': "रद्दीकरण का कारण",
+      's4.lib.front_office_workbench.cash': "नकद",
+      's4.lib.front_office_workbench.complete_appointment': "पूर्ण नियुक्ति",
+      's4.lib.front_office_workbench.consulting_doctor': "परामर्शदाता डॉक्टर",
+      's4.lib.front_office_workbench.corporate': "निगमित",
+      's4.lib.front_office_workbench.counter_intake_notes':
+          "काउंटर इनटेक नोट्स",
+      's4.lib.front_office_workbench.create_ip': "आईपी ​​बनाएं",
+      's4.lib.front_office_workbench.create_ip_admission':
+          "आईपी ​​प्रवेश बनाएँ",
+      's4.lib.front_office_workbench.create_new_patient': "नया मरीज बनाएं",
+      's4.lib.front_office_workbench.create_separate_record':
+          "अलग रिकॉर्ड बनाएं",
+      's4.lib.front_office_workbench.current_medicines': "वर्तमान औषधियाँ",
+      's4.lib.front_office_workbench.department_counter': "विभाग/काउंटर",
+      's4.lib.front_office_workbench.draft_bill': "मसौदा विधेयक",
+      's4.lib.front_office_workbench.draft_op_invoice_created':
+          "ड्राफ्ट ओपी चालान बनाया गया",
+      's4.lib.front_office_workbench.edit_patient': "रोगी संपादित करें",
+      's4.lib.front_office_workbench.emergency_admissions_can_proceed_without_a_bed_r':
+          "आपातकालीन प्रवेश बिस्तर के बिना आगे बढ़ सकते हैं; नियमित प्रवेश के लिए चयनित बिस्तर की आवश्यकता होती है।",
+      's4.lib.front_office_workbench.enter_at_least_10_digits_to_search_or_create_by':
+          "फ़ोन द्वारा खोजने या बनाने के लिए कम से कम 10 अंक दर्ज करें।",
+      's4.lib.front_office_workbench.follow_up': "पालन ​​करें",
+      's4.lib.front_office_workbench.front_office_workbench':
+          "फ्रंट ऑफिस कार्यक्षेत्र",
+      's4.lib.front_office_workbench.govt_scheme': "सरकारी योजना",
+      's4.lib.front_office_workbench.insurance': "बीमा",
+      's4.lib.front_office_workbench.insurer_tpa': "बीमाकर्ता/टीपीए",
+      's4.lib.front_office_workbench.ip_admission_is_not_enabled_for_this_role':
+          "इस भूमिका के लिए आईपी प्रवेश सक्षम नहीं है.",
+      's4.lib.front_office_workbench.keep_appointment': "नियुक्ति रखें",
+      's4.lib.front_office_workbench.known_allergies': "ज्ञात एलर्जी",
+      's4.lib.front_office_workbench.lab_only': "केवल प्रयोगशाला",
+      's4.lib.front_office_workbench.lab_only_visit': "लैब-केवल दौरा",
+      's4.lib.front_office_workbench.medico_legal_case': "मेडिको-लीगल केस",
+      's4.lib.front_office_workbench.mlc_notes': "एमएलसी नोट्स",
+      's4.lib.front_office_workbench.mlc_number': "एमएलसी संख्या",
+      's4.lib.front_office_workbench.new_consultation': "नया परामर्श",
+      's4.lib.front_office_workbench.new_patient': "नया रोगी",
+      's4.lib.front_office_workbench.op_appointment_booked':
+          "ओपी अपॉइंटमेंट बुक किया गया",
+      's4.lib.front_office_workbench.op_booking_is_not_enabled_for_this_role':
+          "इस भूमिका के लिए ओपी बुकिंग सक्षम नहीं है.",
+      's4.lib.front_office_workbench.opd_ipd_handoff':
+          "ओपीडी -> आईपीडी हैंडऑफ़",
+      's4.lib.front_office_workbench.opd_to_ipd_advice': "ओपीडी से आईपीडी सलाह",
+      's4.lib.front_office_workbench.optional_if_department_is_selected':
+          "यदि विभाग चयनित है तो वैकल्पिक",
+      's4.lib.front_office_workbench.paediatric_opd': "बाल चिकित्सा ओपीडी",
+      's4.lib.front_office_workbench.payment_category': "भुगतान श्रेणी",
+      's4.lib.front_office_workbench.policy_number': "नीति संख्या",
+      's4.lib.front_office_workbench.possible_existing_patient':
+          "संभावित मौजूदा मरीज",
+      's4.lib.front_office_workbench.queue_row_has_no_patient_details':
+          "कतार पंक्ति में कोई रोगी विवरण नहीं है।",
+      's4.lib.front_office_workbench.reschedule': "पुनर्निर्धारित",
+      's4.lib.front_office_workbench.reschedule_appointment':
+          "नियुक्ति पुनः निर्धारित करें",
+      's4.lib.front_office_workbench.reschedule_note':
+          "नोट को पुनर्निर्धारित करें",
+      's4.lib.front_office_workbench.scheme_name': "योजना का नाम",
+      's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
+          "आईपी ​​को भर्ती करने से पहले एक मरीज का चयन करें।",
+      's4.lib.front_office_workbench.select_a_patient_before_billing':
+          "बिलिंग से पहले एक मरीज का चयन करें.",
+      's4.lib.front_office_workbench.select_a_patient_before_booking_op':
+          "ओपी बुक करने से पहले एक मरीज का चयन करें।",
+      's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
+          "वॉक-इन पंजीकृत करने से पहले एक मरीज का चयन करें।",
+      's4.lib.front_office_workbench.teleconsult': "टेलीकंसल्ट",
+      's4.lib.front_office_workbench.tpa': "TPA",
+      's4.lib.front_office_workbench.view_advice': "सलाह देखें",
+      's4.lib.front_office_workbench.visit_notes_optional':
+          "विज़िट नोट्स (वैकल्पिक)",
+      's4.lib.front_office_workbench.visit_reason_chief_complaint':
+          "कारण/मुख्य शिकायत पर जाएँ",
+      's4.lib.front_office_workbench.visit_type': "विज़िट प्रकार",
+      's4.lib.front_office_workbench.walk_in_registration_is_not_enabled_for_this_rol':
+          "इस भूमिका के लिए वॉक-इन पंजीकरण सक्षम नहीं है।",
+      's4.lib.front_office_workbench.yyyy_mm_dd': "YYYY-MM-DD",
+      's4.lib.housekeeping_command.delegate_staff': "प्रतिनिधि कर्मचारी",
+      's4.lib.housekeeping_command.end': "अंत",
+      's4.lib.housekeeping_command.end_assignment': "असाइनमेंट समाप्त करें?",
+      's4.lib.housekeeping_command.floor_or_zone': "तल या क्षेत्र",
+      's4.lib.housekeeping_command.housekeeping_command': "हाउसकीपिंग कमांड",
+      's4.lib.housekeeping_command.housekeeping_staff_delegated':
+          "हाउसकीपिंग स्टाफ को प्रत्यायोजित किया गया",
+      's4.lib.housekeeping_command.move_open_requests_in_this_zone':
+          "इस क्षेत्र में खुले अनुरोधों को स्थानांतरित करें",
+      's4.lib.housekeeping_command.redeploy_staff':
+          "कर्मचारियों को पुनः तैनात करें",
+      's4.lib.housekeeping_command.staff_member': "स्टाफ के सदस्य",
+      's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another':
+          "तब उपयोगी जब एक मंजिल पर दूसरे की तुलना में अधिक काम हो।",
+      's4.lib.housekeeping_roster_board.07_30': "07:30",
+      's4.lib.housekeeping_roster_board.12_30': "12:30",
+      's4.lib.housekeeping_roster_board.accept_for_planning':
+          "योजना के लिए स्वीकार करें",
+      's4.lib.housekeeping_roster_board.add_custom_shift': "कस्टम शिफ्ट जोड़ें",
+      's4.lib.housekeeping_roster_board.add_staff': "कर्मचारी जोड़ें",
+      's4.lib.housekeeping_roster_board.ai_rules_roster_forecast':
+          "एआई/नियम रोस्टर पूर्वानुमान",
+      's4.lib.housekeeping_roster_board.approve': "मंज़ूरी देना",
+      's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve':
+          "प्रत्येक वार्ड, इकाई, या मंजिल को सुबह, शाम, रात, या एक कस्टम शिफ्ट के तहत निर्दिष्ट करें।",
+      's4.lib.housekeeping_roster_board.copy_day_to_week':
+          "दिन दर सप्ताह कॉपी करें",
+      's4.lib.housekeeping_roster_board.copy_previous_day':
+          "पिछले दिन कॉपी करें",
+      's4.lib.housekeeping_roster_board.discard_forecast':
+          "पूर्वानुमान त्यागें",
+      's4.lib.housekeeping_roster_board.duty_requests': "कर्तव्य अनुरोध",
+      's4.lib.housekeeping_roster_board.generate_12_week_forecast':
+          "12-सप्ताह का पूर्वानुमान उत्पन्न करें",
+      's4.lib.housekeeping_roster_board.leave_and_alternate_cover':
+          "छोड़ें और वैकल्पिक कवर करें",
+      's4.lib.housekeeping_roster_board.off_unassigned':
+          "बंद/असाइन नहीं किया गया",
+      's4.lib.housekeeping_roster_board.publish_roster': "रोस्टर प्रकाशित करें",
+      's4.lib.housekeeping_roster_board.save_draft': "मसौदा सेव करें",
+      's4.lib.housekeeping_roster_board.unassigned': "सौंपे नहीं गए",
+      's4.lib.housekeeping_roster_board.ward_unit': "वार्ड/यूनिट",
+      's4.lib.hr_dashboard.no_staff_records_loaded_yet':
+          "अभी तक कोई स्टाफ रिकॉर्ड लोड नहीं किया गया है.",
+      's4.lib.hr_dashboard.open_onboarding': "ऑनबोर्डिंग खोलें",
+      's4.lib.hr_dashboard.roster': "रोस्टर",
+      's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
+          "सीडेड और ऑनबोर्ड स्टाफ वर्तमान में एचआर को दिखाई दे रहा है",
+      's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
+          "पहला स्टाफ खाता जोड़ने के लिए ऑनबोर्डिंग का उपयोग करें।",
+      's4.lib.investigations.cbc_x_ray_chest_ecg':
+          "सीबीसी, एक्स-रे छाती, ईसीजी...",
+      's4.lib.investigations.clinical_notes_optional':
+          "क्लिनिकल नोट्स (वैकल्पिक)",
+      's4.lib.investigations.continue_to_prescription': "नुस्खे जारी रखें",
+      's4.lib.investigations.investigation_ordered': "जांच के आदेश दिए गए",
+      's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
+          "परिणाम को तैयार के रूप में चिह्नित किया गया है, लेकिन अभी तक कोई संरचित सारांश संलग्न नहीं किया गया है।",
+      's4.lib.investigations.test_name': "परीक्षण का नाम",
+      's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
+          "ओपी/आईपी लैब अनुरोधों को बुक करें और ट्रैक करें",
+      's4.lib.lab_bookings.cbc_rft_urine_routine':
+          "सीबीसी, आरएफटी, मूत्र दिनचर्या...",
+      's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
+          "परीक्षण नाम दर्ज करें या एक नुस्खा संलग्न करें",
+      's4.lib.lab_bookings.new_lab_booking': "नई लैब बुकिंग",
+      's4.lib.lab_bookings.tests': "परीक्षण",
+      's4.lib.lab_bookings.upload': "अपलोड करें",
+      's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
+          "यदि यह फ़ोन अभी तक पंजीकृत नहीं है तो इसका उपयोग किया जाता है",
+      's4.lib.lab_bookings.visit_lab': "प्रयोगशाला का दौरा करें",
+      's4.lib.leave_approvals.optional_note_for_audit':
+          "लेखापरीक्षा के लिए वैकल्पिक नोट",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.leave_approved': "छुट्टी स्वीकृत",
+      's4.lib.leave_approvals.leave_rejected': "छुट्टी अस्वीकृत",
+      's4.lib.main_scaffold.pending_clinical_tasks': "लंबित नैदानिक ​​कार्य",
+      's4.lib.main_scaffold.unread_alerts': "अपठित अलर्ट",
+      's4.lib.mar_scan.min_15_characters_describe_the_specific_situatio':
+          "न्यूनतम 15 अक्षर - विशिष्ट स्थिति का वर्णन करें",
+      's4.lib.mar_scan.select_a_category': "एक श्रेणी चुनें",
+      's4.lib.messaging_inbox.admin_log': "व्यवस्थापक लॉग",
+      's4.lib.messaging_inbox.archive': "पुरालेख",
+      's4.lib.messaging_inbox.conversation_actions': "वार्तालाप क्रियाएँ",
+      's4.lib.messaging_inbox.mark_unread': "अपठित चिन्हित करो",
+      's4.lib.messaging_inbox.mute_8h': "8 बजे म्यूट करें",
+      's4.lib.messaging_inbox.no_matching_staff': "कोई मेल खाता स्टाफ नहीं",
+      's4.lib.messaging_inbox.restore': "पुनर्स्थापित करना",
+      's4.lib.messaging_inbox.restore_alerts': "अलर्ट पुनर्स्थापित करें",
+      's4.lib.messaging_inbox.search_conversations': "वार्तालाप खोजें",
+      's4.lib.messaging_inbox.search_staff': "खोज कर्मचारी",
+      's4.lib.messaging_inbox.subject': "विषय",
+      's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
+          "यह प्रत्येक सक्रिय स्टाफ सदस्य को एक सहेजा गया संदेश भेजेगा।",
+      's4.lib.messaging_inbox.urgent_only': "केवल अत्यावश्यक",
+      's4.lib.messaging_thread.attach_file': "फ़ाइल जोड़ें",
+      's4.lib.messaging_thread.copy': "प्रतिलिपि",
+      's4.lib.messaging_thread.copy_clinical_message':
+          "नैदानिक ​​संदेश कॉपी करें?",
+      's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
+          "संदेश कॉपी किया गया - क्लिपबोर्ड 60 सेकंड में साफ़ हो जाता है",
+      's4.lib.messaging_thread.reply_in_this_conversation':
+          "इस वार्तालाप में उत्तर दें",
+      's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
+          "फ़ाइल संलग्न करने से पहले पहला संदेश भेजें.",
+      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
+          "इस संदेश में रोगी-संवेदनशील जानकारी हो सकती है।",
+      's4.lib.notifications.refresh_alerts': "अलर्ट ताज़ा करें",
+      's4.lib.nursing_notes.all_notes': "सभी नोट्स",
+      's4.lib.nursing_notes.draft_discarded': "ड्राफ्ट खारिज कर दिया गया",
+      's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
+          "किसी मरीज के सभी नोट्स देखने के लिए बेड बोर्ड से इस स्क्रीन को खोलें।",
+      's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
+          "पूर्ण प्रतिलेखों को चिकित्सक की समीक्षा के लिए SOAP ड्राफ्ट में परिवर्तित किया जा सकता है।",
+      's4.lib.op_ai_assist.dashboard': "डैशबोर्ड",
+      's4.lib.op_ai_assist.op_doctor_assist_unavailable':
+          "ओपी डॉक्टर सहायता उपलब्ध नहीं है",
+      's4.lib.op_ai_assist.open_draft': "ड्राफ्ट खोलें",
+      's4.lib.op_ai_assist.refresh_services': "सेवाएँ ताज़ा करें",
+      's4.lib.op_ai_assist.review_queue': "समीक्षा कतार",
+      's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
+          "अभी तक कोई नैदानिक ​​समयरेखा प्रविष्टियाँ नहीं",
+      's4.lib.op_doctor_workspace.open_full': "पूरा खोलें",
+      's4.lib.op_doctor_workspace.save_note': "नोट सहेजें",
+      's4.lib.op_doctor_workspace.save_then_investigations': "बचाओ, फिर जांच",
+      's4.lib.op_doctor_workspace.sign_note': "नोट पर हस्ताक्षर करें",
+      's4.lib.order_sets.no_order_sets': "कोई ऑर्डर सेट नहीं",
+      's4.lib.order_sets.order_sets': "ऑर्डर सेट",
+      's4.lib.order_sets.search_pneumonia_sepsis':
+          "खोजें (निमोनिया, सेप्सिस,…)",
+      's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
+          "केंद्रीय पदानुक्रम और भूमिका मानचित्र",
+      's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
+          "इस भूमिका के अंतर्गत कोई पंजीकृत कर्मचारी नहीं मिला.",
+      's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
+          "इस भूमिका के अंतर्गत अभी तक कोई पंजीकृत कर्मचारी नहीं है",
+      's4.lib.partograph_chart.cervical_dilation_cm_vs_hours_in_active_phase':
+          "सक्रिय चरण में गर्भाशय ग्रीवा का फैलाव (सेमी) बनाम घंटे",
+      's4.lib.patient_command_board.achieve': "प्राप्त करना",
+      's4.lib.patient_command_board.care_plan_updated':
+          "देखभाल योजना अद्यतन की गई",
+      's4.lib.patient_command_board.care_plans': "देखभाल योजनाएँ",
+      's4.lib.patient_command_board.no_activities_recorded':
+          "कोई गतिविधि दर्ज नहीं की गई.",
+      's4.lib.patient_command_board.no_goals_recorded':
+          "कोई गोल दर्ज नहीं किया गया.",
+      's4.lib.patient_command_board.patient_command_board': "रोगी कमांड बोर्ड",
+      's4.lib.patient_command_board.ward_area': "वार्ड/क्षेत्र",
+      's4.lib.patient_context_chip.clear_patient_context': "स्पष्ट रोगी संदर्भ",
+      's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
+          "नोट्स, नुस्खों, जांचों, महत्वपूर्ण बातों और रोगी-जनित कल्याण डेटा की विहित समयरेखा।",
+      's4.lib.patient_health_journey_panel.clinical_events_and_patient_app_activity_will_ap':
+          "उपलब्ध होते ही नैदानिक ​​घटनाएँ और रोगी-ऐप गतिविधि यहाँ दिखाई देंगी।",
+      's4.lib.patient_health_journey_panel.no_timeline_data_yet':
+          "अभी तक कोई समयरेखा डेटा नहीं",
+      's4.lib.patient_health_journey_panel.patient_health_journey':
+          "रोगी स्वास्थ्य यात्रा",
+      's4.lib.patient_notes_list.admin_edit': "व्यवस्थापक संपादित करें",
+      's4.lib.patient_notes_list.admin_edit_prior_note':
+          "व्यवस्थापक: पूर्व नोट संपादित करें",
+      's4.lib.patient_notes_list.failed_to_load_notes': "नोट लोड करने में विफल",
+      's4.lib.patient_notes_list.no_notes_to_show':
+          "दिखाने के लिए कोई नोट नहीं",
+      's4.lib.patient_notes_list.note_updated': "नोट अपडेट किया गया",
+      's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
+          "मूल गद्य को अधिलेखित कर देता है. नोट के लेखक, भूमिका और निर्माण का समय संरक्षित है।",
+      's4.lib.patient_records.ai_assisted_record_review':
+          "एआई-सहायता प्राप्त रिकॉर्ड समीक्षा",
+      's4.lib.patient_records.attach_at_least_one_file_or_photo':
+          "कम से कम एक फ़ाइल या फ़ोटो संलग्न करें",
+      's4.lib.patient_records.check': "जाँच करना",
+      's4.lib.patient_records.current_admission_notes': "वर्तमान प्रवेश नोट",
+      's4.lib.patient_records.discharge_summary': "डिस्चार्ज सारांश",
+      's4.lib.patient_records.document_link_unavailable':
+          "दस्तावेज़ लिंक अनुपलब्ध है",
+      's4.lib.patient_records.document_type': "दस्तावेज़ प्रकार",
+      's4.lib.patient_records.draft_not_imported_to_chart':
+          "ड्राफ्ट, चार्ट में आयात नहीं किया गया",
+      's4.lib.patient_records.extraction_review_saved':
+          "निष्कर्षण समीक्षा सहेजी गई",
+      's4.lib.patient_records.lab_report': "लैब रिपोर्ट",
+      's4.lib.patient_records.needs_revision': "संशोधन की आवश्यकता है",
+      's4.lib.patient_records.no_clear_text_extracted':
+          "कोई स्पष्ट पाठ नहीं निकाला गया",
+      's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
+          "इस प्रवेश के लिए अभी तक कोई नोट रिकॉर्ड नहीं किया गया है।",
+      's4.lib.patient_records.old_discharge_summary_prior_scan':
+          "पुराना डिस्चार्ज सारांश, पूर्व स्कैन...",
+      's4.lib.patient_records.open': "खुला",
+      's4.lib.patient_records.open_notes': "नोट्स खोलें",
+      's4.lib.patient_records.patient_record_uploaded':
+          "मरीज का रिकार्ड अपलोड किया गया",
+      's4.lib.patient_records.prior_record': "पूर्व रिकॉर्ड",
+      's4.lib.patient_records.prior_records': "पूर्व रिकार्ड",
+      's4.lib.patient_records.record_title': "रिकॉर्ड शीर्षक",
+      's4.lib.patient_records.remove_file': "फ़ाइल हटाएँ",
+      's4.lib.patient_records.review_note': "समीक्षा नोट",
+      's4.lib.patient_records.source_hospital': "स्रोत अस्पताल",
+      's4.lib.patient_records.upload_prior_record': "पिछला रिकॉर्ड अपलोड करें",
+      's4.lib.patient_records.upload_prior_record_2':
+          "पूर्व रिकार्ड अपलोड करें",
+      's4.lib.patient_search_action.find_patient': "धैर्य खोजें",
+      's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
+          "अस्पताल आईडी, नाम, फ़ोन या ABHA द्वारा मरीज़ ढूंढें...",
+      's4.lib.patient_timeline.current_ip_medication_order':
+          "वर्तमान आईपी दवा ऑर्डर",
+      's4.lib.patient_timeline.event_log': "घटना प्रवेश करें",
+      's4.lib.patient_timeline.health_journey': "स्वास्थ्य यात्रा",
+      's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
+          "केवल फ़ोन पर पढ़ें। क्लिनिकल प्रविष्टियाँ स्टाफ़ डेस्कटॉप पर पूरी की जानी चाहिए।",
+      's4.lib.pharmacy.10_digit_mobile_number': "10 अंकों का मोबाइल नंबर",
+      's4.lib.pharmacy.10_tablets_strip': "10 गोलियाँ/स्ट्रिप",
+      's4.lib.pharmacy.650_mg': "650 मिलीग्राम",
+      's4.lib.pharmacy.add_inventory_item': "इन्वेंटरी आइटम जोड़ें",
+      's4.lib.pharmacy.add_item': "मद जोड़ें",
+      's4.lib.pharmacy.available_in_formulary': "फॉर्मूलरी में उपलब्ध है",
+      's4.lib.pharmacy.brand_name': "ब्रांड का नाम",
+      's4.lib.pharmacy.cold_chain_item': "कोल्ड-चेन आइटम",
+      's4.lib.pharmacy.controlled_narcotic_item': "नियंत्रित/मादक वस्तु",
+      's4.lib.pharmacy.create_pharmacy_order': "फार्मेसी ऑर्डर बनाएं",
+      's4.lib.pharmacy.display_name': "प्रदर्शित होने वाला नाम",
+      's4.lib.pharmacy.drug_generic_or_strength': "दवा, जेनेरिक, या शक्ति",
+      's4.lib.pharmacy.drug_name_with_strength': "ताकत के साथ दवा का नाम",
+      's4.lib.pharmacy.edit_formulary_drug': "फार्मूलरी औषधि संपादित करें",
+      's4.lib.pharmacy.expiry_alerts': "समाप्ति चेतावनियाँ",
+      's4.lib.pharmacy.form': "रूप",
+      's4.lib.pharmacy.generic_name': "वर्ग नाम",
+      's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase_oversight':
+          "इन्वेंटरी एवं खरीद निरीक्षण",
+      's4.lib.pharmacy.inventory_items': "इन्वेंटरी आइटम",
+      's4.lib.pharmacy.manufacturer': "उत्पादक",
+      's4.lib.pharmacy.mark_urgent': "अत्यावश्यक चिह्नित करें",
+      's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
+          "दवा के नाम, खुराक, मात्रा, या आरएक्स नोट",
+      's4.lib.pharmacy.no_formulary_drugs_found': "कोई फॉर्मूलरी दवा नहीं मिली",
+      's4.lib.pharmacy.no_inventory_items_found':
+          "कोई इन्वेंट्री आइटम नहीं मिला",
+      's4.lib.pharmacy.none': "कोई नहीं",
+      's4.lib.pharmacy.order_note': "आदेश नोट",
+      's4.lib.pharmacy.otc': "OTC",
+      's4.lib.pharmacy.pack_size': "पैक का आकार",
+      's4.lib.pharmacy.pack_strength_note': "पैक/शक्ति नोट",
+      's4.lib.pharmacy.para_650_tab': "PARA-650-TAB",
+      's4.lib.pharmacy.paracetamol_650_mg': "पैरासिटामोल 650 मि.ग्रा",
+      's4.lib.pharmacy.paracetamol_650_mg_tablet':
+          "पेरासिटामोल 650 मिलीग्राम की गोली",
+      's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
+          "फ़ार्मेसी वितरण कार्यप्रवाह को फ़ार्मेसी स्टाफ द्वारा नियंत्रित किया जाता है। स्टॉक, समाप्ति और खरीद निरीक्षण के लिए इन्वेंटरी का उपयोग करें।",
+      's4.lib.pharmacy.prescription_required': "नुस्खे की आवश्यकता है",
+      's4.lib.pharmacy.remove': "निकालना",
+      's4.lib.pharmacy.remove_from_formulary': "फॉर्मूलरी से हटाएँ?",
+      's4.lib.pharmacy.remove_from_formulary_2': "फॉर्मूलरी से हटाएँ",
+      's4.lib.pharmacy.reorder_level': "स्तर पुनः क्रमित करें",
+      's4.lib.pharmacy.reorder_quantity': "मात्रा पुनः व्यवस्थित करें",
+      's4.lib.pharmacy.run_expiry_scan': "एक्सपायरी स्कैन चलाएँ",
+      's4.lib.pharmacy.search_formulary': "फॉर्मूलरी खोजें",
+      's4.lib.pharmacy.search_inventory': "सूची खोजें",
+      's4.lib.pharmacy.shared_pharmacy_formulary': "साझा फार्मेसी फॉर्मूलरी",
+      's4.lib.pharmacy.sku_code': "एसकेयू कोड",
+      's4.lib.pharmacy.sku_drug_brand_or_generic':
+          "SKU, दवा, ब्रांड, या जेनेरिक",
+      's4.lib.pharmacy.stock_quantity': "स्टॉक मात्रा",
+      's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
+          "स्टोर/खरीद रोगी को दवाएँ वितरित किए बिना दवा मास्टर, स्टॉक दृश्यता और समाप्ति निरीक्षण को बनाए रख सकते हैं।",
+      's4.lib.pharmacy.strength': "ताकत",
+      's4.lib.pharmacy.unit_label': "यूनिट लेबल",
+      's4.lib.pharmacy.unit_price': "यूनिट मूल्य",
+      's4.lib.pharmacy.x': "X",
+      's4.lib.phone_patient_lookup.no_matching_patient_found':
+          "कोई मिलता-जुलता मरीज़ नहीं मिला.",
+      's4.lib.phone_patient_lookup.patient_lookup_on_phone_is_limited_to_doctor_cla':
+          "फ़ोन पर मरीज़ की खोज डॉक्टर-वर्ग में केवल पढ़ने के लिए पहुंच तक सीमित है। क्लिनिकल वर्कफ़्लो के लिए स्टाफ़ डेस्कटॉप का उपयोग करें।",
+      's4.lib.phone_patient_lookup.read_only_patient_lookup':
+          "केवल पढ़ने योग्य रोगी लुकअप",
+      's4.lib.prescriptions.add_drug': "दवा जोड़ें",
+      's4.lib.prescriptions.clear_draft': "स्पष्ट मसौदा",
+      's4.lib.prescriptions.clear_prescription_draft':
+          "नुस्खे का मसौदा साफ़ करें?",
+      's4.lib.prescriptions.continue': "जारी रखना",
+      's4.lib.prescriptions.days': "दिन",
+      's4.lib.prescriptions.delete_row': "पंक्ति को हटाएं",
+      's4.lib.prescriptions.drug_form': "औषधि/रूप*",
+      's4.lib.prescriptions.notes_safety': "टिप्पणियाँ/सुरक्षा",
+      's4.lib.prescriptions.op_consultation_context': "ओपी परामर्श प्रसंग",
+      's4.lib.prescriptions.open_pdf': "पीडीएफ खोलें",
+      's4.lib.prescriptions.prescription_pdf_is_ready':
+          "प्रिस्क्रिप्शन पीडीएफ तैयार है",
+      's4.lib.prescriptions.review_draft': "ड्राफ्ट की समीक्षा करें",
+      's4.lib.prescriptions.review_prescription_warnings':
+          "नुस्खे संबंधी चेतावनियों की समीक्षा करें",
+      's4.lib.prescriptions.save_favorite': "पसंदीदा सहेजें",
+      's4.lib.prescriptions.signed': "पर हस्ताक्षर किए",
+      's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
+          "सर्वर ने इस नुस्खे के लिए नॉन-ब्लॉकिंग सीडीएस चेतावनियाँ लौटा दीं।",
+      's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
+          "यह इस मसौदे पर वर्तमान में मौजूद दवाओं, नोट्स, महत्वपूर्ण बातों और अनुवर्ती कार्रवाई को हटा देता है। बनाए गए नुस्खे हटाए नहीं जाते.",
+      's4.lib.prescriptions.type_drug_name': "दवा का नाम टाइप करें",
+      's4.lib.prescriptions.use_favorite': "पसंदीदा का प्रयोग करें",
+      's4.lib.referrals.ai_assisted_clinical_summary':
+          "एआई सहायता प्राप्त नैदानिक ​​सारांश",
+      's4.lib.referrals.audit': "अंकेक्षण",
+      's4.lib.referrals.clinical_summary': "नैदानिक ​​सारांश",
+      's4.lib.referrals.consultant_name': "सलाहकार का नाम",
+      's4.lib.referrals.department_specialty': "विभाग/विशेषता",
+      's4.lib.referrals.edit_and_confirm_this_draft_it_is_not_sent_until':
+          "इस मसौदे को संपादित करें और पुष्टि करें. यह तब तक नहीं भेजा जाता जब तक आप रिक्वेस्ट रेफरल नहीं दबाते।",
+      's4.lib.referrals.incoming': "आने वाली",
+      's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart':
+          "विभाग को सूचित करने के लिए सलाहकार को अचयनित छोड़ दें।",
+      's4.lib.referrals.no_referral_audit_rows':
+          "कोई रेफरल ऑडिट पंक्तियाँ नहीं",
+      's4.lib.referrals.open_patient': "खुला रोगी",
+      's4.lib.referrals.outgoing': "जावक",
+      's4.lib.referrals.reason_for_referral': "निर्दिष्ट करने की वजह",
+      's4.lib.referrals.referral_audit_is_available_to_admin_superadmin':
+          "रेफरल ऑडिट एडमिन/सुपरएडमिन भूमिकाओं के लिए उपलब्ध है।",
+      's4.lib.referrals.referral_clinical_summary': "रेफरल क्लिनिकल सारांश",
+      's4.lib.referrals.use_summary': "सारांश का प्रयोग करें",
+      's4.lib.reports_admin_queue.hr_admin_access_required':
+          "एचआर/एडमिन एक्सेस आवश्यक है",
+      's4.lib.reports_admin_queue.internal_hr_admin_note':
+          "आंतरिक मानव संसाधन/प्रशासन नोट",
+      's4.lib.reports_admin_queue.no_activity_recorded':
+          "कोई गतिविधि दर्ज नहीं की गई",
+      's4.lib.reports_admin_queue.public_update': "सार्वजनिक अद्यतन",
+      's4.lib.reports_admin_queue.report_update_saved':
+          "रिपोर्ट अद्यतन सहेजा गया",
+      's4.lib.reports_admin_queue.reports_review': "रिपोर्ट की समीक्षा",
+      's4.lib.reports_admin_queue.save_update': "अद्यतन सहेजें",
+      's4.lib.schedule.shift_actions': "क्रियाएं बदलें",
+      's4.lib.smart_phrase_field.expanding': "विस्तार…",
+      's4.lib.specimen_scan.patient_wristband_mismatch':
+          "रोगी का कलाईबैंड बेमेल",
+      's4.lib.specimen_scan.specimen_hard_stop': "नमूना हार्ड-स्टॉप",
+      's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "इसे ओवरराइड नहीं किया जा सकता. सही रिस्टबैंड और ट्यूब को दोबारा स्कैन करें।",
+      's4.lib.staff_diagnostics.no_details_returned':
+          "कोई विवरण नहीं लौटाया गया.",
+      's4.lib.staff_diagnostics.refresh_diagnostics': "निदान ताज़ा करें",
+      's4.lib.staff_diagnostics.staff_diagnostics': "स्टाफ डायग्नोस्टिक्स",
+      's4.lib.staff_management.default_shift': "डिफ़ॉल्ट बदलाव",
+      's4.lib.staff_management.leave_blank_to_auto_generate':
+          "स्वतः उत्पन्न होने के लिए खाली छोड़ें",
+      's4.lib.staff_management.position': "पद",
+      's4.lib.staff_management.show_department_options':
+          "विभाग के विकल्प दिखाएँ",
+      's4.lib.staff_management.temporary_password': "अस्थायी पासवर्ड",
+      's4.lib.staff_phone_more.more': "अधिक",
+      's4.lib.staff_query.it': "IT",
+      's4.lib.staff_query.my_queries': "मेरे प्रश्न",
+      's4.lib.staff_query.no_queries_raised_yet':
+          "अभी तक कोई प्रश्न नहीं उठाया गया.",
+      's4.lib.staff_query.payroll': "पेरोल",
+      's4.lib.staff_query.query_submitted': "क्वेरी सबमिट की गई",
+      's4.lib.staff_query.raise_query': "प्रश्न उठाएँ",
+      's4.lib.staff_query.staff_query': "स्टाफ प्रश्न",
+      's4.lib.staff_query.submit_query': "क्वेरी सबमिट करें",
+      's4.lib.staff_roster_hub.choose_a_department_to_manage_weekly_duties_leav':
+          "साप्ताहिक कर्तव्यों, अवकाश ब्लॉकों, अनुरोधों और रोस्टर पूर्वानुमान ओवरले का प्रबंधन करने के लिए एक विभाग चुनें।",
+      's4.lib.staff_roster_hub.department_roster_boards': "विभाग रोस्टर बोर्ड",
+      's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
+          "किसी भी विभाग के रोस्टर बोर्ड को यह भूमिका नहीं सौंपी गई है।",
+      's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "इसे ओवरराइड नहीं किया जा सकता. सही रिस्टबैंड और यूनिट को दोबारा स्कैन करें।",
+      's4.lib.transfusion_scan.transfusion_hard_stop':
+          "ट्रांसफ़्यूज़न हार्ड-स्टॉप",
+      's4.lib.ward_mode.built_for_ward_specific_flows':
+          "वार्ड-विशिष्ट प्रवाह के लिए निर्मित",
+      's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
+          "यह रिसेप्शन काउंटर के समान कार्यक्षेत्र पैटर्न का उपयोग करता है; अगला चरण बेड बोर्ड से नोट्स, महत्वपूर्ण जानकारी, जांच और दवा चार्ट में रोगी-जागरूक शॉर्टकट है।",
+      's4.lib.ward_mode.ward_workbench': "वार्ड कार्यक्षेत्र",
+      // REVIEW: AI first-pass S4 dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.app_router.page_not_found': "पेज नहीं मिला: {route}",
+      's4.dynamic.patient_notes.update_failed': "अपडेट विफल: {error}",
+      's4.dynamic.patient_records.notes_count': "{count} नोट",
+      's4.dynamic.patient_records.confidence': "आत्मविश्वास {confidence}",
+      's4.dynamic.admission_case_sheet.title_for_patient':
+          "केस शीट - {patient}",
+      's4.dynamic.common.user_id': "उपयोगकर्ता आईडी: {userId}",
+      's4.dynamic.common.signed_at': "यहां हस्ताक्षरित: {signedAt}",
+      's4.dynamic.discharge_hub.ai_package_failed': "AI पैकेज विफल: {error}",
+      's4.dynamic.discharge_hub.finish_task_title': "{label} समाप्त करें",
+      's4.dynamic.discharge_hub.task_finished': "{label} समाप्त हुआ",
+      's4.dynamic.discharge_hub.finish_task_failed':
+          "कार्य पूरा नहीं हो सका: {error}",
+      's4.dynamic.discharge_hub.title_for_patient': "डिस्चार्ज हब - {patient}",
+      's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.patient_command_board.allergies_count': "{count} एलर्जी",
+      's4.dynamic.patient_command_board.alerts_count': "{count} अलर्ट",
+      's4.dynamic.patient_command_board.tasks_count': "{count} कार्य",
+      's4.dynamic.housekeeping.week_label': "सप्ताह {range}",
+      's4.dynamic.housekeeping.shift_name_label': "{department} शिफ्ट नाम",
+      's4.dynamic.leave_approvals.decision_title': "{decision} छोड़ें",
+      's4.dynamic.lab_bookings.tests_prefix': "परीक्षण: {tests}",
+      's4.dynamic.messaging.saved_to_path': "{path} में सहेजा गया",
+      's4.dynamic.pharmacy.cancel_order_confirm':
+          "ऑर्डर रद्द करें {orderNumber}?",
+      's4.dynamic.pharmacy.formulary_count': "फॉर्मूलरी ({count})",
+      's4.dynamic.pharmacy.inventory_count': "इन्वेंटरी ({count})",
+      's4.dynamic.order_sets.via_route': "{route} के माध्यम से",
+      's4.dynamic.order_sets.duration_days': "× {days}D",
+      's4.dynamic.front_office.mark_completed':
+          "{patient} को पूर्ण के रूप में चिह्नित करें?",
+      's4.dynamic.reports.incidents_count': "घटनाएँ ({count})",
+      's4.dynamic.reports.grievances_count': "शिकायतें ({count})",
+      's4.dynamic.duty_preference.date_label': "दिनांक {date}",
+      's4.dynamic.duty_preference.from_label': "{date} से",
+      's4.dynamic.duty_preference.to_label': "{date} तक",
     },
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -10104,6 +11369,676 @@ class AppStrings {
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'clinical_ai.voice_notes.generation_failed_prefix':
           'SOAP உருவாக்கம் தோல்வியடைந்தது:',
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.admission.admitting_doctor': "அனுமதிக்கும் மருத்துவர்",
+      's4.lib.admission_case_sheet.case_sheet_saved':
+          "கேஸ் ஷீட் சேமிக்கப்பட்டது",
+      's4.lib.app_router.go_home': "வீட்டிற்கு செல்",
+      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
+          "அப்பாயிண்ட்மெண்ட் வரிசை பணிப்பாய்வுகள் இப்போது ஒருங்கிணைக்கப்பட்ட பணியிடத்தில் இருந்து இயங்குகின்றன.",
+      's4.lib.appointment_queue.open_front_office':
+          "முன் அலுவலகத்தைத் திறக்கவும்",
+      's4.lib.appointment_queue.opening_front_office_workbench':
+          "முன் அலுவலக பணிப்பெட்டியைத் திறக்கிறது",
+      's4.lib.appointments.any_available_doctor':
+          "கிடைக்கக்கூடிய எந்த மருத்துவர்",
+      's4.lib.appointments.book_op': "புக் OP",
+      's4.lib.appointments.clear_doctor_or_department_filter':
+          "மருத்துவர் அல்லது துறை வடிகட்டியை அழிக்கவும்",
+      's4.lib.appointments.collapse_queue_panel': "வரிசை பேனலைச் சுருக்கு",
+      's4.lib.appointments.create_appointment': "நியமனத்தை உருவாக்கவும்",
+      's4.lib.appointments.filter_doctor_or_department':
+          "வடிகட்டி மருத்துவர் அல்லது துறை",
+      's4.lib.appointments.flex': "நெகிழ்வு",
+      's4.lib.appointments.gmt_5_30': "GMT+5:30",
+      's4.lib.appointments.next_month': "அடுத்த மாதம்",
+      's4.lib.appointments.no_doctor_or_department_matches':
+          "மருத்துவர் அல்லது துறை பொருத்தம் இல்லை",
+      's4.lib.appointments.previous_month': "முந்தைய மாதம்",
+      's4.lib.appointments.queue_filter': "வரிசை வடிகட்டி",
+      's4.lib.appointments.search_patient_or_phone':
+          "நோயாளி அல்லது தொலைபேசியைத் தேடுங்கள்",
+      's4.lib.appointments.select_a_doctor_or_department':
+          "ஒரு மருத்துவர் அல்லது துறையைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.appointments.week': "வாரம்",
+      's4.lib.audit_logs.action': "செயல்",
+      's4.lib.audit_logs.action_resource_ip_user': "செயல், ஆதாரம், ஐபி, பயனர்",
+      's4.lib.audit_logs.actor_role': "நடிகர் வேடம்",
+      's4.lib.audit_logs.all_dates': "அனைத்து தேதிகளும்",
+      's4.lib.audit_logs.audit_logs': "தணிக்கை பதிவுகள்",
+      's4.lib.audit_logs.custom': "தனிப்பயன்",
+      's4.lib.audit_logs.last_30_days': "கடந்த 30 நாட்கள்",
+      's4.lib.audit_logs.last_7_days': "கடந்த 7 நாட்கள்",
+      's4.lib.audit_logs.next_page': "அடுத்த பக்கம்",
+      's4.lib.audit_logs.previous_page': "முந்தைய பக்கம்",
+      's4.lib.audit_logs.refresh_logs': "பதிவுகளைப் புதுப்பிக்கவும்",
+      's4.lib.audit_logs.reset': "மீட்டமை",
+      's4.lib.audit_logs.resource': "வளம்",
+      's4.lib.billing_desk.billing_desk': "பில்லிங் மேசை",
+      's4.lib.billing_desk.draft_invoice_created':
+          "வரைவு விலைப்பட்டியல் உருவாக்கப்பட்டது",
+      's4.lib.billing_desk.draft_op': "வரைவு OP",
+      's4.lib.billing_desk.invoice_issued': "விலைப்பட்டியல் வழங்கப்பட்டது",
+      's4.lib.billing_desk.issue': "பிரச்சினை",
+      's4.lib.billing_desk.payment_collected': "கட்டணம் வசூலிக்கப்பட்டது",
+      's4.lib.billing_desk.print_receipt': "அச்சு ரசீது",
+      's4.lib.billing_desk.print_tax_invoice': "வரி விலைப்பட்டியல் அச்சிடவும்",
+      's4.lib.blood_bank.bedside_verification_recorded':
+          "படுக்கை சரிபார்ப்பு பதிவு செய்யப்பட்டது",
+      's4.lib.blood_bank.first_verifier': "முதல் சரிபார்ப்பாளர்",
+      's4.lib.blood_bank.no_issued_units_awaiting_bedside_verification':
+          "படுக்கை சரிபார்ப்புக்காகக் காத்திருக்கும் யூனிட்கள் எதுவும் வழங்கப்படவில்லை",
+      's4.lib.blood_bank.second_verifier': "இரண்டாவது சரிபார்ப்பவர்",
+      's4.lib.blood_bank.transfusions': "இரத்தமாற்றம்",
+      's4.lib.break_tracker.breaks': "முறிவுகள்",
+      's4.lib.break_tracker.ongoing': "(தொடர்ந்து)",
+      's4.lib.calculators.clinical_calculators': "மருத்துவ கால்குலேட்டர்கள்",
+      's4.lib.calculators.result': "முடிவு",
+      's4.lib.cath_lab.cath_lab': "கேத் லேப்",
+      's4.lib.cath_lab.readiness': "தயார்நிலை",
+      's4.lib.cds_blocker_modal.clinical_justification':
+          "மருத்துவ நியாயப்படுத்தல் *",
+      's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
+          "எ.கா. டாக்டர். சர்மா - EMP-1042",
+      's4.lib.cds_blocker_modal.enter_the_supervising_clinician_name_or_staff_id':
+          "கண்காணிப்பு மருத்துவரின் பெயர் அல்லது பணியாளர் ஐடியை உள்ளிடவும்",
+      's4.lib.cds_blocker_modal.min_15_characters_describe_the_specific_rational':
+          "குறைந்தபட்சம் 15 எழுத்துகள் - குறிப்பிட்ட பகுத்தறிவை விவரிக்கவும்",
+      's4.lib.cds_blocker_modal.override_category': "புறக்கணிப்பு வகை *",
+      's4.lib.cds_blocker_modal.select_a_reason_category':
+          "காரண வகையைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.cds_blocker_modal.severe_allergy_conflict_a_supervising_clinician':
+          "கடுமையான ஒவ்வாமை மோதல்: ஒரு மேற்பார்வை மருத்துவர்",
+      's4.lib.cds_blocker_modal.supervising_clinician_name_staff_id':
+          "மேற்பார்வை மருத்துவரின் பெயர் / பணியாளர் ஐடி *",
+      's4.lib.clinical_ai_review_queue.op_ai_assist': "OP AI உதவி",
+      's4.lib.clinical_notes.edit_consultation_note':
+          "ஆலோசனைக் குறிப்பைத் திருத்தவும்",
+      's4.lib.clinical_notes.save_and_investigations': "சேமிப்பு & விசாரணைகள்",
+      's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
+          "இந்த OP ஆலோசனைக் குறிப்பு கையொப்பமிடப்பட்டுள்ளது அல்லது இனி திருத்த முடியாது.",
+      's4.lib.clinical_print_pdf_action.print_share_pdf':
+          "PDF ஐ அச்சிட / பகிரவும்",
+      's4.lib.coded_diagnosis_picker.search_icd_11': "ICD-11ஐத் தேடுங்கள்",
+      's4.lib.composition_alternatives_panel.composition_alternatives':
+          "கலவை மாற்று",
+      's4.lib.composition_alternatives_panel.swap': "இடமாற்று",
+      's4.lib.desktop_scroll_controls.scroll_back': "மீண்டும் உருட்டவும்",
+      's4.lib.desktop_scroll_controls.scroll_down': "கீழே உருட்டவும்",
+      's4.lib.desktop_scroll_controls.scroll_forward': "முன்னோக்கி உருட்டவும்",
+      's4.lib.desktop_scroll_controls.scroll_up': "மேலே உருட்டவும்",
+      's4.lib.discharge_hub.advice_given_handover_completed_bill_cleared':
+          "ஆலோசனை வழங்கப்பட்டது, ஒப்படைப்பு முடிந்தது, பில் அழிக்கப்பட்டது...",
+      's4.lib.discharge_hub.ai_discharge_package_started':
+          "AI டிஸ்சார்ஜ் தொகுப்பு தொடங்கப்பட்டது",
+      's4.lib.discharge_hub.completion_note': "நிறைவு குறிப்பு",
+      's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
+          "மருந்து சமரசம், பின் பராமரிப்பு, தயார்நிலை மற்றும் குறியீட்டு தொகுதிகள் ஆகியவற்றிலிருந்து மதிப்பாய்வு செய்யப்பட்ட வெளியேற்ற தொகுப்பை உருவாக்குகிறது. மருத்துவர் பரிசீலனை செய்து கையொப்பமிடும் வரை இது வரைவு மட்டுமே.",
+      's4.lib.discharge_hub.finish': "முடிக்கவும்",
+      's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
+          "இதை முடிப்பதற்கும் டிஸ்சார்ஜ் மருந்துகளை விநியோகிக்க வேண்டும்.",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.discharge_hub.work_item': "வேலை உருப்படி",
+      's4.lib.discharge_hub.generate_ai_package': "AI தொகுப்பை உருவாக்கவும்",
+      's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
+          "இந்தச் சுருக்கத்தில் பாதுகாப்புக் கொடிகள் எதுவும் இணைக்கப்படவில்லை.",
+      's4.lib.discharge_hub.signature_details': "கையொப்ப விவரங்கள்",
+      's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
+          "உணவு, ஆலோசனை, மருந்தகம், பிசியோதெரபி மற்றும் பில்லிங் பணிகளைத் திறக்க டிஸ்சார்ஜ் செய்யத் தொடங்குங்கள்.",
+      's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
+          "இந்த வெளியேற்றச் சுருக்கத்திற்கு இன்னும் மருத்துவர் கையொப்பமிட வேண்டும்.",
+      's4.lib.discharge_hub_list.no_active_discharge_work':
+          "செயலில் வெளியேற்ற வேலை இல்லை",
+      's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
+          "வெளியேற்றம் தொடங்கப்பட்ட பிறகு நோயாளிகள் இங்கு தோன்றி, இறுதி வெளியேற்றம் முடியும் வரை அங்கேயே இருப்பார்கள்.",
+      's4.lib.discharge_summary.correct_summary': "சரியான சுருக்கம்",
+      's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
+          "இந்த சுருக்கம் இன்னும் கையெழுத்திடப்படவில்லை.",
+      's4.lib.drug_chart.active_until_stopped':
+          "நிறுத்தப்படும் வரை செயலில் உள்ளது",
+      's4.lib.drug_chart.inpatient_drug_chart':
+          "உள்நோயாளிகளுக்கான மருந்து விளக்கப்படம்",
+      's4.lib.drug_chart.starts_today': "இன்று தொடங்குகிறது",
+      's4.lib.duty_preference.duty_request': "கடமை கோரிக்கை",
+      's4.lib.duty_preference.duty_request_submitted':
+          "கடமை கோரிக்கை சமர்ப்பிக்கப்பட்டது",
+      's4.lib.duty_preference.my_requests': "எனது கோரிக்கைகள்",
+      's4.lib.duty_preference.no_duty_requests_yet':
+          "இன்னும் கடமை கோரிக்கைகள் இல்லை",
+      's4.lib.duty_preference.request_preferred_duty':
+          "விருப்பமான கடமையைக் கோருங்கள்",
+      's4.lib.duty_preference.submit_request': "கோரிக்கையை சமர்ப்பிக்கவும்",
+      's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
+          "இதேபோன்ற நோயாளி ஏற்கனவே இருக்கிறார். தற்போதுள்ள நோயாளியைத் தேர்ந்தெடுக்கவும் அல்லது இது உண்மையிலேயே வேறுபட்டதாக இருந்தால் மட்டுமே தனிப் புதிய பதிவை உருவாக்கவும்.",
+      's4.lib.front_office_workbench.admit_ip': "ஐபியை ஒப்புக்கொள்",
+      's4.lib.front_office_workbench.advice_row_has_no_patient_details':
+          "ஆலோசனை வரிசையில் நோயாளி விவரங்கள் இல்லை.",
+      's4.lib.front_office_workbench.any_doctor': "எந்த மருத்துவர்",
+      's4.lib.front_office_workbench.appointment_id_is_missing':
+          "அப்பாயிண்ட்மெண்ட் ஐடி இல்லை.",
+      's4.lib.front_office_workbench.assign_ward_bed':
+          "வார்டு/படுக்கை ஒதுக்கவும்",
+      's4.lib.front_office_workbench.billing_deposit': "பில்லிங் வைப்பு",
+      's4.lib.front_office_workbench.birth_date': "பிறந்த தேதி",
+      's4.lib.front_office_workbench.book_op_appointment':
+          "OP அப்பாயிண்ட்மெண்ட்டை பதிவு செய்யவும்",
+      's4.lib.front_office_workbench.cancel_appointment': "சந்திப்பை ரத்துசெய்",
+      's4.lib.front_office_workbench.cancellation_reason': "ரத்து காரணம்",
+      's4.lib.front_office_workbench.cash': "பணம்",
+      's4.lib.front_office_workbench.complete_appointment': "முழுமையான நியமனம்",
+      's4.lib.front_office_workbench.consulting_doctor': "ஆலோசனை மருத்துவர்",
+      's4.lib.front_office_workbench.corporate': "கார்ப்பரேட்",
+      's4.lib.front_office_workbench.counter_intake_notes':
+          "எதிர் உட்கொள்ளும் குறிப்புகள்",
+      's4.lib.front_office_workbench.create_ip': "ஐபியை உருவாக்கவும்",
+      's4.lib.front_office_workbench.create_ip_admission':
+          "ஐபி சேர்க்கையை உருவாக்கவும்",
+      's4.lib.front_office_workbench.create_new_patient':
+          "புதிய நோயாளியை உருவாக்குங்கள்",
+      's4.lib.front_office_workbench.create_separate_record':
+          "தனி பதிவை உருவாக்கவும்",
+      's4.lib.front_office_workbench.current_medicines': "தற்போதைய மருந்துகள்",
+      's4.lib.front_office_workbench.department_counter': "துறை / கவுண்டர்",
+      's4.lib.front_office_workbench.draft_bill': "வரைவு மசோதா",
+      's4.lib.front_office_workbench.draft_op_invoice_created':
+          "வரைவு OP இன்வாய்ஸ் உருவாக்கப்பட்டது",
+      's4.lib.front_office_workbench.edit_patient': "நோயாளியைத் திருத்தவும்",
+      's4.lib.front_office_workbench.emergency_admissions_can_proceed_without_a_bed_r':
+          "படுக்கை இல்லாமல் அவசர சேர்க்கை தொடரலாம்; வழக்கமான சேர்க்கைக்கு தேர்ந்தெடுக்கப்பட்ட படுக்கை தேவை.",
+      's4.lib.front_office_workbench.enter_at_least_10_digits_to_search_or_create_by':
+          "ஃபோன் மூலம் தேட அல்லது உருவாக்க குறைந்தது 10 இலக்கங்களை உள்ளிடவும்.",
+      's4.lib.front_office_workbench.follow_up': "பின்தொடர்தல்",
+      's4.lib.front_office_workbench.front_office_workbench':
+          "முன் அலுவலக பணிப்பெட்டி",
+      's4.lib.front_office_workbench.govt_scheme': "அரசு திட்டம்",
+      's4.lib.front_office_workbench.insurance': "காப்பீடு",
+      's4.lib.front_office_workbench.insurer_tpa': "காப்பீட்டாளர் / TPA",
+      's4.lib.front_office_workbench.ip_admission_is_not_enabled_for_this_role':
+          "இந்த பாத்திரத்திற்கு IP சேர்க்கை இயக்கப்படவில்லை.",
+      's4.lib.front_office_workbench.keep_appointment':
+          "சந்திப்பை வைத்திருங்கள்",
+      's4.lib.front_office_workbench.known_allergies': "அறியப்பட்ட ஒவ்வாமை",
+      's4.lib.front_office_workbench.lab_only': "ஆய்வகம் மட்டுமே",
+      's4.lib.front_office_workbench.lab_only_visit':
+          "ஆய்வகத்திற்கு மட்டுமே வருகை",
+      's4.lib.front_office_workbench.medico_legal_case': "மருத்துவ-சட்ட வழக்கு",
+      's4.lib.front_office_workbench.mlc_notes': "MLC குறிப்புகள்",
+      's4.lib.front_office_workbench.mlc_number': "எம்எல்சி எண்",
+      's4.lib.front_office_workbench.new_consultation': "புதிய ஆலோசனை",
+      's4.lib.front_office_workbench.new_patient': "புதிய நோயாளி",
+      's4.lib.front_office_workbench.op_appointment_booked':
+          "OP சந்திப்பு பதிவு செய்யப்பட்டது",
+      's4.lib.front_office_workbench.op_booking_is_not_enabled_for_this_role':
+          "இந்தப் பதவிக்கு OP முன்பதிவு இயக்கப்படவில்லை.",
+      's4.lib.front_office_workbench.opd_ipd_handoff': "OPD -> IPD ஹேண்ட்ஆஃப்",
+      's4.lib.front_office_workbench.opd_to_ipd_advice':
+          "OPD முதல் IPD வரை ஆலோசனை",
+      's4.lib.front_office_workbench.optional_if_department_is_selected':
+          "துறை தேர்ந்தெடுக்கப்பட்டால் விருப்பமானது",
+      's4.lib.front_office_workbench.paediatric_opd': "குழந்தைகளுக்கான OPD",
+      's4.lib.front_office_workbench.payment_category': "கட்டண வகை",
+      's4.lib.front_office_workbench.policy_number': "கொள்கை எண்",
+      's4.lib.front_office_workbench.possible_existing_patient':
+          "சாத்தியமான ஏற்கனவே இருக்கும் நோயாளி",
+      's4.lib.front_office_workbench.queue_row_has_no_patient_details':
+          "வரிசை வரிசையில் நோயாளி விவரங்கள் இல்லை.",
+      's4.lib.front_office_workbench.reschedule': "மறு அட்டவணை",
+      's4.lib.front_office_workbench.reschedule_appointment':
+          "சந்திப்பை மீண்டும் திட்டமிடுங்கள்",
+      's4.lib.front_office_workbench.reschedule_note': "மறு அட்டவணை குறிப்பு",
+      's4.lib.front_office_workbench.scheme_name': "திட்டத்தின் பெயர்",
+      's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
+          "ஐபியை அனுமதிக்கும் முன் நோயாளியைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.select_a_patient_before_billing':
+          "பில்லிங் செய்வதற்கு முன் நோயாளியைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.select_a_patient_before_booking_op':
+          "OP ஐ முன்பதிவு செய்வதற்கு முன் ஒரு நோயாளியைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
+          "வாக்-இன் பதிவு செய்வதற்கு முன் ஒரு நோயாளியைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.teleconsult': "தொலைத் தொடர்பு",
+      's4.lib.front_office_workbench.tpa': "TPA",
+      's4.lib.front_office_workbench.view_advice': "ஆலோசனையைப் பார்க்கவும்",
+      's4.lib.front_office_workbench.visit_notes_optional':
+          "வருகை குறிப்புகள் (விரும்பினால்)",
+      's4.lib.front_office_workbench.visit_reason_chief_complaint':
+          "காரணம் / தலைமை புகாரைப் பார்வையிடவும்",
+      's4.lib.front_office_workbench.visit_type': "வருகை வகை",
+      's4.lib.front_office_workbench.walk_in_registration_is_not_enabled_for_this_rol':
+          "இந்தப் பதவிக்கு வாக்-இன் பதிவு இயக்கப்படவில்லை.",
+      's4.lib.front_office_workbench.yyyy_mm_dd': "YYYY-MM-DD",
+      's4.lib.housekeeping_command.delegate_staff': "பிரதிநிதி ஊழியர்கள்",
+      's4.lib.housekeeping_command.end': "முடிவு",
+      's4.lib.housekeeping_command.end_assignment': "வேலையை முடிக்கவா?",
+      's4.lib.housekeeping_command.floor_or_zone': "தளம் அல்லது மண்டலம்",
+      's4.lib.housekeeping_command.housekeeping_command':
+          "வீட்டு பராமரிப்பு கட்டளை",
+      's4.lib.housekeeping_command.housekeeping_staff_delegated':
+          "வீட்டு பராமரிப்பு ஊழியர்கள் நியமிக்கப்பட்டனர்",
+      's4.lib.housekeeping_command.move_open_requests_in_this_zone':
+          "திறந்த கோரிக்கைகளை இந்த மண்டலத்தில் நகர்த்தவும்",
+      's4.lib.housekeeping_command.redeploy_staff':
+          "ஊழியர்களை மீண்டும் பணியமர்த்தவும்",
+      's4.lib.housekeeping_command.staff_member': "பணியாளர் உறுப்பினர்",
+      's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another':
+          "ஒரு தளத்தில் மற்றொன்றை விட அதிக வேலை இருக்கும்போது பயனுள்ளதாக இருக்கும்.",
+      's4.lib.housekeeping_roster_board.07_30': "07:30",
+      's4.lib.housekeeping_roster_board.12_30': "12:30",
+      's4.lib.housekeeping_roster_board.accept_for_planning':
+          "திட்டமிடுவதை ஏற்றுக்கொள்ளுங்கள்",
+      's4.lib.housekeeping_roster_board.add_custom_shift':
+          "தனிப்பயன் மாற்றத்தைச் சேர்க்கவும்",
+      's4.lib.housekeeping_roster_board.add_staff': "பணியாளர்களைச் சேர்க்கவும்",
+      's4.lib.housekeeping_roster_board.ai_rules_roster_forecast':
+          "AI/விதிகளின் பட்டியல் முன்னறிவிப்பு",
+      's4.lib.housekeeping_roster_board.approve': "ஒப்புதல்",
+      's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve':
+          "ஒவ்வொரு வார்டு, அலகு அல்லது தளத்தையும் காலை, மாலை, இரவு அல்லது தனிப்பயன் மாற்றத்தின் கீழ் ஒதுக்கவும்.",
+      's4.lib.housekeeping_roster_board.copy_day_to_week':
+          "ஒவ்வொரு வாரமும் நகலெடுக்கவும்",
+      's4.lib.housekeeping_roster_board.copy_previous_day':
+          "முந்தைய நாள் நகலெடுக்கவும்",
+      's4.lib.housekeeping_roster_board.discard_forecast':
+          "முன்னறிவிப்பை நிராகரிக்கவும்",
+      's4.lib.housekeeping_roster_board.duty_requests': "கடமை கோரிக்கைகள்",
+      's4.lib.housekeeping_roster_board.generate_12_week_forecast':
+          "12 வார முன்னறிவிப்பை உருவாக்கவும்",
+      's4.lib.housekeeping_roster_board.leave_and_alternate_cover':
+          "மூடியை விட்டுவிட்டு மாற்று",
+      's4.lib.housekeeping_roster_board.off_unassigned':
+          "ஆஃப் / ஒதுக்கப்படாதது",
+      's4.lib.housekeeping_roster_board.publish_roster': "பட்டியலை வெளியிடவும்",
+      's4.lib.housekeeping_roster_board.save_draft': "வரைவைச் சேமிக்கவும்",
+      's4.lib.housekeeping_roster_board.unassigned': "ஒதுக்கப்படாதது",
+      's4.lib.housekeeping_roster_board.ward_unit': "வார்டு / அலகு",
+      's4.lib.hr_dashboard.no_staff_records_loaded_yet':
+          "ஊழியர்களின் பதிவுகள் எதுவும் இன்னும் ஏற்றப்படவில்லை.",
+      's4.lib.hr_dashboard.open_onboarding': "ஆன்போர்டிங்கைத் திறக்கவும்",
+      's4.lib.hr_dashboard.roster': "பட்டியல்",
+      's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
+          "விதைக்கப்பட்ட மற்றும் உள்நாட்டில் பணிபுரியும் ஊழியர்கள் தற்போது HR-க்கு தெரியும்",
+      's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
+          "முதல் பணியாளர் கணக்கைச் சேர்க்க ஆன்போர்டிங்கைப் பயன்படுத்தவும்.",
+      's4.lib.investigations.cbc_x_ray_chest_ecg':
+          "சிபிசி, எக்ஸ்ரே மார்பு, ஈசிஜி...",
+      's4.lib.investigations.clinical_notes_optional':
+          "மருத்துவ குறிப்புகள் (விரும்பினால்)",
+      's4.lib.investigations.continue_to_prescription': "மருந்துக்கு தொடரவும்",
+      's4.lib.investigations.investigation_ordered':
+          "விசாரணைக்கு உத்தரவிடப்பட்டுள்ளது",
+      's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
+          "முடிவு தயார் எனக் குறிக்கப்பட்டுள்ளது, ஆனால் கட்டமைக்கப்பட்ட சுருக்கம் எதுவும் இதுவரை இணைக்கப்படவில்லை.",
+      's4.lib.investigations.test_name': "சோதனை பெயர்",
+      's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
+          "OP/IP ஆய்வகக் கோரிக்கைகளை முன்பதிவு செய்து கண்காணிக்கவும்",
+      's4.lib.lab_bookings.cbc_rft_urine_routine':
+          "சிபிசி, ஆர்எஃப்டி, சிறுநீர் வழக்கமான...",
+      's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
+          "சோதனைப் பெயர்களை உள்ளிடவும் அல்லது மருந்துச் சீட்டை இணைக்கவும்",
+      's4.lib.lab_bookings.new_lab_booking': "புதிய ஆய்வக முன்பதிவு",
+      's4.lib.lab_bookings.tests': "சோதனைகள்",
+      's4.lib.lab_bookings.upload': "பதிவேற்றவும்",
+      's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
+          "இந்த ஃபோன் இன்னும் பதிவு செய்யப்படவில்லை என்றால் பயன்படுத்தப்படும்",
+      's4.lib.lab_bookings.visit_lab': "ஆய்வகத்தைப் பார்வையிடவும்",
+      's4.lib.leave_approvals.optional_note_for_audit':
+          "தணிக்கைக்கான விருப்ப குறிப்பு",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.leave_approved': "விடுப்பு அங்கீகரிக்கப்பட்டது",
+      's4.lib.leave_approvals.leave_rejected': "விடுப்பு நிராகரிக்கப்பட்டது",
+      's4.lib.main_scaffold.pending_clinical_tasks':
+          "நிலுவையில் உள்ள மருத்துவ பணிகள்",
+      's4.lib.main_scaffold.unread_alerts': "படிக்காத எச்சரிக்கைகள்",
+      's4.lib.mar_scan.min_15_characters_describe_the_specific_situatio':
+          "குறைந்தபட்சம் 15 எழுத்துக்கள் - குறிப்பிட்ட சூழ்நிலையை விவரிக்கவும்",
+      's4.lib.mar_scan.select_a_category': "ஒரு வகையைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.messaging_inbox.admin_log': "நிர்வாக பதிவு",
+      's4.lib.messaging_inbox.archive': "காப்பகம்",
+      's4.lib.messaging_inbox.conversation_actions': "உரையாடல் நடவடிக்கைகள்",
+      's4.lib.messaging_inbox.mark_unread': "படிக்காததைக் குறிக்கவும்",
+      's4.lib.messaging_inbox.mute_8h': "8 மணிநேரத்தை முடக்கு",
+      's4.lib.messaging_inbox.no_matching_staff':
+          "பொருந்தக்கூடிய ஊழியர்கள் இல்லை",
+      's4.lib.messaging_inbox.restore': "மீட்டமை",
+      's4.lib.messaging_inbox.restore_alerts': "விழிப்பூட்டல்களை மீட்டமை",
+      's4.lib.messaging_inbox.search_conversations': "உரையாடல்களைத் தேடுங்கள்",
+      's4.lib.messaging_inbox.search_staff': "தேடுதல் பணியாளர்கள்",
+      's4.lib.messaging_inbox.subject': "பொருள்",
+      's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
+          "இது ஒவ்வொரு செயலில் உள்ள ஊழியர்களுக்கும் ஒரு சேமித்த செய்தியை அனுப்பும்.",
+      's4.lib.messaging_inbox.urgent_only': "அவசரம் மட்டுமே",
+      's4.lib.messaging_thread.attach_file': "கோப்பை இணைக்கவும்",
+      's4.lib.messaging_thread.copy': "நகலெடுக்கவும்",
+      's4.lib.messaging_thread.copy_clinical_message':
+          "மருத்துவ செய்தியை நகலெடுக்கவா?",
+      's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
+          "செய்தி நகலெடுக்கப்பட்டது - கிளிப்போர்டு 60 வினாடிகளில் அழிக்கப்படும்",
+      's4.lib.messaging_thread.reply_in_this_conversation':
+          "இந்த உரையாடலில் பதிலளிக்கவும்",
+      's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
+          "கோப்பை இணைக்கும் முன் முதல் செய்தியை அனுப்பவும்.",
+      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
+          "இந்த செய்தியில் நோயாளி-உணர்வுத் தகவல் இருக்கலாம்.",
+      's4.lib.notifications.refresh_alerts':
+          "விழிப்பூட்டல்களைப் புதுப்பிக்கவும்",
+      's4.lib.nursing_notes.all_notes': "அனைத்து குறிப்புகள்",
+      's4.lib.nursing_notes.draft_discarded': "வரைவு நிராகரிக்கப்பட்டது",
+      's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
+          "நோயாளியின் அனைத்து குறிப்புகளையும் பார்க்க படுக்கை பலகையில் இருந்து இந்தத் திரையைத் திறக்கவும்.",
+      's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
+          "முடிக்கப்பட்ட டிரான்ஸ்கிரிப்ட்களை மருத்துவரின் மதிப்பாய்வுக்காக SOAP வரைவுகளாக மாற்றலாம்.",
+      's4.lib.op_ai_assist.dashboard': "டாஷ்போர்டு",
+      's4.lib.op_ai_assist.op_doctor_assist_unavailable':
+          "OP மருத்துவர் உதவி கிடைக்கவில்லை",
+      's4.lib.op_ai_assist.open_draft': "வரைவைத் திறக்கவும்",
+      's4.lib.op_ai_assist.refresh_services': "சேவைகளைப் புதுப்பிக்கவும்",
+      's4.lib.op_ai_assist.review_queue': "மதிப்பாய்வு வரிசை",
+      's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
+          "இன்னும் மருத்துவ காலவரிசை உள்ளீடுகள் எதுவும் இல்லை",
+      's4.lib.op_doctor_workspace.open_full': "முழுமையாக திறக்கவும்",
+      's4.lib.op_doctor_workspace.save_note': "குறிப்பைச் சேமிக்கவும்",
+      's4.lib.op_doctor_workspace.save_then_investigations':
+          "சேமிக்கவும், பின்னர் விசாரணை",
+      's4.lib.op_doctor_workspace.sign_note': "கையெழுத்து குறிப்பு",
+      's4.lib.order_sets.no_order_sets': "ஆர்டர் செட் இல்லை",
+      's4.lib.order_sets.order_sets': "ஆர்டர் செட்",
+      's4.lib.order_sets.search_pneumonia_sepsis':
+          "தேடல் (நிமோனியா, செப்சிஸ், ...)",
+      's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
+          "மத்திய படிநிலை மற்றும் பங்கு வரைபடம்",
+      's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
+          "இந்தப் பொறுப்பின் கீழ் பதிவுசெய்யப்பட்ட ஊழியர்கள் யாரும் இல்லை.",
+      's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
+          "இந்தப் பொறுப்பின் கீழ் இதுவரை பதிவு செய்யப்பட்ட ஊழியர்கள் இல்லை",
+      's4.lib.partograph_chart.cervical_dilation_cm_vs_hours_in_active_phase':
+          "கர்ப்பப்பை வாய் விரிவாக்கம் (செ.மீ.) எதிராக செயல்படும் கட்டத்தில் மணிநேரம்",
+      's4.lib.patient_command_board.achieve': "சாதிக்க",
+      's4.lib.patient_command_board.care_plan_updated':
+          "பராமரிப்பு திட்டம் புதுப்பிக்கப்பட்டது",
+      's4.lib.patient_command_board.care_plans': "பராமரிப்பு திட்டங்கள்",
+      's4.lib.patient_command_board.no_activities_recorded':
+          "செயல்பாடுகள் எதுவும் பதிவு செய்யப்படவில்லை.",
+      's4.lib.patient_command_board.no_goals_recorded':
+          "கோல்கள் எதுவும் பதிவு செய்யப்படவில்லை.",
+      's4.lib.patient_command_board.patient_command_board':
+          "நோயாளி கட்டளை வாரியம்",
+      's4.lib.patient_command_board.ward_area': "வார்டு / பகுதி",
+      's4.lib.patient_context_chip.clear_patient_context':
+          "தெளிவான நோயாளி சூழல்",
+      's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
+          "குறிப்புகள், மருந்துச்சீட்டுகள், விசாரணைகள், உயிர்கள் மற்றும் நோயாளி உருவாக்கிய ஆரோக்கியத் தரவுகளின் நியமன காலவரிசை.",
+      's4.lib.patient_health_journey_panel.clinical_events_and_patient_app_activity_will_ap':
+          "மருத்துவ நிகழ்வுகள் மற்றும் நோயாளி-ஆப் செயல்பாடு கிடைத்ததும் இங்கு தோன்றும்.",
+      's4.lib.patient_health_journey_panel.no_timeline_data_yet':
+          "இதுவரை காலவரிசை தரவு இல்லை",
+      's4.lib.patient_health_journey_panel.patient_health_journey':
+          "நோயாளியின் ஆரோக்கிய பயணம்",
+      's4.lib.patient_notes_list.admin_edit': "நிர்வாக திருத்தம்",
+      's4.lib.patient_notes_list.admin_edit_prior_note':
+          "நிர்வாகம்: முன் குறிப்பைத் திருத்தவும்",
+      's4.lib.patient_notes_list.failed_to_load_notes':
+          "குறிப்புகளை ஏற்ற முடியவில்லை",
+      's4.lib.patient_notes_list.no_notes_to_show': "காட்ட குறிப்புகள் இல்லை",
+      's4.lib.patient_notes_list.note_updated': "குறிப்பு புதுப்பிக்கப்பட்டது",
+      's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
+          "அசல் உரைநடையை மேலெழுதுகிறது. குறிப்பின் ஆசிரியர், பங்கு மற்றும் உருவாக்கும் நேரம் ஆகியவை பாதுகாக்கப்படுகின்றன.",
+      's4.lib.patient_records.ai_assisted_record_review':
+          "AI-உதவி பதிவு மதிப்பாய்வு",
+      's4.lib.patient_records.attach_at_least_one_file_or_photo':
+          "குறைந்தது ஒரு கோப்பு அல்லது புகைப்படத்தை இணைக்கவும்",
+      's4.lib.patient_records.check': "சரிபார்க்கவும்",
+      's4.lib.patient_records.current_admission_notes':
+          "தற்போதைய சேர்க்கை குறிப்புகள்",
+      's4.lib.patient_records.discharge_summary': "வெளியேற்ற சுருக்கம்",
+      's4.lib.patient_records.document_link_unavailable':
+          "ஆவண இணைப்பு கிடைக்கவில்லை",
+      's4.lib.patient_records.document_type': "ஆவண வகை",
+      's4.lib.patient_records.draft_not_imported_to_chart':
+          "வரைவு, விளக்கப்படத்திற்கு இறக்குமதி செய்யப்படவில்லை",
+      's4.lib.patient_records.extraction_review_saved':
+          "பிரித்தெடுத்தல் மதிப்பாய்வு சேமிக்கப்பட்டது",
+      's4.lib.patient_records.lab_report': "ஆய்வக அறிக்கை",
+      's4.lib.patient_records.needs_revision': "திருத்தம் தேவை",
+      's4.lib.patient_records.no_clear_text_extracted':
+          "தெளிவான உரை பிரித்தெடுக்கப்படவில்லை",
+      's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
+          "இந்த சேர்க்கைக்கான குறிப்புகள் எதுவும் இதுவரை பதிவு செய்யப்படவில்லை.",
+      's4.lib.patient_records.old_discharge_summary_prior_scan':
+          "பழைய டிஸ்சார்ஜ் சுருக்கம், முந்தைய ஸ்கேன்...",
+      's4.lib.patient_records.open': "திற",
+      's4.lib.patient_records.open_notes': "குறிப்புகளைத் திறக்கவும்",
+      's4.lib.patient_records.patient_record_uploaded':
+          "நோயாளியின் பதிவு பதிவேற்றப்பட்டது",
+      's4.lib.patient_records.prior_record': "முந்தைய பதிவு",
+      's4.lib.patient_records.prior_records': "முந்தைய பதிவுகள்",
+      's4.lib.patient_records.record_title': "பதிவு தலைப்பு",
+      's4.lib.patient_records.remove_file': "கோப்பை அகற்று",
+      's4.lib.patient_records.review_note': "மதிப்பாய்வு குறிப்பு",
+      's4.lib.patient_records.source_hospital': "மூல மருத்துவமனை",
+      's4.lib.patient_records.upload_prior_record':
+          "முந்தைய பதிவைப் பதிவேற்றவும்",
+      's4.lib.patient_records.upload_prior_record_2':
+          "முந்தைய பதிவைப் பதிவேற்றவும்",
+      's4.lib.patient_search_action.find_patient': "நோயாளியைக் கண்டுபிடி",
+      's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
+          "மருத்துவமனை ஐடி, பெயர், தொலைபேசி அல்லது ABHA மூலம் நோயாளியைக் கண்டறியவும்…",
+      's4.lib.patient_timeline.current_ip_medication_order':
+          "தற்போதைய ஐபி மருந்து ஆர்டர்",
+      's4.lib.patient_timeline.event_log': "நிகழ்வு பதிவு",
+      's4.lib.patient_timeline.health_journey': "ஆரோக்கிய பயணம்",
+      's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
+          "மொபைலில் படிக்க மட்டும். மருத்துவப் பதிவுகள் பணியாளர் டெஸ்க்டாப்பில் முடிக்கப்பட வேண்டும்.",
+      's4.lib.pharmacy.10_digit_mobile_number': "10 இலக்க மொபைல் எண்",
+      's4.lib.pharmacy.10_tablets_strip': "10 மாத்திரைகள் / துண்டு",
+      's4.lib.pharmacy.650_mg': "650 மி.கி",
+      's4.lib.pharmacy.add_inventory_item': "சரக்கு உருப்படியைச் சேர்க்கவும்",
+      's4.lib.pharmacy.add_item': "பொருளைச் சேர்க்கவும்",
+      's4.lib.pharmacy.available_in_formulary': "ஃபார்முலாரியில் கிடைக்கும்",
+      's4.lib.pharmacy.brand_name': "பிராண்ட் பெயர்",
+      's4.lib.pharmacy.cold_chain_item': "குளிர் சங்கிலி பொருள்",
+      's4.lib.pharmacy.controlled_narcotic_item':
+          "கட்டுப்படுத்தப்பட்ட / போதை பொருள்",
+      's4.lib.pharmacy.create_pharmacy_order': "பார்மசி ஆர்டரை உருவாக்கவும்",
+      's4.lib.pharmacy.display_name': "காட்சி பெயர்",
+      's4.lib.pharmacy.drug_generic_or_strength':
+          "மருந்து, பொதுவான, அல்லது வலிமை",
+      's4.lib.pharmacy.drug_name_with_strength': "வலிமை கொண்ட மருந்து பெயர்",
+      's4.lib.pharmacy.edit_formulary_drug': "ஃபார்முலரி மருந்தைத் திருத்தவும்",
+      's4.lib.pharmacy.expiry_alerts': "காலாவதி எச்சரிக்கைகள்",
+      's4.lib.pharmacy.form': "படிவம்",
+      's4.lib.pharmacy.generic_name': "பொதுவான பெயர்",
+      's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase_oversight':
+          "சரக்கு & கொள்முதல் மேற்பார்வை",
+      's4.lib.pharmacy.inventory_items': "சரக்கு பொருட்கள்",
+      's4.lib.pharmacy.manufacturer': "உற்பத்தியாளர்",
+      's4.lib.pharmacy.mark_urgent': "அவசரமாகக் குறிக்கவும்",
+      's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
+          "மருந்தின் பெயர்கள், டோஸ், அளவு அல்லது Rx குறிப்பு",
+      's4.lib.pharmacy.no_formulary_drugs_found':
+          "ஃபார்முலரி மருந்துகள் எதுவும் கண்டுபிடிக்கப்படவில்லை",
+      's4.lib.pharmacy.no_inventory_items_found':
+          "இருப்பு பொருட்கள் எதுவும் இல்லை",
+      's4.lib.pharmacy.none': "இல்லை",
+      's4.lib.pharmacy.order_note': "ஆர்டர் குறிப்பு",
+      's4.lib.pharmacy.otc': "OTC",
+      's4.lib.pharmacy.pack_size': "பேக் அளவு",
+      's4.lib.pharmacy.pack_strength_note': "பேக் / வலிமை குறிப்பு",
+      's4.lib.pharmacy.para_650_tab': "PARA-650-TAB",
+      's4.lib.pharmacy.paracetamol_650_mg': "பாராசிட்டமால் 650 மி.கி",
+      's4.lib.pharmacy.paracetamol_650_mg_tablet':
+          "Paracetamol 650 mg மாத்திரை",
+      's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
+          "மருந்தகம் வழங்கும் பணிப்பாய்வு மருந்தக ஊழியர்களால் கையாளப்படுகிறது. இருப்பு, காலாவதி மற்றும் கொள்முதல் மேற்பார்வைக்கு சரக்குகளைப் பயன்படுத்தவும்.",
+      's4.lib.pharmacy.prescription_required': "மருந்துச் சீட்டு தேவை",
+      's4.lib.pharmacy.remove': "அகற்று",
+      's4.lib.pharmacy.remove_from_formulary':
+          "ஃபார்முலரியில் இருந்து அகற்றவா?",
+      's4.lib.pharmacy.remove_from_formulary_2':
+          "ஃபார்முலரியில் இருந்து அகற்று",
+      's4.lib.pharmacy.reorder_level': "மறுவரிசைப்படுத்து நிலை",
+      's4.lib.pharmacy.reorder_quantity': "அளவை மறுவரிசைப்படுத்தவும்",
+      's4.lib.pharmacy.run_expiry_scan': "காலாவதி ஸ்கேன் இயக்கவும்",
+      's4.lib.pharmacy.search_formulary': "தேடல் சூத்திரம்",
+      's4.lib.pharmacy.search_inventory': "சரக்குகளைத் தேடுங்கள்",
+      's4.lib.pharmacy.shared_pharmacy_formulary':
+          "பகிரப்பட்ட பார்மசி ஃபார்முலரி",
+      's4.lib.pharmacy.sku_code': "SKU குறியீடு",
+      's4.lib.pharmacy.sku_drug_brand_or_generic':
+          "SKU, மருந்து, பிராண்ட் அல்லது பொதுவானது",
+      's4.lib.pharmacy.stock_quantity': "பங்கு அளவு",
+      's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
+          "ஸ்டோர்கள்/கொள்முதல் நோயாளி மருந்துகளை வழங்காமல் மருந்து மாஸ்டர், இருப்புத் தெரிவுநிலை மற்றும் காலாவதியான மேற்பார்வை ஆகியவற்றைப் பராமரிக்க முடியும்.",
+      's4.lib.pharmacy.strength': "வலிமை",
+      's4.lib.pharmacy.unit_label': "அலகு லேபிள்",
+      's4.lib.pharmacy.unit_price': "அலகு விலை",
+      's4.lib.pharmacy.x': "X",
+      's4.lib.phone_patient_lookup.no_matching_patient_found':
+          "பொருத்தமான நோயாளி இல்லை.",
+      's4.lib.phone_patient_lookup.patient_lookup_on_phone_is_limited_to_doctor_cla':
+          "ஃபோனில் நோயாளிகளைத் தேடுவது மருத்துவர்-வகுப்பு படிக்க-மட்டும் அணுகல் மட்டுமே. மருத்துவ பணிப்பாய்வுகளுக்கு பணியாளர் டெஸ்க்டாப்பைப் பயன்படுத்தவும்.",
+      's4.lib.phone_patient_lookup.read_only_patient_lookup':
+          "படிக்க-மட்டும் நோயாளி தேடல்",
+      's4.lib.prescriptions.add_drug': "மருந்து சேர்க்கவும்",
+      's4.lib.prescriptions.clear_draft': "தெளிவான வரைவு",
+      's4.lib.prescriptions.clear_prescription_draft':
+          "மருந்துச் சீட்டு வரைவை அழிக்கவா?",
+      's4.lib.prescriptions.continue': "தொடரவும்",
+      's4.lib.prescriptions.days': "நாட்கள்",
+      's4.lib.prescriptions.delete_row': "வரிசையை நீக்கு",
+      's4.lib.prescriptions.drug_form': "மருந்து / வடிவம்*",
+      's4.lib.prescriptions.notes_safety': "குறிப்புகள் / பாதுகாப்பு",
+      's4.lib.prescriptions.op_consultation_context': "OP ஆலோசனை சூழல்",
+      's4.lib.prescriptions.open_pdf': "PDF ஐத் திறக்கவும்",
+      's4.lib.prescriptions.prescription_pdf_is_ready':
+          "மருந்து PDF தயாராக உள்ளது",
+      's4.lib.prescriptions.review_draft': "மதிப்பாய்வு வரைவு",
+      's4.lib.prescriptions.review_prescription_warnings':
+          "மருந்து எச்சரிக்கைகளை மதிப்பாய்வு செய்யவும்",
+      's4.lib.prescriptions.save_favorite': "பிடித்ததை சேமிக்கவும்",
+      's4.lib.prescriptions.signed': "கையெழுத்திட்டது",
+      's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
+          "இந்த மருந்துக்கான தடையற்ற CDS எச்சரிக்கைகளை சேவையகம் திருப்பி அனுப்பியது.",
+      's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
+          "இது தற்போது இந்த வரைவில் உள்ள மருந்துகள், குறிப்புகள், உயிர்கள் மற்றும் பின்தொடர்தல் ஆகியவற்றை நீக்குகிறது. உருவாக்கப்பட்ட மருந்துச்சீட்டுகள் நீக்கப்படாது.",
+      's4.lib.prescriptions.type_drug_name': "மருந்தின் பெயர் வகை",
+      's4.lib.prescriptions.use_favorite': "பிடித்ததைப் பயன்படுத்தவும்",
+      's4.lib.referrals.ai_assisted_clinical_summary':
+          "AI உதவி மருத்துவ சுருக்கம்",
+      's4.lib.referrals.audit': "தணிக்கை",
+      's4.lib.referrals.clinical_summary': "மருத்துவ சுருக்கம்",
+      's4.lib.referrals.consultant_name': "ஆலோசகர் பெயர்",
+      's4.lib.referrals.department_specialty': "துறை / சிறப்பு",
+      's4.lib.referrals.edit_and_confirm_this_draft_it_is_not_sent_until':
+          "இந்த வரைவைத் திருத்தி உறுதிப்படுத்தவும். கோரிக்கை பரிந்துரையை அழுத்தும் வரை அது அனுப்பப்படாது.",
+      's4.lib.referrals.incoming': "உள்வரும்",
+      's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart':
+          "துறைக்கு அறிவிக்க ஆலோசகரை தேர்வு செய்யாமல் விடுங்கள்.",
+      's4.lib.referrals.no_referral_audit_rows':
+          "பரிந்துரை தணிக்கை வரிசைகள் இல்லை",
+      's4.lib.referrals.open_patient': "திறந்த நோயாளி",
+      's4.lib.referrals.outgoing': "வெளிச்செல்லும்",
+      's4.lib.referrals.reason_for_referral': "பரிந்துரைக்கான காரணம்",
+      's4.lib.referrals.referral_audit_is_available_to_admin_superadmin':
+          "பரிந்துரை தணிக்கை நிர்வாகம்/சூப்பர் அட்மின் பாத்திரங்களுக்கு கிடைக்கிறது.",
+      's4.lib.referrals.referral_clinical_summary':
+          "பரிந்துரை மருத்துவ சுருக்கம்",
+      's4.lib.referrals.use_summary': "சுருக்கத்தைப் பயன்படுத்தவும்",
+      's4.lib.reports_admin_queue.hr_admin_access_required':
+          "HR/Admin அணுகல் தேவை",
+      's4.lib.reports_admin_queue.internal_hr_admin_note':
+          "அக HR/நிர்வாகக் குறிப்பு",
+      's4.lib.reports_admin_queue.no_activity_recorded':
+          "எந்த நடவடிக்கையும் பதிவு செய்யப்படவில்லை",
+      's4.lib.reports_admin_queue.public_update': "பொது மேம்படுத்தல்",
+      's4.lib.reports_admin_queue.report_update_saved':
+          "அறிக்கை புதுப்பிப்பு சேமிக்கப்பட்டது",
+      's4.lib.reports_admin_queue.reports_review': "அறிக்கைகள் மதிப்பாய்வு",
+      's4.lib.reports_admin_queue.save_update': "புதுப்பிப்பைச் சேமிக்கவும்",
+      's4.lib.schedule.shift_actions': "நடவடிக்கைகளை மாற்றவும்",
+      's4.lib.smart_phrase_field.expanding': "விரிவடைகிறது…",
+      's4.lib.specimen_scan.patient_wristband_mismatch':
+          "நோயாளியின் மணிக்கட்டுப் பொருத்தமின்மை",
+      's4.lib.specimen_scan.specimen_hard_stop': "மாதிரி கடினமான-நிறுத்தம்",
+      's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "இதை மீற முடியாது. சரியான மணிக்கட்டு மற்றும் குழாயை மீண்டும் ஸ்கேன் செய்யவும்.",
+      's4.lib.staff_diagnostics.no_details_returned':
+          "விவரங்கள் எதுவும் திரும்பவில்லை.",
+      's4.lib.staff_diagnostics.refresh_diagnostics':
+          "நோயறிதலைப் புதுப்பிக்கவும்",
+      's4.lib.staff_diagnostics.staff_diagnostics': "பணியாளர் நோய் கண்டறிதல்",
+      's4.lib.staff_management.default_shift': "இயல்புநிலை மாற்றம்",
+      's4.lib.staff_management.leave_blank_to_auto_generate':
+          "தானாக உருவாக்க, காலியாக விடவும்",
+      's4.lib.staff_management.position': "பதவி",
+      's4.lib.staff_management.show_department_options':
+          "துறை விருப்பங்களைக் காட்டு",
+      's4.lib.staff_management.temporary_password': "தற்காலிக கடவுச்சொல்",
+      's4.lib.staff_phone_more.more': "மேலும்",
+      's4.lib.staff_query.it': "IT",
+      's4.lib.staff_query.my_queries': "என் கேள்விகள்",
+      's4.lib.staff_query.no_queries_raised_yet':
+          "இதுவரை எந்த கேள்வியும் எழுப்பப்படவில்லை.",
+      's4.lib.staff_query.payroll': "ஊதியம்",
+      's4.lib.staff_query.query_submitted': "வினவல் சமர்ப்பிக்கப்பட்டது",
+      's4.lib.staff_query.raise_query': "கேள்வியை எழுப்புங்கள்",
+      's4.lib.staff_query.staff_query': "ஊழியர்களின் கேள்வி",
+      's4.lib.staff_query.submit_query': "வினவலை சமர்ப்பிக்கவும்",
+      's4.lib.staff_roster_hub.choose_a_department_to_manage_weekly_duties_leav':
+          "வாராந்திர கடமைகளை நிர்வகிக்க ஒரு துறையைத் தேர்வு செய்யவும், தொகுதிகள், கோரிக்கைகள் மற்றும் ரோஸ்டர் முன்னறிவிப்பு மேலடுக்குகளை விடுங்கள்.",
+      's4.lib.staff_roster_hub.department_roster_boards':
+          "துறை பட்டியல் பலகைகள்",
+      's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
+          "இந்த பணிக்கு எந்த துறை பட்டியல் குழுவும் ஒதுக்கப்படவில்லை.",
+      's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "இதை மீற முடியாது. சரியான மணிக்கட்டு மற்றும் அலகு மீண்டும் ஸ்கேன் செய்யவும்.",
+      's4.lib.transfusion_scan.transfusion_hard_stop':
+          "இரத்தமாற்றம் கடினமாக-நிறுத்தம்",
+      's4.lib.ward_mode.built_for_ward_specific_flows':
+          "வார்டு-குறிப்பிட்ட ஓட்டங்களுக்காக கட்டப்பட்டது",
+      's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
+          "இது ரிசப்ஷன் கவுண்டரின் அதே ஒர்க் பெஞ்ச் பேட்டர்னைப் பயன்படுத்துகிறது; அடுத்த கட்டமாக, நோயாளி-உணர்வுப் பலகையில் இருந்து குறிப்புகள், உயிர்கள், விசாரணைகள் மற்றும் மருந்து விளக்கப்படங்களுக்கு குறுக்குவழிகள்.",
+      's4.lib.ward_mode.ward_workbench': "வார்டு பணிமனை",
+      // REVIEW: AI first-pass S4 dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.app_router.page_not_found': "பக்கம் கிடைக்கவில்லை: {route}",
+      's4.dynamic.patient_notes.update_failed':
+          "புதுப்பிப்பு தோல்வியடைந்தது: {error}",
+      's4.dynamic.patient_records.notes_count': "{count} குறிப்புகள்",
+      's4.dynamic.patient_records.confidence': "நம்பிக்கை {confidence}",
+      's4.dynamic.admission_case_sheet.title_for_patient':
+          "வழக்கு தாள் - {patient}",
+      's4.dynamic.common.user_id': "பயனர் ஐடி: {userId}",
+      's4.dynamic.common.signed_at': "கையொப்பமிடப்பட்டது: {signedAt}",
+      's4.dynamic.discharge_hub.ai_package_failed':
+          "AI தொகுப்பு தோல்வியடைந்தது: {error}",
+      's4.dynamic.discharge_hub.finish_task_title': "{label} ஐ முடிக்கவும்",
+      's4.dynamic.discharge_hub.task_finished': "{label} முடிந்தது",
+      's4.dynamic.discharge_hub.finish_task_failed':
+          "பணியை முடிக்க முடியவில்லை: {error}",
+      's4.dynamic.discharge_hub.title_for_patient':
+          "டிஸ்சார்ஜ் ஹப் - {patient}",
+      's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.patient_command_board.allergies_count': "{count} ஒவ்வாமை",
+      's4.dynamic.patient_command_board.alerts_count':
+          "{count} விழிப்பூட்டல்கள்",
+      's4.dynamic.patient_command_board.tasks_count': "{count} பணிகள்",
+      's4.dynamic.housekeeping.week_label': "வாரம் {range}",
+      's4.dynamic.housekeeping.shift_name_label': "{department} ஷிப்ட் பெயர்",
+      's4.dynamic.leave_approvals.decision_title': "{decision} விடுப்பு",
+      's4.dynamic.lab_bookings.tests_prefix': "சோதனைகள்: {tests}",
+      's4.dynamic.messaging.saved_to_path': "{path} இல் சேமிக்கப்பட்டது",
+      's4.dynamic.pharmacy.cancel_order_confirm':
+          "{orderNumber} ஆர்டரை ரத்துசெய்யவா?",
+      's4.dynamic.pharmacy.formulary_count': "ஃபார்முலரி ({count})",
+      's4.dynamic.pharmacy.inventory_count': "இருப்பு ({count})",
+      's4.dynamic.order_sets.via_route': "{route} வழியாக",
+      's4.dynamic.order_sets.duration_days': "× {days}D",
+      's4.dynamic.front_office.mark_completed':
+          "{patient} முடிந்ததாகக் குறிக்கவா?",
+      's4.dynamic.reports.incidents_count': "சம்பவங்கள் ({count})",
+      's4.dynamic.reports.grievances_count': "குறைகள் ({count})",
+      's4.dynamic.duty_preference.date_label': "தேதி {date}",
+      's4.dynamic.duty_preference.from_label': "{date} இலிருந்து",
+      's4.dynamic.duty_preference.to_label': "{date} வரை",
     },
     // ── తెలుగు (Telugu) ──────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -12813,6 +14748,662 @@ class AppStrings {
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'clinical_ai.voice_notes.generation_failed_prefix':
           'SOAP ఉత్పత్తి విఫలమైంది:',
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.admission.admitting_doctor': "అడ్మిట్ అవుతున్న డాక్టర్",
+      's4.lib.admission_case_sheet.case_sheet_saved':
+          "కేస్ షీట్ సేవ్ చేయబడింది",
+      's4.lib.app_router.go_home': "ఇంటికి వెళ్ళు",
+      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
+          "అపాయింట్‌మెంట్ క్యూ వర్క్‌ఫ్లోలు ఇప్పుడు ఏకీకృత వర్క్‌బెంచ్ నుండి అమలు చేయబడతాయి.",
+      's4.lib.appointment_queue.open_front_office': "ఫ్రంట్ ఆఫీస్ తెరవండి",
+      's4.lib.appointment_queue.opening_front_office_workbench':
+          "ఫ్రంట్ ఆఫీస్ వర్క్‌బెంచ్ తెరవడం",
+      's4.lib.appointments.any_available_doctor':
+          "అందుబాటులో ఉన్న ఏదైనా వైద్యుడు",
+      's4.lib.appointments.book_op': "OP బుక్ చేయండి",
+      's4.lib.appointments.clear_doctor_or_department_filter':
+          "డాక్టర్ లేదా డిపార్ట్‌మెంట్ ఫిల్టర్‌ను క్లియర్ చేయండి",
+      's4.lib.appointments.collapse_queue_panel': "క్యూ ప్యానెల్‌ను కుదించు",
+      's4.lib.appointments.create_appointment': "అపాయింట్‌మెంట్ సృష్టించండి",
+      's4.lib.appointments.filter_doctor_or_department':
+          "ఫిల్టర్ డాక్టర్ లేదా డిపార్ట్‌మెంట్",
+      's4.lib.appointments.flex': "ఫ్లెక్స్",
+      's4.lib.appointments.gmt_5_30': "GMT+5:30",
+      's4.lib.appointments.next_month': "వచ్చే నెల",
+      's4.lib.appointments.no_doctor_or_department_matches':
+          "డాక్టర్ లేదా డిపార్ట్‌మెంట్ మ్యాచ్‌లు లేవు",
+      's4.lib.appointments.previous_month': "మునుపటి నెల",
+      's4.lib.appointments.queue_filter': "క్యూ ఫిల్టర్",
+      's4.lib.appointments.search_patient_or_phone':
+          "రోగి లేదా ఫోన్‌ని శోధించండి",
+      's4.lib.appointments.select_a_doctor_or_department':
+          "డాక్టర్ లేదా విభాగాన్ని ఎంచుకోండి",
+      's4.lib.appointments.week': "వారం",
+      's4.lib.audit_logs.action': "చర్య",
+      's4.lib.audit_logs.action_resource_ip_user':
+          "చర్య, వనరు, IP, వినియోగదారు",
+      's4.lib.audit_logs.actor_role': "నటుడి పాత్ర",
+      's4.lib.audit_logs.all_dates': "అన్ని తేదీలు",
+      's4.lib.audit_logs.audit_logs': "ఆడిట్ లాగ్‌లు",
+      's4.lib.audit_logs.custom': "కస్టమ్",
+      's4.lib.audit_logs.last_30_days': "గత 30 రోజులు",
+      's4.lib.audit_logs.last_7_days': "గత 7 రోజులు",
+      's4.lib.audit_logs.next_page': "తదుపరి పేజీ",
+      's4.lib.audit_logs.previous_page': "మునుపటి పేజీ",
+      's4.lib.audit_logs.refresh_logs': "లాగ్‌లను రిఫ్రెష్ చేయండి",
+      's4.lib.audit_logs.reset': "రీసెట్ చేయండి",
+      's4.lib.audit_logs.resource': "వనరు",
+      's4.lib.billing_desk.billing_desk': "బిల్లింగ్ డెస్క్",
+      's4.lib.billing_desk.draft_invoice_created':
+          "డ్రాఫ్ట్ ఇన్‌వాయిస్ సృష్టించబడింది",
+      's4.lib.billing_desk.draft_op': "డ్రాఫ్ట్ OP",
+      's4.lib.billing_desk.invoice_issued': "ఇన్వాయిస్ జారీ చేయబడింది",
+      's4.lib.billing_desk.issue': "సమస్య",
+      's4.lib.billing_desk.payment_collected': "చెల్లింపు సేకరించబడింది",
+      's4.lib.billing_desk.print_receipt': "రసీదుని ముద్రించండి",
+      's4.lib.billing_desk.print_tax_invoice':
+          "పన్ను ఇన్‌వాయిస్‌ని ముద్రించండి",
+      's4.lib.blood_bank.bedside_verification_recorded':
+          "పడక వెరిఫికేషన్ రికార్డ్ చేయబడింది",
+      's4.lib.blood_bank.first_verifier': "మొదటి వెరిఫైయర్",
+      's4.lib.blood_bank.no_issued_units_awaiting_bedside_verification':
+          "బెడ్‌సైడ్ వెరిఫికేషన్ కోసం జారీ చేయబడిన యూనిట్‌లు ఏవీ లేవు",
+      's4.lib.blood_bank.second_verifier': "రెండవ వెరిఫైయర్",
+      's4.lib.blood_bank.transfusions': "రక్తమార్పిడి",
+      's4.lib.break_tracker.breaks': "బ్రేక్స్",
+      's4.lib.break_tracker.ongoing': "(కొనసాగుతోంది)",
+      's4.lib.calculators.clinical_calculators': "క్లినికల్ కాలిక్యులేటర్లు",
+      's4.lib.calculators.result': "ఫలితం",
+      's4.lib.cath_lab.cath_lab': "క్యాథ్ ల్యాబ్",
+      's4.lib.cath_lab.readiness': "సంసిద్ధత",
+      's4.lib.cds_blocker_modal.clinical_justification': "క్లినికల్ సమర్థన *",
+      's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
+          "ఉదా డాక్టర్ శర్మ — EMP-1042",
+      's4.lib.cds_blocker_modal.enter_the_supervising_clinician_name_or_staff_id':
+          "పర్యవేక్షక వైద్యుడి పేరు లేదా సిబ్బంది IDని నమోదు చేయండి",
+      's4.lib.cds_blocker_modal.min_15_characters_describe_the_specific_rational':
+          "కనిష్ట 15 అక్షరాలు — నిర్దిష్ట హేతువును వివరించండి",
+      's4.lib.cds_blocker_modal.override_category': "ఓవర్‌రైడ్ వర్గం *",
+      's4.lib.cds_blocker_modal.select_a_reason_category':
+          "కారణం వర్గాన్ని ఎంచుకోండి",
+      's4.lib.cds_blocker_modal.severe_allergy_conflict_a_supervising_clinician':
+          "తీవ్రమైన అలెర్జీ సంఘర్షణ: పర్యవేక్షక వైద్యుడు",
+      's4.lib.cds_blocker_modal.supervising_clinician_name_staff_id':
+          "పర్యవేక్షణ వైద్యుని పేరు / సిబ్బంది ID *",
+      's4.lib.clinical_ai_review_queue.op_ai_assist': "OP AI సహాయం",
+      's4.lib.clinical_notes.edit_consultation_note':
+          "సంప్రదింపు గమనికను సవరించండి",
+      's4.lib.clinical_notes.save_and_investigations': "సేవ్ & పరిశోధనలు",
+      's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
+          "ఈ OP కన్సల్టేషన్ నోట్ సంతకం చేయబడింది లేదా ఇకపై సవరించబడదు.",
+      's4.lib.clinical_print_pdf_action.print_share_pdf':
+          "PDFని ప్రింట్ / షేర్ చేయండి",
+      's4.lib.coded_diagnosis_picker.search_icd_11': "ICD-11ని శోధించండి",
+      's4.lib.composition_alternatives_panel.composition_alternatives':
+          "కూర్పు ప్రత్యామ్నాయాలు",
+      's4.lib.composition_alternatives_panel.swap': "మార్పిడి",
+      's4.lib.desktop_scroll_controls.scroll_back': "వెనుకకు స్క్రోల్ చేయండి",
+      's4.lib.desktop_scroll_controls.scroll_down': "క్రిందికి స్క్రోల్ చేయండి",
+      's4.lib.desktop_scroll_controls.scroll_forward':
+          "ముందుకు స్క్రోల్ చేయండి",
+      's4.lib.desktop_scroll_controls.scroll_up': "పైకి స్క్రోల్ చేయండి",
+      's4.lib.discharge_hub.advice_given_handover_completed_bill_cleared':
+          "సలహా ఇవ్వబడింది, అప్పగింత పూర్తయింది, బిల్లు క్లియర్ చేయబడింది...",
+      's4.lib.discharge_hub.ai_discharge_package_started':
+          "AI డిశ్చార్జ్ ప్యాకేజీ ప్రారంభమైంది",
+      's4.lib.discharge_hub.completion_note': "పూర్తి గమనిక",
+      's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
+          "మందుల సయోధ్య, అనంతర సంరక్షణ, సంసిద్ధత మరియు కోడింగ్ మాడ్యూల్స్ నుండి సమీక్షించబడిన డిశ్చార్జ్ ప్యాకేజీని సృష్టిస్తుంది. డాక్టర్ సమీక్షించి, సంకేతాలు ఇచ్చే వరకు ఇది డ్రాఫ్ట్ మాత్రమే.",
+      's4.lib.discharge_hub.finish': "ముగించు",
+      's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
+          "దీన్ని పూర్తి చేయడానికి కూడా డిశ్చార్జి మందులు పంపిణీ చేయాలి.",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.discharge_hub.work_item': "పని అంశం",
+      's4.lib.discharge_hub.generate_ai_package': "AI ప్యాకేజీని రూపొందించండి",
+      's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
+          "ఈ సారాంశానికి ఎటువంటి భద్రతా జెండాలు జోడించబడలేదు.",
+      's4.lib.discharge_hub.signature_details': "సంతకం వివరాలు",
+      's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
+          "డైటరీ, కౌన్సెలింగ్, ఫార్మసీ, ఫిజియోథెరపీ మరియు బిల్లింగ్ టాస్క్‌లను తెరవడానికి డిశ్చార్జ్ ప్రారంభించండి.",
+      's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
+          "ఈ ఉత్సర్గ సారాంశానికి ఇప్పటికీ డాక్టర్ సైన్-ఆఫ్ అవసరం.",
+      's4.lib.discharge_hub_list.no_active_discharge_work':
+          "క్రియాశీల ఉత్సర్గ పని లేదు",
+      's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
+          "డిశ్చార్జ్ ప్రారంభించిన తర్వాత రోగులు ఇక్కడ కనిపిస్తారు మరియు తుది ఉత్సర్గ పూర్తయ్యే వరకు ఉంటారు.",
+      's4.lib.discharge_summary.correct_summary': "సరైన సారాంశం",
+      's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
+          "ఈ సారాంశం ఇంకా సంతకం చేయలేదు.",
+      's4.lib.drug_chart.active_until_stopped': "ఆగిపోయే వరకు చురుకుగా ఉంటుంది",
+      's4.lib.drug_chart.inpatient_drug_chart': "ఇన్‌పేషెంట్ డ్రగ్ చార్ట్",
+      's4.lib.drug_chart.starts_today': "ఈరోజు ప్రారంభమవుతుంది",
+      's4.lib.duty_preference.duty_request': "విధి అభ్యర్థన",
+      's4.lib.duty_preference.duty_request_submitted':
+          "విధి అభ్యర్థన సమర్పించబడింది",
+      's4.lib.duty_preference.my_requests': "నా అభ్యర్థనలు",
+      's4.lib.duty_preference.no_duty_requests_yet':
+          "ఇంకా విధి అభ్యర్థనలు లేవు",
+      's4.lib.duty_preference.request_preferred_duty':
+          "ప్రాధాన్య విధిని అభ్యర్థించండి",
+      's4.lib.duty_preference.submit_request': "అభ్యర్థనను సమర్పించండి",
+      's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
+          "ఇలాంటి రోగి ఇప్పటికే ఉన్నాడు. ఇప్పటికే ఉన్న రోగిని ఎంచుకోండి లేదా ఇది నిజంగా భిన్నంగా ఉంటే మాత్రమే ప్రత్యేక కొత్త రికార్డ్‌ను సృష్టించండి.",
+      's4.lib.front_office_workbench.admit_ip': "IPని అంగీకరించండి",
+      's4.lib.front_office_workbench.advice_row_has_no_patient_details':
+          "సలహా వరుసలో రోగి వివరాలు లేవు.",
+      's4.lib.front_office_workbench.any_doctor': "ఏదైనా వైద్యుడు",
+      's4.lib.front_office_workbench.appointment_id_is_missing':
+          "అపాయింట్‌మెంట్ ID లేదు.",
+      's4.lib.front_office_workbench.assign_ward_bed':
+          "వార్డు/మంచాన్ని కేటాయించండి",
+      's4.lib.front_office_workbench.billing_deposit': "బిల్లింగ్ డిపాజిట్",
+      's4.lib.front_office_workbench.birth_date': "పుట్టిన తేదీ",
+      's4.lib.front_office_workbench.book_op_appointment':
+          "OP అపాయింట్‌మెంట్ బుక్ చేయండి",
+      's4.lib.front_office_workbench.cancel_appointment':
+          "అపాయింట్‌మెంట్‌ని రద్దు చేయండి",
+      's4.lib.front_office_workbench.cancellation_reason': "రద్దు కారణం",
+      's4.lib.front_office_workbench.cash': "నగదు",
+      's4.lib.front_office_workbench.complete_appointment':
+          "పూర్తి అపాయింట్‌మెంట్",
+      's4.lib.front_office_workbench.consulting_doctor':
+          "వైద్యుని సంప్రదింపులు",
+      's4.lib.front_office_workbench.corporate': "కార్పొరేట్",
+      's4.lib.front_office_workbench.counter_intake_notes':
+          "కౌంటర్ తీసుకోవడం నోట్స్",
+      's4.lib.front_office_workbench.create_ip': "IPని సృష్టించండి",
+      's4.lib.front_office_workbench.create_ip_admission':
+          "IP ప్రవేశాన్ని సృష్టించండి",
+      's4.lib.front_office_workbench.create_new_patient':
+          "కొత్త రోగిని సృష్టించండి",
+      's4.lib.front_office_workbench.create_separate_record':
+          "ప్రత్యేక రికార్డును సృష్టించండి",
+      's4.lib.front_office_workbench.current_medicines': "ప్రస్తుత మందులు",
+      's4.lib.front_office_workbench.department_counter': "విభాగం / కౌంటర్",
+      's4.lib.front_office_workbench.draft_bill': "ముసాయిదా బిల్లు",
+      's4.lib.front_office_workbench.draft_op_invoice_created':
+          "డ్రాఫ్ట్ OP ఇన్‌వాయిస్ సృష్టించబడింది",
+      's4.lib.front_office_workbench.edit_patient': "రోగిని సవరించండి",
+      's4.lib.front_office_workbench.emergency_admissions_can_proceed_without_a_bed_r':
+          "ఎమర్జెన్సీ అడ్మిషన్లు బెడ్ లేకుండానే కొనసాగవచ్చు; సాధారణ ప్రవేశాలకు ఎంచుకున్న మంచం అవసరం.",
+      's4.lib.front_office_workbench.enter_at_least_10_digits_to_search_or_create_by':
+          "ఫోన్ ద్వారా శోధించడానికి లేదా సృష్టించడానికి కనీసం 10 అంకెలను నమోదు చేయండి.",
+      's4.lib.front_office_workbench.follow_up': "ఫాలో-అప్",
+      's4.lib.front_office_workbench.front_office_workbench':
+          "ఫ్రంట్ ఆఫీస్ వర్క్‌బెంచ్",
+      's4.lib.front_office_workbench.govt_scheme': "ప్రభుత్వ పథకం",
+      's4.lib.front_office_workbench.insurance': "భీమా",
+      's4.lib.front_office_workbench.insurer_tpa': "బీమాదారు / TPA",
+      's4.lib.front_office_workbench.ip_admission_is_not_enabled_for_this_role':
+          "ఈ పాత్ర కోసం IP ప్రవేశం ప్రారంభించబడలేదు.",
+      's4.lib.front_office_workbench.keep_appointment': "అపాయింట్‌మెంట్ ఉంచండి",
+      's4.lib.front_office_workbench.known_allergies': "తెలిసిన అలెర్జీలు",
+      's4.lib.front_office_workbench.lab_only': "ల్యాబ్ మాత్రమే",
+      's4.lib.front_office_workbench.lab_only_visit': "ల్యాబ్-మాత్రమే సందర్శన",
+      's4.lib.front_office_workbench.medico_legal_case': "మెడికో-లీగల్ కేసు",
+      's4.lib.front_office_workbench.mlc_notes': "MLC గమనికలు",
+      's4.lib.front_office_workbench.mlc_number': "MLC సంఖ్య",
+      's4.lib.front_office_workbench.new_consultation': "కొత్త సంప్రదింపులు",
+      's4.lib.front_office_workbench.new_patient': "కొత్త పేషెంట్",
+      's4.lib.front_office_workbench.op_appointment_booked':
+          "OP అపాయింట్‌మెంట్ బుక్ చేయబడింది",
+      's4.lib.front_office_workbench.op_booking_is_not_enabled_for_this_role':
+          "ఈ పాత్ర కోసం OP బుకింగ్ ప్రారంభించబడలేదు.",
+      's4.lib.front_office_workbench.opd_ipd_handoff': "OPD -> IPD హ్యాండ్‌ఆఫ్",
+      's4.lib.front_office_workbench.opd_to_ipd_advice': "OPD నుండి IPD సలహా",
+      's4.lib.front_office_workbench.optional_if_department_is_selected':
+          "విభాగం ఎంపిక చేయబడితే ఐచ్ఛికం",
+      's4.lib.front_office_workbench.paediatric_opd': "పీడియాట్రిక్ OPD",
+      's4.lib.front_office_workbench.payment_category': "చెల్లింపు వర్గం",
+      's4.lib.front_office_workbench.policy_number': "పాలసీ నంబర్",
+      's4.lib.front_office_workbench.possible_existing_patient':
+          "ఇప్పటికే ఉన్న రోగికి అవకాశం ఉంది",
+      's4.lib.front_office_workbench.queue_row_has_no_patient_details':
+          "క్యూ వరుసలో రోగి వివరాలు లేవు.",
+      's4.lib.front_office_workbench.reschedule': "రీషెడ్యూల్ చేయండి",
+      's4.lib.front_office_workbench.reschedule_appointment':
+          "అపాయింట్‌మెంట్ రీషెడ్యూల్ చేయండి",
+      's4.lib.front_office_workbench.reschedule_note':
+          "గమనికను రీషెడ్యూల్ చేయండి",
+      's4.lib.front_office_workbench.scheme_name': "పథకం పేరు",
+      's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
+          "IP అడ్మిట్ చేయడానికి ముందు రోగిని ఎంచుకోండి.",
+      's4.lib.front_office_workbench.select_a_patient_before_billing':
+          "బిల్లింగ్ చేయడానికి ముందు రోగిని ఎంచుకోండి.",
+      's4.lib.front_office_workbench.select_a_patient_before_booking_op':
+          "OP బుక్ చేసుకునే ముందు రోగిని ఎంచుకోండి.",
+      's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
+          "వాక్-ఇన్ నమోదు చేయడానికి ముందు రోగిని ఎంచుకోండి.",
+      's4.lib.front_office_workbench.teleconsult': "టెలికన్సల్ట్",
+      's4.lib.front_office_workbench.tpa': "TPA",
+      's4.lib.front_office_workbench.view_advice': "సలహా చూడండి",
+      's4.lib.front_office_workbench.visit_notes_optional':
+          "సందర్శన గమనికలు (ఐచ్ఛికం)",
+      's4.lib.front_office_workbench.visit_reason_chief_complaint':
+          "కారణం / ప్రధాన ఫిర్యాదును సందర్శించండి",
+      's4.lib.front_office_workbench.visit_type': "సందర్శన రకం",
+      's4.lib.front_office_workbench.walk_in_registration_is_not_enabled_for_this_rol':
+          "ఈ పాత్ర కోసం వాక్-ఇన్ రిజిస్ట్రేషన్ ప్రారంభించబడలేదు.",
+      's4.lib.front_office_workbench.yyyy_mm_dd': "YYYY-MM-DD",
+      's4.lib.housekeeping_command.delegate_staff': "ప్రతినిధి సిబ్బంది",
+      's4.lib.housekeeping_command.end': "ముగింపు",
+      's4.lib.housekeeping_command.end_assignment': "అసైన్‌మెంట్‌ని ముగించాలా?",
+      's4.lib.housekeeping_command.floor_or_zone': "ఫ్లోర్ లేదా జోన్",
+      's4.lib.housekeeping_command.housekeeping_command': "హౌస్ కీపింగ్ కమాండ్",
+      's4.lib.housekeeping_command.housekeeping_staff_delegated':
+          "హౌస్ కీపింగ్ సిబ్బందిని నియమించారు",
+      's4.lib.housekeeping_command.move_open_requests_in_this_zone':
+          "ఈ జోన్‌లో ఓపెన్ అభ్యర్థనలను తరలించండి",
+      's4.lib.housekeeping_command.redeploy_staff':
+          "సిబ్బందిని తిరిగి నియమించండి",
+      's4.lib.housekeeping_command.staff_member': "సిబ్బంది సభ్యుడు",
+      's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another':
+          "ఒక అంతస్తులో మరొకదాని కంటే ఎక్కువ పని ఉన్నప్పుడు ఉపయోగకరంగా ఉంటుంది.",
+      's4.lib.housekeeping_roster_board.07_30': "07:30",
+      's4.lib.housekeeping_roster_board.12_30': "12:30",
+      's4.lib.housekeeping_roster_board.accept_for_planning':
+          "ప్రణాళిక కోసం అంగీకరించండి",
+      's4.lib.housekeeping_roster_board.add_custom_shift':
+          "కస్టమ్ షిఫ్ట్ జోడించండి",
+      's4.lib.housekeeping_roster_board.add_staff': "సిబ్బందిని జోడించండి",
+      's4.lib.housekeeping_roster_board.ai_rules_roster_forecast':
+          "AI/రూల్స్ రోస్టర్ సూచన",
+      's4.lib.housekeeping_roster_board.approve': "ఆమోదించండి",
+      's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve':
+          "ప్రతి వార్డు, యూనిట్ లేదా ఫ్లోర్‌ను ఉదయం, సాయంత్రం, రాత్రి లేదా కస్టమ్ షిఫ్ట్ కింద కేటాయించండి.",
+      's4.lib.housekeeping_roster_board.copy_day_to_week':
+          "ప్రతిరోజూ కాపీ చేయండి",
+      's4.lib.housekeeping_roster_board.copy_previous_day':
+          "మునుపటి రోజు కాపీ చేయండి",
+      's4.lib.housekeeping_roster_board.discard_forecast':
+          "సూచనను విస్మరించండి",
+      's4.lib.housekeeping_roster_board.duty_requests': "విధి అభ్యర్థనలు",
+      's4.lib.housekeeping_roster_board.generate_12_week_forecast':
+          "12 వారాల సూచనను రూపొందించండి",
+      's4.lib.housekeeping_roster_board.leave_and_alternate_cover':
+          "వదిలివేయండి మరియు ప్రత్యామ్నాయ కవర్",
+      's4.lib.housekeeping_roster_board.off_unassigned': "ఆఫ్ / కేటాయించబడలేదు",
+      's4.lib.housekeeping_roster_board.publish_roster':
+          "జాబితాను ప్రచురించండి",
+      's4.lib.housekeeping_roster_board.save_draft':
+          "చిత్తుప్రతిని సేవ్ చేయండి",
+      's4.lib.housekeeping_roster_board.unassigned': "కేటాయించబడలేదు",
+      's4.lib.housekeeping_roster_board.ward_unit': "వార్డు / యూనిట్",
+      's4.lib.hr_dashboard.no_staff_records_loaded_yet':
+          "సిబ్బంది రికార్డులు ఇంకా లోడ్ కాలేదు.",
+      's4.lib.hr_dashboard.open_onboarding': "ఆన్‌బోర్డింగ్‌ని తెరవండి",
+      's4.lib.hr_dashboard.roster': "రోస్టర్",
+      's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to':
+          "సీడెడ్ మరియు ఆన్‌బోర్డ్ సిబ్బంది ప్రస్తుతం HRకి కనిపిస్తున్నారు",
+      's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account':
+          "మొదటి సిబ్బంది ఖాతాను జోడించడానికి ఆన్‌బోర్డింగ్ ఉపయోగించండి.",
+      's4.lib.investigations.cbc_x_ray_chest_ecg':
+          "సిబిసి, ఎక్స్-రే ఛాతీ, ఇసిజి...",
+      's4.lib.investigations.clinical_notes_optional':
+          "క్లినికల్ నోట్స్ (ఐచ్ఛికం)",
+      's4.lib.investigations.continue_to_prescription':
+          "ప్రిస్క్రిప్షన్‌ను కొనసాగించండి",
+      's4.lib.investigations.investigation_ordered': "విచారణకు ఆదేశించింది",
+      's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
+          "ఫలితం సిద్ధంగా ఉన్నట్లు గుర్తించబడింది, కానీ నిర్మాణాత్మక సారాంశం ఇంకా జోడించబడలేదు.",
+      's4.lib.investigations.test_name': "పరీక్ష పేరు",
+      's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
+          "OP/IP ల్యాబ్ అభ్యర్థనలను బుక్ చేయండి మరియు ట్రాక్ చేయండి",
+      's4.lib.lab_bookings.cbc_rft_urine_routine': "CBC, RFT, మూత్ర విసర్జన...",
+      's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
+          "పరీక్ష పేర్లను నమోదు చేయండి లేదా ప్రిస్క్రిప్షన్‌ను జత చేయండి",
+      's4.lib.lab_bookings.new_lab_booking': "కొత్త ల్యాబ్ బుకింగ్",
+      's4.lib.lab_bookings.tests': "పరీక్షలు",
+      's4.lib.lab_bookings.upload': "అప్‌లోడ్ చేయండి",
+      's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
+          "ఈ ఫోన్ ఇంకా రిజిస్టర్ కానట్లయితే ఉపయోగించబడుతుంది",
+      's4.lib.lab_bookings.visit_lab': "ప్రయోగశాలను సందర్శించండి",
+      's4.lib.leave_approvals.optional_note_for_audit':
+          "ఆడిట్ కోసం ఐచ్ఛిక గమనిక",
+      // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
+      's4.lib.leave_approvals.leave_approved': "సెలవు ఆమోదించబడింది",
+      's4.lib.leave_approvals.leave_rejected': "సెలవు తిరస్కరించబడింది",
+      's4.lib.main_scaffold.pending_clinical_tasks':
+          "పెండింగ్‌లో ఉన్న క్లినికల్ పనులు",
+      's4.lib.main_scaffold.unread_alerts': "చదవని హెచ్చరికలు",
+      's4.lib.mar_scan.min_15_characters_describe_the_specific_situatio':
+          "కనిష్ట 15 అక్షరాలు — నిర్దిష్ట పరిస్థితిని వివరించండి",
+      's4.lib.mar_scan.select_a_category': "వర్గాన్ని ఎంచుకోండి",
+      's4.lib.messaging_inbox.admin_log': "అడ్మిన్ లాగ్",
+      's4.lib.messaging_inbox.archive': "ఆర్కైవ్",
+      's4.lib.messaging_inbox.conversation_actions': "సంభాషణ చర్యలు",
+      's4.lib.messaging_inbox.mark_unread': "చదవనిదిగా గుర్తించండి",
+      's4.lib.messaging_inbox.mute_8h': "8గం మ్యూట్ చేయండి",
+      's4.lib.messaging_inbox.no_matching_staff': "సరిపోలే సిబ్బంది లేరు",
+      's4.lib.messaging_inbox.restore': "పునరుద్ధరించు",
+      's4.lib.messaging_inbox.restore_alerts': "హెచ్చరికలను పునరుద్ధరించండి",
+      's4.lib.messaging_inbox.search_conversations': "సంభాషణలను శోధించండి",
+      's4.lib.messaging_inbox.search_staff': "శోధన సిబ్బంది",
+      's4.lib.messaging_inbox.subject': "విషయం",
+      's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
+          "ఇది ప్రతి సక్రియ సిబ్బందికి ఒక సేవ్ చేయబడిన సందేశాన్ని పంపుతుంది.",
+      's4.lib.messaging_inbox.urgent_only': "అత్యవసరం మాత్రమే",
+      's4.lib.messaging_thread.attach_file': "ఫైల్‌ని అటాచ్ చేయండి",
+      's4.lib.messaging_thread.copy': "కాపీ చేయండి",
+      's4.lib.messaging_thread.copy_clinical_message':
+          "క్లినికల్ సందేశాన్ని కాపీ చేయాలా?",
+      's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
+          "సందేశం కాపీ చేయబడింది — క్లిప్‌బోర్డ్ 60 సెకన్లలో క్లియర్ అవుతుంది",
+      's4.lib.messaging_thread.reply_in_this_conversation':
+          "ఈ సంభాషణలో ప్రత్యుత్తరం ఇవ్వండి",
+      's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
+          "ఫైల్‌ను అటాచ్ చేయడానికి ముందు మొదటి సందేశాన్ని పంపండి.",
+      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
+          "ఈ సందేశం రోగికి సంబంధించిన సున్నితమైన సమాచారాన్ని కలిగి ఉండవచ్చు.",
+      's4.lib.notifications.refresh_alerts': "హెచ్చరికలను రిఫ్రెష్ చేయండి",
+      's4.lib.nursing_notes.all_notes': "అన్ని గమనికలు",
+      's4.lib.nursing_notes.draft_discarded': "డ్రాఫ్ట్ విస్మరించబడింది",
+      's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
+          "రోగికి సంబంధించిన అన్ని గమనికలను చూడటానికి బెడ్ బోర్డ్ నుండి ఈ స్క్రీన్‌ని తెరవండి.",
+      's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
+          "పూర్తి చేసిన ట్రాన్‌స్క్రిప్ట్‌లను వైద్యుల సమీక్ష కోసం SOAP డ్రాఫ్ట్‌లుగా మార్చవచ్చు.",
+      's4.lib.op_ai_assist.dashboard': "డాష్‌బోర్డ్",
+      's4.lib.op_ai_assist.op_doctor_assist_unavailable':
+          "OP డాక్టర్ అసిస్ట్ అందుబాటులో లేదు",
+      's4.lib.op_ai_assist.open_draft': "డ్రాఫ్ట్ తెరవండి",
+      's4.lib.op_ai_assist.refresh_services': "సేవలను రిఫ్రెష్ చేయండి",
+      's4.lib.op_ai_assist.review_queue': "రివ్యూ క్యూ",
+      's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
+          "ఇంకా క్లినికల్ టైమ్‌లైన్ ఎంట్రీలు లేవు",
+      's4.lib.op_doctor_workspace.open_full': "పూర్తిగా తెరవండి",
+      's4.lib.op_doctor_workspace.save_note': "గమనికను సేవ్ చేయండి",
+      's4.lib.op_doctor_workspace.save_then_investigations':
+          "సేవ్, ఆపై పరిశోధనలు",
+      's4.lib.op_doctor_workspace.sign_note': "సంతకం నోట్",
+      's4.lib.order_sets.no_order_sets': "ఆర్డర్ సెట్‌లు లేవు",
+      's4.lib.order_sets.order_sets': "ఆర్డర్ సెట్లు",
+      's4.lib.order_sets.search_pneumonia_sepsis':
+          "శోధన (న్యుమోనియా, సెప్సిస్, …)",
+      's4.lib.organization_hierarchy.central_hierarchy_and_role_map':
+          "కేంద్ర సోపానక్రమం మరియు రోల్ మ్యాప్",
+      's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role':
+          "ఈ పాత్ర కింద నమోదిత సిబ్బంది కనుగొనబడలేదు.",
+      's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet':
+          "ఈ పాత్ర కింద ఇంకా నమోదిత సిబ్బంది లేరు",
+      's4.lib.partograph_chart.cervical_dilation_cm_vs_hours_in_active_phase':
+          "గర్భాశయ విస్తరణ (సెం.మీ.) vs క్రియాశీల దశలో ఉన్న గంటలు",
+      's4.lib.patient_command_board.achieve': "సాధించండి",
+      's4.lib.patient_command_board.care_plan_updated':
+          "సంరక్షణ ప్రణాళిక నవీకరించబడింది",
+      's4.lib.patient_command_board.care_plans': "సంరక్షణ ప్రణాళికలు",
+      's4.lib.patient_command_board.no_activities_recorded':
+          "కార్యకలాపాలు నమోదు చేయబడలేదు.",
+      's4.lib.patient_command_board.no_goals_recorded': "గోల్స్ నమోదు కాలేదు.",
+      's4.lib.patient_command_board.patient_command_board':
+          "పేషెంట్ కమాండ్ బోర్డ్",
+      's4.lib.patient_command_board.ward_area': "వార్డు / ప్రాంతం",
+      's4.lib.patient_context_chip.clear_patient_context':
+          "రోగి సందర్భాన్ని క్లియర్ చేయండి",
+      's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
+          "నోట్స్, ప్రిస్క్రిప్షన్‌లు, పరిశోధనలు, ప్రాణాధారాలు మరియు రోగి రూపొందించిన వెల్‌నెస్ డేటా యొక్క నియమానుగుణ కాలక్రమం.",
+      's4.lib.patient_health_journey_panel.clinical_events_and_patient_app_activity_will_ap':
+          "అందుబాటులోకి వచ్చిన తర్వాత క్లినికల్ ఈవెంట్‌లు మరియు రోగి-యాప్ యాక్టివిటీ ఇక్కడ కనిపిస్తాయి.",
+      's4.lib.patient_health_journey_panel.no_timeline_data_yet':
+          "ఇంకా టైమ్‌లైన్ డేటా లేదు",
+      's4.lib.patient_health_journey_panel.patient_health_journey':
+          "రోగి ఆరోగ్య ప్రయాణం",
+      's4.lib.patient_notes_list.admin_edit': "అడ్మిన్ సవరణ",
+      's4.lib.patient_notes_list.admin_edit_prior_note':
+          "అడ్మిన్: ముందస్తు గమనికను సవరించండి",
+      's4.lib.patient_notes_list.failed_to_load_notes':
+          "గమనికలను లోడ్ చేయడంలో విఫలమైంది",
+      's4.lib.patient_notes_list.no_notes_to_show': "చూపడానికి గమనికలు లేవు",
+      's4.lib.patient_notes_list.note_updated': "గమనిక నవీకరించబడింది",
+      's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
+          "అసలు గద్యాన్ని ఓవర్‌రైట్ చేస్తుంది. గమనిక యొక్క రచయిత, పాత్ర మరియు సృష్టి సమయం భద్రపరచబడ్డాయి.",
+      's4.lib.patient_records.ai_assisted_record_review':
+          "AI-సహాయ రికార్డు సమీక్ష",
+      's4.lib.patient_records.attach_at_least_one_file_or_photo':
+          "కనీసం ఒక ఫైల్ లేదా ఫోటోను అటాచ్ చేయండి",
+      's4.lib.patient_records.check': "తనిఖీ చేయండి",
+      's4.lib.patient_records.current_admission_notes':
+          "ప్రస్తుత ప్రవేశ గమనికలు",
+      's4.lib.patient_records.discharge_summary': "ఉత్సర్గ సారాంశం",
+      's4.lib.patient_records.document_link_unavailable':
+          "పత్రం లింక్ అందుబాటులో లేదు",
+      's4.lib.patient_records.document_type': "పత్రం రకం",
+      's4.lib.patient_records.draft_not_imported_to_chart':
+          "చిత్తుప్రతి, చార్ట్‌కు దిగుమతి చేయబడలేదు",
+      's4.lib.patient_records.extraction_review_saved':
+          "సంగ్రహణ సమీక్ష సేవ్ చేయబడింది",
+      's4.lib.patient_records.lab_report': "ల్యాబ్ నివేదిక",
+      's4.lib.patient_records.needs_revision': "రివిజన్ కావాలి",
+      's4.lib.patient_records.no_clear_text_extracted':
+          "స్పష్టమైన వచనం సంగ్రహించబడలేదు",
+      's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
+          "ఈ అడ్మిషన్ కోసం ఇంకా నోట్స్ రికార్డ్ చేయలేదు.",
+      's4.lib.patient_records.old_discharge_summary_prior_scan':
+          "పాత ఉత్సర్గ సారాంశం, ముందస్తు స్కాన్...",
+      's4.lib.patient_records.open': "తెరవండి",
+      's4.lib.patient_records.open_notes': "గమనికలను తెరవండి",
+      's4.lib.patient_records.patient_record_uploaded':
+          "రోగి రికార్డు అప్‌లోడ్ చేయబడింది",
+      's4.lib.patient_records.prior_record': "మునుపటి రికార్డు",
+      's4.lib.patient_records.prior_records': "మునుపటి రికార్డులు",
+      's4.lib.patient_records.record_title': "రికార్డ్ టైటిల్",
+      's4.lib.patient_records.remove_file': "ఫైల్‌ని తీసివేయండి",
+      's4.lib.patient_records.review_note': "రివ్యూ నోట్",
+      's4.lib.patient_records.source_hospital': "మూల ఆసుపత్రి",
+      's4.lib.patient_records.upload_prior_record':
+          "ముందస్తు రికార్డును అప్‌లోడ్ చేయండి",
+      's4.lib.patient_records.upload_prior_record_2':
+          "మునుపటి రికార్డును అప్‌లోడ్ చేయండి",
+      's4.lib.patient_search_action.find_patient': "రోగిని కనుగొనండి",
+      's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
+          "హాస్పిటల్ ID, పేరు, ఫోన్ లేదా ABHA ద్వారా రోగిని కనుగొనండి...",
+      's4.lib.patient_timeline.current_ip_medication_order':
+          "ప్రస్తుత IP మందుల క్రమం",
+      's4.lib.patient_timeline.event_log': "ఈవెంట్ లాగ్",
+      's4.lib.patient_timeline.health_journey': "ఆరోగ్య ప్రయాణం",
+      's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
+          "ఫోన్‌లో చదవడానికి మాత్రమే. స్టాఫ్ డెస్క్‌టాప్‌లో క్లినికల్ ఎంట్రీలు పూర్తి చేయాలి.",
+      's4.lib.pharmacy.10_digit_mobile_number': "10-అంకెల మొబైల్ నంబర్",
+      's4.lib.pharmacy.10_tablets_strip': "10 మాత్రలు / స్ట్రిప్",
+      's4.lib.pharmacy.650_mg': "650 మి.గ్రా",
+      's4.lib.pharmacy.add_inventory_item': "ఇన్వెంటరీ అంశాన్ని జోడించండి",
+      's4.lib.pharmacy.add_item': "అంశాన్ని జోడించండి",
+      's4.lib.pharmacy.available_in_formulary': "ఫార్ములారీలో అందుబాటులో ఉంది",
+      's4.lib.pharmacy.brand_name': "బ్రాండ్ పేరు",
+      's4.lib.pharmacy.cold_chain_item': "కోల్డ్-చైన్ అంశం",
+      's4.lib.pharmacy.controlled_narcotic_item':
+          "నియంత్రిత / మాదక ద్రవ్యాల అంశం",
+      's4.lib.pharmacy.create_pharmacy_order': "ఫార్మసీ ఆర్డర్‌ని సృష్టించండి",
+      's4.lib.pharmacy.display_name': "ప్రదర్శన పేరు",
+      's4.lib.pharmacy.drug_generic_or_strength': "ఔషధం, సాధారణం లేదా బలం",
+      's4.lib.pharmacy.drug_name_with_strength': "బలంతో మందు పేరు",
+      's4.lib.pharmacy.edit_formulary_drug': "ఫార్ములారీ ఔషధాన్ని సవరించండి",
+      's4.lib.pharmacy.expiry_alerts': "గడువు హెచ్చరికలు",
+      's4.lib.pharmacy.form': "రూపం",
+      's4.lib.pharmacy.generic_name': "సాధారణ పేరు",
+      's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase_oversight':
+          "ఇన్వెంటరీ & కొనుగోలు పర్యవేక్షణ",
+      's4.lib.pharmacy.inventory_items': "ఇన్వెంటరీ అంశాలు",
+      's4.lib.pharmacy.manufacturer': "తయారీదారు",
+      's4.lib.pharmacy.mark_urgent': "అత్యవసరమని గుర్తించండి",
+      's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
+          "ఔషధాల పేర్లు, మోతాదు, పరిమాణం లేదా Rx గమనిక",
+      's4.lib.pharmacy.no_formulary_drugs_found':
+          "ఫార్ములారీ మందులు కనుగొనబడలేదు",
+      's4.lib.pharmacy.no_inventory_items_found':
+          "ఇన్వెంటరీ అంశాలు ఏవీ కనుగొనబడలేదు",
+      's4.lib.pharmacy.none': "ఏదీ లేదు",
+      's4.lib.pharmacy.order_note': "ఆర్డర్ నోట్",
+      's4.lib.pharmacy.otc': "OTC",
+      's4.lib.pharmacy.pack_size': "ప్యాక్ పరిమాణం",
+      's4.lib.pharmacy.pack_strength_note': "ప్యాక్ / బలం గమనిక",
+      's4.lib.pharmacy.para_650_tab': "PARA-650-TAB",
+      's4.lib.pharmacy.paracetamol_650_mg': "పారాసెటమాల్ 650 మి.గ్రా",
+      's4.lib.pharmacy.paracetamol_650_mg_tablet':
+          "పారాసెటమాల్ 650 mg టాబ్లెట్",
+      's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
+          "ఫార్మసీ పంపిణీ వర్క్‌ఫ్లో ఫార్మసీ సిబ్బంది నిర్వహిస్తారు. స్టాక్, గడువు ముగింపు మరియు కొనుగోలు పర్యవేక్షణ కోసం ఇన్వెంటరీని ఉపయోగించండి.",
+      's4.lib.pharmacy.prescription_required': "ప్రిస్క్రిప్షన్ అవసరం",
+      's4.lib.pharmacy.remove': "తొలగించు",
+      's4.lib.pharmacy.remove_from_formulary': "ఫార్ములారీ నుండి తీసివేయాలా?",
+      's4.lib.pharmacy.remove_from_formulary_2': "ఫార్ములారీ నుండి తీసివేయండి",
+      's4.lib.pharmacy.reorder_level': "స్థాయిని క్రమాన్ని మార్చండి",
+      's4.lib.pharmacy.reorder_quantity': "పరిమాణాన్ని క్రమాన్ని మార్చండి",
+      's4.lib.pharmacy.run_expiry_scan': "ఎక్స్‌పైరీ స్కాన్‌ని అమలు చేయండి",
+      's4.lib.pharmacy.search_formulary': "శోధన సూత్రం",
+      's4.lib.pharmacy.search_inventory': "శోధన జాబితా",
+      's4.lib.pharmacy.shared_pharmacy_formulary': "షేర్డ్ ఫార్మసీ ఫార్ములారీ",
+      's4.lib.pharmacy.sku_code': "SKU కోడ్",
+      's4.lib.pharmacy.sku_drug_brand_or_generic':
+          "SKU, డ్రగ్, బ్రాండ్ లేదా జెనరిక్",
+      's4.lib.pharmacy.stock_quantity': "స్టాక్ పరిమాణం",
+      's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
+          "దుకాణాలు/కొనుగోలు రోగి మందులను పంపిణీ చేయకుండా ఔషధ మాస్టర్, స్టాక్ విజిబిలిటీ మరియు ఎక్స్‌పైరీ పర్యవేక్షణను నిర్వహించగలవు.",
+      's4.lib.pharmacy.strength': "బలం",
+      's4.lib.pharmacy.unit_label': "యూనిట్ లేబుల్",
+      's4.lib.pharmacy.unit_price': "యూనిట్ ధర",
+      's4.lib.pharmacy.x': "X",
+      's4.lib.phone_patient_lookup.no_matching_patient_found':
+          "సరిపోలే రోగి కనుగొనబడలేదు.",
+      's4.lib.phone_patient_lookup.patient_lookup_on_phone_is_limited_to_doctor_cla':
+          "ఫోన్‌లో పేషెంట్ లుకప్ డాక్టర్-క్లాస్ చదవడానికి-మాత్రమే యాక్సెస్‌కు పరిమితం చేయబడింది. క్లినికల్ వర్క్‌ఫ్లోల కోసం స్టాఫ్ డెస్క్‌టాప్ ఉపయోగించండి.",
+      's4.lib.phone_patient_lookup.read_only_patient_lookup':
+          "చదవడానికి-మాత్రమే పేషెంట్ లుకప్",
+      's4.lib.prescriptions.add_drug': "డ్రగ్ జోడించండి",
+      's4.lib.prescriptions.clear_draft': "చిత్తుప్రతిని క్లియర్ చేయండి",
+      's4.lib.prescriptions.clear_prescription_draft':
+          "ప్రిస్క్రిప్షన్ డ్రాఫ్ట్‌ను క్లియర్ చేయాలా?",
+      's4.lib.prescriptions.continue': "కొనసాగించు",
+      's4.lib.prescriptions.days': "రోజులు",
+      's4.lib.prescriptions.delete_row': "అడ్డు వరుసను తొలగించండి",
+      's4.lib.prescriptions.drug_form': "మందు / రూపం*",
+      's4.lib.prescriptions.notes_safety': "గమనికలు / భద్రత",
+      's4.lib.prescriptions.op_consultation_context': "OP సంప్రదింపు సందర్భం",
+      's4.lib.prescriptions.open_pdf': "PDFని తెరవండి",
+      's4.lib.prescriptions.prescription_pdf_is_ready':
+          "ప్రిస్క్రిప్షన్ PDF సిద్ధంగా ఉంది",
+      's4.lib.prescriptions.review_draft': "రివ్యూ డ్రాఫ్ట్",
+      's4.lib.prescriptions.review_prescription_warnings':
+          "ప్రిస్క్రిప్షన్ హెచ్చరికలను సమీక్షించండి",
+      's4.lib.prescriptions.save_favorite': "ఇష్టమైన సేవ్",
+      's4.lib.prescriptions.signed': "సంతకం చేశారు",
+      's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
+          "ఈ ప్రిస్క్రిప్షన్ కోసం సర్వర్ నాన్-బ్లాకింగ్ CDS హెచ్చరికలను అందించింది.",
+      's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
+          "ఇది ప్రస్తుతం ఈ డ్రాఫ్ట్‌లో ఉన్న మందులు, నోట్‌లు, ప్రాణాధారాలు మరియు ఫాలో-అప్‌లను తొలగిస్తుంది. సృష్టించిన ప్రిస్క్రిప్షన్‌లు తొలగించబడవు.",
+      's4.lib.prescriptions.type_drug_name': "ఔషధం పేరు రకం",
+      's4.lib.prescriptions.use_favorite': "ఇష్టమైన ఉపయోగించండి",
+      's4.lib.referrals.ai_assisted_clinical_summary':
+          "AI సహాయక క్లినికల్ సారాంశం",
+      's4.lib.referrals.audit': "ఆడిట్",
+      's4.lib.referrals.clinical_summary': "క్లినికల్ సారాంశం",
+      's4.lib.referrals.consultant_name': "కన్సల్టెంట్ పేరు",
+      's4.lib.referrals.department_specialty': "విభాగం / ప్రత్యేకత",
+      's4.lib.referrals.edit_and_confirm_this_draft_it_is_not_sent_until':
+          "ఈ చిత్తుప్రతిని సవరించండి మరియు నిర్ధారించండి. మీరు రిక్వెస్ట్ రిఫరల్‌ని నొక్కినంత వరకు ఇది పంపబడదు.",
+      's4.lib.referrals.incoming': "ఇన్కమింగ్",
+      's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart':
+          "డిపార్ట్‌మెంట్‌కు తెలియజేయడానికి కన్సల్టెంట్‌ని ఎంపిక చేయకుండా వదిలేయండి.",
+      's4.lib.referrals.no_referral_audit_rows': "రెఫరల్ ఆడిట్ వరుసలు లేవు",
+      's4.lib.referrals.open_patient': "రోగిని తెరవండి",
+      's4.lib.referrals.outgoing': "అవుట్గోయింగ్",
+      's4.lib.referrals.reason_for_referral': "రిఫెరల్ కోసం కారణం",
+      's4.lib.referrals.referral_audit_is_available_to_admin_superadmin':
+          "అడ్మిన్/సూపర్ అడ్మిన్ పాత్రలకు రెఫరల్ ఆడిట్ అందుబాటులో ఉంది.",
+      's4.lib.referrals.referral_clinical_summary': "రెఫరల్ క్లినికల్ సారాంశం",
+      's4.lib.referrals.use_summary': "సారాంశాన్ని ఉపయోగించండి",
+      's4.lib.reports_admin_queue.hr_admin_access_required':
+          "HR/అడ్మిన్ యాక్సెస్ అవసరం",
+      's4.lib.reports_admin_queue.internal_hr_admin_note':
+          "అంతర్గత HR/అడ్మిన్ గమనిక",
+      's4.lib.reports_admin_queue.no_activity_recorded':
+          "కార్యాచరణ ఏదీ నమోదు చేయబడలేదు",
+      's4.lib.reports_admin_queue.public_update': "పబ్లిక్ అప్‌డేట్",
+      's4.lib.reports_admin_queue.report_update_saved':
+          "రిపోర్ట్ అప్‌డేట్ సేవ్ చేయబడింది",
+      's4.lib.reports_admin_queue.reports_review': "నివేదికల సమీక్ష",
+      's4.lib.reports_admin_queue.save_update': "నవీకరణను సేవ్ చేయండి",
+      's4.lib.schedule.shift_actions': "షిఫ్ట్ చర్యలు",
+      's4.lib.smart_phrase_field.expanding': "విస్తరిస్తోంది…",
+      's4.lib.specimen_scan.patient_wristband_mismatch':
+          "రోగి రిస్ట్‌బ్యాండ్ అసమతుల్యత",
+      's4.lib.specimen_scan.specimen_hard_stop': "నమూనా హార్డ్-స్టాప్",
+      's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "దీన్ని భర్తీ చేయడం సాధ్యం కాదు. సరైన రిస్ట్‌బ్యాండ్ మరియు ట్యూబ్‌ని మళ్లీ స్కాన్ చేయండి.",
+      's4.lib.staff_diagnostics.no_details_returned': "వివరాలు ఏవీ ఇవ్వలేదు.",
+      's4.lib.staff_diagnostics.refresh_diagnostics':
+          "విశ్లేషణలను రిఫ్రెష్ చేయండి",
+      's4.lib.staff_diagnostics.staff_diagnostics': "స్టాఫ్ డయాగ్నస్టిక్స్",
+      's4.lib.staff_management.default_shift': "డిఫాల్ట్ షిఫ్ట్",
+      's4.lib.staff_management.leave_blank_to_auto_generate':
+          "స్వయంచాలకంగా రూపొందించడానికి ఖాళీని వదిలివేయండి",
+      's4.lib.staff_management.position': "స్థానం",
+      's4.lib.staff_management.show_department_options': "విభాగం ఎంపికలను చూపు",
+      's4.lib.staff_management.temporary_password': "తాత్కాలిక పాస్వర్డ్",
+      's4.lib.staff_phone_more.more': "మరిన్ని",
+      's4.lib.staff_query.it': "IT",
+      's4.lib.staff_query.my_queries': "నా ప్రశ్నలు",
+      's4.lib.staff_query.no_queries_raised_yet':
+          "ఇంకా ఎలాంటి ప్రశ్నలు లేవనెత్తలేదు.",
+      's4.lib.staff_query.payroll': "పేరోల్",
+      's4.lib.staff_query.query_submitted': "ప్రశ్న సమర్పించబడింది",
+      's4.lib.staff_query.raise_query': "ప్రశ్నను లేవనెత్తండి",
+      's4.lib.staff_query.staff_query': "సిబ్బంది ప్రశ్న",
+      's4.lib.staff_query.submit_query': "ప్రశ్నను సమర్పించండి",
+      's4.lib.staff_roster_hub.choose_a_department_to_manage_weekly_duties_leav':
+          "వీక్లీ డ్యూటీలు, లీవ్ బ్లాక్‌లు, రిక్వెస్ట్‌లు మరియు రోస్టర్ ఫోర్‌కాస్ట్ ఓవర్‌లేలను నిర్వహించడానికి విభాగాన్ని ఎంచుకోండి.",
+      's4.lib.staff_roster_hub.department_roster_boards':
+          "విభాగం రోస్టర్ బోర్డులు",
+      's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
+          "ఈ పాత్రకు ఏ విభాగం రోస్టర్ బోర్డు కేటాయించబడలేదు.",
+      's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
+          "దీన్ని భర్తీ చేయడం సాధ్యం కాదు. సరైన రిస్ట్‌బ్యాండ్ మరియు యూనిట్‌ని మళ్లీ స్కాన్ చేయండి.",
+      's4.lib.transfusion_scan.transfusion_hard_stop':
+          "ట్రాన్స్‌ఫ్యూజన్ హార్డ్-స్టాప్",
+      's4.lib.ward_mode.built_for_ward_specific_flows':
+          "వార్డ్-నిర్దిష్ట ప్రవాహాల కోసం నిర్మించబడింది",
+      's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
+          "ఇది రిసెప్షన్ కౌంటర్ వలె అదే వర్క్‌బెంచ్ నమూనాను ఉపయోగిస్తుంది; తదుపరి దశ రోగి-తెలుసుకునే షార్ట్‌కట్‌లను బెడ్ బోర్డ్ నుండి నోట్స్, వైటల్స్, ఇన్వెస్టిగేషన్‌లు మరియు డ్రగ్ చార్ట్‌లుగా మార్చడం.",
+      's4.lib.ward_mode.ward_workbench': "వార్డ్ వర్క్‌బెంచ్",
+      // REVIEW: AI first-pass S4 dynamic i18n sweep - confirm wording before production.
+      's4.dynamic.app_router.page_not_found': "పేజీ కనుగొనబడలేదు: {route}",
+      's4.dynamic.patient_notes.update_failed': "నవీకరణ విఫలమైంది: {error}",
+      's4.dynamic.patient_records.notes_count': "{count} గమనికలు",
+      's4.dynamic.patient_records.confidence': "విశ్వాసం {confidence}",
+      's4.dynamic.admission_case_sheet.title_for_patient':
+          "కేస్ షీట్ - {patient}",
+      's4.dynamic.common.user_id': "వినియోగదారు ID: {userId}",
+      's4.dynamic.common.signed_at': "సంతకం చేసినది: {signedAt}",
+      's4.dynamic.discharge_hub.ai_package_failed':
+          "AI ప్యాకేజీ విఫలమైంది: {error}",
+      's4.dynamic.discharge_hub.finish_task_title': "{label} ముగించు",
+      's4.dynamic.discharge_hub.task_finished': "{label} పూర్తయింది",
+      's4.dynamic.discharge_hub.finish_task_failed':
+          "విధిని పూర్తి చేయడం సాధ్యపడలేదు: {error}",
+      's4.dynamic.discharge_hub.title_for_patient':
+          "డిశ్చార్జ్ హబ్ - {patient}",
+      's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.patient_command_board.allergies_count': "{count} అలెర్జీలు",
+      's4.dynamic.patient_command_board.alerts_count': "{count} హెచ్చరికలు",
+      's4.dynamic.patient_command_board.tasks_count': "{count} పనులు",
+      's4.dynamic.housekeeping.week_label': "వారం {range}",
+      's4.dynamic.housekeeping.shift_name_label': "{department} షిఫ్ట్ పేరు",
+      's4.dynamic.leave_approvals.decision_title': "{decision} సెలవు",
+      's4.dynamic.lab_bookings.tests_prefix': "పరీక్షలు: {tests}",
+      's4.dynamic.messaging.saved_to_path': "{path}కి సేవ్ చేయబడింది",
+      's4.dynamic.pharmacy.cancel_order_confirm':
+          "ఆర్డర్ {orderNumber}ని రద్దు చేయాలా?",
+      's4.dynamic.pharmacy.formulary_count': "ఫార్ములారీ ({count})",
+      's4.dynamic.pharmacy.inventory_count': "ఇన్వెంటరీ ({count})",
+      's4.dynamic.order_sets.via_route': "{route} ద్వారా",
+      's4.dynamic.order_sets.duration_days': "× {days}Dవ",
+      's4.dynamic.front_office.mark_completed':
+          "{patient} పూర్తయినట్లు గుర్తు పెట్టాలా?",
+      's4.dynamic.reports.incidents_count': "సంఘటనలు ({count})",
+      's4.dynamic.reports.grievances_count': "ఫిర్యాదులు ({count})",
+      's4.dynamic.duty_preference.date_label': "తేదీ {date}",
+      's4.dynamic.duty_preference.from_label': "{date} నుండి",
+      's4.dynamic.duty_preference.to_label': "{date} వరకు",
     },
 
     // ── Malayalam (ml) ─────────────────────────────────────────────────
@@ -13442,4 +16033,59 @@ class AppStrings {
       'summary.notes': 'കുറിപ്പുകൾ',
     },
   };
+}
+
+class AppText extends StatelessWidget {
+  final String stringKey;
+  final Map<String, Object?> values;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+  final TextDirection? textDirection;
+  final Locale? locale;
+  final bool? softWrap;
+  final TextOverflow? overflow;
+  final TextScaler? textScaler;
+  final int? maxLines;
+  final String? semanticsLabel;
+  final TextWidthBasis? textWidthBasis;
+  final TextHeightBehavior? textHeightBehavior;
+  final StrutStyle? strutStyle;
+
+  const AppText(
+    this.stringKey, {
+    super.key,
+    this.values = const {},
+    this.style,
+    this.textAlign,
+    this.textDirection,
+    this.locale,
+    this.softWrap,
+    this.overflow,
+    this.textScaler,
+    this.maxLines,
+    this.semanticsLabel,
+    this.textWidthBasis,
+    this.textHeightBehavior,
+    this.strutStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    return Text(
+      values.isEmpty ? s.lookup(stringKey) : s.format(stringKey, values),
+      style: style,
+      textAlign: textAlign,
+      textDirection: textDirection,
+      locale: locale,
+      softWrap: softWrap,
+      overflow: overflow,
+      textScaler: textScaler,
+      maxLines: maxLines,
+      semanticsLabel: semanticsLabel,
+      textWidthBasis: textWidthBasis,
+      textHeightBehavior: textHeightBehavior,
+      strutStyle: strutStyle,
+    );
+  }
 }

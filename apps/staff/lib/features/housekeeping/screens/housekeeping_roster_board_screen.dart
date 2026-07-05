@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class HousekeepingRosterBoardScreen extends StatefulWidget {
   final String department;
@@ -1030,7 +1031,7 @@ class _HousekeepingRosterBoardScreenState
         title: Text(widget.title),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -1167,7 +1168,9 @@ class _HousekeepingRosterBoardScreenState
                               ? null
                               : () => _saveDraft(),
                           icon: const Icon(Icons.save_outlined),
-                          label: const Text('Save draft'),
+                          label: const AppText(
+                            's4.lib.housekeeping_roster_board.save_draft',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1185,7 +1188,9 @@ class _HousekeepingRosterBoardScreenState
                                   ),
                                 )
                               : const Icon(Icons.publish_outlined),
-                          label: const Text('Publish roster'),
+                          label: const AppText(
+                            's4.lib.housekeeping_roster_board.publish_roster',
+                          ),
                         ),
                       ),
                     ],
@@ -1289,7 +1294,10 @@ class _HeaderPanel extends StatelessWidget {
               children: [
                 ActionChip(
                   avatar: const Icon(Icons.event, size: 18),
-                  label: Text('Week $weekRangeText'),
+                  label: AppText(
+                    's4.dynamic.housekeeping.week_label',
+                    values: {'range': weekRangeText},
+                  ),
                   onPressed: saving ? null : onPickWeek,
                 ),
                 _StatusPill(
@@ -1340,7 +1348,9 @@ class _HeaderPanel extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: saving || !canEdit ? null : onCopyPrevious,
                     icon: const Icon(Icons.content_copy_outlined),
-                    label: const Text('Copy previous day'),
+                    label: const AppText(
+                      's4.lib.housekeeping_roster_board.copy_previous_day',
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -1350,7 +1360,9 @@ class _HeaderPanel extends StatelessWidget {
                         ? null
                         : onCopySelectedDayToWeek,
                     icon: const Icon(Icons.copy_all_outlined),
-                    label: const Text('Copy day to week'),
+                    label: const AppText(
+                      's4.lib.housekeeping_roster_board.copy_day_to_week',
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -1358,7 +1370,9 @@ class _HeaderPanel extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: saving || !canEdit ? null : onAddCustomShift,
                     icon: const Icon(Icons.add_alarm_outlined),
-                    label: const Text('Add custom shift'),
+                    label: const AppText(
+                      's4.lib.housekeeping_roster_board.add_custom_shift',
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -1368,7 +1382,9 @@ class _HeaderPanel extends StatelessWidget {
                         ? null
                         : onGenerateForecast,
                     icon: const Icon(Icons.auto_graph_outlined),
-                    label: const Text('Generate 12-week forecast'),
+                    label: const AppText(
+                      's4.lib.housekeeping_roster_board.generate_12_week_forecast',
+                    ),
                   ),
                 ),
               ],
@@ -1495,8 +1511,8 @@ class _RosterLegend extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Text(
-            'Assign each ward, unit, or floor under Morning, Evening, Night, or a custom shift.',
+          child: AppText(
+            's4.lib.housekeeping_roster_board.assign_each_ward_unit_or_floor_under_morning_eve',
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ),
@@ -1972,8 +1988,8 @@ class _AssignmentDropdownCell extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Add staff',
+                AppText(
+                  's4.lib.housekeeping_roster_board.add_staff',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 18,
@@ -2083,8 +2099,8 @@ class _AssignmentDropdownCell extends StatelessWidget {
               Expanded(
                 child: selectedStaffIds.isEmpty
                     ? Center(
-                        child: Text(
-                          'Unassigned',
+                        child: AppText(
+                          's4.lib.housekeeping_roster_board.unassigned',
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       )
@@ -2296,14 +2312,18 @@ class _StaffWiseRoster extends StatelessWidget {
                     key: ValueKey('shift-$staffId-$selectedShift'),
                     initialValue: selectedShift,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Shift',
-                      prefixIcon: Icon(Icons.schedule_outlined),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('profile.field.shift'),
+                      prefixIcon: const Icon(Icons.schedule_outlined),
                     ),
                     items: [
                       const DropdownMenuItem<String?>(
                         value: null,
-                        child: Text('Off / Unassigned'),
+                        child: AppText(
+                          's4.lib.housekeeping_roster_board.off_unassigned',
+                        ),
                       ),
                       ...shifts.map((shift) {
                         final disabled =
@@ -2334,14 +2354,18 @@ class _StaffWiseRoster extends StatelessWidget {
                     key: ValueKey('target-$staffId-$selectedTarget'),
                     initialValue: selectedTarget,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Ward / Unit',
-                      prefixIcon: Icon(Icons.location_on_outlined),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.housekeeping_roster_board.ward_unit'),
+                      prefixIcon: const Icon(Icons.location_on_outlined),
                     ),
                     items: [
                       const DropdownMenuItem<int?>(
                         value: null,
-                        child: Text('Unassigned'),
+                        child: AppText(
+                          's4.lib.housekeeping_roster_board.unassigned',
+                        ),
                       ),
                       ...targets.map((target) {
                         final targetId = asInt(target['id']);
@@ -2435,8 +2459,8 @@ class _RosterSignals extends StatelessWidget {
           const SizedBox(height: 8),
         ],
         if (requests.isNotEmpty) ...[
-          Text(
-            'Duty requests',
+          AppText(
+            's4.lib.housekeeping_roster_board.duty_requests',
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontWeight: FontWeight.w800,
@@ -2499,7 +2523,9 @@ class _RosterSignals extends StatelessWidget {
                                   ? null
                                   : () => onReview(id, 'rejected'),
                               icon: const Icon(Icons.close),
-                              label: const Text('Reject'),
+                              label: const AppText(
+                                'clinical_ai.draft.reject_button',
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -2509,7 +2535,9 @@ class _RosterSignals extends StatelessWidget {
                                   ? null
                                   : () => onReview(id, 'approved'),
                               icon: const Icon(Icons.check),
-                              label: const Text('Approve'),
+                              label: const AppText(
+                                's4.lib.housekeeping_roster_board.approve',
+                              ),
                             ),
                           ),
                         ],
@@ -2523,8 +2551,8 @@ class _RosterSignals extends StatelessWidget {
           const SizedBox(height: 8),
         ],
         if (leaveCoverage.isNotEmpty) ...[
-          Text(
-            'Leave and alternate cover',
+          AppText(
+            's4.lib.housekeeping_roster_board.leave_and_alternate_cover',
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontWeight: FontWeight.w800,
@@ -2631,8 +2659,8 @@ class _ForecastSignalCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    'AI/rules roster forecast',
+                  child: AppText(
+                    's4.lib.housekeeping_roster_board.ai_rules_roster_forecast',
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontWeight: FontWeight.w800,
@@ -2698,7 +2726,9 @@ class _ForecastSignalCard extends StatelessWidget {
                           ? null
                           : () => onForecastReview('discarded'),
                       icon: const Icon(Icons.close),
-                      label: const Text('Discard forecast'),
+                      label: const AppText(
+                        's4.lib.housekeeping_roster_board.discard_forecast',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -2708,7 +2738,9 @@ class _ForecastSignalCard extends StatelessWidget {
                           ? null
                           : () => onForecastReview('accepted'),
                       icon: const Icon(Icons.check),
-                      label: const Text('Accept for planning'),
+                      label: const AppText(
+                        's4.lib.housekeeping_roster_board.accept_for_planning',
+                      ),
                     ),
                   ),
                 ],
@@ -2787,8 +2819,8 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppTheme.cardSurface,
-      title: Text(
-        'Add custom shift',
+      title: AppText(
+        's4.lib.housekeeping_roster_board.add_custom_shift',
         style: TextStyle(color: AppTheme.textPrimary),
       ),
       content: Form(
@@ -2799,7 +2831,10 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
             TextFormField(
               controller: _nameController,
               decoration: InputDecoration(
-                labelText: '${widget.departmentLabel} shift name',
+                labelText: AppStrings.of(context).format(
+                  's4.dynamic.housekeeping.shift_name_label',
+                  {'department': widget.departmentLabel},
+                ),
                 prefixIcon: const Icon(Icons.label_outline),
               ),
               validator: (value) {
@@ -2814,10 +2849,14 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
                 Expanded(
                   child: TextFormField(
                     controller: _startController,
-                    decoration: const InputDecoration(
-                      labelText: 'Start',
-                      hintText: '07:30',
-                      prefixIcon: Icon(Icons.play_arrow_outlined),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('investigations.start_button'),
+                      hintText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.housekeeping_roster_board.07_30'),
+                      prefixIcon: const Icon(Icons.play_arrow_outlined),
                     ),
                     validator: _validateTime,
                     keyboardType: TextInputType.datetime,
@@ -2827,10 +2866,14 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
                 Expanded(
                   child: TextFormField(
                     controller: _endController,
-                    decoration: const InputDecoration(
-                      labelText: 'End',
-                      hintText: '12:30',
-                      prefixIcon: Icon(Icons.stop_outlined),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.housekeeping_command.end'),
+                      hintText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.housekeeping_roster_board.12_30'),
+                      prefixIcon: const Icon(Icons.stop_outlined),
                     ),
                     validator: _validateTime,
                     keyboardType: TextInputType.datetime,
@@ -2844,12 +2887,12 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: const AppText('action.cancel'),
         ),
         FilledButton.icon(
           onPressed: _submit,
           icon: const Icon(Icons.add),
-          label: const Text('Add'),
+          label: const AppText('prescriptions.add_button'),
         ),
       ],
     );

@@ -9,6 +9,7 @@ import '../../../core/services/audit_log_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class AuditLogsScreen extends StatefulWidget {
   const AuditLogsScreen({super.key});
@@ -134,10 +135,12 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Audit Logs'),
+        title: const AppText('s4.lib.audit_logs.audit_logs'),
         actions: [
           IconButton(
-            tooltip: 'Refresh logs',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.audit_logs.refresh_logs'),
             onPressed: _allowed && !_loading ? () => _loadLogs() : null,
             icon: const Icon(Icons.refresh),
           ),
@@ -231,10 +234,14 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     child: TextField(
                       controller: _searchCtrl,
                       onSubmitted: (_) => _loadLogs(page: 1),
-                      decoration: const InputDecoration(
-                        labelText: 'Search',
-                        hintText: 'Action, resource, IP, user',
-                        prefixIcon: Icon(Icons.search),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('action.search'),
+                        hintText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.audit_logs.action_resource_ip_user'),
+                        prefixIcon: const Icon(Icons.search),
                       ),
                     ),
                   ),
@@ -243,32 +250,40 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     child: DropdownButtonFormField<String>(
                       key: ValueKey(_dateRange),
                       initialValue: _dateRange,
-                      decoration: const InputDecoration(
-                        labelText: 'Date',
-                        prefixIcon: Icon(Icons.date_range),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('theatre.label.date'),
+                        prefixIcon: const Icon(Icons.date_range),
                       ),
                       items: const [
-                        DropdownMenuItem(value: '', child: Text('All dates')),
-                        DropdownMenuItem(value: 'today', child: Text('Today')),
+                        DropdownMenuItem(
+                          value: '',
+                          child: AppText('s4.lib.audit_logs.all_dates'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'today',
+                          child: AppText('attendance.tab.today'),
+                        ),
                         DropdownMenuItem(
                           value: 'yesterday',
-                          child: Text('Yesterday'),
+                          child: AppText('time.yesterday'),
                         ),
                         DropdownMenuItem(
                           value: 'last_24h',
-                          child: Text('Last 24h'),
+                          child: AppText('vitals_chart.tab.last_24h'),
                         ),
                         DropdownMenuItem(
                           value: 'last_7d',
-                          child: Text('Last 7 days'),
+                          child: AppText('s4.lib.audit_logs.last_7_days'),
                         ),
                         DropdownMenuItem(
                           value: 'last_30d',
-                          child: Text('Last 30 days'),
+                          child: AppText('s4.lib.audit_logs.last_30_days'),
                         ),
                         DropdownMenuItem(
                           value: 'custom',
-                          child: Text('Custom'),
+                          child: AppText('s4.lib.audit_logs.custom'),
                         ),
                       ],
                       onChanged: (value) {
@@ -298,9 +313,11 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     child: TextField(
                       controller: _actionCtrl,
                       onSubmitted: (_) => _loadLogs(page: 1),
-                      decoration: const InputDecoration(
-                        labelText: 'Action',
-                        prefixIcon: Icon(Icons.bolt_outlined),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.audit_logs.action'),
+                        prefixIcon: const Icon(Icons.bolt_outlined),
                       ),
                     ),
                   ),
@@ -310,9 +327,11 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                       child: TextField(
                         controller: _resourceCtrl,
                         onSubmitted: (_) => _loadLogs(page: 1),
-                        decoration: const InputDecoration(
-                          labelText: 'Resource',
-                          prefixIcon: Icon(Icons.folder_copy_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.audit_logs.resource'),
+                          prefixIcon: const Icon(Icons.folder_copy_outlined),
                         ),
                       ),
                     ),
@@ -321,9 +340,11 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                       child: TextField(
                         controller: _roleCtrl,
                         onSubmitted: (_) => _loadLogs(page: 1),
-                        decoration: const InputDecoration(
-                          labelText: 'Actor role',
-                          prefixIcon: Icon(Icons.badge_outlined),
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.audit_logs.actor_role'),
+                          prefixIcon: const Icon(Icons.badge_outlined),
                         ),
                       ),
                     ),
@@ -333,7 +354,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     child: FilledButton.icon(
                       onPressed: _loading ? null : () => _loadLogs(page: 1),
                       icon: const Icon(Icons.filter_alt),
-                      label: const Text('Apply'),
+                      label: const AppText('leave.tab.apply'),
                     ),
                   ),
                   SizedBox(
@@ -341,7 +362,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     child: OutlinedButton.icon(
                       onPressed: _loading ? null : _resetFilters,
                       icon: const Icon(Icons.restart_alt),
-                      label: const Text('Reset'),
+                      label: const AppText('s4.lib.audit_logs.reset'),
                     ),
                   ),
                 ],
@@ -404,7 +425,9 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: 'Previous page',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.audit_logs.previous_page'),
                 onPressed: _result.page > 1 && !_loading
                     ? () => _loadLogs(page: _result.page - 1)
                     : null,
@@ -415,7 +438,9 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 style: TextStyle(color: AppTheme.textPrimary),
               ),
               IconButton(
-                tooltip: 'Next page',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.audit_logs.next_page'),
                 onPressed: _result.page < _result.totalPages && !_loading
                     ? () => _loadLogs(page: _result.page + 1)
                     : null,
@@ -453,7 +478,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Close',
+                        tooltip: AppStrings.of(context).lookup('action.close'),
                         onPressed: () => Navigator.of(context).pop(),
                         icon: const Icon(Icons.close),
                       ),

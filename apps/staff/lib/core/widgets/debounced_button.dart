@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 ///   onPressed: () async {
 ///     await ApiClient.post('/staff/attendance', body: {...});
 ///   },
-///   child: const Text('Check In'),
+///   child: const AppText('attendance.check_in'),
 /// )
 /// ```
 class DebouncedButton extends StatefulWidget {

@@ -237,7 +237,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
-                    tooltip: 'Remove filter',
+                    tooltip: AppStrings.of(
+                      context,
+                    ).lookup('staff_mgmt.clear_filter'),
                     onPressed: () => setState(() {
                       _deptSummary = null;
                       _selectedDept = null;
@@ -663,7 +665,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                   TextFormField(
                     controller: _phoneCtrl,
                     keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(labelText: 'Phone'),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('profile.field.phone'),
+                    ),
                     validator: (v) => (v == null || v.trim().isEmpty)
                         ? 'Phone is required'
                         : null,
@@ -672,20 +678,32 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                   TextFormField(
                     controller: _emailCtrl,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email'),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('profile.field.email'),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _employeeIdCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Employee ID',
-                      helperText: 'Leave blank to auto-generate',
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('login.employee_id_label'),
+                      helperText: AppStrings.of(context).lookup(
+                        's4.lib.staff_management.leave_blank_to_auto_generate',
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _role,
-                    decoration: const InputDecoration(labelText: 'Role'),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('profile.field.role'),
+                    ),
                     items: [
                       for (final option in widget.roleOptions)
                         DropdownMenuItem(
@@ -724,7 +742,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _positionCtrl,
-                  decoration: const InputDecoration(labelText: 'Position'),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.staff_management.position'),
+                  ),
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Position is required'
                       : null,
@@ -732,7 +754,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _shift,
-                  decoration: const InputDecoration(labelText: 'Default shift'),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.staff_management.default_shift'),
+                  ),
                   items: [
                     for (final shift in _shiftOptions)
                       DropdownMenuItem(
@@ -749,8 +775,10 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                   TextFormField(
                     controller: _passwordCtrl,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Temporary password',
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.staff_management.temporary_password'),
                     ),
                     validator: (v) => (v == null || v.trim().length < 6)
                         ? 'Use at least 6 characters'
@@ -824,7 +852,9 @@ class _DepartmentAutocompleteField extends StatelessWidget {
                   decoration: InputDecoration(
                     labelText: label,
                     suffixIcon: IconButton(
-                      tooltip: 'Show department options',
+                      tooltip: AppStrings.of(context).lookup(
+                        's4.lib.staff_management.show_department_options',
+                      ),
                       icon: const Icon(Icons.arrow_drop_down),
                       onPressed: onShowAll,
                     ),

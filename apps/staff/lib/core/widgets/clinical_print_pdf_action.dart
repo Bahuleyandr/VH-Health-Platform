@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class ClinicalPrintPdfAction extends StatelessWidget {
   final bool visible;
@@ -24,7 +25,7 @@ class ClinicalPrintPdfAction extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : const Icon(Icons.print_outlined, size: 18),
-      label: const Text('Print / Share PDF'),
+      label: const AppText('s4.lib.clinical_print_pdf_action.print_share_pdf'),
     );
   }
 }
