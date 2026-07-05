@@ -5428,6 +5428,91 @@ class AppStrings {
       's4.lib.duty_preference.no_duty_requests_yet': "No duty requests yet",
       's4.lib.duty_preference.request_preferred_duty': "Request preferred duty",
       's4.lib.duty_preference.submit_request': "Submit request",
+      // REVIEW: AI first-pass S4 Front Office i18n sweep - confirm wording before production.
+      's4.dynamic.front_office_workbench.active_admissions_limited':
+          "Showing first {shown} of {total} active admissions.",
+      's4.dynamic.front_office_workbench.bill_due':
+          "{count} bill | Due {amount}",
+      's4.dynamic.front_office_workbench.bills_due':
+          "{count} bills | Due {amount}",
+      's4.dynamic.front_office_workbench.hospital_id_number':
+          "Hospital ID {id}",
+      's4.dynamic.front_office_workbench.ip_admission_number_created':
+          "IP admission {ip} created",
+      's4.dynamic.front_office_workbench.op_appointment_today':
+          "{count} OP appointment today",
+      's4.dynamic.front_office_workbench.op_appointments_today':
+          "{count} OP appointments today",
+      's4.dynamic.front_office_workbench.token_number': "Token {token}",
+      's4.dynamic.front_office_workbench.visit_number': "Visit {visit}",
+      's4.lib.front_office_workbench.active_ip_admissions':
+          "Active IP Admissions",
+      's4.lib.front_office_workbench.admission_stays_pending_until_ready':
+          "Admission stays pending until ward/bed, billing deposit, and counter consent are handled as applicable.",
+      's4.lib.front_office_workbench.admissions': "Admissions",
+      's4.lib.front_office_workbench.advice': "Advice",
+      's4.lib.front_office_workbench.advised_at': "Advised at",
+      's4.lib.front_office_workbench.appointment_cancelled':
+          "Appointment cancelled",
+      's4.lib.front_office_workbench.appointment_rescheduled':
+          "Appointment rescheduled",
+      's4.lib.front_office_workbench.appointments': "Appointments",
+      's4.lib.front_office_workbench.billing': "Billing",
+      's4.lib.front_office_workbench.check_in': "Check in",
+      's4.lib.front_office_workbench.checking_existing_patients':
+          "Checking for existing patients...",
+      's4.lib.front_office_workbench.complete': "Complete",
+      's4.lib.front_office_workbench.doctor': "Doctor",
+      's4.lib.front_office_workbench.enter_chief_complaint':
+          "Enter the chief complaint.",
+      's4.lib.front_office_workbench.enter_reason_for_visit':
+          "Enter the reason for visit.",
+      's4.lib.front_office_workbench.enter_visit_reason_or_complaint':
+          "Enter the visit reason or complaint.",
+      's4.lib.front_office_workbench.front_office_summary_only':
+          "Front-office summary only",
+      's4.lib.front_office_workbench.ip_admission_created':
+          "IP admission created",
+      's4.lib.front_office_workbench.needs_bed_deposit_consent':
+          "Needs bed, deposit, consent",
+      's4.lib.front_office_workbench.no_active_admissions':
+          "No active admissions",
+      's4.lib.front_office_workbench.no_appointments_queued_for_date':
+          "No appointments queued for this date",
+      's4.lib.front_office_workbench.no_bills_loaded': "No bills loaded",
+      's4.lib.front_office_workbench.no_invoices_found': "No invoices found",
+      's4.lib.front_office_workbench.no_opd_admission_advice_pending':
+          "No OPD admission advice pending",
+      's4.lib.front_office_workbench.op_queue_restricted_for_role':
+          "OP queue is restricted for this role",
+      's4.lib.front_office_workbench.opd_admission_advice':
+          "OPD admission advice",
+      's4.lib.front_office_workbench.patient': "Patient",
+      's4.lib.front_office_workbench.patient_advised_for_ip':
+          "Patient advised for IP",
+      's4.lib.front_office_workbench.patient_created': "Patient created",
+      's4.lib.front_office_workbench.patient_needs_saved_record_or_valid_phone':
+          "Patient needs a saved record or a valid phone number.",
+      's4.lib.front_office_workbench.patient_phone_min_digits':
+          "Patient phone must be at least 10 digits.",
+      's4.lib.front_office_workbench.patient_selected_from_queue':
+          "Patient selected from queue.",
+      's4.lib.front_office_workbench.patient_updated': "Patient updated",
+      's4.lib.front_office_workbench.queue_patient_selected_search_before_billing':
+          "Queue patient selected. Search the patient record before billing.",
+      's4.lib.front_office_workbench.records': "Records",
+      's4.lib.front_office_workbench.select_admitting_doctor':
+          "Select an admitting doctor.",
+      's4.lib.front_office_workbench.select_bed_for_routine_ip_admission':
+          "Select a bed for routine IP admission.",
+      's4.lib.front_office_workbench.select_doctor_or_department':
+          "Select a doctor or department.",
+      's4.lib.front_office_workbench.select_patient': "Select a patient",
+      's4.lib.front_office_workbench.selected_patient_needs_identifier':
+          "The selected patient needs an identifier.",
+      's4.lib.front_office_workbench.vitals': "Vitals",
+      's4.lib.front_office_workbench.walk_in_registered': "Walk-in registered",
+      's4.lib.front_office_workbench.workflows': "Workflows",
       's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
           "A similar patient already exists. Select the existing patient or create a separate new record only if this is truly different.",
       's4.lib.front_office_workbench.admit_ip': "Admit IP",
@@ -9665,6 +9750,90 @@ class AppStrings {
       's4.lib.duty_preference.request_preferred_duty':
           "पसंदीदा कर्तव्य का अनुरोध करें",
       's4.lib.duty_preference.submit_request': "अनुरोध सबमिट करें",
+      // REVIEW: AI first-pass S4 Front Office i18n sweep - confirm wording before production.
+      's4.dynamic.front_office_workbench.active_admissions_limited':
+          "पहली {shown} में से {total} सक्रिय भर्तियां दिखा रहे हैं।",
+      's4.dynamic.front_office_workbench.bill_due':
+          "{count} बिल | बकाया {amount}",
+      's4.dynamic.front_office_workbench.bills_due':
+          "{count} बिल | बकाया {amount}",
+      's4.dynamic.front_office_workbench.hospital_id_number':
+          "अस्पताल आईडी {id}",
+      's4.dynamic.front_office_workbench.ip_admission_number_created':
+          "आईपी भर्ती {ip} बनाई गई",
+      's4.dynamic.front_office_workbench.op_appointment_today':
+          "आज {count} ओपी अपॉइंटमेंट",
+      's4.dynamic.front_office_workbench.op_appointments_today':
+          "आज {count} ओपी अपॉइंटमेंट",
+      's4.dynamic.front_office_workbench.token_number': "टोकन {token}",
+      's4.dynamic.front_office_workbench.visit_number': "विजिट {visit}",
+      's4.lib.front_office_workbench.active_ip_admissions':
+          "सक्रिय आईपी भर्तियां",
+      's4.lib.front_office_workbench.admission_stays_pending_until_ready':
+          "वार्ड/बेड, बिलिंग जमा और काउंटर सहमति लागू होने पर पूरी होने तक भर्ती लंबित रहती है।",
+      's4.lib.front_office_workbench.admissions': "भर्तियां",
+      's4.lib.front_office_workbench.advice': "सलाह",
+      's4.lib.front_office_workbench.advised_at': "सलाह का समय",
+      's4.lib.front_office_workbench.appointment_cancelled':
+          "अपॉइंटमेंट रद्द किया गया",
+      's4.lib.front_office_workbench.appointment_rescheduled':
+          "अपॉइंटमेंट पुनर्निर्धारित किया गया",
+      's4.lib.front_office_workbench.appointments': "अपॉइंटमेंट",
+      's4.lib.front_office_workbench.billing': "बिलिंग",
+      's4.lib.front_office_workbench.check_in': "चेक इन",
+      's4.lib.front_office_workbench.checking_existing_patients':
+          "मौजूदा मरीजों की जांच हो रही है...",
+      's4.lib.front_office_workbench.complete': "पूरा करें",
+      's4.lib.front_office_workbench.doctor': "डॉक्टर",
+      's4.lib.front_office_workbench.enter_chief_complaint':
+          "मुख्य शिकायत दर्ज करें।",
+      's4.lib.front_office_workbench.enter_reason_for_visit':
+          "विजिट का कारण दर्ज करें।",
+      's4.lib.front_office_workbench.enter_visit_reason_or_complaint':
+          "विजिट का कारण या शिकायत दर्ज करें।",
+      's4.lib.front_office_workbench.front_office_summary_only':
+          "केवल फ्रंट-ऑफिस सारांश",
+      's4.lib.front_office_workbench.ip_admission_created':
+          "आईपी भर्ती बनाई गई",
+      's4.lib.front_office_workbench.needs_bed_deposit_consent':
+          "बेड, जमा, सहमति आवश्यक",
+      's4.lib.front_office_workbench.no_active_admissions':
+          "कोई सक्रिय भर्ती नहीं",
+      's4.lib.front_office_workbench.no_appointments_queued_for_date':
+          "इस तारीख के लिए कोई अपॉइंटमेंट कतार में नहीं",
+      's4.lib.front_office_workbench.no_bills_loaded': "कोई बिल लोड नहीं हुआ",
+      's4.lib.front_office_workbench.no_invoices_found': "कोई चालान नहीं मिला",
+      's4.lib.front_office_workbench.no_opd_admission_advice_pending':
+          "कोई ओपीडी भर्ती सलाह लंबित नहीं",
+      's4.lib.front_office_workbench.op_queue_restricted_for_role':
+          "इस भूमिका के लिए ओपी कतार प्रतिबंधित है",
+      's4.lib.front_office_workbench.opd_admission_advice': "ओपीडी भर्ती सलाह",
+      's4.lib.front_office_workbench.patient': "मरीज",
+      's4.lib.front_office_workbench.patient_advised_for_ip':
+          "मरीज को आईपी के लिए सलाह दी गई",
+      's4.lib.front_office_workbench.patient_created': "मरीज बनाया गया",
+      's4.lib.front_office_workbench.patient_needs_saved_record_or_valid_phone':
+          "मरीज को सहेजे गए रिकॉर्ड या मान्य फोन नंबर की आवश्यकता है।",
+      's4.lib.front_office_workbench.patient_phone_min_digits':
+          "मरीज का फोन कम से कम 10 अंकों का होना चाहिए।",
+      's4.lib.front_office_workbench.patient_selected_from_queue':
+          "कतार से मरीज चुना गया।",
+      's4.lib.front_office_workbench.patient_updated': "मरीज अपडेट किया गया",
+      's4.lib.front_office_workbench.queue_patient_selected_search_before_billing':
+          "कतार का मरीज चुना गया। बिलिंग से पहले मरीज रिकॉर्ड खोजें।",
+      's4.lib.front_office_workbench.records': "रिकॉर्ड",
+      's4.lib.front_office_workbench.select_admitting_doctor':
+          "भर्ती करने वाले डॉक्टर का चयन करें।",
+      's4.lib.front_office_workbench.select_bed_for_routine_ip_admission':
+          "रूटीन आईपी भर्ती के लिए बेड चुनें।",
+      's4.lib.front_office_workbench.select_doctor_or_department':
+          "डॉक्टर या विभाग चुनें।",
+      's4.lib.front_office_workbench.select_patient': "मरीज चुनें",
+      's4.lib.front_office_workbench.selected_patient_needs_identifier':
+          "चुने गए मरीज को एक पहचानकर्ता चाहिए।",
+      's4.lib.front_office_workbench.vitals': "वाइटल्स",
+      's4.lib.front_office_workbench.walk_in_registered': "वॉक-इन पंजीकृत हुआ",
+      's4.lib.front_office_workbench.workflows': "वर्कफ्लो",
       's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
           "ऐसा ही एक मरीज पहले से मौजूद है. मौजूदा मरीज़ का चयन करें या एक अलग नया रिकॉर्ड तभी बनाएं जब यह वास्तव में अलग हो।",
       's4.lib.front_office_workbench.admit_ip': "आईपी ​​स्वीकार करें",
@@ -14404,6 +14573,96 @@ class AppStrings {
       's4.lib.duty_preference.request_preferred_duty':
           "விருப்பமான கடமையைக் கோருங்கள்",
       's4.lib.duty_preference.submit_request': "கோரிக்கையை சமர்ப்பிக்கவும்",
+      // REVIEW: AI first-pass S4 Front Office i18n sweep - confirm wording before production.
+      's4.dynamic.front_office_workbench.active_admissions_limited':
+          "முதல் {shown} / {total} செயலில் உள்ள சேர்க்கைகள் காட்டப்படுகின்றன.",
+      's4.dynamic.front_office_workbench.bill_due':
+          "{count} பில் | நிலுவை {amount}",
+      's4.dynamic.front_office_workbench.bills_due':
+          "{count} பில்கள் | நிலுவை {amount}",
+      's4.dynamic.front_office_workbench.hospital_id_number':
+          "மருத்துவமனை ஐடி {id}",
+      's4.dynamic.front_office_workbench.ip_admission_number_created':
+          "IP சேர்க்கை {ip} உருவாக்கப்பட்டது",
+      's4.dynamic.front_office_workbench.op_appointment_today':
+          "இன்று {count} OP நேர்முகம்",
+      's4.dynamic.front_office_workbench.op_appointments_today':
+          "இன்று {count} OP நேர்முகங்கள்",
+      's4.dynamic.front_office_workbench.token_number': "டோக்கன் {token}",
+      's4.dynamic.front_office_workbench.visit_number': "வருகை {visit}",
+      's4.lib.front_office_workbench.active_ip_admissions':
+          "செயலில் உள்ள IP சேர்க்கைகள்",
+      's4.lib.front_office_workbench.admission_stays_pending_until_ready':
+          "வார்டு/படுக்கை, பில்லிங் வைப்பு மற்றும் கவுண்டர் ஒப்புதல் தேவையானபடி முடிக்கப்படும் வரை சேர்க்கை நிலுவையில் இருக்கும்.",
+      's4.lib.front_office_workbench.admissions': "சேர்க்கைகள்",
+      's4.lib.front_office_workbench.advice': "ஆலோசனை",
+      's4.lib.front_office_workbench.advised_at': "ஆலோசிக்கப்பட்ட நேரம்",
+      's4.lib.front_office_workbench.appointment_cancelled':
+          "நேர்முகம் ரத்து செய்யப்பட்டது",
+      's4.lib.front_office_workbench.appointment_rescheduled':
+          "நேர்முகம் மறுவழங்கப்பட்டது",
+      's4.lib.front_office_workbench.appointments': "நேர்முகங்கள்",
+      's4.lib.front_office_workbench.billing': "பில்லிங்",
+      's4.lib.front_office_workbench.check_in': "செக் இன்",
+      's4.lib.front_office_workbench.checking_existing_patients':
+          "ஏற்கனவே உள்ள நோயாளிகளைச் சரிபார்க்கிறது...",
+      's4.lib.front_office_workbench.complete': "முடிக்கவும்",
+      's4.lib.front_office_workbench.doctor': "மருத்துவர்",
+      's4.lib.front_office_workbench.enter_chief_complaint':
+          "முக்கிய புகாரை உள்ளிடவும்.",
+      's4.lib.front_office_workbench.enter_reason_for_visit':
+          "வருகைக்கான காரணத்தை உள்ளிடவும்.",
+      's4.lib.front_office_workbench.enter_visit_reason_or_complaint':
+          "வருகை காரணம் அல்லது புகாரை உள்ளிடவும்.",
+      's4.lib.front_office_workbench.front_office_summary_only':
+          "முன் அலுவலக சுருக்கம் மட்டும்",
+      's4.lib.front_office_workbench.ip_admission_created':
+          "IP சேர்க்கை உருவாக்கப்பட்டது",
+      's4.lib.front_office_workbench.needs_bed_deposit_consent':
+          "படுக்கை, வைப்பு, ஒப்புதல் தேவை",
+      's4.lib.front_office_workbench.no_active_admissions':
+          "செயலில் உள்ள சேர்க்கைகள் இல்லை",
+      's4.lib.front_office_workbench.no_appointments_queued_for_date':
+          "இந்த தேதிக்கு வரிசையில் நேர்முகங்கள் இல்லை",
+      's4.lib.front_office_workbench.no_bills_loaded': "பில்கள் ஏற்றப்படவில்லை",
+      's4.lib.front_office_workbench.no_invoices_found':
+          "விலைப்பட்டியல் எதுவும் இல்லை",
+      's4.lib.front_office_workbench.no_opd_admission_advice_pending':
+          "நிலுவையில் OPD சேர்க்கை ஆலோசனை இல்லை",
+      's4.lib.front_office_workbench.op_queue_restricted_for_role':
+          "இந்த பங்கிற்கு OP வரிசை கட்டுப்படுத்தப்பட்டுள்ளது",
+      's4.lib.front_office_workbench.opd_admission_advice':
+          "OPD சேர்க்கை ஆலோசனை",
+      's4.lib.front_office_workbench.patient': "நோயாளி",
+      's4.lib.front_office_workbench.patient_advised_for_ip':
+          "நோயாளிக்கு IP ஆலோசிக்கப்பட்டது",
+      's4.lib.front_office_workbench.patient_created':
+          "நோயாளி உருவாக்கப்பட்டார்",
+      's4.lib.front_office_workbench.patient_needs_saved_record_or_valid_phone':
+          "நோயாளிக்கு சேமித்த பதிவு அல்லது செல்லுபடியாகும் தொலைபேசி எண் தேவை.",
+      's4.lib.front_office_workbench.patient_phone_min_digits':
+          "நோயாளியின் தொலைபேசி குறைந்தது 10 இலக்கங்கள் இருக்க வேண்டும்.",
+      's4.lib.front_office_workbench.patient_selected_from_queue':
+          "வரிசையிலிருந்து நோயாளி தேர்ந்தெடுக்கப்பட்டார்.",
+      's4.lib.front_office_workbench.patient_updated':
+          "நோயாளி புதுப்பிக்கப்பட்டார்",
+      's4.lib.front_office_workbench.queue_patient_selected_search_before_billing':
+          "வரிசை நோயாளி தேர்ந்தெடுக்கப்பட்டார். பில்லிங்கிற்கு முன் நோயாளர் பதிவைத் தேடுங்கள்.",
+      's4.lib.front_office_workbench.records': "பதிவுகள்",
+      's4.lib.front_office_workbench.select_admitting_doctor':
+          "சேர்க்கும் மருத்துவரைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.select_bed_for_routine_ip_admission':
+          "வழக்கமான IP சேர்க்கைக்கு படுக்கையைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.select_doctor_or_department':
+          "மருத்துவர் அல்லது துறையைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.front_office_workbench.select_patient':
+          "நோயாளியைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.front_office_workbench.selected_patient_needs_identifier':
+          "தேர்ந்தெடுக்கப்பட்ட நோயாளிக்கு அடையாளம் தேவை.",
+      's4.lib.front_office_workbench.vitals': "வைட்டல்ஸ்",
+      's4.lib.front_office_workbench.walk_in_registered':
+          "வாக்-இன் பதிவு செய்யப்பட்டது",
+      's4.lib.front_office_workbench.workflows': "பணிச்செயல்கள்",
       's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
           "இதேபோன்ற நோயாளி ஏற்கனவே இருக்கிறார். தற்போதுள்ள நோயாளியைத் தேர்ந்தெடுக்கவும் அல்லது இது உண்மையிலேயே வேறுபட்டதாக இருந்தால் மட்டுமே தனிப் புதிய பதிவை உருவாக்கவும்.",
       's4.lib.front_office_workbench.admit_ip': "ஐபியை ஒப்புக்கொள்",
@@ -19189,6 +19448,91 @@ class AppStrings {
       's4.lib.duty_preference.request_preferred_duty':
           "ప్రాధాన్య విధిని అభ్యర్థించండి",
       's4.lib.duty_preference.submit_request': "అభ్యర్థనను సమర్పించండి",
+      // REVIEW: AI first-pass S4 Front Office i18n sweep - confirm wording before production.
+      's4.dynamic.front_office_workbench.active_admissions_limited':
+          "{total} క్రియాశీల అడ్మిషన్లలో మొదటి {shown} చూపిస్తున్నాం.",
+      's4.dynamic.front_office_workbench.bill_due':
+          "{count} బిల్లు | బాకీ {amount}",
+      's4.dynamic.front_office_workbench.bills_due':
+          "{count} బిల్లులు | బాకీ {amount}",
+      's4.dynamic.front_office_workbench.hospital_id_number':
+          "హాస్పిటల్ ID {id}",
+      's4.dynamic.front_office_workbench.ip_admission_number_created':
+          "IP అడ్మిషన్ {ip} సృష్టించబడింది",
+      's4.dynamic.front_office_workbench.op_appointment_today':
+          "ఈ రోజు {count} OP అపాయింట్మెంట్",
+      's4.dynamic.front_office_workbench.op_appointments_today':
+          "ఈ రోజు {count} OP అపాయింట్మెంట్లు",
+      's4.dynamic.front_office_workbench.token_number': "టోకెన్ {token}",
+      's4.dynamic.front_office_workbench.visit_number': "విజిట్ {visit}",
+      's4.lib.front_office_workbench.active_ip_admissions':
+          "క్రియాశీల IP అడ్మిషన్లు",
+      's4.lib.front_office_workbench.admission_stays_pending_until_ready':
+          "వార్డ్/బెడ్, బిల్లింగ్ డిపాజిట్ మరియు కౌంటర్ సమ్మతి అవసరమైనట్లుగా పూర్తయ్యే వరకు అడ్మిషన్ పెండింగ్‌లో ఉంటుంది.",
+      's4.lib.front_office_workbench.admissions': "అడ్మిషన్లు",
+      's4.lib.front_office_workbench.advice': "సలహా",
+      's4.lib.front_office_workbench.advised_at': "సలహా ఇచ్చిన సమయం",
+      's4.lib.front_office_workbench.appointment_cancelled':
+          "అపాయింట్మెంట్ రద్దు చేయబడింది",
+      's4.lib.front_office_workbench.appointment_rescheduled':
+          "అపాయింట్మెంట్ రీషెడ్యూల్ చేయబడింది",
+      's4.lib.front_office_workbench.appointments': "అపాయింట్మెంట్లు",
+      's4.lib.front_office_workbench.billing': "బిల్లింగ్",
+      's4.lib.front_office_workbench.check_in': "చెక్ ఇన్",
+      's4.lib.front_office_workbench.checking_existing_patients':
+          "ఇప్పటికే ఉన్న రోగులను తనిఖీ చేస్తోంది...",
+      's4.lib.front_office_workbench.complete': "పూర్తి చేయండి",
+      's4.lib.front_office_workbench.doctor': "వైద్యుడు",
+      's4.lib.front_office_workbench.enter_chief_complaint':
+          "ముఖ్య ఫిర్యాదును నమోదు చేయండి.",
+      's4.lib.front_office_workbench.enter_reason_for_visit':
+          "విజిట్ కారణాన్ని నమోదు చేయండి.",
+      's4.lib.front_office_workbench.enter_visit_reason_or_complaint':
+          "విజిట్ కారణం లేదా ఫిర్యాదును నమోదు చేయండి.",
+      's4.lib.front_office_workbench.front_office_summary_only':
+          "ఫ్రంట్-ఆఫీస్ సారాంశం మాత్రమే",
+      's4.lib.front_office_workbench.ip_admission_created':
+          "IP అడ్మిషన్ సృష్టించబడింది",
+      's4.lib.front_office_workbench.needs_bed_deposit_consent':
+          "బెడ్, డిపాజిట్, సమ్మతి అవసరం",
+      's4.lib.front_office_workbench.no_active_admissions':
+          "క్రియాశీల అడ్మిషన్లు లేవు",
+      's4.lib.front_office_workbench.no_appointments_queued_for_date':
+          "ఈ తేదీకి అపాయింట్మెంట్లు క్యూలో లేవు",
+      's4.lib.front_office_workbench.no_bills_loaded': "బిల్లులు లోడ్ కాలేదు",
+      's4.lib.front_office_workbench.no_invoices_found': "ఇన్వాయిసులు కనబడలేదు",
+      's4.lib.front_office_workbench.no_opd_admission_advice_pending':
+          "పెండింగ్‌లో OPD అడ్మిషన్ సలహా లేదు",
+      's4.lib.front_office_workbench.op_queue_restricted_for_role':
+          "ఈ పాత్రకు OP క్యూ పరిమితం చేయబడింది",
+      's4.lib.front_office_workbench.opd_admission_advice': "OPD అడ్మిషన్ సలహా",
+      's4.lib.front_office_workbench.patient': "రోగి",
+      's4.lib.front_office_workbench.patient_advised_for_ip':
+          "రోగికి IP కోసం సలహా ఇచ్చారు",
+      's4.lib.front_office_workbench.patient_created': "రోగి సృష్టించబడ్డారు",
+      's4.lib.front_office_workbench.patient_needs_saved_record_or_valid_phone':
+          "రోగికి సేవ్ చేసిన రికార్డు లేదా చెల్లుబాటు అయ్యే ఫోన్ నంబర్ అవసరం.",
+      's4.lib.front_office_workbench.patient_phone_min_digits':
+          "రోగి ఫోన్ కనీసం 10 అంకెలు ఉండాలి.",
+      's4.lib.front_office_workbench.patient_selected_from_queue':
+          "క్యూ నుండి రోగి ఎంపికయ్యారు.",
+      's4.lib.front_office_workbench.patient_updated': "రోగి నవీకరించబడ్డారు",
+      's4.lib.front_office_workbench.queue_patient_selected_search_before_billing':
+          "క్యూ రోగి ఎంపికయ్యారు. బిల్లింగ్ ముందు రోగి రికార్డును శోధించండి.",
+      's4.lib.front_office_workbench.records': "రికార్డులు",
+      's4.lib.front_office_workbench.select_admitting_doctor':
+          "అడ్మిట్ చేసే వైద్యుడిని ఎంచుకోండి.",
+      's4.lib.front_office_workbench.select_bed_for_routine_ip_admission':
+          "రొటీన్ IP అడ్మిషన్ కోసం బెడ్ ఎంచుకోండి.",
+      's4.lib.front_office_workbench.select_doctor_or_department':
+          "వైద్యుడు లేదా విభాగాన్ని ఎంచుకోండి.",
+      's4.lib.front_office_workbench.select_patient': "రోగిని ఎంచుకోండి",
+      's4.lib.front_office_workbench.selected_patient_needs_identifier':
+          "ఎంచుకున్న రోగికి ఒక గుర్తింపు అవసరం.",
+      's4.lib.front_office_workbench.vitals': "వైటల్స్",
+      's4.lib.front_office_workbench.walk_in_registered':
+          "వాక్-ఇన్ నమోదు చేయబడింది",
+      's4.lib.front_office_workbench.workflows': "వర్క్‌ఫ్లోలు",
       's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis':
           "ఇలాంటి రోగి ఇప్పటికే ఉన్నాడు. ఇప్పటికే ఉన్న రోగిని ఎంచుకోండి లేదా ఇది నిజంగా భిన్నంగా ఉంటే మాత్రమే ప్రత్యేక కొత్త రికార్డ్‌ను సృష్టించండి.",
       's4.lib.front_office_workbench.admit_ip': "IPని అంగీకరించండి",

@@ -492,6 +492,14 @@ class _FrontOfficeWorkbenchScreenState
   int _activeAdmissionsTotal = 0;
   List<Map<String, dynamic>> _patientInvoices = const [];
 
+  static const _admissionPriorities = [
+    'Routine',
+    'Urgent',
+    'Emergency',
+    'Critical',
+  ];
+  static const _codeStatuses = ['Full Code', 'DNR', 'DNR/DNI', 'Comfort Care'];
+
   FrontOfficeQueueScope get _queueScope => frontOfficeQueueScopeForRole(_role);
   bool get _canBookOp => frontOfficeCanBookOp(_role);
   bool get _canBilling => RoleFeatures.hasBillingDesk(_role);
@@ -883,12 +891,17 @@ class _FrontOfficeWorkbenchScreenState
     if (!mounted) return;
 
     final hasUid = _text(selected['uid']).isNotEmpty;
+    final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           hasUid
-              ? 'Patient selected from queue.'
-              : 'Queue patient selected. Search the patient record before billing.',
+              ? s.lookup(
+                  's4.lib.front_office_workbench.patient_selected_from_queue',
+                )
+              : s.lookup(
+                  's4.lib.front_office_workbench.queue_patient_selected_search_before_billing',
+                ),
         ),
         backgroundColor: hasUid ? AppTheme.successGreen : null,
       ),
@@ -926,6 +939,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _showAdmissionAdviceDialog(Map<String, dynamic> row) async {
+    final s = AppStrings.of(context);
     final patient = frontOfficeAdmissionAdvicePatientFrom(row);
     final doctor = _firstText([
       row['doctor_name'],
@@ -947,13 +961,23 @@ class _FrontOfficeWorkbenchScreenState
             children: [
               if (patient != null) _PatientCard(patient: patient, onTap: null),
               const SizedBox(height: 10),
-              _DetailLine(label: 'Doctor', value: doctor),
-              _DetailLine(label: 'Advised at', value: advisedAt),
-              _DetailLine(label: 'Advice', value: note),
+              _DetailLine(
+                label: s.lookup('s4.lib.front_office_workbench.doctor'),
+                value: doctor,
+              ),
+              _DetailLine(
+                label: s.lookup('s4.lib.front_office_workbench.advised_at'),
+                value: advisedAt,
+              ),
+              _DetailLine(
+                label: s.lookup('s4.lib.front_office_workbench.advice'),
+                value: note,
+              ),
               const SizedBox(height: 10),
-              const _InlineAlert(
-                message:
-                    'Admission stays pending until ward/bed, billing deposit, and counter consent are handled as applicable.',
+              _InlineAlert(
+                message: s.lookup(
+                  's4.lib.front_office_workbench.admission_stays_pending_until_ready',
+                ),
                 color: AppTheme.warningAmber,
               ),
             ],
@@ -1263,17 +1287,22 @@ class _FrontOfficeWorkbenchScreenState
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final s = AppStrings.of(context);
             Future<void> save() async {
               if (!frontOfficePhoneMeetsMinimum(phoneCtrl.text)) {
                 setDialogState(() {
-                  dialogError = 'Patient phone must be at least 10 digits.';
+                  dialogError = s.lookup(
+                    's4.lib.front_office_workbench.patient_phone_min_digits',
+                  );
                 });
                 return;
               }
               if (patient == null) {
                 setDialogState(() {
                   saving = true;
-                  dialogError = 'Checking for existing patients...';
+                  dialogError = s.lookup(
+                    's4.lib.front_office_workbench.checking_existing_patients',
+                  );
                 });
                 try {
                   final duplicates = await _findPotentialDuplicatePatients(
@@ -1340,7 +1369,11 @@ class _FrontOfficeWorkbenchScreenState
             }
 
             return AlertDialog(
-              title: Text(patient == null ? 'New Patient' : 'Edit Patient'),
+              title: Text(
+                patient == null
+                    ? s.lookup('s4.lib.front_office_workbench.new_patient')
+                    : s.lookup('s4.lib.front_office_workbench.edit_patient'),
+              ),
               content: SizedBox(
                 width: 520,
                 child: SingleChildScrollView(
@@ -1464,9 +1497,14 @@ class _FrontOfficeWorkbenchScreenState
       _patientMatches = const [];
       _searchCtrl.text = _patientLabel(saved);
     });
+    final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(patient == null ? 'Patient created' : 'Patient updated'),
+        content: Text(
+          patient == null
+              ? s.lookup('s4.lib.front_office_workbench.patient_created')
+              : s.lookup('s4.lib.front_office_workbench.patient_updated'),
+        ),
         backgroundColor: AppTheme.successGreen,
       ),
     );
@@ -1547,14 +1585,17 @@ class _FrontOfficeWorkbenchScreenState
               final reason = reasonCtrl.text.trim();
               if (patientId == null && _digitsOnly(patientPhone).length < 8) {
                 setDialogState(() {
-                  dialogError =
-                      'Patient needs a saved record or a valid phone number.';
+                  dialogError = s.lookup(
+                    's4.lib.front_office_workbench.patient_needs_saved_record_or_valid_phone',
+                  );
                 });
                 return;
               }
               if (reason.isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Enter the visit reason or complaint.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.enter_visit_reason_or_complaint',
+                  ),
                 );
                 return;
               }
@@ -1562,7 +1603,9 @@ class _FrontOfficeWorkbenchScreenState
                   selectedDoctor == null &&
                   departmentCtrl.text.trim().isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Select a doctor or department.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.select_doctor_or_department',
+                  ),
                 );
                 return;
               }
@@ -2020,12 +2063,21 @@ class _FrontOfficeWorkbenchScreenState
     if (registered == null || !mounted) return;
     final visitNo = _text(registered['visit_no']);
     final token = _text(registered['token_number']);
+    final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           [
-            if (visitNo.isEmpty) 'Walk-in registered' else 'Visit $visitNo',
-            if (token.isNotEmpty) 'Token $token',
+            if (visitNo.isEmpty)
+              s.lookup('s4.lib.front_office_workbench.walk_in_registered')
+            else
+              s.format('s4.dynamic.front_office_workbench.visit_number', {
+                'visit': visitNo,
+              }),
+            if (token.isNotEmpty)
+              s.format('s4.dynamic.front_office_workbench.token_number', {
+                'token': token,
+              }),
           ].join(' - '),
         ),
         backgroundColor: AppTheme.successGreen,
@@ -2035,6 +2087,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _showOpBookingDialog() async {
+    final s = AppStrings.of(context);
     final patient = _selectedPatient;
     if (!_canBookOp) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2108,20 +2161,25 @@ class _FrontOfficeWorkbenchScreenState
               final patientPhone = _text(patient['phone']);
               if (doctorId == null && department.isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Select a doctor or department.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.select_doctor_or_department',
+                  ),
                 );
                 return;
               }
               if (patientId == null && _digitsOnly(patientPhone).length < 10) {
                 setDialogState(() {
-                  dialogError =
-                      'Patient needs a saved record or a valid phone number.';
+                  dialogError = s.lookup(
+                    's4.lib.front_office_workbench.patient_needs_saved_record_or_valid_phone',
+                  );
                 });
                 return;
               }
               if (reason.isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Enter the reason for visit.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.enter_reason_for_visit',
+                  ),
                 );
                 return;
               }
@@ -2392,6 +2450,7 @@ class _FrontOfficeWorkbenchScreenState
   Future<void> _showIpAdmissionDialog({
     Map<String, dynamic>? admissionAdvice,
   }) async {
+    final s = AppStrings.of(context);
     final patient =
         _selectedPatient ??
         (admissionAdvice == null
@@ -2450,26 +2509,33 @@ class _FrontOfficeWorkbenchScreenState
 
               if (doctorUid == null || doctorUid.isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Select an admitting doctor.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.select_admitting_doctor',
+                  ),
                 );
                 return;
               }
               if (chiefComplaint.isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Enter the chief complaint.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.enter_chief_complaint',
+                  ),
                 );
                 return;
               }
               if (patientQuery.isEmpty) {
                 setDialogState(
-                  () =>
-                      dialogError = 'The selected patient needs an identifier.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.selected_patient_needs_identifier',
+                  ),
                 );
                 return;
               }
               if (!isEmergency && _bedId(selectedBed) == null) {
                 setDialogState(
-                  () => dialogError = 'Select a bed for routine IP admission.',
+                  () => dialogError = s.lookup(
+                    's4.lib.front_office_workbench.select_bed_for_routine_ip_admission',
+                  ),
                 );
                 return;
               }
@@ -2538,7 +2604,7 @@ class _FrontOfficeWorkbenchScreenState
                       if (admissionAdvice != null) ...[
                         const SizedBox(height: 12),
                         _InlineAlert(
-                          message: _admissionAdviceSummary(admissionAdvice),
+                          message: _admissionAdviceSummary(s, admissionAdvice),
                           color: AppTheme.primaryTeal,
                         ),
                       ],
@@ -2750,20 +2816,19 @@ class _FrontOfficeWorkbenchScreenState
                                   context,
                                 ).lookup('clinical_inbox.priority'),
                               ),
-                              items:
-                                  const [
-                                        'Routine',
-                                        'Urgent',
-                                        'Emergency',
-                                        'Critical',
-                                      ]
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(value),
+                              items: _admissionPriorities
+                                  .map(
+                                    (value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(
+                                        _frontOfficeAdmissionPriorityLabel(
+                                          s,
+                                          value,
                                         ),
-                                      )
-                                      .toList(),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
                               onChanged: saving
                                   ? null
                                   : (value) => setDialogState(
@@ -2780,20 +2845,16 @@ class _FrontOfficeWorkbenchScreenState
                                   context,
                                 ).lookup('reception_counter.ip.code_status'),
                               ),
-                              items:
-                                  const [
-                                        'Full Code',
-                                        'DNR',
-                                        'DNR/DNI',
-                                        'Comfort Care',
-                                      ]
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(value),
-                                        ),
-                                      )
-                                      .toList(),
+                              items: _codeStatuses
+                                  .map(
+                                    (value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(
+                                        _frontOfficeCodeStatusLabel(s, value),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
                               onChanged: saving
                                   ? null
                                   : (value) => setDialogState(
@@ -2870,10 +2931,16 @@ class _FrontOfficeWorkbenchScreenState
         content: Text(
           [
             if (ipNumber.isEmpty)
-              'IP admission created'
+              s.lookup('s4.lib.front_office_workbench.ip_admission_created')
             else
-              'IP admission $ipNumber created',
-            if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
+              s.format(
+                's4.dynamic.front_office_workbench.ip_admission_number_created',
+                {'ip': ipNumber},
+              ),
+            if (hospitalNumber.isNotEmpty)
+              s.format('s4.dynamic.front_office_workbench.hospital_id_number', {
+                'id': hospitalNumber,
+              }),
           ].join(' - '),
         ),
         backgroundColor: AppTheme.successGreen,
@@ -2962,7 +3029,8 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _completeQueueAppointment(Map<String, dynamic> row) async {
-    final successMessage = AppStrings.of(context).apptQueueCompletedToast;
+    final s = AppStrings.of(context);
+    final successMessage = s.apptQueueCompletedToast;
     final notesCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -2976,16 +3044,16 @@ class _FrontOfficeWorkbenchScreenState
           children: [
             AppText(
               's4.dynamic.front_office.mark_completed',
-              values: {'patient': _queuePatientName(row)},
+              values: {'patient': _queuePatientName(row, strings: s)},
             ),
             const SizedBox(height: 12),
             TextField(
               controller: notesCtrl,
               maxLines: 2,
               decoration: InputDecoration(
-                labelText: AppStrings.of(
-                  context,
-                ).lookup('s4.lib.front_office_workbench.visit_notes_optional'),
+                labelText: s.lookup(
+                  's4.lib.front_office_workbench.visit_notes_optional',
+                ),
                 prefixIcon: const Icon(Icons.notes_outlined),
               ),
             ),
@@ -3022,7 +3090,7 @@ class _FrontOfficeWorkbenchScreenState
     final s = AppStrings.of(context);
     final confirmed = await _confirmQueueAction(
       title: s.apptQueueNoShowTitle,
-      message: s.apptQueueNoShowBody(_queuePatientName(row)),
+      message: s.apptQueueNoShowBody(_queuePatientName(row, strings: s)),
       confirmLabel: s.frontOfficeAppointmentStatusLabel('NO_SHOW'),
       confirmColor: AppTheme.textSecondary,
     );
@@ -3035,6 +3103,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _rescheduleQueueAppointment(Map<String, dynamic> row) async {
+    final s = AppStrings.of(context);
     final currentDate = _appointmentDate(row) ?? _queueDate;
     final currentTime = _appointmentTime(row) ?? TimeOfDay.now();
     var appointmentDate = currentDate;
@@ -3077,7 +3146,7 @@ class _FrontOfficeWorkbenchScreenState
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_queuePatientName(row)),
+                  Text(_queuePatientName(row, strings: s)),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -3137,7 +3206,9 @@ class _FrontOfficeWorkbenchScreenState
 
     await _runQueueAction(
       row,
-      successMessage: 'Appointment rescheduled',
+      successMessage: s.lookup(
+        's4.lib.front_office_workbench.appointment_rescheduled',
+      ),
       action: (id) => ScheduleApiService.rescheduleAppointmentStaff(
         id,
         appointmentDate: _dateParam(appointmentDate),
@@ -3150,6 +3221,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Future<void> _cancelQueueAppointment(Map<String, dynamic> row) async {
+    final s = AppStrings.of(context);
     final reasonCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -3163,7 +3235,7 @@ class _FrontOfficeWorkbenchScreenState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_queuePatientName(row)),
+              Text(_queuePatientName(row, strings: s)),
               const SizedBox(height: 12),
               TextField(
                 controller: reasonCtrl,
@@ -3201,7 +3273,9 @@ class _FrontOfficeWorkbenchScreenState
 
     await _runQueueAction(
       row,
-      successMessage: 'Appointment cancelled',
+      successMessage: s.lookup(
+        's4.lib.front_office_workbench.appointment_cancelled',
+      ),
       action: (id) => ScheduleApiService.cancelAppointmentStaff(
         id,
         reason: reason.isEmpty
@@ -3419,7 +3493,9 @@ class _FrontOfficeWorkbenchScreenState
           ),
           _Metric(
             icon: Icons.local_hospital,
-            label: 'Active IP Admissions',
+            label: s.lookup(
+              's4.lib.front_office_workbench.active_ip_admissions',
+            ),
             value: '$_activeAdmissionsTotal',
             color: AppTheme.primaryBlue,
             onTap: () => _scrollTo(_admissionsPanelKey),
@@ -3427,7 +3503,7 @@ class _FrontOfficeWorkbenchScreenState
           if (_canViewAdmissionHandoffs)
             _Metric(
               icon: Icons.move_down_outlined,
-              label: 'OPD -> IPD Handoff',
+              label: s.lookup('s4.lib.front_office_workbench.opd_ipd_handoff'),
               value: '${_admissionHandoffs.length}',
               color: AppTheme.warningAmber,
               onTap: () => _scrollTo(_admissionsPanelKey),
@@ -3455,6 +3531,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildPatientContextStrip(Map<String, dynamic> patient) {
+    final s = AppStrings.of(context);
     final appointments = _todayQueue
         .where(_queueRowMatchesSelectedPatient)
         .toList(growable: false);
@@ -3520,20 +3597,28 @@ class _FrontOfficeWorkbenchScreenState
             children: [
               _InfoPill(
                 icon: Icons.event_available_outlined,
-                label:
-                    '${appointments.length} OP appointment${appointments.length == 1 ? '' : 's'} today',
+                label: _frontOfficeOpAppointmentsTodayLabel(
+                  s,
+                  appointments.length,
+                ),
                 color: AppTheme.primaryTeal,
               ),
               _InfoPill(
                 icon: Icons.receipt_long_outlined,
                 label: _patientInvoices.isEmpty
-                    ? 'No bills loaded'
-                    : '${_patientInvoices.length} bill${_patientInvoices.length == 1 ? '' : 's'} | Due ${_money(invoiceDue)}',
+                    ? s.lookup('s4.lib.front_office_workbench.no_bills_loaded')
+                    : _frontOfficeBillsDueLabel(
+                        s,
+                        _patientInvoices.length,
+                        _money(invoiceDue),
+                      ),
                 color: AppTheme.primaryBlue,
               ),
-              const _InfoPill(
+              _InfoPill(
                 icon: Icons.folder_shared_outlined,
-                label: 'Front-office summary only',
+                label: s.lookup(
+                  's4.lib.front_office_workbench.front_office_summary_only',
+                ),
                 color: AppTheme.warningAmber,
               ),
             ],
@@ -3758,12 +3843,16 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildActionPanel() {
+    final s = AppStrings.of(context);
     final hasPatient = _selectedPatientUid() != null;
     return _Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle(icon: Icons.apps_outlined, title: 'Workflows'),
+          _SectionTitle(
+            icon: Icons.apps_outlined,
+            title: s.lookup('s4.lib.front_office_workbench.workflows'),
+          ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 10,
@@ -3772,21 +3861,23 @@ class _FrontOfficeWorkbenchScreenState
               if (_canBookOp)
                 _ActionTile(
                   icon: Icons.calendar_month,
-                  label: 'Book OP Appointment',
+                  label: s.lookup(
+                    's4.lib.front_office_workbench.book_op_appointment',
+                  ),
                   color: AppTheme.accentCyan,
                   onTap: _showOpBookingDialog,
                 ),
               if (_canBookOp)
                 _ActionTile(
                   icon: Icons.event_note_outlined,
-                  label: 'Appointments',
+                  label: s.lookup('s4.lib.front_office_workbench.appointments'),
                   color: AppTheme.primaryBlue,
                   onTap: () => context.push('/appointments'),
                 ),
               if (_canBookOp)
                 _ActionTile(
                   icon: Icons.how_to_reg_outlined,
-                  label: 'Register Walk-in',
+                  label: s.lookup('appt_queue.register_walk_in'),
                   color: AppTheme.primaryTeal,
                   enabled: hasPatient,
                   onTap: _showWalkInRegistrationDialog,
@@ -3794,7 +3885,7 @@ class _FrontOfficeWorkbenchScreenState
               if (_canAdmitIp)
                 _ActionTile(
                   icon: Icons.local_hospital_outlined,
-                  label: 'Admit IP',
+                  label: s.lookup('s4.lib.front_office_workbench.admit_ip'),
                   color: AppTheme.warningAmber,
                   enabled: hasPatient && !_admissionActionBusy,
                   onTap: () => _showIpAdmissionDialog(),
@@ -3802,21 +3893,21 @@ class _FrontOfficeWorkbenchScreenState
               if (_canAdmitIp)
                 _ActionTile(
                   icon: Icons.local_hospital,
-                  label: 'Admissions',
+                  label: s.lookup('s4.lib.front_office_workbench.admissions'),
                   color: AppTheme.warningAmber,
                   onTap: () => context.push('/emr/admissions'),
                 ),
               if (_canBilling)
                 _ActionTile(
                   icon: Icons.receipt_long,
-                  label: 'Billing',
+                  label: s.lookup('s4.lib.front_office_workbench.billing'),
                   color: AppTheme.primaryBlue,
                   onTap: () => context.push(_patientRoute('/billing-desk')),
                 ),
               if (_canClinical)
                 _ActionTile(
                   icon: Icons.folder_shared,
-                  label: 'Records',
+                  label: s.lookup('s4.lib.front_office_workbench.records'),
                   color: AppTheme.primaryTeal,
                   enabled: hasPatient,
                   onTap: () => context.push(_patientRecordsRoute()),
@@ -3824,7 +3915,7 @@ class _FrontOfficeWorkbenchScreenState
               if (_canClinical)
                 _ActionTile(
                   icon: Icons.monitor_heart_outlined,
-                  label: 'Vitals',
+                  label: s.lookup('s4.lib.front_office_workbench.vitals'),
                   color: AppTheme.errorRed,
                   enabled: hasPatient,
                   onTap: () => context.push(_patientRoute('/vitals')),
@@ -3880,14 +3971,18 @@ class _FrontOfficeWorkbenchScreenState
             const SizedBox(height: 8),
           ],
           if (queueScope == FrontOfficeQueueScope.none)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.lock_outline,
-              text: 'OP queue is restricted for this role',
+              text: s.lookup(
+                's4.lib.front_office_workbench.op_queue_restricted_for_role',
+              ),
             )
           else if (_todayQueue.isEmpty)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.event_busy,
-              text: 'No appointments queued for this date',
+              text: s.lookup(
+                's4.lib.front_office_workbench.no_appointments_queued_for_date',
+              ),
             )
           else
             ..._todayQueue.take(5).map(_queueTile),
@@ -3899,7 +3994,7 @@ class _FrontOfficeWorkbenchScreenState
   Widget _queueTile(Map<String, dynamic> row) {
     final s = AppStrings.of(context);
     final id = _appointmentId(row);
-    final name = _queuePatientName(row);
+    final name = _queuePatientName(row, strings: s);
     final patient = _patientFromQueueRow(row);
     final phone = patientPhoneFrom(patient);
     final doctor = _queueDoctorName(row);
@@ -3923,14 +4018,14 @@ class _FrontOfficeWorkbenchScreenState
       if (canConfirm)
         _QueueActionButton(
           icon: Icons.check,
-          label: 'Check in',
+          label: s.lookup('s4.lib.front_office_workbench.check_in'),
           color: AppTheme.primaryTeal,
           onPressed: busy ? null : () => _confirmQueueAppointment(row),
         ),
       if (canComplete)
         _QueueActionButton(
           icon: Icons.done_all,
-          label: 'Complete',
+          label: s.lookup('s4.lib.front_office_workbench.complete'),
           color: AppTheme.successGreen,
           onPressed: busy ? null : () => _completeQueueAppointment(row),
         ),
@@ -3944,14 +4039,14 @@ class _FrontOfficeWorkbenchScreenState
       if (canReschedule)
         _QueueActionButton(
           icon: Icons.event_repeat_outlined,
-          label: 'Reschedule',
+          label: s.lookup('s4.lib.front_office_workbench.reschedule'),
           color: AppTheme.primaryBlue,
           onPressed: busy ? null : () => _rescheduleQueueAppointment(row),
         ),
       if (canCancel)
         _QueueActionButton(
           icon: Icons.cancel_outlined,
-          label: 'Cancel',
+          label: s.actionCancel,
           color: AppTheme.errorRed,
           onPressed: busy ? null : () => _cancelQueueAppointment(row),
         ),
@@ -4060,6 +4155,7 @@ class _FrontOfficeWorkbenchScreenState
 
   Widget _buildBillingPanel() {
     if (!_canBilling) return const SizedBox.shrink();
+    final s = AppStrings.of(context);
     final selected = _selectedPatient;
     return _Surface(
       child: Column(
@@ -4067,7 +4163,7 @@ class _FrontOfficeWorkbenchScreenState
         children: [
           _SectionTitle(
             icon: Icons.receipt_long,
-            title: 'Billing',
+            title: s.lookup('s4.lib.front_office_workbench.billing'),
             trailing: selected == null
                 ? null
                 : Wrap(
@@ -4099,16 +4195,16 @@ class _FrontOfficeWorkbenchScreenState
           ),
           const SizedBox(height: 8),
           if (selected == null)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.person_search,
-              text: 'Select a patient',
+              text: s.lookup('s4.lib.front_office_workbench.select_patient'),
             )
           else if (_invoiceBusy)
             const LinearProgressIndicator(minHeight: 2)
           else if (_patientInvoices.isEmpty)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.receipt_long,
-              text: 'No invoices found',
+              text: s.lookup('s4.lib.front_office_workbench.no_invoices_found'),
             )
           else
             ..._patientInvoices.take(4).map(_invoiceTile),
@@ -4264,13 +4360,16 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildAdmissionsPanel() {
+    final s = AppStrings.of(context);
     return _Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle(
             icon: Icons.local_hospital,
-            title: 'Active IP Admissions',
+            title: s.lookup(
+              's4.lib.front_office_workbench.active_ip_admissions',
+            ),
             trailing: Wrap(
               spacing: 8,
               children: [
@@ -4316,25 +4415,35 @@ class _FrontOfficeWorkbenchScreenState
             ),
             const SizedBox(height: 6),
             if (_admissionHandoffs.isEmpty)
-              const _EmptyLine(
+              _EmptyLine(
                 icon: Icons.assignment_turned_in_outlined,
-                text: 'No OPD admission advice pending',
+                text: s.lookup(
+                  's4.lib.front_office_workbench.no_opd_admission_advice_pending',
+                ),
               )
             else
               ..._admissionHandoffs.take(4).map(_admissionHandoffTile),
             const Divider(height: 22),
           ],
           if (_activeAdmissions.isEmpty)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.local_hospital_outlined,
-              text: 'No active admissions',
+              text: s.lookup(
+                's4.lib.front_office_workbench.no_active_admissions',
+              ),
             )
           else ...[
             ..._activeAdmissions.take(5).map(_admissionTile),
             if (_activeAdmissionsTotal > _activeAdmissions.take(5).length) ...[
               const SizedBox(height: 6),
               Text(
-                'Showing first ${_activeAdmissions.take(5).length} of $_activeAdmissionsTotal active admissions.',
+                s.format(
+                  's4.dynamic.front_office_workbench.active_admissions_limited',
+                  {
+                    'shown': _activeAdmissions.take(5).length,
+                    'total': _activeAdmissionsTotal,
+                  },
+                ),
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
@@ -4347,6 +4456,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _admissionHandoffTile(Map<String, dynamic> row) {
+    final s = AppStrings.of(context);
     final patient = frontOfficeAdmissionAdvicePatientFrom(row);
     final name = _text(patient?['name']);
     final phone = _text(patient?['phone']);
@@ -4380,7 +4490,11 @@ class _FrontOfficeWorkbenchScreenState
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    name.isEmpty ? 'Patient advised for IP' : name,
+                    name.isEmpty
+                        ? s.lookup(
+                            's4.lib.front_office_workbench.patient_advised_for_ip',
+                          )
+                        : name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w800),
@@ -4411,9 +4525,11 @@ class _FrontOfficeWorkbenchScreenState
               spacing: 6,
               runSpacing: 6,
               children: [
-                const _InfoPill(
+                _InfoPill(
                   icon: Icons.rule_outlined,
-                  label: 'Needs bed, deposit, consent',
+                  label: s.lookup(
+                    's4.lib.front_office_workbench.needs_bed_deposit_consent',
+                  ),
                   color: AppTheme.warningAmber,
                 ),
                 OutlinedButton.icon(
@@ -4448,7 +4564,11 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _admissionTile(Map<String, dynamic> row) {
-    final name = row['patient_name'] ?? row['name'] ?? 'Patient';
+    final s = AppStrings.of(context);
+    final name =
+        row['patient_name'] ??
+        row['name'] ??
+        s.lookup('s4.lib.front_office_workbench.patient');
     final ward = row['ward'] ?? row['ward_name'] ?? row['bed_ward_name'];
     final admittedAt = row['admitted_at'] ?? row['created_at'];
     final date = admittedAt == null
@@ -5268,16 +5388,52 @@ String _admissionAdviceDate(Map<String, dynamic> row) {
   return DateFormat('dd MMM, HH:mm').format(date);
 }
 
-String _admissionAdviceSummary(Map<String, dynamic> row) {
+String _admissionAdviceSummary(AppStrings s, Map<String, dynamic> row) {
   final id = frontOfficeAdmissionAdviceIdFrom(row);
   final advisedAt = _admissionAdviceDate(row);
   final note = _admissionAdviceNote(row);
   return [
-    'OPD admission advice',
+    s.lookup('s4.lib.front_office_workbench.opd_admission_advice'),
     if (id != null) '#$id',
     if (advisedAt.isNotEmpty) advisedAt,
     if (note.isNotEmpty) note,
   ].join(' - ');
+}
+
+String _frontOfficeAdmissionPriorityLabel(AppStrings s, String value) {
+  return switch (value.toLowerCase()) {
+    'urgent' => s.admissionPriorityUrgent,
+    'emergency' => s.admissionPriorityEmergency,
+    'critical' => s.admissionPriorityCritical,
+    _ => s.admissionPriorityRoutine,
+  };
+}
+
+String _frontOfficeCodeStatusLabel(AppStrings s, String value) {
+  return switch (value.toLowerCase()) {
+    'dnr' => s.admissionCodeDnr,
+    'dnr/dni' => s.admissionCodeDnrDni,
+    'comfort care' => s.admissionCodeComfort,
+    _ => s.admissionCodeFull,
+  };
+}
+
+String _frontOfficeOpAppointmentsTodayLabel(AppStrings s, int count) {
+  return s.format(
+    count == 1
+        ? 's4.dynamic.front_office_workbench.op_appointment_today'
+        : 's4.dynamic.front_office_workbench.op_appointments_today',
+    {'count': count},
+  );
+}
+
+String _frontOfficeBillsDueLabel(AppStrings s, int count, String amount) {
+  return s.format(
+    count == 1
+        ? 's4.dynamic.front_office_workbench.bill_due'
+        : 's4.dynamic.front_office_workbench.bills_due',
+    {'count': count, 'amount': amount},
+  );
 }
 
 int? _appointmentId(Map<String, dynamic> row) =>
@@ -5288,14 +5444,18 @@ String _appointmentStatus(Map<String, dynamic> row) {
   return status.isEmpty ? 'SCHEDULED' : status;
 }
 
-String _queuePatientName(Map<String, dynamic> row) {
+String _queuePatientName(Map<String, dynamic> row, {AppStrings? strings}) {
   final patient = _patientFromQueueRow(row);
   final name = _text(patient?['name'] ?? row['patient_name'] ?? row['name']);
   if (name.isNotEmpty) return name;
   final phone = _text(
     patient?['phone'] ?? row['patient_phone'] ?? row['phone'],
   );
-  return phone.isEmpty ? 'Patient' : phone;
+  return phone.isEmpty
+      ? (strings ?? AppStrings.forLocale(const Locale('en'))).lookup(
+          's4.lib.front_office_workbench.patient',
+        )
+      : phone;
 }
 
 String _queueDoctorName(Map<String, dynamic> row) {
