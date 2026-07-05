@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,14 @@ import '../services/telemetry_service.dart';
 import '../services/voice_dictation_service.dart';
 import '../theme/app_theme.dart';
 import 'states/success_toast.dart';
+
+class VoiceDictateButtonController {
+  _VoiceDictateButtonState? _state;
+
+  Future<void> start() async {
+    await _state?._start();
+  }
+}
 
 /// Microphone button that dictates into a [TextEditingController].
 ///
@@ -28,12 +37,14 @@ class VoiceDictateButton extends StatefulWidget {
   final String? patientUid;
   final int? admissionId;
   final String? tooltip;
+  final VoiceDictateButtonController? dictateController;
   const VoiceDictateButton({
     super.key,
     required this.controller,
     this.patientUid,
     this.admissionId,
     this.tooltip,
+    this.dictateController,
   });
 
   @override
@@ -43,11 +54,38 @@ class VoiceDictateButton extends StatefulWidget {
 class _VoiceDictateButtonState extends State<VoiceDictateButton> {
   bool _busy = false;
   VoiceDictationAvailability? _availability;
+  Timer? _holdTimer;
+  bool _holdStarting = false;
+  bool _holdRecording = false;
+  bool _holdStopQueued = false;
+  bool _holdCancelQueued = false;
+  bool _suppressNextTap = false;
 
   @override
   void initState() {
     super.initState();
+    widget.dictateController?._state = this;
     unawaited(_loadAvailability());
+  }
+
+  @override
+  void didUpdateWidget(covariant VoiceDictateButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dictateController != widget.dictateController) {
+      if (oldWidget.dictateController?._state == this) {
+        oldWidget.dictateController?._state = null;
+      }
+      widget.dictateController?._state = this;
+    }
+  }
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    if (widget.dictateController?._state == this) {
+      widget.dictateController?._state = null;
+    }
+    super.dispose();
   }
 
   Future<void> _loadAvailability() async {
@@ -65,7 +103,36 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       _availability != null && !_availability!.canDictate;
 
   Future<void> _start() async {
+    if (_suppressNextTap) {
+      _suppressNextTap = false;
+      return;
+    }
     if (_busy || _disabledByConfig) return;
+    final started = await _beginRecording();
+    if (!started || !mounted) return;
+
+    // Show recording dialog. Closes on Stop or Cancel; the result tells
+    // us whether to transcribe (true) or discard (false).
+    final transcribe = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _RecordingDialog(),
+    );
+    if (!mounted) {
+      if (transcribe == true) {
+        await VoiceDictationService.cancel();
+      }
+      return;
+    }
+    if (transcribe != true) {
+      await VoiceDictationService.cancel();
+      setState(() => _busy = false);
+      return;
+    }
+    await _finishRecordingAndTranscribe();
+  }
+
+  Future<bool> _beginRecording() async {
     final strings = AppStrings.of(context);
     final textDirection = Directionality.of(context);
     final view = View.of(context);
@@ -89,31 +156,19 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
         ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
       if (mounted) setState(() => _busy = false);
-      return;
+      return false;
     }
     if (!mounted) {
       await VoiceDictationService.cancel();
-      return;
+      return false;
     }
-    // Show recording dialog. Closes on Stop or Cancel; the result tells
-    // us whether to transcribe (true) or discard (false).
-    final transcribe = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _RecordingDialog(),
-    );
-    if (!mounted) {
-      if (transcribe == true) {
-        await VoiceDictationService.cancel();
-      }
-      return;
-    }
-    if (transcribe != true) {
-      await VoiceDictationService.cancel();
-      setState(() => _busy = false);
-      return;
-    }
+    return true;
+  }
 
+  Future<void> _finishRecordingAndTranscribe() async {
+    final strings = AppStrings.of(context);
+    final textDirection = Directionality.of(context);
+    final view = View.of(context);
     // Show a brief "transcribing…" indicator while the upload is in flight.
     showDialog<void>(
       context: context,
@@ -155,6 +210,93 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     }
   }
 
+  void _onPointerDown(PointerDownEvent event) {
+    if (_busy || _disabledByConfig) return;
+    if (event.kind != PointerDeviceKind.mouse &&
+        event.kind != PointerDeviceKind.trackpad &&
+        event.kind != PointerDeviceKind.stylus) {
+      return;
+    }
+    _holdTimer?.cancel();
+    _holdTimer = Timer(const Duration(milliseconds: 450), () {
+      _suppressNextTap = true;
+      unawaited(_startHoldRecording());
+    });
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    _holdTimer?.cancel();
+    if (_holdStarting && !_holdRecording) {
+      _holdStopQueued = true;
+      return;
+    }
+    if (_holdRecording || _holdStopQueued) {
+      unawaited(_stopHoldRecording());
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _holdTimer?.cancel();
+    if (_holdStarting && !_holdRecording) {
+      _holdCancelQueued = true;
+      return;
+    }
+    if (_holdRecording || _holdStopQueued) {
+      unawaited(_cancelHoldRecording());
+    }
+  }
+
+  Future<void> _startHoldRecording() async {
+    if (_busy || _disabledByConfig) return;
+    _holdStarting = true;
+    final started = await _beginRecording();
+    _holdStarting = false;
+    if (!started) {
+      _holdRecording = false;
+      _holdStopQueued = false;
+      _holdCancelQueued = false;
+      return;
+    }
+    _holdRecording = true;
+    if (_holdCancelQueued) {
+      await _cancelHoldRecording();
+      return;
+    }
+    if (_holdStopQueued) {
+      await _stopHoldRecording();
+    }
+  }
+
+  Future<void> _stopHoldRecording() async {
+    if (_holdStarting && !_holdRecording) {
+      _holdStopQueued = true;
+      return;
+    }
+    if (!_holdRecording) {
+      _holdStopQueued = true;
+      return;
+    }
+    _holdRecording = false;
+    _holdStopQueued = false;
+    if (!mounted) {
+      await VoiceDictationService.cancel();
+      return;
+    }
+    await _finishRecordingAndTranscribe();
+  }
+
+  Future<void> _cancelHoldRecording() async {
+    if (_holdStarting && !_holdRecording) {
+      _holdCancelQueued = true;
+      return;
+    }
+    _holdRecording = false;
+    _holdStopQueued = false;
+    _holdCancelQueued = false;
+    await VoiceDictationService.cancel();
+    if (mounted) setState(() => _busy = false);
+  }
+
   void _appendTranscript(String transcript) {
     final ctrl = widget.controller;
     final existing = ctrl.text;
@@ -171,17 +313,22 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     final tooltip = _disabledByConfig
         ? strings.voiceDictateNotConfiguredTooltip
         : (widget.tooltip ?? strings.voiceDictateTooltip);
-    return IconButton(
-      icon: _busy
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.mic_none),
-      tooltip: tooltip,
-      color: AppTheme.primaryBlue,
-      onPressed: _busy || _disabledByConfig ? null : _start,
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: IconButton(
+        icon: _busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.mic_none),
+        tooltip: tooltip,
+        color: AppTheme.primaryBlue,
+        onPressed: _busy || _disabledByConfig ? null : _start,
+      ),
     );
   }
 }

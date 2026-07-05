@@ -13,6 +13,7 @@ class CodedDiagnosisPicker extends StatefulWidget {
   final int minLines;
   final Map<String, dynamic>? selectedCoding;
   final ValueChanged<Map<String, dynamic>?> onCodingChanged;
+  final Widget? suffixAction;
 
   const CodedDiagnosisPicker({
     super.key,
@@ -23,6 +24,7 @@ class CodedDiagnosisPicker extends StatefulWidget {
     this.enabled = true,
     this.minLines = 2,
     this.selectedCoding,
+    this.suffixAction,
   });
 
   @override
@@ -151,14 +153,20 @@ class _CodedDiagnosisPickerState extends State<CodedDiagnosisPicker> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : IconButton(
-                    tooltip: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.coded_diagnosis_picker.search_icd_11'),
-                    icon: const Icon(Icons.search),
-                    onPressed: widget.enabled
-                        ? () => _search(widget.controller.text.trim())
-                        : null,
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.suffixAction != null) widget.suffixAction!,
+                      IconButton(
+                        tooltip: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.coded_diagnosis_picker.search_icd_11'),
+                        icon: const Icon(Icons.search),
+                        onPressed: widget.enabled
+                            ? () => _search(widget.controller.text.trim())
+                            : null,
+                      ),
+                    ],
                   ),
           ),
         ),

@@ -11,6 +11,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 import '../../emr/note_draft_autosave.dart';
 import '../../emr/widgets/note_draft_status_indicator.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
@@ -888,6 +889,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               hint: _label('s4.lib.op_doctor_workspace.main_complaint_hint'),
               minLines: 2,
               enabled: noteFieldsEnabled,
+              patientUid: widget.patientUid,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -896,6 +898,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               hint: _label('s4.lib.op_doctor_workspace.history_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
+              patientUid: widget.patientUid,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -904,6 +907,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               hint: _label('s4.lib.op_doctor_workspace.examination_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
+              patientUid: widget.patientUid,
             ),
             const SizedBox(height: 10),
             CodedDiagnosisPicker(
@@ -917,6 +921,12 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                 if (!mounted) return;
                 setState(() => _diagnosisCoding = coding);
               },
+              suffixAction: noteFieldsEnabled
+                  ? VoiceDictateButton(
+                      controller: _diagnosisCtrl,
+                      patientUid: widget.patientUid,
+                    )
+                  : null,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -925,6 +935,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               hint: _label('s4.lib.op_doctor_workspace.plan_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
+              patientUid: widget.patientUid,
             ),
             const SizedBox(height: 14),
             if (noteFieldsEnabled) ...[
@@ -1521,6 +1532,7 @@ class _ClinicalTextField extends StatelessWidget {
   final String hint;
   final int minLines;
   final bool enabled;
+  final String? patientUid;
 
   const _ClinicalTextField({
     required this.controller,
@@ -1528,6 +1540,7 @@ class _ClinicalTextField extends StatelessWidget {
     required this.hint,
     this.minLines = 2,
     this.enabled = true,
+    this.patientUid,
   });
 
   @override
@@ -1547,6 +1560,9 @@ class _ClinicalTextField extends StatelessWidget {
             ? AppTheme.cardSurface
             : AppTheme.divider.withValues(alpha: 0.45),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        suffixIcon: enabled
+            ? VoiceDictateButton(controller: controller, patientUid: patientUid)
+            : null,
       ),
     );
   }

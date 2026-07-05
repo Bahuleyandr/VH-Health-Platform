@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/vital_text_field.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
 import '../../productivity/widgets/smart_phrase_field.dart';
 
@@ -1590,6 +1591,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           hintText: hint,
           border: const OutlineInputBorder(),
           alignLabelWithHint: true,
+          suffixIcon: VoiceDictateButton(
+            controller: controller,
+            patientUid: widget.patientUid,
+          ),
         ),
       ),
     );

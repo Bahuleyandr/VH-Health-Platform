@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -10,6 +13,7 @@ import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
@@ -86,6 +90,7 @@ class _VitalsScreenState extends State<VitalsScreen>
               controller: _tabController,
               children: [
                 _RecordVitalsTab(
+                  prefillPatientUid: widget.prefillPatientUid,
                   prefillPatientId: widget.prefillPatientId,
                   prefillPatientName: widget.prefillPatientName,
                 ),
@@ -100,17 +105,27 @@ class _VitalsScreenState extends State<VitalsScreen>
 }
 
 class _RecordVitalsTab extends StatefulWidget {
+  final String? prefillPatientUid;
   final String? prefillPatientId;
   final String? prefillPatientName;
-  const _RecordVitalsTab({this.prefillPatientId, this.prefillPatientName});
+  const _RecordVitalsTab({
+    this.prefillPatientUid,
+    this.prefillPatientId,
+    this.prefillPatientName,
+  });
 
   @override
   State<_RecordVitalsTab> createState() => _RecordVitalsTabState();
 }
 
+class _DictateVitalsNotesIntent extends Intent {
+  const _DictateVitalsNotesIntent();
+}
+
 class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   final _formKey = GlobalKey<FormState>();
   final _patientIdCtrl = TextEditingController();
+  final _notesDictationController = VoiceDictateButtonController();
 
   @override
   void initState() {
@@ -262,7 +277,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    return SingleChildScrollView(
+    final content = SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -555,6 +570,11 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                       prefixIcon: const ExcludeSemantics(
                         child: Icon(Icons.notes_outlined),
                       ),
+                      suffixIcon: VoiceDictateButton(
+                        controller: _notesCtrl,
+                        patientUid: widget.prefillPatientUid,
+                        dictateController: _notesDictationController,
+                      ),
                       alignLabelWithHint: true,
                     ),
                     maxLines: 3,
@@ -585,6 +605,24 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
             ),
           ),
         ],
+      ),
+    );
+
+    return Shortcuts(
+      shortcuts: const <ShortcutActivator, Intent>{
+        SingleActivator(LogicalKeyboardKey.keyM, control: true):
+            _DictateVitalsNotesIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _DictateVitalsNotesIntent: CallbackAction<_DictateVitalsNotesIntent>(
+            onInvoke: (_) {
+              unawaited(_notesDictationController.start());
+              return null;
+            },
+          ),
+        },
+        child: content,
       ),
     );
   }

@@ -15,6 +15,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
 import '../drug_chart_offline_order.dart';
 import '../utils/drug_chart_utils.dart';
@@ -378,6 +379,8 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           onSaveDraft: _saveDraftRow,
           onStopOrder: _stopOrder,
           onAdministrationChanged: _load,
+          patientUid: _text(_admission['patient_uid']),
+          admissionId: widget.admissionId,
         ),
         _buildCompositionAlternativesSection(),
       ],
@@ -515,6 +518,8 @@ class _DrugChartTable extends StatelessWidget {
   final void Function(_DrugChartDraftRow row) onSaveDraft;
   final void Function(Map<String, dynamic> order) onStopOrder;
   final VoidCallback onAdministrationChanged;
+  final String? patientUid;
+  final int admissionId;
 
   const _DrugChartTable({
     required this.orders,
@@ -526,6 +531,8 @@ class _DrugChartTable extends StatelessWidget {
     required this.onSaveDraft,
     required this.onStopOrder,
     required this.onAdministrationChanged,
+    required this.patientUid,
+    required this.admissionId,
   });
 
   @override
@@ -546,6 +553,8 @@ class _DrugChartTable extends StatelessWidget {
           row: row,
           onRemove: () => onRemoveDraft(row),
           onSave: () => onSaveDraft(row),
+          patientUid: patientUid,
+          admissionId: admissionId,
         ),
       ),
       if (orders.isEmpty && draftRows.isEmpty) _emptyRow(context),
@@ -867,11 +876,15 @@ class _DrugChartDraftTableRow extends StatefulWidget {
   final _DrugChartDraftRow row;
   final VoidCallback onRemove;
   final VoidCallback onSave;
+  final String? patientUid;
+  final int admissionId;
 
   const _DrugChartDraftTableRow({
     required this.row,
     required this.onRemove,
     required this.onSave,
+    required this.patientUid,
+    required this.admissionId,
   });
 
   @override
@@ -1063,6 +1076,13 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                       labelText: s.drugChartNotesLabel,
                       hintText: s.drugChartNotesHint,
                       isDense: true,
+                      suffixIcon: VoiceDictateButton(
+                        controller: row.notesCtrl,
+                        patientUid: _text(widget.patientUid).isEmpty
+                            ? null
+                            : widget.patientUid,
+                        admissionId: widget.admissionId,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 6),
