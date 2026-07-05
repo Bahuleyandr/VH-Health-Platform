@@ -5992,12 +5992,30 @@ class AppStrings {
       's4.lib.reports_admin_queue.reports_review': "Reports Review",
       's4.lib.reports_admin_queue.save_update': "Save update",
       's4.lib.schedule.shift_actions': "Shift actions",
+      // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
+      's4.lib.scan_common.please_scan_again': "Please scan again.",
+      's4.lib.scan_common.scan_patient_wristband': "Scan patient wristband",
+      's4.lib.scan_common.server_unreachable': "Could not reach the server.",
       's4.lib.smart_phrase_field.expanding': "expanding…",
+      's4.lib.specimen_scan.patient_wristband_subtitle':
+          "Match the patient before labeling the specimen tube.",
       's4.lib.specimen_scan.patient_wristband_mismatch':
           "Patient wristband mismatch",
+      's4.lib.specimen_scan.sample_collection_failed':
+          "Sample collection failed.",
+      's4.lib.specimen_scan.scan_both_before_collection':
+          "Scan both wristband and sample tube before collection.",
+      's4.lib.specimen_scan.scan_sample_tube': "Scan sample tube",
+      's4.lib.specimen_scan.scan_sample_tube_subtitle':
+          "Scan the tube barcode at collection.",
       's4.lib.specimen_scan.specimen_hard_stop': "Specimen hard-stop",
+      's4.lib.specimen_scan.specimen_collected': "Specimen collected",
+      's4.lib.specimen_scan.specimen_collected_message':
+          "The wristband and tube barcode were recorded.",
+      's4.lib.specimen_scan.specimen_not_collected': "Specimen not collected",
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "This cannot be overridden. Re-scan the correct wristband and tube.",
+      's4.lib.specimen_scan.title': "Specimen scan",
       's4.lib.staff_diagnostics.no_details_returned': "No details returned.",
       's4.lib.staff_diagnostics.refresh_diagnostics': "Refresh diagnostics",
       's4.lib.staff_diagnostics.staff_diagnostics': "Staff Diagnostics",
@@ -6032,9 +6050,29 @@ class AppStrings {
           "Department roster boards",
       's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
           "No department roster board is assigned to this role.",
+      's4.lib.transfusion_scan.bedside_verification_failed':
+          "Bedside verification failed.",
+      's4.lib.transfusion_scan.blood_unit_barcode_mismatch':
+          "Blood unit barcode mismatch",
+      's4.lib.transfusion_scan.patient_wristband_subtitle':
+          "Use the wristband attached to this transfusion request.",
+      's4.lib.transfusion_scan.scan_blood_unit': "Scan blood unit",
+      's4.lib.transfusion_scan.scan_blood_unit_subtitle':
+          "Scan the unit label before starting transfusion.",
+      's4.lib.transfusion_scan.scan_both_before_verification':
+          "Scan both wristband and blood unit before verification.",
       's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "This cannot be overridden. Re-scan the correct wristband and unit.",
+      's4.lib.transfusion_scan.title': "Transfusion scan",
       's4.lib.transfusion_scan.transfusion_hard_stop': "Transfusion hard-stop",
+      's4.lib.transfusion_scan.verification_not_recorded':
+          "Verification not recorded",
+      's4.lib.transfusion_scan.verification_recorded': "Verification recorded",
+      's4.lib.transfusion_scan.verification_recorded_message':
+          "The bedside transfusion verification was recorded.",
+      's4.dynamic.specimen_scan.context_label': "Specimen collection #{id}",
+      's4.dynamic.transfusion_scan.context_label':
+          "Transfusion verification #{id}",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "Built for ward-specific flows",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
@@ -9520,12 +9558,31 @@ class AppStrings {
       's4.lib.reports_admin_queue.reports_review': "रिपोर्ट की समीक्षा",
       's4.lib.reports_admin_queue.save_update': "अद्यतन सहेजें",
       's4.lib.schedule.shift_actions': "क्रियाएं बदलें",
+      // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
+      's4.lib.scan_common.please_scan_again': "कृपया फिर से स्कैन करें.",
+      's4.lib.scan_common.scan_patient_wristband':
+          "रोगी का कलाईबैंड स्कैन करें",
+      's4.lib.scan_common.server_unreachable': "सर्वर तक नहीं पहुँचा जा सका.",
       's4.lib.smart_phrase_field.expanding': "विस्तार…",
+      's4.lib.specimen_scan.patient_wristband_subtitle':
+          "नमूना ट्यूब पर लेबल लगाने से पहले रोगी का मिलान करें.",
       's4.lib.specimen_scan.patient_wristband_mismatch':
           "रोगी का कलाईबैंड बेमेल",
+      's4.lib.specimen_scan.sample_collection_failed': "नमूना संग्रह विफल रहा.",
+      's4.lib.specimen_scan.scan_both_before_collection':
+          "संग्रह से पहले कलाईबैंड और नमूना ट्यूब दोनों स्कैन करें.",
+      's4.lib.specimen_scan.scan_sample_tube': "नमूना ट्यूब स्कैन करें",
+      's4.lib.specimen_scan.scan_sample_tube_subtitle':
+          "संग्रह के समय ट्यूब बारकोड स्कैन करें.",
       's4.lib.specimen_scan.specimen_hard_stop': "नमूना हार्ड-स्टॉप",
+      's4.lib.specimen_scan.specimen_collected': "नमूना एकत्र किया गया",
+      's4.lib.specimen_scan.specimen_collected_message':
+          "कलाईबैंड और ट्यूब बारकोड दर्ज किए गए.",
+      's4.lib.specimen_scan.specimen_not_collected':
+          "नमूना एकत्र नहीं किया गया",
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "इसे ओवरराइड नहीं किया जा सकता. सही रिस्टबैंड और ट्यूब को दोबारा स्कैन करें।",
+      's4.lib.specimen_scan.title': "नमूना स्कैन",
       's4.lib.staff_diagnostics.no_details_returned':
           "कोई विवरण नहीं लौटाया गया.",
       's4.lib.staff_diagnostics.refresh_diagnostics': "निदान ताज़ा करें",
@@ -9561,10 +9618,30 @@ class AppStrings {
       's4.lib.staff_roster_hub.department_roster_boards': "विभाग रोस्टर बोर्ड",
       's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
           "किसी भी विभाग के रोस्टर बोर्ड को यह भूमिका नहीं सौंपी गई है।",
+      's4.lib.transfusion_scan.bedside_verification_failed':
+          "बेडसाइड सत्यापन विफल रहा.",
+      's4.lib.transfusion_scan.blood_unit_barcode_mismatch':
+          "रक्त यूनिट बारकोड बेमेल",
+      's4.lib.transfusion_scan.patient_wristband_subtitle':
+          "इस ट्रांसफ़्यूज़न अनुरोध से जुड़े कलाईबैंड का उपयोग करें.",
+      's4.lib.transfusion_scan.scan_blood_unit': "रक्त यूनिट स्कैन करें",
+      's4.lib.transfusion_scan.scan_blood_unit_subtitle':
+          "ट्रांसफ़्यूज़न शुरू करने से पहले यूनिट लेबल स्कैन करें.",
+      's4.lib.transfusion_scan.scan_both_before_verification':
+          "सत्यापन से पहले कलाईबैंड और रक्त यूनिट दोनों स्कैन करें.",
       's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "इसे ओवरराइड नहीं किया जा सकता. सही रिस्टबैंड और यूनिट को दोबारा स्कैन करें।",
+      's4.lib.transfusion_scan.title': "ट्रांसफ़्यूज़न स्कैन",
       's4.lib.transfusion_scan.transfusion_hard_stop':
           "ट्रांसफ़्यूज़न हार्ड-स्टॉप",
+      's4.lib.transfusion_scan.verification_not_recorded':
+          "सत्यापन दर्ज नहीं किया गया",
+      's4.lib.transfusion_scan.verification_recorded': "सत्यापन दर्ज किया गया",
+      's4.lib.transfusion_scan.verification_recorded_message':
+          "बेडसाइड ट्रांसफ़्यूज़न सत्यापन दर्ज किया गया.",
+      's4.dynamic.specimen_scan.context_label': "नमूना संग्रह #{id}",
+      's4.dynamic.transfusion_scan.context_label':
+          "ट्रांसफ़्यूज़न सत्यापन #{id}",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "वार्ड-विशिष्ट प्रवाह के लिए निर्मित",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
@@ -13573,12 +13650,33 @@ class AppStrings {
       's4.lib.reports_admin_queue.reports_review': "அறிக்கைகள் மதிப்பாய்வு",
       's4.lib.reports_admin_queue.save_update': "புதுப்பிப்பைச் சேமிக்கவும்",
       's4.lib.schedule.shift_actions': "நடவடிக்கைகளை மாற்றவும்",
+      // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
+      's4.lib.scan_common.please_scan_again':
+          "தயவுசெய்து மீண்டும் ஸ்கேன் செய்யவும்.",
+      's4.lib.scan_common.scan_patient_wristband':
+          "நோயாளி மணிக்கட்டுப் பட்டையை ஸ்கேன் செய்யவும்",
+      's4.lib.scan_common.server_unreachable': "சேவையகத்தை அடைய முடியவில்லை.",
       's4.lib.smart_phrase_field.expanding': "விரிவடைகிறது…",
+      's4.lib.specimen_scan.patient_wristband_subtitle':
+          "மாதிரி குழாயில் லேபிள் இடுவதற்கு முன் நோயாளியைப் பொருத்தவும்.",
       's4.lib.specimen_scan.patient_wristband_mismatch':
           "நோயாளியின் மணிக்கட்டுப் பொருத்தமின்மை",
+      's4.lib.specimen_scan.sample_collection_failed':
+          "மாதிரி சேகரிப்பு தோல்வியடைந்தது.",
+      's4.lib.specimen_scan.scan_both_before_collection':
+          "சேகரிப்பதற்கு முன் மணிக்கட்டுப் பட்டையும் மாதிரி குழாயையும் ஸ்கேன் செய்யவும்.",
+      's4.lib.specimen_scan.scan_sample_tube': "மாதிரி குழாயை ஸ்கேன் செய்யவும்",
+      's4.lib.specimen_scan.scan_sample_tube_subtitle':
+          "சேகரிக்கும் போது குழாய் பார்கோடை ஸ்கேன் செய்யவும்.",
       's4.lib.specimen_scan.specimen_hard_stop': "மாதிரி கடினமான-நிறுத்தம்",
+      's4.lib.specimen_scan.specimen_collected': "மாதிரி சேகரிக்கப்பட்டது",
+      's4.lib.specimen_scan.specimen_collected_message':
+          "மணிக்கட்டுப் பட்டையும் குழாய் பார்கோடும் பதிவு செய்யப்பட்டன.",
+      's4.lib.specimen_scan.specimen_not_collected':
+          "மாதிரி சேகரிக்கப்படவில்லை",
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "இதை மீற முடியாது. சரியான மணிக்கட்டு மற்றும் குழாயை மீண்டும் ஸ்கேன் செய்யவும்.",
+      's4.lib.specimen_scan.title': "மாதிரி ஸ்கேன்",
       's4.lib.staff_diagnostics.no_details_returned':
           "விவரங்கள் எதுவும் திரும்பவில்லை.",
       's4.lib.staff_diagnostics.refresh_diagnostics':
@@ -13616,10 +13714,31 @@ class AppStrings {
           "துறை பட்டியல் பலகைகள்",
       's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
           "இந்த பணிக்கு எந்த துறை பட்டியல் குழுவும் ஒதுக்கப்படவில்லை.",
+      's4.lib.transfusion_scan.bedside_verification_failed':
+          "படுக்கையருகே சரிபார்ப்பு தோல்வியடைந்தது.",
+      's4.lib.transfusion_scan.blood_unit_barcode_mismatch':
+          "இரத்த அலகு பார்கோடு பொருந்தவில்லை",
+      's4.lib.transfusion_scan.patient_wristband_subtitle':
+          "இந்த இரத்தமாற்ற கோரிக்கைக்கு இணைக்கப்பட்ட மணிக்கட்டுப் பட்டையைப் பயன்படுத்தவும்.",
+      's4.lib.transfusion_scan.scan_blood_unit': "இரத்த அலகை ஸ்கேன் செய்யவும்",
+      's4.lib.transfusion_scan.scan_blood_unit_subtitle':
+          "இரத்தமாற்றத்தைத் தொடங்கும் முன் அலகு லேபிளை ஸ்கேன் செய்யவும்.",
+      's4.lib.transfusion_scan.scan_both_before_verification':
+          "சரிபார்ப்பதற்கு முன் மணிக்கட்டுப் பட்டையும் இரத்த அலகையும் ஸ்கேன் செய்யவும்.",
       's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "இதை மீற முடியாது. சரியான மணிக்கட்டு மற்றும் அலகு மீண்டும் ஸ்கேன் செய்யவும்.",
+      's4.lib.transfusion_scan.title': "இரத்தமாற்ற ஸ்கேன்",
       's4.lib.transfusion_scan.transfusion_hard_stop':
           "இரத்தமாற்றம் கடினமாக-நிறுத்தம்",
+      's4.lib.transfusion_scan.verification_not_recorded':
+          "சரிபார்ப்பு பதிவு செய்யப்படவில்லை",
+      's4.lib.transfusion_scan.verification_recorded':
+          "சரிபார்ப்பு பதிவு செய்யப்பட்டது",
+      's4.lib.transfusion_scan.verification_recorded_message':
+          "படுக்கையருகே இரத்தமாற்ற சரிபார்ப்பு பதிவு செய்யப்பட்டது.",
+      's4.dynamic.specimen_scan.context_label': "மாதிரி சேகரிப்பு #{id}",
+      's4.dynamic.transfusion_scan.context_label':
+          "இரத்தமாற்ற சரிபார்ப்பு #{id}",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "வார்டு-குறிப்பிட்ட ஓட்டங்களுக்காக கட்டப்பட்டது",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
@@ -17590,12 +17709,30 @@ class AppStrings {
       's4.lib.reports_admin_queue.reports_review': "నివేదికల సమీక్ష",
       's4.lib.reports_admin_queue.save_update': "నవీకరణను సేవ్ చేయండి",
       's4.lib.schedule.shift_actions': "షిఫ్ట్ చర్యలు",
+      // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
+      's4.lib.scan_common.please_scan_again': "దయచేసి మళ్లీ స్కాన్ చేయండి.",
+      's4.lib.scan_common.scan_patient_wristband':
+          "రోగి రిస్ట్‌బ్యాండ్‌ను స్కాన్ చేయండి",
+      's4.lib.scan_common.server_unreachable': "సర్వర్‌ను చేరుకోలేకపోయాం.",
       's4.lib.smart_phrase_field.expanding': "విస్తరిస్తోంది…",
+      's4.lib.specimen_scan.patient_wristband_subtitle':
+          "నమూనా ట్యూబ్‌కు లేబుల్ పెట్టే ముందు రోగిని సరిపోల్చండి.",
       's4.lib.specimen_scan.patient_wristband_mismatch':
           "రోగి రిస్ట్‌బ్యాండ్ అసమతుల్యత",
+      's4.lib.specimen_scan.sample_collection_failed': "నమూనా సేకరణ విఫలమైంది.",
+      's4.lib.specimen_scan.scan_both_before_collection':
+          "సేకరణకు ముందు రిస్ట్‌బ్యాండ్ మరియు నమూనా ట్యూబ్ రెండింటినీ స్కాన్ చేయండి.",
+      's4.lib.specimen_scan.scan_sample_tube': "నమూనా ట్యూబ్‌ను స్కాన్ చేయండి",
+      's4.lib.specimen_scan.scan_sample_tube_subtitle':
+          "సేకరణ సమయంలో ట్యూబ్ బార్‌కోడ్‌ను స్కాన్ చేయండి.",
       's4.lib.specimen_scan.specimen_hard_stop': "నమూనా హార్డ్-స్టాప్",
+      's4.lib.specimen_scan.specimen_collected': "నమూనా సేకరించబడింది",
+      's4.lib.specimen_scan.specimen_collected_message':
+          "రిస్ట్‌బ్యాండ్ మరియు ట్యూబ్ బార్‌కోడ్ నమోదు చేయబడ్డాయి.",
+      's4.lib.specimen_scan.specimen_not_collected': "నమూనా సేకరించబడలేదు",
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "దీన్ని భర్తీ చేయడం సాధ్యం కాదు. సరైన రిస్ట్‌బ్యాండ్ మరియు ట్యూబ్‌ని మళ్లీ స్కాన్ చేయండి.",
+      's4.lib.specimen_scan.title': "నమూనా స్కాన్",
       's4.lib.staff_diagnostics.no_details_returned': "వివరాలు ఏవీ ఇవ్వలేదు.",
       's4.lib.staff_diagnostics.refresh_diagnostics':
           "విశ్లేషణలను రిఫ్రెష్ చేయండి",
@@ -17631,10 +17768,30 @@ class AppStrings {
           "విభాగం రోస్టర్ బోర్డులు",
       's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r':
           "ఈ పాత్రకు ఏ విభాగం రోస్టర్ బోర్డు కేటాయించబడలేదు.",
+      's4.lib.transfusion_scan.bedside_verification_failed':
+          "పడక పక్కన ధృవీకరణ విఫలమైంది.",
+      's4.lib.transfusion_scan.blood_unit_barcode_mismatch':
+          "రక్త యూనిట్ బార్‌కోడ్ సరిపోలలేదు",
+      's4.lib.transfusion_scan.patient_wristband_subtitle':
+          "ఈ ట్రాన్స్‌ఫ్యూజన్ అభ్యర్థనకు జతచేయబడిన రిస్ట్‌బ్యాండ్‌ను ఉపయోగించండి.",
+      's4.lib.transfusion_scan.scan_blood_unit': "రక్త యూనిట్‌ను స్కాన్ చేయండి",
+      's4.lib.transfusion_scan.scan_blood_unit_subtitle':
+          "ట్రాన్స్‌ఫ్యూజన్ ప్రారంభించే ముందు యూనిట్ లేబుల్‌ను స్కాన్ చేయండి.",
+      's4.lib.transfusion_scan.scan_both_before_verification':
+          "ధృవీకరణకు ముందు రిస్ట్‌బ్యాండ్ మరియు రక్త యూనిట్ రెండింటినీ స్కాన్ చేయండి.",
       's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "దీన్ని భర్తీ చేయడం సాధ్యం కాదు. సరైన రిస్ట్‌బ్యాండ్ మరియు యూనిట్‌ని మళ్లీ స్కాన్ చేయండి.",
+      's4.lib.transfusion_scan.title': "ట్రాన్స్‌ఫ్యూజన్ స్కాన్",
       's4.lib.transfusion_scan.transfusion_hard_stop':
           "ట్రాన్స్‌ఫ్యూజన్ హార్డ్-స్టాప్",
+      's4.lib.transfusion_scan.verification_not_recorded':
+          "ధృవీకరణ నమోదు కాలేదు",
+      's4.lib.transfusion_scan.verification_recorded': "ధృవీకరణ నమోదు అయింది",
+      's4.lib.transfusion_scan.verification_recorded_message':
+          "పడక పక్కన ట్రాన్స్‌ఫ్యూజన్ ధృవీకరణ నమోదు చేయబడింది.",
+      's4.dynamic.specimen_scan.context_label': "నమూనా సేకరణ #{id}",
+      's4.dynamic.transfusion_scan.context_label':
+          "ట్రాన్స్‌ఫ్యూజన్ ధృవీకరణ #{id}",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "వార్డ్-నిర్దిష్ట ప్రవాహాల కోసం నిర్మించబడింది",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':

@@ -329,6 +329,68 @@ void main() {
     },
   );
 
+  test('S4 scan screen copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/bloodbank/screens/transfusion_scan_screen.dart'),
+      File('lib/features/investigations/screens/specimen_scan_screen.dart'),
+    ];
+    final hits = <String>[];
+    for (final file in files) {
+      for (final entry in _literalHits(file, [
+        _Pattern(
+          'StaffScaffold title',
+          RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+        _Pattern(
+          'subtitle',
+          RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern('message', RegExp(r'''\bmessage\s*:\s*(?:r)?(['"])(.*?)\1''')),
+        _Pattern(
+          'action label',
+          RegExp(r'''\bactionLabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern(
+          'failure fallback',
+          RegExp(r'''failureMessage\(\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern(
+          'offline queue context',
+          RegExp(r'''\bcontextLabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+      ])) {
+        hits.add(entry);
+      }
+    }
+
+    final keys = <String>{};
+    for (final file in files) {
+      keys.addAll(
+        _appStringKeysFrom(file.readAsStringSync(), [
+          's4.lib.scan_common.',
+          's4.lib.specimen_scan.',
+          's4.dynamic.specimen_scan.',
+          's4.lib.transfusion_scan.',
+          's4.dynamic.transfusion_scan.',
+        ]),
+      );
+    }
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 scan screen titles, status panels, and fallback copy should use '
+          'AppStrings/AppText keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 scan screen keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

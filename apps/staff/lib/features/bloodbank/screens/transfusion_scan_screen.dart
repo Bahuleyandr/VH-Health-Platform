@@ -67,6 +67,7 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
   }
 
   Future<void> _submitVerification() async {
+    final s = AppStrings.of(context);
     final patientUid = _patientUid;
     final unitNumber = _unitNumber;
     if (patientUid == null || unitNumber == null) return;
@@ -86,7 +87,7 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       _busy = intent.submit;
       _errorMessage = intent.submit || intent.hardStop
           ? null
-          : 'Scan both wristband and blood unit before verification.';
+          : s.lookup('s4.lib.transfusion_scan.scan_both_before_verification');
     });
 
     if (!intent.submit) return;
@@ -97,7 +98,9 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
           endpoint: intent.endpoint,
           method: 'POST',
           body: intent.body,
-          contextLabel: 'Transfusion verification #${widget.requestId}',
+          contextLabel: s.format('s4.dynamic.transfusion_scan.context_label', {
+            'id': widget.requestId,
+          }),
         );
         if (!mounted) return;
         setState(() {
@@ -116,13 +119,15 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       } else {
         setState(
           () => _errorMessage = response.failureMessage(
-            'Bedside verification failed.',
+            s.lookup('s4.lib.transfusion_scan.bedside_verification_failed'),
           ),
         );
       }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _errorMessage = 'Could not reach the server.');
+      setState(
+        () => _errorMessage = s.lookup('s4.lib.scan_common.server_unreachable'),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -143,7 +148,10 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    return StaffScaffold(title: 'Transfusion scan', body: _buildBody(s));
+    return StaffScaffold(
+      title: s.lookup('s4.lib.transfusion_scan.title'),
+      body: _buildBody(s),
+    );
   }
 
   Widget _buildBody(AppStrings s) {
@@ -151,17 +159,21 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       case _TransfusionScanStep.scanWristband:
         return _scanPanel(
           icon: Icons.badge_outlined,
-          title: 'Scan patient wristband',
-          subtitle: 'Use the wristband attached to this transfusion request.',
+          title: s.lookup('s4.lib.scan_common.scan_patient_wristband'),
+          subtitle: s.lookup(
+            's4.lib.transfusion_scan.patient_wristband_subtitle',
+          ),
         );
       case _TransfusionScanStep.scanUnit:
         return _scanPanel(
           icon: Icons.bloodtype_outlined,
-          title: 'Scan blood unit',
-          subtitle: 'Scan the unit label before starting transfusion.',
+          title: s.lookup('s4.lib.transfusion_scan.scan_blood_unit'),
+          subtitle: s.lookup(
+            's4.lib.transfusion_scan.scan_blood_unit_subtitle',
+          ),
         );
       case _TransfusionScanStep.verify:
-        return _verifyPanel();
+        return _verifyPanel(s);
       case _TransfusionScanStep.done:
         return _donePanel(s);
     }
@@ -212,25 +224,28 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
     );
   }
 
-  Widget _verifyPanel() {
+  Widget _verifyPanel(AppStrings s) {
     if (_busy) return const Center(child: CircularProgressIndicator());
     final hardStop = _hardStop;
-    if (hardStop != null) return _hardStopPanel(hardStop);
+    if (hardStop != null) return _hardStopPanel(hardStop, s);
 
     return _messagePanel(
       icon: Icons.error_outline,
       color: AppTheme.errorRed,
-      title: 'Verification not recorded',
-      message: _errorMessage ?? 'Please scan again.',
-      actionLabel: 'Scan again',
+      title: s.lookup('s4.lib.transfusion_scan.verification_not_recorded'),
+      message:
+          _errorMessage ?? s.lookup('s4.lib.scan_common.please_scan_again'),
+      actionLabel: s.marScanScanAgain,
       onAction: _reset,
     );
   }
 
-  Widget _hardStopPanel(TransfusionScanIntent intent) {
+  Widget _hardStopPanel(TransfusionScanIntent intent, AppStrings s) {
     final reasons = <String>[
-      if (intent.failedRights.contains('patient')) 'Patient wristband mismatch',
-      if (intent.failedRights.contains('unit')) 'Blood unit barcode mismatch',
+      if (intent.failedRights.contains('patient'))
+        s.lookup('s4.lib.specimen_scan.patient_wristband_mismatch'),
+      if (intent.failedRights.contains('unit'))
+        s.lookup('s4.lib.transfusion_scan.blood_unit_barcode_mismatch'),
     ];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -307,11 +322,11 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
       color: _pendingSync ? AppTheme.textSecondary : AppTheme.successGreen,
       title: _pendingSync
           ? s.offlineRecordedPendingSync
-          : 'Verification recorded',
+          : s.lookup('s4.lib.transfusion_scan.verification_recorded'),
       message: _pendingSync
           ? s.transfusionScanPendingSyncMessage
-          : 'The bedside transfusion verification was recorded.',
-      actionLabel: 'Done',
+          : s.lookup('s4.lib.transfusion_scan.verification_recorded_message'),
+      actionLabel: s.incidentReportDoneButton,
       onAction: () => context.pop(true),
     );
   }
