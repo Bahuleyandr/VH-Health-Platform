@@ -666,6 +666,73 @@ void main() {
     },
   );
 
+  test('S4 Patient Records copy stores keys with required locale entries', () {
+    final file = File(
+      'lib/features/doctor/screens/patient_records_screen.dart',
+    );
+    final patterns = [
+      _Pattern(
+        'AppText display copy',
+        RegExp(
+          r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
+        ),
+      ),
+      _Pattern(
+        'StaffScaffold title',
+        RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('titleKey', RegExp(r'''\btitleKey\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('body', RegExp(r'''\bbody\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('bodyKey', RegExp(r'''\bbodyKey\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('subtitle', RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'subtitleKey',
+        RegExp(r'''\bsubtitleKey\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('helper', RegExp(r'''\bhelperText\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('hint', RegExp(r'''\bhintText\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('tooltip', RegExp(r'''\btooltip\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'lookup message',
+        RegExp(r'''\blookupMessage\s*=\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+    ];
+    final allowedPrefixes = [
+      'action.',
+      'clinical_ai.',
+      'dashboard.',
+      'leave.',
+      'nursing_notes.',
+      'patient_records.',
+      'prescriptions.',
+      'radiology.',
+      'reception_counter.',
+      's4.dynamic.patient_records.',
+      's4.lib.patient_records.',
+    ];
+
+    final hits = <String>[
+      ..._literalHits(file, patterns),
+      ..._interpolatedLiteralHits(file, patterns),
+    ];
+    final keys = _appStringKeysFrom(file.readAsStringSync(), allowedPrefixes);
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 Patient Records empty states, upload form copy, preview labels, '
+          'and extraction dialog copy should use AppStrings keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 Patient Records keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

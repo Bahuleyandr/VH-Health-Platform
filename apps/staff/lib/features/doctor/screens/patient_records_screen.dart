@@ -108,16 +108,16 @@ String patientRecordsInitialSearchText({
 }
 
 @visibleForTesting
-bool patientRecordsHasScopedUploadPatient({String? patientId, String? phone}) {
-  return patientRecordsPatientIdFromQuery(patientId) != null ||
-      patientRecordsPhoneSearchDigits(phone).isNotEmpty;
+String patientRecordsUploadLookupMessageKey({required bool hasScopedPatient}) {
+  return hasScopedPatient
+      ? 's4.lib.patient_records.using_selected_patient_from_patient_records'
+      : 's4.lib.patient_records.enter_phone_then_tap_check';
 }
 
 @visibleForTesting
-String patientRecordsUploadLookupMessage({required bool hasScopedPatient}) {
-  return hasScopedPatient
-      ? 'Using selected patient from Patient Records'
-      : 'Enter phone, then tap Check';
+bool patientRecordsHasScopedUploadPatient({String? patientId, String? phone}) {
+  return patientRecordsPatientIdFromQuery(patientId) != null ||
+      patientRecordsPhoneSearchDigits(phone).isNotEmpty;
 }
 
 @visibleForTesting
@@ -135,20 +135,48 @@ Map<String, dynamic>? patientRecordAiExtractionFrom(dynamic record) {
 }
 
 @visibleForTesting
-String patientRecordAiReviewLabel(Map<String, dynamic>? extraction) {
-  if (extraction == null) return 'No AI draft';
+String patientRecordAiReviewLabelKey(Map<String, dynamic>? extraction) {
+  if (extraction == null) return 's4.lib.patient_records.no_ai_draft';
   final status =
       extraction['extraction_status']?.toString().toLowerCase() ?? '';
   final decision =
       extraction['reviewer_decision']?.toString().toLowerCase() ?? 'pending';
-  if (status == 'unavailable') return 'AI unavailable';
-  if (status == 'failed') return 'Needs manual review';
+  if (status == 'unavailable') return 's4.lib.patient_records.ai_unavailable';
+  if (status == 'failed') return 's4.lib.patient_records.needs_manual_review';
   return switch (decision) {
-    'accepted' => 'AI confirmed',
-    'rejected' => 'AI rejected',
-    'needs_revision' => 'Needs revision',
-    _ => status == 'completed' ? 'Review AI draft' : 'AI draft pending',
+    'accepted' => 's4.lib.patient_records.ai_confirmed',
+    'rejected' => 's4.lib.patient_records.ai_rejected',
+    'needs_revision' => 's4.lib.patient_records.needs_revision',
+    _ =>
+      status == 'completed'
+          ? 's4.lib.patient_records.review_ai_draft'
+          : 's4.lib.patient_records.ai_draft_pending',
   };
+}
+
+String _patientRecordsSelectedFilesLabel(AppStrings s, int count) {
+  if (count == 1) return s.lookup('s4.lib.patient_records.file_selected');
+  return s.format('s4.dynamic.patient_records.files_selected', {
+    'count': count,
+  });
+}
+
+String _patientRecordsUploadButtonLabel({
+  required AppStrings s,
+  required bool submitting,
+  required int uploadedCount,
+  required int totalCount,
+}) {
+  if (submitting) {
+    return s.format('s4.dynamic.patient_records.uploading_count', {
+      'uploaded': uploadedCount,
+      'total': totalCount,
+    });
+  }
+  if (totalCount <= 1) return s.lookup('s4.lib.patient_records.upload_record');
+  return s.format('s4.dynamic.patient_records.upload_records', {
+    'count': totalCount,
+  });
 }
 
 @visibleForTesting
@@ -255,6 +283,89 @@ String patientRecordsTimelineTitle(Map<String, dynamic> event) {
     default:
       return explicit.isNotEmpty ? explicit : 'Clinical record';
   }
+}
+
+String _patientRecordTimelineTitle(BuildContext context, dynamic record) {
+  final s = AppStrings.of(context);
+  if (record is! Map || record['_timeline'] != true) {
+    final nestedPatient = record is Map && record['patient'] is Map
+        ? Map<String, dynamic>.from(record['patient'] as Map)
+        : const <String, dynamic>{};
+    return _firstText([
+      record is Map ? record['title'] : null,
+      record is Map ? record['patientName'] : null,
+      nestedPatient['name'],
+    ], fallback: s.patientRecordsUnknownPatient);
+  }
+  final family = _firstText([record['resource_type']]);
+  final payload = record['payload'] is Map
+      ? Map<String, dynamic>.from(record['payload'] as Map)
+      : const <String, dynamic>{};
+  final title = _firstText([record['title']]);
+  switch (family) {
+    case 'prescription':
+      final number = _firstText([payload['prescription_number']]);
+      if (title == 'OP prescription' || title.startsWith('OP prescription -')) {
+        return number.isEmpty
+            ? s.lookup('s4.lib.patient_records.timeline_op_prescription')
+            : s.format(
+                's4.dynamic.patient_records.timeline_op_prescription_number',
+                {'number': number},
+              );
+      }
+      return title;
+    case 'investigation':
+      final name = _firstText([payload['test_name'], record['summary']]);
+      if (title == 'Investigation' || title.startsWith('Investigation -')) {
+        return name.isEmpty
+            ? s.lookup('s4.lib.patient_records.timeline_investigation')
+            : s.format(
+                's4.dynamic.patient_records.timeline_investigation_name',
+                {'name': name},
+              );
+      }
+      return title;
+    case 'note':
+      return title == 'Clinical note'
+          ? s.lookup('s4.lib.patient_records.timeline_clinical_note')
+          : title;
+    case 'vitals':
+      return s.lookup('s4.lib.patient_records.timeline_vitals');
+    case 'referral':
+      return s.lookup('s4.lib.patient_records.timeline_referral');
+    case 'admission':
+      return s.lookup('s4.lib.patient_records.timeline_admission');
+    case 'discharge':
+      return s.lookup('s4.lib.patient_records.timeline_discharge');
+    default:
+      if (title.isNotEmpty && title != 'Clinical record') return title;
+      return s.lookup('s4.lib.patient_records.timeline_clinical_record');
+  }
+}
+
+String _patientRecordTimelineTypeLabel(BuildContext context, dynamic record) {
+  if (record is! Map || record['_timeline'] != true) {
+    return _firstText([
+      record is Map ? record['record_type'] : null,
+      record is Map ? record['type'] : null,
+      record is Map ? record['appointmentType'] : null,
+    ], fallback: '—');
+  }
+  final s = AppStrings.of(context);
+  return switch (_firstText([record['resource_type']])) {
+    'prescription' => s.lookup(
+      's4.lib.patient_records.timeline_type_op_prescription',
+    ),
+    'investigation' => s.lookup(
+      's4.lib.patient_records.timeline_type_investigation',
+    ),
+    'note' => s.lookup('s4.lib.patient_records.timeline_type_clinical_note'),
+    'vitals' => s.lookup('s4.lib.patient_records.timeline_type_vitals'),
+    'referral' => s.lookup('s4.lib.patient_records.timeline_type_referral'),
+    'admission' => s.lookup('s4.lib.patient_records.timeline_type_admission'),
+    'discharge' => s.lookup('s4.lib.patient_records.timeline_type_discharge'),
+    _ => s.lookup('s4.lib.patient_records.timeline_type_clinical_timeline'),
+  };
 }
 
 @visibleForTesting
@@ -602,6 +713,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   }
 
   Future<void> _showUploadRecordSheet() async {
+    final strings = AppStrings.of(context);
     final scopedPatientId = patientRecordsPatientIdFromQuery(
       widget.initialPatientId,
     );
@@ -625,8 +737,8 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     String? uploadingName;
     var lookupBusy = false;
     var patientNameReadOnly = hasScopedPatient && scopedPatientName.isNotEmpty;
-    var lookupMessage = patientRecordsUploadLookupMessage(
-      hasScopedPatient: hasScopedPatient,
+    var lookupMessage = strings.lookup(
+      patientRecordsUploadLookupMessageKey(hasScopedPatient: hasScopedPatient),
     );
 
     Future<void> lookupPatient(StateSetter setSheetState) async {
@@ -636,7 +748,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           : digits;
       if (last10.length < 10) {
         setSheetState(() {
-          lookupMessage = 'Enter a valid 10-digit phone number';
+          lookupMessage = strings.lookup(
+            's4.lib.patient_records.enter_a_valid_10_digit_phone_number',
+          );
           patientNameReadOnly = false;
         });
         return;
@@ -644,7 +758,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
 
       setSheetState(() {
         lookupBusy = true;
-        lookupMessage = 'Checking patient registry...';
+        lookupMessage = strings.lookup(
+          's4.lib.patient_records.checking_patient_registry',
+        );
       });
 
       try {
@@ -665,7 +781,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           setSheetState(() {
             lookupBusy = false;
             patientNameReadOnly = false;
-            lookupMessage = 'New patient - name will be used during upload';
+            lookupMessage = strings.lookup(
+              's4.lib.patient_records.new_patient_name_will_be_used_during_upload',
+            );
           });
           return;
         }
@@ -673,13 +791,17 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           lookupBusy = false;
           patientNameReadOnly = true;
           patientNameCtrl.text = exact!['name']?.toString() ?? '';
-          lookupMessage = 'Existing patient found';
+          lookupMessage = strings.lookup(
+            's4.lib.patient_records.existing_patient_found',
+          );
         });
       } catch (_) {
         setSheetState(() {
           lookupBusy = false;
           patientNameReadOnly = false;
-          lookupMessage = 'Could not check now; upload can still continue';
+          lookupMessage = strings.lookup(
+            's4.lib.patient_records.could_not_check_now_upload_can_still_continue',
+          );
         });
       }
     }
@@ -692,8 +814,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) {
+          final sheetStrings = AppStrings.of(ctx);
           final recordDateLabel = recordDate == null
-              ? 'Record date'
+              ? sheetStrings.lookup('s4.lib.patient_records.record_date')
               : DateFormat('yyyy-MM-dd').format(recordDate!);
 
           Future<void> submit() async {
@@ -836,7 +959,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                       validator: (value) =>
                           !hasScopedPatient &&
                               _digitsOnly(value ?? '').length < 10
-                          ? 'Enter a valid phone number'
+                          ? sheetStrings.lookup(
+                              's4.lib.patient_records.enter_a_valid_phone_number',
+                            )
                           : null,
                     ),
                     const SizedBox(height: 12),
@@ -853,7 +978,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                       ),
                       validator: (value) =>
                           !hasScopedPatient && (value?.trim().length ?? 0) < 2
-                          ? 'Enter patient name'
+                          ? sheetStrings.lookup(
+                              's4.lib.patient_records.enter_patient_name',
+                            )
                           : null,
                     ),
                     const SizedBox(height: 12),
@@ -871,7 +998,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                         ),
                       ),
                       validator: (value) => (value?.trim().length ?? 0) < 3
-                          ? 'Enter a title'
+                          ? sheetStrings.lookup(
+                              's4.lib.patient_records.enter_a_title',
+                            )
                           : null,
                     ),
                     const SizedBox(height: 12),
@@ -965,8 +1094,13 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                             icon: const Icon(Icons.attach_file),
                             label: Text(
                               pickedFiles.isEmpty
-                                  ? 'Choose files'
-                                  : '${pickedFiles.length} file${pickedFiles.length == 1 ? '' : 's'} selected',
+                                  ? sheetStrings.lookup(
+                                      's4.lib.patient_records.choose_files',
+                                    )
+                                  : _patientRecordsSelectedFilesLabel(
+                                      sheetStrings,
+                                      pickedFiles.length,
+                                    ),
                             ),
                             onPressed: submitting
                                 ? null
@@ -1142,11 +1276,12 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                 color: Colors.white,
                               ),
                         label: Text(
-                          submitting
-                              ? 'Uploading $uploadedCount/${pickedFiles.length}'
-                              : pickedFiles.length <= 1
-                              ? 'Upload Record'
-                              : 'Upload ${pickedFiles.length} Records',
+                          _patientRecordsUploadButtonLabel(
+                            s: sheetStrings,
+                            submitting: submitting,
+                            uploadedCount: uploadedCount,
+                            totalCount: pickedFiles.length,
+                          ),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primaryBlue,
@@ -1214,7 +1349,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     return StaffScaffold(
-      title: _isIpContext ? 'IP Patient Records' : s.patientRecordsTitle,
+      title: _isIpContext
+          ? s.lookup('s4.lib.patient_records.ip_patient_records')
+          : s.patientRecordsTitle,
       body: ConstrainedContent(
         child: _isIpContext
             ? _buildIpRecordsBody()
@@ -1408,7 +1545,7 @@ String _noteText(Map<String, dynamic> note, String key) {
   return nested is String && nested.trim().isNotEmpty ? nested : '';
 }
 
-String _noteSummary(Map<String, dynamic> note) {
+String _noteSummary(Map<String, dynamic> note, {required String fallback}) {
   for (final key in const [
     'summary',
     'current_status',
@@ -1422,7 +1559,7 @@ String _noteSummary(Map<String, dynamic> note) {
   }
   final content = note['content'];
   if (content is String && content.trim().isNotEmpty) return content;
-  return 'Clinical note';
+  return fallback;
 }
 
 DateTime? _parseDate(dynamic value) {
@@ -1513,8 +1650,9 @@ class _CurrentAdmissionNotesTabState extends State<_CurrentAdmissionNotesTab> {
     if (_bundles.isEmpty) {
       return const _SimpleEmptyState(
         icon: Icons.local_hotel_outlined,
-        title: 'No active admissions',
-        body: 'Current admission notes will appear here.',
+        titleKey: 's4.lib.patient_records.no_active_admissions',
+        bodyKey:
+            's4.lib.patient_records.current_admission_notes_will_appear_here',
       );
     }
 
@@ -1575,12 +1713,13 @@ class _AdmissionNotesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final admission = bundle.admission;
     final uid = _firstText([admission['patient_uid']]);
     final patientName = _firstText([
       admission['patient_name'],
       admission['name'],
-    ], fallback: 'Patient');
+    ], fallback: s.lookup('s4.lib.patient_records.patient_fallback'));
     final bed = _firstText([admission['bed_number'], admission['bed_id']]);
     final ward = _firstText([admission['ward'], admission['bed_ward_name']]);
     final admittedAt = _firstText([admission['admitted_at']]);
@@ -1606,7 +1745,8 @@ class _AdmissionNotesCard extends StatelessWidget {
         ),
         subtitle: Text(
           [
-            if (bed.isNotEmpty) 'Bed $bed',
+            if (bed.isNotEmpty)
+              s.format('s4.dynamic.patient_records.bed_label', {'bed': bed}),
             if (ward.isNotEmpty) ward,
             if (admittedAt.isNotEmpty) admittedAt,
           ].join(' • '),
@@ -1663,8 +1803,13 @@ class _AdmissionNoteRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final type = _firstText([note['note_type']], fallback: 'note');
-    final role = _firstText([note['author_role']], fallback: 'staff');
+    final s = AppStrings.of(context);
+    final type = _firstText([
+      note['note_type'],
+    ], fallback: s.lookup('s4.lib.patient_records.note_fallback'));
+    final role = _firstText([
+      note['author_role'],
+    ], fallback: s.lookup('s4.lib.patient_records.staff_fallback'));
     final created = _firstText([note['created_at']]);
     return ListTile(
       dense: true,
@@ -1674,7 +1819,13 @@ class _AdmissionNoteRow extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w600),
       ),
       subtitle: Text(
-        [_noteSummary(note), if (created.isNotEmpty) created].join('\n'),
+        [
+          _noteSummary(
+            note,
+            fallback: s.lookup('s4.lib.patient_records.clinical_note_fallback'),
+          ),
+          if (created.isNotEmpty) created,
+        ].join('\n'),
         maxLines: 3,
         overflow: TextOverflow.ellipsis,
       ),
@@ -1798,9 +1949,10 @@ class _IpPriorRecordsTabState extends State<_IpPriorRecordsTab> {
             child: _records.isEmpty
                 ? const _SimpleEmptyState(
                     icon: Icons.folder_copy_outlined,
-                    title: 'No clinical records or prior uploads',
-                    body:
-                        'Photos, PDFs, and timeline-linked clinical records appear here.',
+                    titleKey:
+                        's4.lib.patient_records.no_clinical_records_or_prior_uploads',
+                    bodyKey:
+                        's4.lib.patient_records.photos_pdfs_and_timeline_records_appear_here',
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
@@ -1832,21 +1984,24 @@ class _IpPriorRecordCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final admission = item.admission;
     final record = item.record;
     final patientName = _firstText([
       admission['patient_name'],
       record['patient_name'],
-    ], fallback: 'Patient');
+    ], fallback: s.lookup('s4.lib.patient_records.patient_fallback'));
     final type = _firstText([
       record['document_type'],
       record['type'],
-    ], fallback: 'record');
+    ], fallback: s.lookup('s4.lib.patient_records.record_fallback'));
     final title = _firstText([
       record['title'],
       record['file_name'],
     ], fallback: type);
-    final fileName = _firstText([record['file_name']], fallback: 'Document');
+    final fileName = _firstText([
+      record['file_name'],
+    ], fallback: s.lookup('s4.lib.patient_records.document'));
     final fileUrl = _firstText([record['file_url']]);
     final source = _firstText([
       record['source_hospital'],
@@ -1883,7 +2038,10 @@ class _IpPriorRecordCard extends StatelessWidget {
             subtitle: Text(
               [
                 patientName,
-                if (bed.isNotEmpty) 'Bed $bed',
+                if (bed.isNotEmpty)
+                  s.format('s4.dynamic.patient_records.bed_label', {
+                    'bed': bed,
+                  }),
                 type,
                 fileName,
                 if (source.isNotEmpty) source,
@@ -2008,7 +2166,9 @@ class _AiExtractionChip extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              patientRecordAiReviewLabel(extraction),
+              AppStrings.of(
+                context,
+              ).lookup(patientRecordAiReviewLabelKey(extraction)),
               style: TextStyle(color: color, fontWeight: FontWeight.w700),
               overflow: TextOverflow.ellipsis,
             ),
@@ -2060,7 +2220,7 @@ class _PatientRecordExtractionDialogState
     final recordId = _firstText([widget.initialRecord['id']]);
     if (recordId.isEmpty) {
       setState(() {
-        _error = 'Record id is missing';
+        _error = 's4.lib.patient_records.record_id_missing';
         _loading = false;
       });
       return;
@@ -2174,15 +2334,19 @@ class _PatientRecordExtractionDialogState
   Widget _buildBody(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
-      return _ErrorState(error: _error!, onRetry: _load);
+      final error = _error!.startsWith('s4.')
+          ? AppStrings.of(context).lookup(_error!)
+          : _error!;
+      return _ErrorState(error: error, onRetry: _load);
     }
     final record = _record ?? widget.initialRecord;
     final extraction = _extraction;
     if (extraction == null) {
       return const _SimpleEmptyState(
         icon: Icons.find_in_page_outlined,
-        title: 'No extraction draft',
-        body: 'This upload does not have a reviewable extraction draft.',
+        titleKey: 's4.lib.patient_records.no_extraction_draft',
+        bodyKey:
+            's4.lib.patient_records.this_upload_does_not_have_reviewable_extraction_draft',
       );
     }
     return LayoutBuilder(
@@ -2228,8 +2392,11 @@ class _RecordDocumentPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final s = AppStrings.of(context);
     final fileUrl = _firstText([record['file_url']]);
-    final fileName = _firstText([record['file_name']], fallback: 'Document');
+    final fileName = _firstText([
+      record['file_name'],
+    ], fallback: s.lookup('s4.lib.patient_records.document'));
     final mime = _firstText([
       record['file_mime'],
       record['mime_type'],
@@ -2307,17 +2474,20 @@ class _RecordDocumentPreview extends StatelessWidget {
                         errorBuilder: (context, error, stackTrace) =>
                             const _PreviewPlaceholder(
                               icon: Icons.broken_image_outlined,
-                              title: 'Image preview failed',
-                              subtitle: 'Open the document to inspect it.',
+                              titleKey:
+                                  's4.lib.patient_records.image_preview_failed',
+                              subtitleKey:
+                                  's4.lib.patient_records.open_document_to_inspect_it',
                             ),
                       ),
                     ),
                   )
                 : const _PreviewPlaceholder(
                     icon: Icons.picture_as_pdf_outlined,
-                    title: 'PDF preview opens externally',
-                    subtitle:
-                        'Use Open to inspect the document beside this draft.',
+                    titleKey:
+                        's4.lib.patient_records.pdf_preview_opens_externally',
+                    subtitleKey:
+                        's4.lib.patient_records.use_open_to_inspect_document_beside_this_draft',
                   ),
           ),
         ],
@@ -2328,13 +2498,13 @@ class _RecordDocumentPreview extends StatelessWidget {
 
 class _PreviewPlaceholder extends StatelessWidget {
   final IconData icon;
-  final String title;
-  final String subtitle;
+  final String titleKey;
+  final String subtitleKey;
 
   const _PreviewPlaceholder({
     required this.icon,
-    required this.title,
-    required this.subtitle,
+    required this.titleKey,
+    required this.subtitleKey,
   });
 
   @override
@@ -2348,14 +2518,14 @@ class _PreviewPlaceholder extends StatelessWidget {
           children: [
             Icon(icon, size: 54, color: scheme.primary),
             const SizedBox(height: 12),
-            Text(
-              title,
+            AppText(
+              titleKey,
               textAlign: TextAlign.center,
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
-            Text(
-              subtitle,
+            AppText(
+              subtitleKey,
               textAlign: TextAlign.center,
               style: TextStyle(color: scheme.onSurfaceVariant),
             ),
@@ -2391,6 +2561,10 @@ class _ExtractionDraftPane extends StatelessWidget {
     final rawText = _firstText([extraction['raw_text']]);
     final safetyFlags = _stringListFrom(extraction['safety_flags']);
     final confidence = extraction['confidence'];
+    final ocrStatus = _firstText(
+      [extraction['ocr_status']],
+      fallback: AppStrings.of(context).lookup('s4.lib.patient_records.unknown'),
+    );
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -2417,8 +2591,9 @@ class _ExtractionDraftPane extends StatelessWidget {
                     ),
                   ),
                 Chip(
-                  label: Text(
-                    'OCR ${_firstText([extraction['ocr_status']], fallback: 'unknown')}',
+                  label: AppText(
+                    's4.dynamic.patient_records.ocr_status',
+                    values: {'status': ocrStatus},
                   ),
                 ),
               ],
@@ -2439,17 +2614,17 @@ class _ExtractionDraftPane extends StatelessWidget {
                 const SizedBox(height: 12),
                 if (safetyFlags.isNotEmpty)
                   _ExtractionTextSection(
-                    title: 'Safety flags',
+                    titleKey: 's4.lib.patient_records.safety_flags',
                     icon: Icons.warning_amber_outlined,
                     items: safetyFlags,
                   ),
                 _ExtractionTextSection(
-                  title: 'Summary',
+                  titleKey: 's4.lib.patient_records.summary',
                   icon: Icons.summarize_outlined,
                   items: _stringListFrom(normalized['summary']),
                 ),
                 _ExtractionTextSection(
-                  title: 'Medications',
+                  titleKey: 's4.lib.patient_records.medications',
                   icon: Icons.medication_outlined,
                   items: _stringListFrom(
                     normalized['medication_reconciliation_candidates'] ??
@@ -2457,14 +2632,14 @@ class _ExtractionDraftPane extends StatelessWidget {
                   ),
                 ),
                 _ExtractionTextSection(
-                  title: 'Diagnoses',
+                  titleKey: 's4.lib.patient_records.diagnoses',
                   icon: Icons.monitor_heart_outlined,
                   items: _stringListFrom(
                     normalized['diagnosis_candidates'] ?? fields['diagnoses'],
                   ),
                 ),
                 _ExtractionTextSection(
-                  title: 'Investigations',
+                  titleKey: 's4.lib.patient_records.investigations',
                   icon: Icons.biotech_outlined,
                   items: _stringListFrom(
                     normalized['investigation_candidates'] ??
@@ -2472,14 +2647,14 @@ class _ExtractionDraftPane extends StatelessWidget {
                   ),
                 ),
                 _ExtractionTextSection(
-                  title: 'Follow-up',
+                  titleKey: 's4.lib.patient_records.follow_up',
                   icon: Icons.event_available_outlined,
                   items: _stringListFrom(
                     normalized['follow_up_candidates'] ?? fields['follow_up'],
                   ),
                 ),
                 _ExtractionTextSection(
-                  title: 'Raw extracted text',
+                  titleKey: 's4.lib.patient_records.raw_extracted_text',
                   icon: Icons.text_snippet_outlined,
                   items: rawText.isEmpty ? const [] : [rawText],
                   selectable: true,
@@ -2538,13 +2713,13 @@ class _ExtractionDraftPane extends StatelessWidget {
 }
 
 class _ExtractionTextSection extends StatelessWidget {
-  final String title;
+  final String titleKey;
   final IconData icon;
   final List<String> items;
   final bool selectable;
 
   const _ExtractionTextSection({
-    required this.title,
+    required this.titleKey,
     required this.icon,
     required this.items,
     this.selectable = false,
@@ -2562,7 +2737,10 @@ class _ExtractionTextSection extends StatelessWidget {
             children: [
               Icon(icon, size: 18, color: scheme.primary),
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+              AppText(
+                titleKey,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -2641,13 +2819,13 @@ List<String> _stringListFrom(dynamic value) {
 
 class _SimpleEmptyState extends StatelessWidget {
   final IconData icon;
-  final String title;
-  final String body;
+  final String titleKey;
+  final String bodyKey;
 
   const _SimpleEmptyState({
     required this.icon,
-    required this.title,
-    required this.body,
+    required this.titleKey,
+    required this.bodyKey,
   });
 
   @override
@@ -2658,8 +2836,8 @@ class _SimpleEmptyState extends StatelessWidget {
         const SizedBox(height: 120),
         Icon(icon, size: 56, color: AppTheme.textSecondary),
         const SizedBox(height: 16),
-        Text(
-          title,
+        AppText(
+          titleKey,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontWeight: FontWeight.bold,
@@ -2668,8 +2846,8 @@ class _SimpleEmptyState extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          body,
+        AppText(
+          bodyKey,
           textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.textSecondary),
         ),
@@ -2685,16 +2863,9 @@ class _PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final patientName =
-        record['title']?.toString() ??
-        record['patientName']?.toString() ??
-        record['patient']?['name']?.toString() ??
-        AppStrings.of(context).patientRecordsUnknownPatient;
-    final type =
-        record['record_type']?.toString() ??
-        record['type']?.toString() ??
-        record['appointmentType']?.toString() ??
-        '—';
+    final s = AppStrings.of(context);
+    final patientName = _patientRecordTimelineTitle(context, record);
+    final type = _patientRecordTimelineTypeLabel(context, record);
     final department = record['department']?.toString() ?? '';
     final dateTime =
         record['created_at']?.toString() ??
@@ -2811,7 +2982,12 @@ class _PatientCard extends StatelessWidget {
                 if (department.isNotEmpty)
                   _InfoRow(Icons.business_outlined, department),
                 if (doctor.isNotEmpty)
-                  _InfoRow(Icons.person_outlined, 'Dr. $doctor'),
+                  _InfoRow(
+                    Icons.person_outlined,
+                    s.format('s4.dynamic.patient_records.doctor_prefix', {
+                      'doctor': doctor,
+                    }),
+                  ),
                 if (dateTime.isNotEmpty)
                   _InfoRow(Icons.schedule_outlined, dateTime),
               ],
@@ -2886,7 +3062,17 @@ class _PatientDetailsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           if (phone != '—')
-            Text('📱 $phone', style: TextStyle(color: AppTheme.textSecondary)),
+            Row(
+              children: [
+                Icon(
+                  Icons.phone_outlined,
+                  size: 16,
+                  color: AppTheme.textSecondary,
+                ),
+                const SizedBox(width: 6),
+                Text(phone, style: TextStyle(color: AppTheme.textSecondary)),
+              ],
+            ),
           const SizedBox(height: 16),
           Text(
             AppStrings.of(context).patientRecordsDetails,
@@ -3031,7 +3217,9 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             patientFound
-                ? 'Patient found, no clinical records or prior uploads'
+                ? s.lookup(
+                    's4.lib.patient_records.patient_found_no_clinical_records_or_prior_uploads',
+                  )
                 : hasSearch
                 ? s.patientRecordsNoFound
                 : s.patientRecordsEmpty,
