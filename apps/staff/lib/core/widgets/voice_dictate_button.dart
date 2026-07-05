@@ -42,9 +42,30 @@ class VoiceDictateButton extends StatefulWidget {
 
 class _VoiceDictateButtonState extends State<VoiceDictateButton> {
   bool _busy = false;
+  VoiceDictationAvailability? _availability;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAvailability());
+  }
+
+  Future<void> _loadAvailability() async {
+    try {
+      final availability = await VoiceDictationService.fetchAvailability();
+      if (mounted) setState(() => _availability = availability);
+    } catch (_) {
+      // Press-time policy checks still surface the concrete error. A failed
+      // discovery request should not permanently hide a mic after transient
+      // network/auth refresh issues.
+    }
+  }
+
+  bool get _disabledByConfig =>
+      _availability != null && !_availability!.canDictate;
 
   Future<void> _start() async {
-    if (_busy) return;
+    if (_busy || _disabledByConfig) return;
     final strings = AppStrings.of(context);
     final textDirection = Directionality.of(context);
     final view = View.of(context);
@@ -146,6 +167,10 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final tooltip = _disabledByConfig
+        ? strings.voiceDictateNotConfiguredTooltip
+        : (widget.tooltip ?? strings.voiceDictateTooltip);
     return IconButton(
       icon: _busy
           ? const SizedBox(
@@ -154,9 +179,9 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : const Icon(Icons.mic_none),
-      tooltip: widget.tooltip ?? AppStrings.of(context).voiceDictateTooltip,
+      tooltip: tooltip,
       color: AppTheme.primaryBlue,
-      onPressed: _busy ? null : _start,
+      onPressed: _busy || _disabledByConfig ? null : _start,
     );
   }
 }

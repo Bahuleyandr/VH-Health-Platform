@@ -801,6 +801,8 @@ class AppStrings {
 
   // ── Voice dictation ────────────────────────────────────────────────
   String get voiceDictateTooltip => _t('voice_dictate.tooltip');
+  String get voiceDictateNotConfiguredTooltip =>
+      _t('voice_dictate.not_configured_tooltip');
   String get voiceDictateRecording => _t('voice_dictate.recording');
   String get voiceDictateStop => _t('voice_dictate.stop');
   String get voiceDictateTranscribing => _t('voice_dictate.transcribing');
@@ -3760,6 +3762,7 @@ class AppStrings {
       'patient_picker.empty': 'No patient matches yet - keep typing.',
       // Voice dictation
       'voice_dictate.tooltip': 'Dictate (voice → text)',
+      'voice_dictate.not_configured_tooltip': 'Dictation not configured',
       'voice_dictate.recording': 'Dictating…',
       'voice_dictate.stop': 'Stop & Transcribe',
       'voice_dictate.transcribing': 'Transcribing…',
@@ -8790,6 +8793,7 @@ class AppStrings {
       'patient_picker.empty': 'अभी कोई मेल नहीं मिला - टाइप करना जारी रखें।',
       // Voice dictation
       'voice_dictate.tooltip': 'बोलकर लिखें',
+      'voice_dictate.not_configured_tooltip': 'डिक्टेशन कॉन्फ़िगर नहीं है',
       'voice_dictate.recording': 'रिकॉर्ड हो रहा है…',
       'voice_dictate.stop': 'रोकें और लिखें',
       'voice_dictate.transcribing': 'टेक्स्ट में बदल रहा है…',
@@ -13864,6 +13868,7 @@ class AppStrings {
       'patient_picker.empty':
           'இன்னும் நோயாளி பொருத்தங்கள் இல்லை - தொடர்ந்து தட்டச்சு செய்.',
       'voice_dictate.tooltip': 'குரல் → உரை',
+      'voice_dictate.not_configured_tooltip': 'டிக்டேஷன் அமைக்கப்படவில்லை',
       'voice_dictate.recording': 'பதிவு செய்கிறது…',
       'voice_dictate.stop': 'நிறுத்து & எழுது',
       'voice_dictate.transcribing': 'உரையாக்குகிறது…',
@@ -19566,6 +19571,7 @@ class AppStrings {
       'patient_picker.empty':
           'ఇంకా రోగి సరిపోలికలు లేవు - టైప్ చేయడం కొనసాగించండి.',
       'voice_dictate.tooltip': 'వాయిస్ → టెక్స్ట్',
+      'voice_dictate.not_configured_tooltip': 'డిక్టేషన్ కాన్ఫిగర్ చేయబడలేదు',
       'voice_dictate.recording': 'రికార్డ్ అవుతోంది…',
       'voice_dictate.stop': 'ఆపండి & ట్రాన్స్క్రైబ్',
       'voice_dictate.transcribing': 'ట్రాన్స్క్రైబ్ అవుతోంది…',

@@ -7,6 +7,36 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 
+class VoiceDictationAvailability {
+  final bool configured;
+  final String? reason;
+  final String? provider;
+  final bool voiceNoteAllowed;
+  final String? voiceNoteBlockingReason;
+
+  const VoiceDictationAvailability({
+    required this.configured,
+    required this.voiceNoteAllowed,
+    this.reason,
+    this.provider,
+    this.voiceNoteBlockingReason,
+  });
+
+  bool get canDictate => configured && voiceNoteAllowed;
+
+  factory VoiceDictationAvailability.fromJson(Map<String, dynamic> data) {
+    final voiceNote = data['voice_note'];
+    final voiceNoteMap = voiceNote is Map ? voiceNote : const {};
+    return VoiceDictationAvailability(
+      configured: data['configured'] == true,
+      reason: data['reason']?.toString(),
+      provider: data['provider']?.toString(),
+      voiceNoteAllowed: voiceNoteMap['audio_capture_allowed'] != false,
+      voiceNoteBlockingReason: voiceNoteMap['blocking_reason']?.toString(),
+    );
+  }
+}
+
 /// Records audio from the microphone and uploads it to the backend's
 /// `/clinical/voice-note/transcribe` endpoint, returning the transcript
 /// text. Used by [VoiceDictateButton] to dictate into any [TextField].
@@ -66,6 +96,26 @@ class VoiceDictationService {
   }
 
   static Future<void> _assertCaptureAllowed() async {
+    final availability = await fetchAvailability();
+    if (!availability.configured) {
+      final reason = availability.reason;
+      throw Exception(
+        reason == null || reason.isEmpty
+            ? 'Voice dictation is not configured.'
+            : 'Voice dictation is not configured: $reason',
+      );
+    }
+    if (!availability.voiceNoteAllowed) {
+      final reason = availability.voiceNoteBlockingReason;
+      throw Exception(
+        reason == null || reason.isEmpty
+            ? 'Voice dictation is disabled for this tenant.'
+            : 'Voice dictation is disabled for this tenant: $reason',
+      );
+    }
+  }
+
+  static Future<VoiceDictationAvailability> fetchAvailability() async {
     // Routed through the shared, cert-pinned VHHttpClient (audit finding #14):
     // this is a policy check about an identified patient's clinical dictation,
     // so it must inherit the SPKI pin / shared auth rather than using a bare
@@ -82,27 +132,7 @@ class VoiceDictationService {
     if (data is! Map<String, dynamic>) {
       throw Exception('Voice dictation policy response missing data.');
     }
-    if (data['configured'] == false) {
-      final reason = data['reason']?.toString();
-      throw Exception(
-        reason == null || reason.isEmpty
-            ? 'Voice dictation is not configured.'
-            : 'Voice dictation is not configured: $reason',
-      );
-    }
-
-    final voiceNote = data['voice_note'];
-    if (voiceNote is Map<String, dynamic>) {
-      final allowed = voiceNote['audio_capture_allowed'] == true;
-      if (!allowed) {
-        final reason = voiceNote['blocking_reason']?.toString();
-        throw Exception(
-          reason == null || reason.isEmpty
-              ? 'Voice dictation is disabled for this tenant.'
-              : 'Voice dictation is disabled for this tenant: $reason',
-        );
-      }
-    }
+    return VoiceDictationAvailability.fromJson(data);
   }
 
   /// Stop recording, upload to backend, and return the transcript text.
