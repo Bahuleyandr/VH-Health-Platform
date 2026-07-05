@@ -733,6 +733,69 @@ void main() {
     );
   });
 
+  test('S4 Messaging copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/messaging/screens/messaging_inbox_screen.dart'),
+      File('lib/features/messaging/screens/messaging_thread_screen.dart'),
+    ];
+    final patterns = [
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('body', RegExp(r'''\bbody\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('message', RegExp(r'''\bmessage\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('tooltip', RegExp(r'''\btooltip\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'labelText',
+        RegExp(r'''\blabelText\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern('hintText', RegExp(r'''\bhintText\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'fallback display value',
+        RegExp(
+          r'''\b(?:name|department|partnerName|fileName)\s*:\s*(?:r)?(['"])(.*?)\1''',
+        ),
+      ),
+      _Pattern(
+        'snackbar validation',
+        RegExp(r'''_showError\(\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+    ];
+    final allowedPrefixes = [
+      'action.',
+      'clinical_inbox.',
+      'messaging.',
+      'priority.',
+      'profile.',
+      's4.dynamic.messaging.',
+      's4.lib.messaging_inbox.',
+      's4.lib.messaging_thread.',
+    ];
+
+    final hits = <String>[];
+    for (final file in files) {
+      hits.addAll(_literalHits(file, patterns));
+      hits.addAll(_interpolatedLiteralHits(file, patterns));
+    }
+
+    final keys = <String>{};
+    for (final file in files) {
+      keys.addAll(_appStringKeysFrom(file.readAsStringSync(), allowedPrefixes));
+    }
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 Messaging filters, empty states, snackbars, attachment statuses, '
+          'and receipt tooltips should use AppStrings keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 Messaging keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

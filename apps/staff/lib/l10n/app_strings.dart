@@ -5708,30 +5708,63 @@ class AppStrings {
           "Min 15 characters — describe the specific situation",
       's4.lib.mar_scan.select_a_category': "Select a category",
       's4.lib.messaging_inbox.admin_log': "Admin log",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - confirm PHI and admin wording before production.
+      's4.lib.messaging_inbox.active': "Active",
+      's4.lib.messaging_inbox.admin_log_empty_body':
+          "All staff messages will appear here for Admin/SuperAdmin review.",
+      's4.lib.messaging_inbox.all': "All",
+      's4.lib.messaging_inbox.all_staff': "All staff",
+      's4.lib.messaging_inbox.any_priority': "Any priority",
       's4.lib.messaging_inbox.archive': "Archive",
+      's4.lib.messaging_inbox.archived': "Archived",
       's4.lib.messaging_inbox.conversation_actions': "Conversation actions",
+      's4.lib.messaging_inbox.empty_body_team':
+          "Start a direct staff message or use a team announcement.",
       's4.lib.messaging_inbox.mark_unread': "Mark unread",
       's4.lib.messaging_inbox.mute_8h': "Mute 8h",
       's4.lib.messaging_inbox.no_matching_staff': "No matching staff",
+      's4.lib.messaging_inbox.no_message_text': "No message text",
+      's4.lib.messaging_inbox.no_staff_messages_logged':
+          "No staff messages logged",
+      's4.lib.messaging_inbox.one_staff': "One staff",
       's4.lib.messaging_inbox.restore': "Restore",
       's4.lib.messaging_inbox.restore_alerts': "Restore alerts",
       's4.lib.messaging_inbox.search_conversations': "Search conversations",
       's4.lib.messaging_inbox.search_staff': "Search staff",
+      's4.lib.messaging_inbox.select_at_least_one_staff':
+          "Select at least one staff member.",
+      's4.lib.messaging_inbox.select_department': "Select a department.",
+      's4.lib.messaging_inbox.select_one_staff': "Select one staff member.",
+      's4.lib.messaging_inbox.selected_team': "Selected team",
+      's4.lib.messaging_inbox.sending': "Sending...",
+      's4.lib.messaging_inbox.staff_conversation': "Staff conversation",
       's4.lib.messaging_inbox.subject': "Subject",
       's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
           "This will send one saved message to every active staff member.",
+      's4.lib.messaging_inbox.unassigned': "Unassigned",
+      's4.lib.messaging_inbox.unnamed_staff': "Unnamed staff",
       's4.lib.messaging_inbox.urgent_only': "Urgent only",
+      's4.lib.messaging_thread.attachment': "Attachment",
+      's4.lib.messaging_thread.attachment_sent': "Attachment sent",
       's4.lib.messaging_thread.attach_file': "Attach file",
       's4.lib.messaging_thread.copy': "Copy",
       's4.lib.messaging_thread.copy_clinical_message': "Copy clinical message?",
+      's4.lib.messaging_thread.copy_clinical_message_body':
+          "This message may contain patient-sensitive information. The clipboard will be cleared automatically after 60 seconds.",
       's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
           "Message copied — clipboard clears in 60 s",
+      's4.lib.messaging_thread.muted': "Muted",
+      's4.lib.messaging_thread.quarantined': "Quarantined",
+      's4.lib.messaging_thread.receipt_delivered': "Delivered",
+      's4.lib.messaging_thread.receipt_read': "Read",
       's4.lib.messaging_thread.reply_in_this_conversation':
           "Reply in this conversation",
+      's4.lib.messaging_thread.scan_clean': "Scan clean",
+      's4.lib.messaging_thread.scan_pending': "Scan pending",
+      's4.lib.messaging_thread.scan_unavailable': "Scan unavailable",
       's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
           "Send a first message before attaching a file.",
-      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
-          "This message may contain patient-sensitive information. ",
+      's4.lib.messaging_thread.urgent_alerts_only': "Urgent alerts only",
       's4.lib.notifications.refresh_alerts': "Refresh alerts",
       's4.lib.nursing_notes.all_notes': "All Notes",
       's4.lib.nursing_notes.draft_discarded': "Draft discarded",
@@ -6959,6 +6992,11 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} registered staff",
       's4.dynamic.lab_bookings.tests_prefix': "Tests: {tests}",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
+      's4.dynamic.messaging.attachment_failed': "Attachment failed: {error}",
+      's4.dynamic.messaging.attachment_sent_scan_status':
+          "Attachment sent; scan status: {status}",
+      's4.dynamic.messaging.download_failed': "Download failed: {error}",
       's4.dynamic.messaging.saved_to_path': "Saved to {path}",
       's4.dynamic.pharmacy.cancel_order_confirm': "Cancel order {orderNumber}?",
       's4.dynamic.pharmacy.formulary_count': "Formulary ({count})",
@@ -9848,31 +9886,64 @@ class AppStrings {
           "न्यूनतम 15 अक्षर - विशिष्ट स्थिति का वर्णन करें",
       's4.lib.mar_scan.select_a_category': "एक श्रेणी चुनें",
       's4.lib.messaging_inbox.admin_log': "व्यवस्थापक लॉग",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - confirm PHI and admin wording before production.
+      's4.lib.messaging_inbox.active': "सक्रिय",
+      's4.lib.messaging_inbox.admin_log_empty_body':
+          "सभी स्टाफ संदेश Admin/SuperAdmin समीक्षा के लिए यहां दिखाई देंगे।",
+      's4.lib.messaging_inbox.all': "सभी",
+      's4.lib.messaging_inbox.all_staff': "सभी स्टाफ",
+      's4.lib.messaging_inbox.any_priority': "कोई भी प्राथमिकता",
       's4.lib.messaging_inbox.archive': "पुरालेख",
+      's4.lib.messaging_inbox.archived': "संग्रहित",
       's4.lib.messaging_inbox.conversation_actions': "वार्तालाप क्रियाएँ",
+      's4.lib.messaging_inbox.empty_body_team':
+          "सीधा स्टाफ संदेश शुरू करें या टीम घोषणा का उपयोग करें।",
       's4.lib.messaging_inbox.mark_unread': "अपठित चिन्हित करो",
       's4.lib.messaging_inbox.mute_8h': "8 बजे म्यूट करें",
       's4.lib.messaging_inbox.no_matching_staff': "कोई मेल खाता स्टाफ नहीं",
+      's4.lib.messaging_inbox.no_message_text': "कोई संदेश पाठ नहीं",
+      's4.lib.messaging_inbox.no_staff_messages_logged':
+          "कोई स्टाफ संदेश दर्ज नहीं",
+      's4.lib.messaging_inbox.one_staff': "एक स्टाफ सदस्य",
       's4.lib.messaging_inbox.restore': "पुनर्स्थापित करना",
       's4.lib.messaging_inbox.restore_alerts': "अलर्ट पुनर्स्थापित करें",
       's4.lib.messaging_inbox.search_conversations': "वार्तालाप खोजें",
       's4.lib.messaging_inbox.search_staff': "खोज कर्मचारी",
+      's4.lib.messaging_inbox.select_at_least_one_staff':
+          "कम से कम एक स्टाफ सदस्य चुनें।",
+      's4.lib.messaging_inbox.select_department': "एक विभाग चुनें।",
+      's4.lib.messaging_inbox.select_one_staff': "एक स्टाफ सदस्य चुनें।",
+      's4.lib.messaging_inbox.selected_team': "चुनी हुई टीम",
+      's4.lib.messaging_inbox.sending': "भेजा जा रहा है...",
+      's4.lib.messaging_inbox.staff_conversation': "स्टाफ वार्तालाप",
       's4.lib.messaging_inbox.subject': "विषय",
       's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
           "यह प्रत्येक सक्रिय स्टाफ सदस्य को एक सहेजा गया संदेश भेजेगा।",
+      's4.lib.messaging_inbox.unassigned': "असाइन नहीं किया गया",
+      's4.lib.messaging_inbox.unnamed_staff': "नामहीन स्टाफ",
       's4.lib.messaging_inbox.urgent_only': "केवल अत्यावश्यक",
+      's4.lib.messaging_thread.attachment': "अटैचमेंट",
+      's4.lib.messaging_thread.attachment_sent': "अटैचमेंट भेजा गया",
       's4.lib.messaging_thread.attach_file': "फ़ाइल जोड़ें",
       's4.lib.messaging_thread.copy': "प्रतिलिपि",
       's4.lib.messaging_thread.copy_clinical_message':
           "नैदानिक ​​संदेश कॉपी करें?",
+      's4.lib.messaging_thread.copy_clinical_message_body':
+          "इस संदेश में रोगी-संवेदनशील जानकारी हो सकती है। क्लिपबोर्ड 60 सेकंड बाद अपने आप साफ़ हो जाएगा।",
       's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
           "संदेश कॉपी किया गया - क्लिपबोर्ड 60 सेकंड में साफ़ हो जाता है",
+      's4.lib.messaging_thread.muted': "म्यूट",
+      's4.lib.messaging_thread.quarantined': "क्वारंटीन",
+      's4.lib.messaging_thread.receipt_delivered': "डिलीवर हुआ",
+      's4.lib.messaging_thread.receipt_read': "पढ़ा गया",
       's4.lib.messaging_thread.reply_in_this_conversation':
           "इस वार्तालाप में उत्तर दें",
+      's4.lib.messaging_thread.scan_clean': "स्कैन साफ़",
+      's4.lib.messaging_thread.scan_pending': "स्कैन लंबित",
+      's4.lib.messaging_thread.scan_unavailable': "स्कैन उपलब्ध नहीं",
       's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
           "फ़ाइल संलग्न करने से पहले पहला संदेश भेजें.",
-      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
-          "इस संदेश में रोगी-संवेदनशील जानकारी हो सकती है।",
+      's4.lib.messaging_thread.urgent_alerts_only': "केवल अत्यावश्यक अलर्ट",
       's4.lib.notifications.refresh_alerts': "अलर्ट ताज़ा करें",
       's4.lib.nursing_notes.all_notes': "सभी नोट्स",
       's4.lib.nursing_notes.draft_discarded': "ड्राफ्ट खारिज कर दिया गया",
@@ -11099,6 +11170,11 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} पंजीकृत कर्मचारी",
       's4.dynamic.lab_bookings.tests_prefix': "परीक्षण: {tests}",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
+      's4.dynamic.messaging.attachment_failed': "अटैचमेंट विफल हुआ: {error}",
+      's4.dynamic.messaging.attachment_sent_scan_status':
+          "अटैचमेंट भेजा गया; स्कैन स्थिति: {status}",
+      's4.dynamic.messaging.download_failed': "डाउनलोड विफल हुआ: {error}",
       's4.dynamic.messaging.saved_to_path': "{path} में सहेजा गया",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "ऑर्डर रद्द करें {orderNumber}?",
@@ -14493,32 +14569,68 @@ class AppStrings {
           "குறைந்தபட்சம் 15 எழுத்துக்கள் - குறிப்பிட்ட சூழ்நிலையை விவரிக்கவும்",
       's4.lib.mar_scan.select_a_category': "ஒரு வகையைத் தேர்ந்தெடுக்கவும்",
       's4.lib.messaging_inbox.admin_log': "நிர்வாக பதிவு",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - confirm PHI and admin wording before production.
+      's4.lib.messaging_inbox.active': "செயலில்",
+      's4.lib.messaging_inbox.admin_log_empty_body':
+          "அனைத்து ஊழியர் செய்திகள் Admin/SuperAdmin மதிப்பாய்வுக்காக இங்கே தோன்றும்.",
+      's4.lib.messaging_inbox.all': "அனைத்தும்",
+      's4.lib.messaging_inbox.all_staff': "அனைத்து ஊழியர்கள்",
+      's4.lib.messaging_inbox.any_priority': "எந்த முன்னுரிமையும்",
       's4.lib.messaging_inbox.archive': "காப்பகம்",
+      's4.lib.messaging_inbox.archived': "காப்பகப்படுத்தப்பட்டது",
       's4.lib.messaging_inbox.conversation_actions': "உரையாடல் நடவடிக்கைகள்",
+      's4.lib.messaging_inbox.empty_body_team':
+          "நேரடி ஊழியர் செய்தியைத் தொடங்கவும் அல்லது குழு அறிவிப்பைப் பயன்படுத்தவும்.",
       's4.lib.messaging_inbox.mark_unread': "படிக்காததைக் குறிக்கவும்",
       's4.lib.messaging_inbox.mute_8h': "8 மணிநேரத்தை முடக்கு",
       's4.lib.messaging_inbox.no_matching_staff':
           "பொருந்தக்கூடிய ஊழியர்கள் இல்லை",
+      's4.lib.messaging_inbox.no_message_text': "செய்தி உரை இல்லை",
+      's4.lib.messaging_inbox.no_staff_messages_logged':
+          "ஊழியர் செய்திகள் பதிவு செய்யப்படவில்லை",
+      's4.lib.messaging_inbox.one_staff': "ஒரு ஊழியர்",
       's4.lib.messaging_inbox.restore': "மீட்டமை",
       's4.lib.messaging_inbox.restore_alerts': "விழிப்பூட்டல்களை மீட்டமை",
       's4.lib.messaging_inbox.search_conversations': "உரையாடல்களைத் தேடுங்கள்",
       's4.lib.messaging_inbox.search_staff': "தேடுதல் பணியாளர்கள்",
+      's4.lib.messaging_inbox.select_at_least_one_staff':
+          "குறைந்தது ஒரு ஊழியரைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.messaging_inbox.select_department':
+          "ஒரு துறையைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.messaging_inbox.select_one_staff':
+          "ஒரு ஊழியரைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.messaging_inbox.selected_team': "தேர்ந்தெடுக்கப்பட்ட குழு",
+      's4.lib.messaging_inbox.sending': "அனுப்பப்படுகிறது...",
+      's4.lib.messaging_inbox.staff_conversation': "ஊழியர் உரையாடல்",
       's4.lib.messaging_inbox.subject': "பொருள்",
       's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
           "இது ஒவ்வொரு செயலில் உள்ள ஊழியர்களுக்கும் ஒரு சேமித்த செய்தியை அனுப்பும்.",
+      's4.lib.messaging_inbox.unassigned': "ஒதுக்கப்படாதது",
+      's4.lib.messaging_inbox.unnamed_staff': "பெயரில்லா ஊழியர்",
       's4.lib.messaging_inbox.urgent_only': "அவசரம் மட்டுமே",
+      's4.lib.messaging_thread.attachment': "இணைப்பு",
+      's4.lib.messaging_thread.attachment_sent': "இணைப்பு அனுப்பப்பட்டது",
       's4.lib.messaging_thread.attach_file': "கோப்பை இணைக்கவும்",
       's4.lib.messaging_thread.copy': "நகலெடுக்கவும்",
       's4.lib.messaging_thread.copy_clinical_message':
           "மருத்துவ செய்தியை நகலெடுக்கவா?",
+      's4.lib.messaging_thread.copy_clinical_message_body':
+          "இந்த செய்தியில் நோயாளி-உணர்வுத் தகவல் இருக்கலாம். கிளிப்போர்டு 60 வினாடிகளுக்குப் பிறகு தானாக அழிக்கப்படும்.",
       's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
           "செய்தி நகலெடுக்கப்பட்டது - கிளிப்போர்டு 60 வினாடிகளில் அழிக்கப்படும்",
+      's4.lib.messaging_thread.muted': "ம்யூட் செய்யப்பட்டது",
+      's4.lib.messaging_thread.quarantined': "தனிமைப்படுத்தப்பட்டது",
+      's4.lib.messaging_thread.receipt_delivered': "வழங்கப்பட்டது",
+      's4.lib.messaging_thread.receipt_read': "படிக்கப்பட்டது",
       's4.lib.messaging_thread.reply_in_this_conversation':
           "இந்த உரையாடலில் பதிலளிக்கவும்",
+      's4.lib.messaging_thread.scan_clean': "ஸ்கேன் சுத்தம்",
+      's4.lib.messaging_thread.scan_pending': "ஸ்கேன் நிலுவையில்",
+      's4.lib.messaging_thread.scan_unavailable': "ஸ்கேன் கிடைக்கவில்லை",
       's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
           "கோப்பை இணைக்கும் முன் முதல் செய்தியை அனுப்பவும்.",
-      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
-          "இந்த செய்தியில் நோயாளி-உணர்வுத் தகவல் இருக்கலாம்.",
+      's4.lib.messaging_thread.urgent_alerts_only':
+          "அவசர எச்சரிக்கைகள் மட்டும்",
       's4.lib.notifications.refresh_alerts':
           "விழிப்பூட்டல்களைப் புதுப்பிக்கவும்",
       's4.lib.nursing_notes.all_notes': "அனைத்து குறிப்புகள்",
@@ -15811,6 +15923,13 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} பதிவு செய்யப்பட்ட ஊழியர்கள்",
       's4.dynamic.lab_bookings.tests_prefix': "சோதனைகள்: {tests}",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
+      's4.dynamic.messaging.attachment_failed':
+          "இணைப்பு தோல்வியடைந்தது: {error}",
+      's4.dynamic.messaging.attachment_sent_scan_status':
+          "இணைப்பு அனுப்பப்பட்டது; ஸ்கேன் நிலை: {status}",
+      's4.dynamic.messaging.download_failed':
+          "பதிவிறக்கம் தோல்வியடைந்தது: {error}",
       's4.dynamic.messaging.saved_to_path': "{path} இல் சேமிக்கப்பட்டது",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "{orderNumber} ஆர்டரை ரத்துசெய்யவா?",
@@ -19162,31 +19281,65 @@ class AppStrings {
           "కనిష్ట 15 అక్షరాలు — నిర్దిష్ట పరిస్థితిని వివరించండి",
       's4.lib.mar_scan.select_a_category': "వర్గాన్ని ఎంచుకోండి",
       's4.lib.messaging_inbox.admin_log': "అడ్మిన్ లాగ్",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - confirm PHI and admin wording before production.
+      's4.lib.messaging_inbox.active': "సక్రియం",
+      's4.lib.messaging_inbox.admin_log_empty_body':
+          "అన్ని సిబ్బంది సందేశాలు Admin/SuperAdmin సమీక్ష కోసం ఇక్కడ కనిపిస్తాయి.",
+      's4.lib.messaging_inbox.all': "అన్నీ",
+      's4.lib.messaging_inbox.all_staff': "అన్ని సిబ్బంది",
+      's4.lib.messaging_inbox.any_priority': "ఏ ప్రాధాన్యతైనా",
       's4.lib.messaging_inbox.archive': "ఆర్కైవ్",
+      's4.lib.messaging_inbox.archived': "ఆర్కైవ్ చేయబడింది",
       's4.lib.messaging_inbox.conversation_actions': "సంభాషణ చర్యలు",
+      's4.lib.messaging_inbox.empty_body_team':
+          "నేరుగా సిబ్బంది సందేశాన్ని ప్రారంభించండి లేదా బృంద ప్రకటనను ఉపయోగించండి.",
       's4.lib.messaging_inbox.mark_unread': "చదవనిదిగా గుర్తించండి",
       's4.lib.messaging_inbox.mute_8h': "8గం మ్యూట్ చేయండి",
       's4.lib.messaging_inbox.no_matching_staff': "సరిపోలే సిబ్బంది లేరు",
+      's4.lib.messaging_inbox.no_message_text': "సందేశ పాఠ్యం లేదు",
+      's4.lib.messaging_inbox.no_staff_messages_logged':
+          "సిబ్బంది సందేశాలు నమోదు కాలేదు",
+      's4.lib.messaging_inbox.one_staff': "ఒక సిబ్బంది",
       's4.lib.messaging_inbox.restore': "పునరుద్ధరించు",
       's4.lib.messaging_inbox.restore_alerts': "హెచ్చరికలను పునరుద్ధరించండి",
       's4.lib.messaging_inbox.search_conversations': "సంభాషణలను శోధించండి",
       's4.lib.messaging_inbox.search_staff': "శోధన సిబ్బంది",
+      's4.lib.messaging_inbox.select_at_least_one_staff':
+          "కనీసం ఒక సిబ్బందిని ఎంచుకోండి.",
+      's4.lib.messaging_inbox.select_department': "ఒక విభాగాన్ని ఎంచుకోండి.",
+      's4.lib.messaging_inbox.select_one_staff': "ఒక సిబ్బందిని ఎంచుకోండి.",
+      's4.lib.messaging_inbox.selected_team': "ఎంచుకున్న బృందం",
+      's4.lib.messaging_inbox.sending': "పంపుతోంది...",
+      's4.lib.messaging_inbox.staff_conversation': "సిబ్బంది సంభాషణ",
       's4.lib.messaging_inbox.subject': "విషయం",
       's4.lib.messaging_inbox.this_will_send_one_saved_message_to_every_active':
           "ఇది ప్రతి సక్రియ సిబ్బందికి ఒక సేవ్ చేయబడిన సందేశాన్ని పంపుతుంది.",
+      's4.lib.messaging_inbox.unassigned': "కేటాయించబడలేదు",
+      's4.lib.messaging_inbox.unnamed_staff': "పేరు లేని సిబ్బంది",
       's4.lib.messaging_inbox.urgent_only': "అత్యవసరం మాత్రమే",
+      's4.lib.messaging_thread.attachment': "అటాచ్‌మెంట్",
+      's4.lib.messaging_thread.attachment_sent': "అటాచ్‌మెంట్ పంపబడింది",
       's4.lib.messaging_thread.attach_file': "ఫైల్‌ని అటాచ్ చేయండి",
       's4.lib.messaging_thread.copy': "కాపీ చేయండి",
       's4.lib.messaging_thread.copy_clinical_message':
           "క్లినికల్ సందేశాన్ని కాపీ చేయాలా?",
+      's4.lib.messaging_thread.copy_clinical_message_body':
+          "ఈ సందేశం రోగికి సంబంధించిన సున్నితమైన సమాచారాన్ని కలిగి ఉండవచ్చు. క్లిప్‌బోర్డ్ 60 సెకన్ల తర్వాత స్వయంచాలకంగా క్లియర్ అవుతుంది.",
       's4.lib.messaging_thread.message_copied_clipboard_clears_in_60_s':
           "సందేశం కాపీ చేయబడింది — క్లిప్‌బోర్డ్ 60 సెకన్లలో క్లియర్ అవుతుంది",
+      's4.lib.messaging_thread.muted': "మ్యూట్ చేయబడింది",
+      's4.lib.messaging_thread.quarantined': "క్వారంటైన్ చేయబడింది",
+      's4.lib.messaging_thread.receipt_delivered': "డెలివర్ అయింది",
+      's4.lib.messaging_thread.receipt_read': "చదివారు",
       's4.lib.messaging_thread.reply_in_this_conversation':
           "ఈ సంభాషణలో ప్రత్యుత్తరం ఇవ్వండి",
+      's4.lib.messaging_thread.scan_clean': "స్కాన్ క్లీన్",
+      's4.lib.messaging_thread.scan_pending': "స్కాన్ పెండింగ్",
+      's4.lib.messaging_thread.scan_unavailable': "స్కాన్ అందుబాటులో లేదు",
       's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
           "ఫైల్‌ను అటాచ్ చేయడానికి ముందు మొదటి సందేశాన్ని పంపండి.",
-      's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor':
-          "ఈ సందేశం రోగికి సంబంధించిన సున్నితమైన సమాచారాన్ని కలిగి ఉండవచ్చు.",
+      's4.lib.messaging_thread.urgent_alerts_only':
+          "అత్యవసర హెచ్చరికలు మాత్రమే",
       's4.lib.notifications.refresh_alerts': "హెచ్చరికలను రిఫ్రెష్ చేయండి",
       's4.lib.nursing_notes.all_notes': "అన్ని గమనికలు",
       's4.lib.nursing_notes.draft_discarded': "డ్రాఫ్ట్ విస్మరించబడింది",
@@ -20455,6 +20608,12 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} నమోదిత సిబ్బంది",
       's4.dynamic.lab_bookings.tests_prefix': "పరీక్షలు: {tests}",
+      // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
+      's4.dynamic.messaging.attachment_failed':
+          "అటాచ్‌మెంట్ విఫలమైంది: {error}",
+      's4.dynamic.messaging.attachment_sent_scan_status':
+          "అటాచ్‌మెంట్ పంపబడింది; స్కాన్ స్థితి: {status}",
+      's4.dynamic.messaging.download_failed': "డౌన్‌లోడ్ విఫలమైంది: {error}",
       's4.dynamic.messaging.saved_to_path': "{path}కి సేవ్ చేయబడింది",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "ఆర్డర్ {orderNumber}ని రద్దు చేయాలా?",
