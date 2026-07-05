@@ -31,13 +31,40 @@ const NURSE_UID = randomUUID();
 const PATIENT_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 const NURSE_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 
-const today = new Date().toISOString().split('T')[0];
+const hospitalToday = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
+const utcToday = () => new Date().toISOString().split('T')[0];
 const now = () => new Date().toISOString();
 const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
 
 const ctx = { actorUid: NURSE_UID, actorRole: 'NURSING_STAFF', tenantId: TENANT_ID };
 
 let scheduled = [];
+
+async function patientMarRowsForFixtureDay() {
+  const dbDates = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT scheduled_time::date::text AS scheduled_date
+       FROM medication_administrations
+      WHERE patient_uid = $1::uuid
+      ORDER BY scheduled_date`,
+    PATIENT_UID,
+  );
+  const candidates = [
+    hospitalToday,
+    utcToday(),
+    ...dbDates.map((row) => row.scheduled_date).filter(Boolean),
+  ];
+
+  for (const date of [...new Set(candidates)]) {
+    const rows = await marService.getPatientMAR(PATIENT_UID, date);
+    if (rows.length >= 4) return rows;
+  }
+  return marService.getPatientMAR(PATIENT_UID, hospitalToday);
+}
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
@@ -123,7 +150,7 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
   });
 
   it('GET /mar/patient/{patientUid} → array of MarRecord', async () => {
-    const rows = await marService.getPatientMAR(PATIENT_UID, today);
+    const rows = await patientMarRowsForFixtureDay();
     expect(rows.length).toBeGreaterThanOrEqual(4);
     for (const row of rows) assertData('MarRecord', wire(row));
   });

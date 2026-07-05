@@ -161,16 +161,22 @@ void main() {
 
   test('auto-selects a strong catalog match', () {
     final decision = DictatedOrderParser.chooseCatalogMatch('paracetamol', [
-      DictatedCatalogCandidate(label: 'Paracetamol 650 mg', row: {'id': 1}),
-      DictatedCatalogCandidate(label: 'Pantoprazole 40 mg', row: {'id': 2}),
+      const DictatedCatalogCandidate(
+        label: 'Paracetamol 650 mg',
+        row: {'id': 1},
+      ),
+      const DictatedCatalogCandidate(
+        label: 'Pantoprazole 40 mg',
+        row: {'id': 2},
+      ),
     ]);
     expect(decision.autoSelected?.row['id'], 1);
   });
 
   test('does not auto-select ambiguous catalog names', () {
     final decision = DictatedOrderParser.chooseCatalogMatch('met', [
-      DictatedCatalogCandidate(label: 'Metformin 500 mg', row: {'id': 1}),
-      DictatedCatalogCandidate(label: 'Metoprolol 25 mg', row: {'id': 2}),
+      const DictatedCatalogCandidate(label: 'Metformin 500 mg', row: {'id': 1}),
+      const DictatedCatalogCandidate(label: 'Metoprolol 25 mg', row: {'id': 2}),
     ]);
     expect(decision.autoSelected, isNull);
     expect(decision.candidates, hasLength(2));
@@ -178,8 +184,14 @@ void main() {
 
   test('does not auto-select when same generic has multiple strengths', () {
     final decision = DictatedOrderParser.chooseCatalogMatch('paracetamol', [
-      DictatedCatalogCandidate(label: 'Paracetamol 500 mg', row: {'id': 1}),
-      DictatedCatalogCandidate(label: 'Paracetamol 650 mg', row: {'id': 2}),
+      const DictatedCatalogCandidate(
+        label: 'Paracetamol 500 mg',
+        row: {'id': 1},
+      ),
+      const DictatedCatalogCandidate(
+        label: 'Paracetamol 650 mg',
+        row: {'id': 2},
+      ),
     ]);
     expect(decision.autoSelected, isNull);
   });

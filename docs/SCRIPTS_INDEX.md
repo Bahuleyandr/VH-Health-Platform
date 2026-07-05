@@ -21,6 +21,11 @@ Run them from the repository root unless the script notes otherwise.
 | Script | Purpose | Run Context | Prerequisites | Failure Modes |
 | --- | --- | --- | --- | --- |
 | `apps/backend/scripts/qa-cluster-up.mjs` | Starts or verifies the local QA Postgres cluster, creates `vhhealth_test` and `qa_writer`, applies raw SQL migrations, and provisions RLS test roles. | First command before backend deep tests on this Windows host or local QA workflows. | Initialized PGDATA at the configured path, PostgreSQL binaries, free IPv4 port `55432`; run `ensure-test-db.mjs` first if PGDATA is missing. | Fails fast for missing PGDATA, non-UTF8 DB, bind/permission errors, migration failure, or role provisioning failure. Check the printed logfile tail. |
+| `apps/backend/scripts/smoke-voice-transcribe.mjs` | Operator smoke for the configurable OpenAI-compatible STT path; uploads a tiny local audio fixture, asserts a non-empty transcript, and records the configured `stt_provider`. | Local dictation/STT readiness check before enabling staff dictation against a local faster-whisper-compatible service. | `STT_PROVIDER=openai-compatible`, `STT_BASE_URL`, `STT_MODEL`, `STT_TIMEOUT_MS` at least `60000`; optional `STT_LANGUAGE`, `STT_PROMPT`, and `STT_API_KEY`. Pass an audio file path as the script argument. | Exits if STT remains `none`, the endpoint is unreachable, the response has an empty transcript, or the provider/model metadata does not round-trip. |
+
+The staff dictation default is intentionally `STT_PROVIDER=none`. Do not treat a
+green UI as proof of transcription readiness until the voice-transcribe smoke has
+passed against the exact local or staging STT endpoint planned for operators.
 
 ## Seed Family
 
