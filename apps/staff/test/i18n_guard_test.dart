@@ -1120,6 +1120,86 @@ void main() {
     },
   );
 
+  test('S4 bed board sheet copy stores keys with required locale entries', () {
+    final file = File('lib/features/beds/screens/bed_board_screen.dart');
+    final source = file.readAsStringSync();
+    final keys = <String>{
+      'bed_board.load_wards_failed',
+      'bed_board.server_unreachable',
+      'bed_board.semantic.has_notes',
+      'bed_board.semantic.view_details',
+      'bed_board.semantic.view_details_edit_notes',
+      'bed_sheet.action.case_sheet',
+      'bed_sheet.action.discharge',
+      'bed_sheet.action.drug_chart',
+      'bed_sheet.admit_failed',
+      'bed_sheet.bed_marked_available',
+      'bed_sheet.discharge_failed',
+      'bed_sheet.field.assigned_cleaning',
+      'bed_sheet.field.hospital_id',
+      'bed_sheet.load_available_beds_failed',
+      'bed_sheet.mark_ready_failed',
+      'bed_sheet.missing_bed_id_cannot_save_notes',
+      'bed_sheet.patient_search_failed',
+      'bed_sheet.patient_uid_missing_cannot_transfer_bed',
+      'bed_sheet.save_failed',
+      'bed_sheet.save_notes_failed',
+      'bed_sheet.section.housekeeping',
+      'bed_sheet.status_change_failed',
+      'bed_sheet.target_bed_missing',
+      'bed_sheet.transfer_failed',
+      's4.dynamic.bed_board.cleaning_assignee',
+      's4.dynamic.bed_board.semantic.cleaning_assigned_to',
+      's4.dynamic.bed_board.semantic.hospital_id',
+      's4.dynamic.bed_board.semantic.patient',
+      's4.dynamic.bed_sheet.quick_action_for_patient',
+      's4.dynamic.bed_sheet.quick_action_hint',
+    };
+
+    final rawFragments = [
+      "'Cleaning: \$",
+      "'Housekeeping'",
+      "'Assigned cleaning'",
+      "'Hospital ID'",
+      "'Case Sheet'",
+      "'Drug Chart'",
+      "label: 'Discharge'",
+      "'Opens the",
+      "'Double tap",
+      "'has notes'",
+      "'cleaning assigned",
+      "'discharge initiated'",
+      "'Bed id missing",
+      "'Failed to save",
+      "'Could not connect to server'",
+      "'Status change failed'",
+      "'Bed marked available'",
+      "'Could not mark ready'",
+      "'Discharge failed'",
+      "'Patient UID missing",
+      "'Target bed id missing'",
+      "'Transfer failed'",
+      "'Admit failed'",
+      "'Failed to load available beds'",
+      "'Search failed'",
+      "'Ward \$",
+    ];
+
+    for (final rawCopy in rawFragments) {
+      expect(
+        source,
+        isNot(contains(rawCopy)),
+        reason: 'S4 bed board display copy should use AppStrings: $rawCopy',
+      );
+    }
+
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 bed board sheet keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',
