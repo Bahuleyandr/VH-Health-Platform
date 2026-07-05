@@ -31,7 +31,12 @@ const NURSE_UID = randomUUID();
 const PATIENT_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 const NURSE_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 
-const today = new Date().toISOString().split('T')[0];
+const today = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 const now = () => new Date().toISOString();
 const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
 
