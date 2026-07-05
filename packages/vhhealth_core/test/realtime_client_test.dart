@@ -185,6 +185,44 @@ void main() {
     },
   );
 
+  test('disconnect during 4001 refresh suppresses delayed reconnect', () async {
+    final harness = await _WsHarness.start(acceptFreshToken: true);
+    addTearDown(harness.close);
+    RealtimeClient.setWsUrlForTesting(harness.wsUrl);
+    await AuthService.setJwt('expired-access');
+    await AuthService.setRefreshToken('refresh-token');
+
+    final refreshStarted = Completer<void>();
+    final releaseRefresh = Completer<void>();
+    var refreshCalls = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        refreshCalls++;
+        if (!refreshStarted.isCompleted) refreshStarted.complete();
+        await releaseRefresh.future;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'accessToken': 'fresh-access'},
+          }),
+          HttpStatus.ok,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await RealtimeClient.instance.connect();
+    await refreshStarted.future.timeout(const Duration(seconds: 3));
+
+    await RealtimeClient.instance.disconnect();
+    releaseRefresh.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+
+    expect(refreshCalls, 1);
+    expect(harness.authTokens, ['expired-access']);
+    expect(RealtimeClient.instance.isConnected, isFalse);
+  });
+
   test('4001 refresh failure clears tokens and stops reconnecting', () async {
     final harness = await _WsHarness.start(acceptFreshToken: false);
     addTearDown(harness.close);
