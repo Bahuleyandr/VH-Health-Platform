@@ -19,57 +19,57 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
 
   static const _rosters = [
     _RosterHubItem(
-      title: 'Doctor roster',
-      subtitle: 'Duty doctors and medical cover',
+      titleKey: 's4.lib.staff_roster_hub.doctor_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.doctor_roster_subtitle',
       department: 'medical',
       icon: Icons.medical_services_outlined,
       color: Color(0xFF0D47A1),
     ),
     _RosterHubItem(
-      title: 'Nursing roster',
-      subtitle: 'Ward, ICU, ER, and floor nursing teams',
+      titleKey: 's4.lib.staff_roster_hub.nursing_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.nursing_roster_subtitle',
       department: 'nursing',
       icon: Icons.assignment_ind_outlined,
       color: Color(0xFF00695C),
     ),
     _RosterHubItem(
-      title: 'OP nursing roster',
-      subtitle: 'OP counters, procedure rooms, and clinic support',
+      titleKey: 's4.lib.staff_roster_hub.op_nursing_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.op_nursing_roster_subtitle',
       department: 'op_nursing',
       icon: Icons.event_note_outlined,
       color: Color(0xFF00838F),
     ),
     _RosterHubItem(
-      title: 'Reception roster',
-      subtitle: 'Front desk, OPD, admission, and billing counters',
+      titleKey: 's4.lib.staff_roster_hub.reception_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.reception_roster_subtitle',
       department: 'reception',
       icon: Icons.support_agent_outlined,
       color: Color(0xFF455A64),
     ),
     _RosterHubItem(
-      title: 'Housekeeping roster',
-      subtitle: 'Floor and zone cleaning deployment',
+      titleKey: 's4.lib.staff_roster_hub.housekeeping_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.housekeeping_roster_subtitle',
       department: 'housekeeping',
       icon: Icons.cleaning_services_outlined,
       color: Color(0xFF007A64),
     ),
     _RosterHubItem(
-      title: 'Maintenance roster',
-      subtitle: 'Electrical, biomedical, and facility cover',
+      titleKey: 's4.lib.staff_roster_hub.maintenance_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.maintenance_roster_subtitle',
       department: 'maintenance',
       icon: Icons.engineering_outlined,
       color: Color(0xFFF9A825),
     ),
     _RosterHubItem(
-      title: 'Pharmacy roster',
-      subtitle: 'Dispensing, IP pharmacy, and handover cover',
+      titleKey: 's4.lib.staff_roster_hub.pharmacy_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.pharmacy_roster_subtitle',
       department: 'pharmacy',
       icon: Icons.local_pharmacy_outlined,
       color: Color(0xFFE65100),
     ),
     _RosterHubItem(
-      title: 'Driver roster',
-      subtitle: 'Ambulance and transport duty deployment',
+      titleKey: 's4.lib.staff_roster_hub.driver_roster',
+      subtitleKey: 's4.lib.staff_roster_hub.driver_roster_subtitle',
       department: 'ambulance',
       icon: Icons.local_shipping_outlined,
       color: Color(0xFF5D4037),
@@ -92,8 +92,8 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
     if (RoleFeatures.hasStaffOnboarding(_role)) {
       actions.add(
         const _StaffHubAction(
-          title: 'Staff onboarding',
-          subtitle: 'Create staff accounts, assign roles, and set departments',
+          titleKey: 'role.feature.staff_management',
+          subtitleKey: 's4.lib.staff_roster_hub.staff_onboarding_subtitle',
           route: '/staff-management',
           icon: Icons.manage_accounts_outlined,
           color: Color(0xFF4527A0),
@@ -104,8 +104,8 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
         _role == StaffRole.medicalSuperintendent) {
       actions.add(
         const _StaffHubAction(
-          title: 'Staff directory',
-          subtitle: 'Search staff by name, role, department, or employee ID',
+          titleKey: 'role.feature.staff_directory',
+          subtitleKey: 's4.lib.staff_roster_hub.staff_directory_subtitle',
           route: '/staff-directory',
           icon: Icons.people_outline,
           color: Color(0xFF455A64),
@@ -128,8 +128,9 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
   Widget build(BuildContext context) {
     final staffRecordActions = _staffRecordActions;
     final visibleRosters = _visibleRosters;
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Staff Roster',
+      title: s.lookup('role.feature.staff_roster'),
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 760;
@@ -137,7 +138,9 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               if (staffRecordActions.isNotEmpty) ...[
-                const _SectionLabel(text: 'Staff records'),
+                const _SectionLabel(
+                  textKey: 's4.lib.staff_roster_hub.staff_records',
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 12,
@@ -156,7 +159,9 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
                 ),
                 const SizedBox(height: 18),
               ],
-              const _SectionLabel(text: 'Department rosters'),
+              const _SectionLabel(
+                textKey: 's4.lib.staff_roster_hub.department_rosters',
+              ),
               const SizedBox(height: 10),
               _HeaderCard(isWide: isWide),
               const SizedBox(height: 14),
@@ -187,13 +192,13 @@ class _StaffRosterHubScreenState extends State<StaffRosterHubScreen> {
 }
 
 class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel({required this.text});
+  final String textKey;
+  const _SectionLabel({required this.textKey});
 
   @override
   Widget build(BuildContext context) {
     return Text(
-      text,
+      AppStrings.of(context).lookup(textKey),
       style: TextStyle(
         color: AppTheme.textSecondary,
         fontSize: 13,
@@ -318,7 +323,7 @@ class _StaffActionTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    action.title,
+                    AppStrings.of(context).lookup(action.titleKey),
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontWeight: FontWeight.w800,
@@ -327,7 +332,7 @@ class _StaffActionTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    action.subtitle,
+                    AppStrings.of(context).lookup(action.subtitleKey),
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ],
@@ -374,7 +379,7 @@ class _RosterTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    item.title,
+                    AppStrings.of(context).lookup(item.titleKey),
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontWeight: FontWeight.w800,
@@ -383,7 +388,7 @@ class _RosterTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    item.subtitle,
+                    AppStrings.of(context).lookup(item.subtitleKey),
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ],
@@ -398,15 +403,15 @@ class _RosterTile extends StatelessWidget {
 }
 
 class _StaffHubAction {
-  final String title;
-  final String subtitle;
+  final String titleKey;
+  final String subtitleKey;
   final String route;
   final IconData icon;
   final Color color;
 
   const _StaffHubAction({
-    required this.title,
-    required this.subtitle,
+    required this.titleKey,
+    required this.subtitleKey,
     required this.route,
     required this.icon,
     required this.color,
@@ -414,15 +419,15 @@ class _StaffHubAction {
 }
 
 class _RosterHubItem {
-  final String title;
-  final String subtitle;
+  final String titleKey;
+  final String subtitleKey;
   final String department;
   final IconData icon;
   final Color color;
 
   const _RosterHubItem({
-    required this.title,
-    required this.subtitle,
+    required this.titleKey,
+    required this.subtitleKey,
     required this.department,
     required this.icon,
     required this.color,

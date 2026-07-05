@@ -94,6 +94,28 @@ void main() {
   });
 
   group('StaffRole.rosterDepartment', () {
+    test('display and roster label keys resolve through AppStrings', () {
+      for (final role in StaffRole.values) {
+        expect(strings.lookup(role.displayNameKey), isNot(role.displayNameKey));
+        expect(role.displayNameKey, startsWith('role.display.'));
+      }
+
+      expect(
+        strings.lookup(StaffRole.nurse.rosterDepartmentLabelKey),
+        'Nursing',
+      );
+      expect(
+        strings.lookup(
+          StaffRole.rosterDepartmentLabelKeyFor('stores_purchase'),
+        ),
+        'Stores / Purchase',
+      );
+      expect(
+        strings.lookup(StaffRole.rosterDepartmentLabelKeyFor(null)),
+        'Not configured',
+      );
+    });
+
     test('maps normal staff roles to their own roster department only', () {
       expect(StaffRole.nurse.rosterDepartment, 'nursing');
       expect(StaffRole.nursingIncharge.rosterDepartment, 'nursing');

@@ -3214,23 +3214,29 @@ class _FrontOfficeWorkbenchScreenState
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
+    final s = AppStrings.of(context);
     if (!_roleLoaded) {
-      return const StaffScaffold(
-        title: 'Front Office',
-        body: Center(child: CircularProgressIndicator()),
+      return StaffScaffold(
+        title: s.lookup('role.feature.front_office_workbench'),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (!RoleFeatures.hasFrontOfficeWorkbench(_role)) {
       return StaffScaffold(
-        title: 'Front Office',
+        title: s.lookup('role.feature.front_office_workbench'),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             _buildUnavailablePanel(
               icon: Icons.lock_outline,
-              title: 'Front Office unavailable',
-              message: 'Front Office is not enabled for ${_role.displayName}.',
+              title: s.lookup(
+                's4.lib.front_office_workbench.front_office_unavailable',
+              ),
+              message: s.format(
+                's4.dynamic.front_office.not_enabled_for_role',
+                {'role': s.lookup(_role.displayNameKey)},
+              ),
             ),
           ],
         ),
@@ -3239,31 +3245,34 @@ class _FrontOfficeWorkbenchScreenState
 
     if (!mode.isWorkbench) {
       return StaffScaffold(
-        title: 'Front Office',
+        title: s.lookup('role.feature.front_office_workbench'),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             _buildUnavailablePanel(
               icon: Icons.devices_outlined,
-              title: 'Workstation mode required',
-              message:
-                  'Patient search, OP booking, admissions, billing, and clinical entry open on tablet or desktop workstations.',
+              title: s.lookup(
+                's4.lib.front_office_workbench.workstation_mode_required',
+              ),
+              message: s.lookup(
+                's4.lib.front_office_workbench.workstation_mode_required_message',
+              ),
               actions: [
                 _ActionTile(
                   icon: Icons.schedule_outlined,
-                  label: 'Roster',
+                  label: s.lookup('role.feature.schedule'),
                   color: AppTheme.primaryTeal,
                   onTap: () => context.push('/schedule'),
                 ),
                 _ActionTile(
                   icon: Icons.event_available_outlined,
-                  label: 'Leave',
+                  label: s.lookup('role.feature.leave'),
                   color: AppTheme.primaryBlue,
                   onTap: () => context.push('/leave'),
                 ),
                 _ActionTile(
                   icon: Icons.person_outline,
-                  label: 'Profile',
+                  label: s.lookup('role.feature.profile'),
                   color: AppTheme.warningAmber,
                   onTap: () => context.push('/profile'),
                 ),
@@ -3275,7 +3284,7 @@ class _FrontOfficeWorkbenchScreenState
     }
 
     return StaffScaffold(
-      title: 'Front Office Workbench',
+      title: s.lookup('s4.lib.front_office_workbench.front_office_workbench'),
       body: RefreshIndicator(
         onRefresh: _refreshWorklists,
         child: LayoutBuilder(
@@ -3395,7 +3404,7 @@ class _FrontOfficeWorkbenchScreenState
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 Text(
-                  _role.displayName,
+                  s.lookup(_role.displayNameKey),
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],
@@ -3591,6 +3600,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildPatientPanel() {
+    final s = AppStrings.of(context);
     final selected = _selectedPatient;
     final createOffer = frontOfficeShouldOfferPatientCreate(
       role: _role,
@@ -3608,7 +3618,7 @@ class _FrontOfficeWorkbenchScreenState
         children: [
           _SectionTitle(
             icon: Icons.manage_search,
-            title: 'Patient',
+            title: s.lookup('bed_sheet.section.patient'),
             trailing: Wrap(
               spacing: 8,
               children: [
@@ -3696,7 +3706,10 @@ class _FrontOfficeWorkbenchScreenState
             ],
           ] else
             Text(
-              'Patient lookup is not enabled for ${_role.displayName}.',
+              s.format(
+                's4.dynamic.front_office.patient_lookup_not_enabled_for_role',
+                {'role': s.lookup(_role.displayNameKey)},
+              ),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           if (selected != null) ...[
@@ -3732,7 +3745,10 @@ class _FrontOfficeWorkbenchScreenState
               frontOfficeLookupQueryReady(_searchCtrl.text)) ...[
             const SizedBox(height: 10),
             Text(
-              'No patient found. ${_role.displayName} can search, but cannot create patient registry entries.',
+              s.format(
+                's4.dynamic.front_office.no_patient_found_read_only_role',
+                {'role': s.lookup(_role.displayNameKey)},
+              ),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],

@@ -743,6 +743,7 @@ class _AccessPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
@@ -762,7 +763,9 @@ class _AccessPanel extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Current role: ${role.displayName}',
+              s.format('s4.dynamic.reports_admin_queue.current_role', {
+                'role': s.lookup(role.displayNameKey),
+              }),
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textSecondary),
             ),

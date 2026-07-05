@@ -1091,6 +1091,7 @@ class _AccessRestrictedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1113,7 +1114,9 @@ class _AccessRestrictedPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'This OP clinical decision-support workspace is available to doctors, duty doctors, and the medical superintendent. ${role.displayName} can continue using the Clinical AI review queue where permitted.',
+              s.format('s4.dynamic.op_ai_assist.unavailable_for_role', {
+                'role': s.lookup(role.displayNameKey),
+              }),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 12),

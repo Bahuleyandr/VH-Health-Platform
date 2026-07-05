@@ -178,46 +178,7 @@ enum StaffRole {
     );
   }
 
-  String get displayName => switch (this) {
-    StaffRole.doctor => 'Doctor',
-    StaffRole.dutyDoctor => 'Duty Doctor',
-    StaffRole.anaesthetist => 'Anaesthetist',
-    StaffRole.medicalSuperintendent => 'Medical Superintendent',
-    StaffRole.nursingSuperintendent => 'Nursing Superintendent',
-    StaffRole.nurse => 'Nurse',
-    StaffRole.nursingIncharge => 'Nursing Incharge',
-    StaffRole.opStaffNurse => 'OP Staff Nurse',
-    StaffRole.opIncharge => 'OP Incharge',
-    StaffRole.ipStaffNurse => 'IP Staff Nurse',
-    StaffRole.ipIncharge => 'IP Incharge',
-    StaffRole.otNurse => 'OT Nurse',
-    StaffRole.otIncharge => 'OT Incharge',
-    StaffRole.cathLabStaff => 'Cath Lab Staff',
-    StaffRole.cathLabIncharge => 'Cath Lab Incharge',
-    StaffRole.hr => 'HR Staff',
-    StaffRole.admin => 'Admin',
-    StaffRole.superAdmin => 'Super Admin',
-    StaffRole.pharmacy => 'Pharmacy',
-    StaffRole.pharmacyIncharge => 'Pharmacy Incharge',
-    StaffRole.storesPurchaseIncharge => 'Stores / Purchase Incharge',
-    StaffRole.lab => 'Lab Technician',
-    StaffRole.radiologyStaff => 'Radiology Staff',
-    StaffRole.housekeeping => 'Housekeeping',
-    StaffRole.housekeepingIncharge => 'Housekeeping Incharge',
-    StaffRole.receptionist => 'Receptionist',
-    StaffRole.receptionIncharge => 'Reception Incharge',
-    StaffRole.billingStaff => 'Billing Staff',
-    StaffRole.billingIncharge => 'Billing Incharge',
-    StaffRole.financeIncharge => 'Finance Incharge',
-    StaffRole.admissionOfficer => 'Admission Officer',
-    StaffRole.insuranceCoordinator => 'Insurance Coordinator',
-    StaffRole.ipdCounsellor => 'IPD Counsellor',
-    StaffRole.driver => 'Driver',
-    StaffRole.security => 'Security',
-    StaffRole.emergencyResponder => 'Emergency Responder',
-    StaffRole.maintenance => 'Maintenance',
-    StaffRole.general => 'Staff',
-  };
+  String get displayNameKey => 'role.display.${value.toLowerCase()}';
 
   Color get badgeColor => switch (this) {
     StaffRole.doctor => const Color(0xFF1565C0),
@@ -299,21 +260,25 @@ enum StaffRole {
     StaffRole.general => null,
   };
 
-  String get rosterDepartmentLabel => switch (rosterDepartment) {
-    'medical' => 'Duty Doctors',
-    'nursing' => 'Nursing',
-    'op_nursing' => 'OP Staff Nursing',
-    'ot_nursing' => 'OT Nursing',
-    'cath_lab' => 'Cath Lab',
-    'pharmacy' => 'Pharmacy',
-    'stores_purchase' => 'Stores / Purchase',
-    'housekeeping' => 'Housekeeping',
-    'reception' => 'Reception',
-    'billing' => 'Billing',
-    'ambulance' => 'Ambulance / Drivers',
-    'maintenance' => 'Maintenance',
-    _ => 'Not configured',
-  };
+  String get rosterDepartmentLabelKey =>
+      rosterDepartmentLabelKeyFor(rosterDepartment);
+
+  static String rosterDepartmentLabelKeyFor(String? department) =>
+      switch (department) {
+        'medical' => 'role.roster_department.medical',
+        'nursing' => 'role.roster_department.nursing',
+        'op_nursing' => 'role.roster_department.op_nursing',
+        'ot_nursing' => 'role.roster_department.ot_nursing',
+        'cath_lab' => 'role.roster_department.cath_lab',
+        'pharmacy' => 'role.roster_department.pharmacy',
+        'stores_purchase' => 'role.roster_department.stores_purchase',
+        'housekeeping' => 'role.roster_department.housekeeping',
+        'reception' => 'role.roster_department.reception',
+        'billing' => 'role.roster_department.billing',
+        'ambulance' => 'role.roster_department.ambulance',
+        'maintenance' => 'role.roster_department.maintenance',
+        _ => 'role.roster_department.not_configured',
+      };
 }
 
 // ─── Dashboard Feature ──────────────────────────────────────────────────────
