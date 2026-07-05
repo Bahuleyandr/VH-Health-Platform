@@ -8,6 +8,7 @@ import '../../../core/models/composition_alternatives.dart';
 import '../../../core/platform_info.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -124,7 +125,9 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
       setState(() => _chart = chart);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(
+        () => _error = localizedApiErrorFromRaw(AppStrings.of(context), e),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }

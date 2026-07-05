@@ -3,6 +3,7 @@ import 'package:vhhealth_core/widgets/data_state_builder.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -430,7 +431,7 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+        ErrorToast.show(context, e.toString());
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -810,7 +811,7 @@ class _RecentNursingNotesTabState extends State<RecentNursingNotesTab> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = localizedApiErrorFromRaw(AppStrings.of(context), e);
       });
     } finally {
       if (mounted) {

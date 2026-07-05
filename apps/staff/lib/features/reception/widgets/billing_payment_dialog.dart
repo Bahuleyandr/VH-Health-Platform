@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../l10n/app_strings.dart';
 
 Future<bool> showBillingPaymentDialog({
@@ -18,6 +19,7 @@ Future<bool> showBillingPaymentDialog({
   final referenceCtrl = TextEditingController();
   final shiftCtrl = TextEditingController();
   final notesCtrl = TextEditingController();
+  final formKey = GlobalKey<FormState>();
   var mode = 'UPI';
   var saving = false;
   String? dialogError;
@@ -49,28 +51,13 @@ Future<bool> showBillingPaymentDialog({
 
           Future<void> collect() async {
             if (saving) return;
-            final amount = num.tryParse(amountCtrl.text.trim());
+            if (!(formKey.currentState?.validate() ?? false)) {
+              setDialogState(() => dialogError = null);
+              return;
+            }
+            final amount = num.parse(amountCtrl.text.trim());
             final reference = referenceCtrl.text.trim();
             final shift = shiftCtrl.text.trim();
-            if (amount == null || amount <= 0) {
-              setDialogState(() => dialogError = s.billingPaymentAmountError);
-              return;
-            }
-            if (amount > due + 0.01) {
-              setDialogState(
-                () =>
-                    dialogError = s.billingPaymentExceedsDue(billingMoney(due)),
-              );
-              return;
-            }
-            if (mode == 'CASH' && shift.isEmpty) {
-              setDialogState(() => dialogError = s.billingCashShiftRequired);
-              return;
-            }
-            if (mode != 'CASH' && reference.isEmpty) {
-              setDialogState(() => dialogError = s.billingReferenceRequired);
-              return;
-            }
 
             setDialogState(() {
               saving = true;
@@ -92,7 +79,7 @@ Future<bool> showBillingPaymentDialog({
               }
             } catch (e) {
               setDialogState(() {
-                dialogError = e.toString().replaceFirst('Exception: ', '');
+                dialogError = localizedApiErrorFromRaw(s, e);
                 saving = false;
               });
             }
@@ -104,113 +91,139 @@ Future<bool> showBillingPaymentDialog({
               content: SizedBox(
                 width: 520,
                 child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.receipt_long_outlined),
-                        title: Text(
-                          (invoice['invoice_number'] ?? '#$id').toString(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          s.billingOutstandingAmount(billingMoney(due)),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: amountCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        textInputAction: TextInputAction.next,
-                        onSubmitted: (_) => focusNextField(),
-                        decoration: InputDecoration(
-                          labelText: s.billingAmountLabel,
-                          prefixIcon: const Icon(Icons.currency_rupee),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: mode,
-                        decoration: InputDecoration(
-                          labelText: s.billingModeLabel,
-                          prefixIcon: const Icon(Icons.payments_outlined),
-                        ),
-                        items:
-                            const [
-                                  'UPI',
-                                  'CARD',
-                                  'NETBANKING',
-                                  'CHEQUE',
-                                  'DD',
-                                  'WALLET',
-                                  'CASH',
-                                ]
-                                .map(
-                                  (value) => DropdownMenuItem(
-                                    value: value,
-                                    child: Text(value),
-                                  ),
-                                )
-                                .toList(),
-                        onChanged: saving
-                            ? null
-                            : (value) =>
-                                  setDialogState(() => mode = value ?? mode),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: referenceCtrl,
-                        textInputAction: TextInputAction.next,
-                        onSubmitted: (_) => focusNextField(),
-                        decoration: InputDecoration(
-                          labelText: mode == 'CASH'
-                              ? s.billingReferenceOptional
-                              : s.billingTransactionReference,
-                          prefixIcon: const Icon(Icons.numbers_outlined),
-                        ),
-                      ),
-                      if (mode == 'CASH') ...[
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: shiftCtrl,
-                          textInputAction: TextInputAction.next,
-                          onSubmitted: (_) => focusNextField(),
-                          decoration: InputDecoration(
-                            labelText: s.billingCashierShiftLabel,
-                            prefixIcon: const Icon(
-                              Icons.point_of_sale_outlined,
-                            ),
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.receipt_long_outlined),
+                          title: Text(
+                            (invoice['invoice_number'] ?? '#$id').toString(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            s.billingOutstandingAmount(billingMoney(due)),
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: notesCtrl,
-                        keyboardType: TextInputType.text,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => collect(),
-                        onChanged: (value) =>
-                            handleNewline(notesCtrl, value, collect),
-                        minLines: 2,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          labelText: s.billingNotesLabel,
-                          prefixIcon: const Icon(Icons.notes_outlined),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: amountCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) => focusNextField(),
+                          decoration: InputDecoration(
+                            labelText: s.billingAmountLabel,
+                            prefixIcon: const Icon(Icons.currency_rupee),
+                          ),
+                          validator: (value) {
+                            final amount = num.tryParse(value?.trim() ?? '');
+                            if (amount == null || amount <= 0) {
+                              return s.billingPaymentAmountError;
+                            }
+                            if (amount > due + 0.01) {
+                              return s.billingPaymentExceedsDue(
+                                billingMoney(due),
+                              );
+                            }
+                            return null;
+                          },
                         ),
-                      ),
-                      if (dialogError != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          dialogError!,
-                          style: TextStyle(color: AppTheme.errorOnSurface),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: mode,
+                          decoration: InputDecoration(
+                            labelText: s.billingModeLabel,
+                            prefixIcon: const Icon(Icons.payments_outlined),
+                          ),
+                          items:
+                              const [
+                                    'UPI',
+                                    'CARD',
+                                    'NETBANKING',
+                                    'CHEQUE',
+                                    'DD',
+                                    'WALLET',
+                                    'CASH',
+                                  ]
+                                  .map(
+                                    (value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(value),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: saving
+                              ? null
+                              : (value) => setDialogState(() {
+                                  mode = value ?? mode;
+                                  dialogError = null;
+                                }),
                         ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: referenceCtrl,
+                          textInputAction: TextInputAction.next,
+                          onFieldSubmitted: (_) => focusNextField(),
+                          decoration: InputDecoration(
+                            labelText: mode == 'CASH'
+                                ? s.billingReferenceOptional
+                                : s.billingTransactionReference,
+                            prefixIcon: const Icon(Icons.numbers_outlined),
+                          ),
+                          validator: (value) {
+                            if (mode == 'CASH') return null;
+                            return (value ?? '').trim().isEmpty
+                                ? s.billingReferenceRequired
+                                : null;
+                          },
+                        ),
+                        if (mode == 'CASH') ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: shiftCtrl,
+                            textInputAction: TextInputAction.next,
+                            onFieldSubmitted: (_) => focusNextField(),
+                            decoration: InputDecoration(
+                              labelText: s.billingCashierShiftLabel,
+                              prefixIcon: const Icon(
+                                Icons.point_of_sale_outlined,
+                              ),
+                            ),
+                            validator: (value) => (value ?? '').trim().isEmpty
+                                ? s.billingCashShiftRequired
+                                : null,
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: notesCtrl,
+                          keyboardType: TextInputType.text,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => collect(),
+                          onChanged: (value) =>
+                              handleNewline(notesCtrl, value, collect),
+                          minLines: 2,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: s.billingNotesLabel,
+                            prefixIcon: const Icon(Icons.notes_outlined),
+                          ),
+                        ),
+                        if (dialogError != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            dialogError!,
+                            style: TextStyle(color: AppTheme.errorOnSurface),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),

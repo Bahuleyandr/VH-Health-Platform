@@ -6,6 +6,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/leave_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../l10n/app_strings.dart';
@@ -51,6 +52,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   String? _selectedReplacementId;
   String? _selectedReplacementName;
   bool _submitting = false;
+  String? _applyValidationError;
 
   @override
   void initState() {
@@ -110,7 +112,7 @@ class _LeaveScreenState extends State<LeaveScreen>
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString().replaceFirst('Exception: ', '');
+          _error = localizedApiErrorFromRaw(AppStrings.of(context), e);
           _loading = false;
         });
       }
@@ -121,25 +123,18 @@ class _LeaveScreenState extends State<LeaveScreen>
     if (_submitting) return;
     final s = AppStrings.of(context);
     if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(s.leaveSelectDatesError),
-          backgroundColor: Colors.red,
-        ),
-      );
+      setState(() => _applyValidationError = s.leaveSelectDatesError);
       return;
     }
     if (_reasonCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(s.leaveProvideReasonError),
-          backgroundColor: Colors.red,
-        ),
-      );
+      setState(() => _applyValidationError = s.leaveProvideReasonError);
       return;
     }
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _applyValidationError = null;
+    });
     try {
       final staffId = await ApiConfig.getStaffId();
       await LeaveApiService.applyForLeaveWithReplacement(
@@ -164,7 +159,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+        ErrorToast.show(context, e.toString());
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -179,6 +174,16 @@ class _LeaveScreenState extends State<LeaveScreen>
       selection: TextSelection.collapsed(offset: cleaned.length),
     );
     _submitLeave();
+  }
+
+  void _clearApplyValidationError() {
+    if (_applyValidationError == null) return;
+    setState(() => _applyValidationError = null);
+  }
+
+  void _onReasonChanged(String value) {
+    _clearApplyValidationError();
+    _submitLeaveWhenNewline(value);
   }
 
   @override
@@ -326,6 +331,7 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   Widget _buildApplyTab() {
     final s = AppStrings.of(context);
+    final validationError = _applyValidationError;
     final leaveTypes = <_LeaveTypeOption>[
       _LeaveTypeOption('annual', s.leaveTypeAnnual),
       _LeaveTypeOption('sick', s.leaveTypeSick),
@@ -372,7 +378,10 @@ class _LeaveScreenState extends State<LeaveScreen>
                   child: _datePicker(
                     s.leaveStartDate,
                     _startDate,
-                    (d) => setState(() => _startDate = d),
+                    (d) => setState(() {
+                      _startDate = d;
+                      _applyValidationError = null;
+                    }),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -380,11 +389,16 @@ class _LeaveScreenState extends State<LeaveScreen>
                   child: _datePicker(
                     s.leaveEndDate,
                     _endDate,
-                    (d) => setState(() => _endDate = d),
+                    (d) => setState(() {
+                      _endDate = d;
+                      _applyValidationError = null;
+                    }),
                   ),
                 ),
               ],
             ),
+            if (validationError == s.leaveSelectDatesError)
+              _inlineFormError(validationError!),
             if (_startDate != null && _endDate != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
@@ -409,13 +423,15 @@ class _LeaveScreenState extends State<LeaveScreen>
               keyboardType: TextInputType.text,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _submitLeave(),
-              onChanged: _submitLeaveWhenNewline,
+              onChanged: _onReasonChanged,
               decoration: InputDecoration(
                 hintText: s.leaveReasonHint,
                 border: const OutlineInputBorder(),
               ),
               maxLines: 3,
             ),
+            if (validationError == s.leaveProvideReasonError)
+              _inlineFormError(validationError!),
             const SizedBox(height: 16),
 
             // Replacement staff
@@ -574,6 +590,25 @@ class _LeaveScreenState extends State<LeaveScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _inlineFormError(String message) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, size: 16, color: AppTheme.errorRed),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: AppTheme.errorRed, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -885,12 +920,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ErrorToast.show(context, e.toString());
       }
     }
   }

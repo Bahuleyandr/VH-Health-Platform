@@ -10,6 +10,11 @@ String? apiErrorCodeFromRaw(dynamic raw) {
     final text = code?.toString().trim();
     return text == null || text.isEmpty ? null : text;
   }
+  final text = raw?.toString() ?? '';
+  if (text.contains(clinicalWriteDesktopOnlyCode)) {
+    return clinicalWriteDesktopOnlyCode;
+  }
+  if (text.contains(deviceTypeMissingCode)) return deviceTypeMissingCode;
   return null;
 }
 

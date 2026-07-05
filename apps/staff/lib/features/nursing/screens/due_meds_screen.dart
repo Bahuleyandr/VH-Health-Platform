@@ -4,6 +4,7 @@ import 'package:vhhealth_core/services/mar_offline_cache.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -161,7 +162,9 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       await _primeOfflineCache(rows);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(
+        () => _error = localizedApiErrorFromRaw(AppStrings.of(context), e),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -316,10 +319,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         const SizedBox(height: 60),
-        ErrorState(
-          message: msg.replaceFirst('Exception: ', ''),
-          onRetry: _load,
-        ),
+        ErrorState(message: stripExceptionPrefix(msg), onRetry: _load),
       ],
     );
   }

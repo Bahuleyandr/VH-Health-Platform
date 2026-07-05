@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../l10n/app_strings.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/api_error_messages.dart';
 
 /// Centered "something went wrong" widget with a retry button.
 ///
@@ -31,6 +32,11 @@ class ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
+    final displayMessage = localizedApiErrorFromRaw(
+      strings,
+      message,
+      fallback: message,
+    );
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -48,7 +54,7 @@ class ErrorState extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              message,
+              displayMessage,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,

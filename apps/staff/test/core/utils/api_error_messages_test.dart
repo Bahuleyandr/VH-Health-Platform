@@ -6,6 +6,69 @@ import 'package:vhhealth_staff/core/utils/api_error_messages.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
+  test('stripExceptionPrefix removes repeated Exception prefixes', () {
+    expect(
+      stripExceptionPrefix('Exception: Exception: Failed to load'),
+      'Failed to load',
+    );
+  });
+
+  test('localizedApiErrorFromRaw maps transport failures to offline copy', () {
+    final strings = AppStrings.forLocale(const Locale('en'));
+
+    expect(
+      localizedApiErrorFromRaw(
+        strings,
+        "Exception: SocketException: Failed host lookup: 'api.local'",
+      ),
+      "You're offline — will retry.",
+    );
+    expect(
+      localizedApiErrorFromRaw(
+        strings,
+        "Exception: ClientException: Failed to fetch",
+        queued: true,
+      ),
+      "You're offline — queued for sync.",
+    );
+  });
+
+  test('localizedApiErrorFromRaw maps generic 403s with request refs', () {
+    final strings = AppStrings.forLocale(const Locale('en'));
+
+    expect(
+      localizedApiErrorFromRaw(
+        strings,
+        const ApiResponse(
+          statusCode: 403,
+          isSuccess: false,
+          message: 'Forbidden',
+          requestId: 'req-9000123',
+        ),
+      ),
+      "You don't have permission for this action. · ref req-9000",
+    );
+    expect(
+      localizedApiErrorFromRaw(
+        strings,
+        'Exception: 403 Forbidden · ref abc123',
+      ),
+      "You don't have permission for this action. · ref abc123",
+    );
+  });
+
+  test('localizedApiErrorFromRaw maps legacy thrown device gate codes', () {
+    final strings = AppStrings.forLocale(const Locale('en'));
+
+    expect(
+      localizedApiErrorFromRaw(
+        strings,
+        'Exception: $clinicalWriteDesktopOnlyCode · ref gate-1234',
+      ),
+      'Clinical write actions must be completed from the desktop/tablet Staff app. · ref gate-123',
+    );
+  });
+
   testWidgets('localizedApiFailureMessage maps clinical device gates', (
     tester,
   ) async {
