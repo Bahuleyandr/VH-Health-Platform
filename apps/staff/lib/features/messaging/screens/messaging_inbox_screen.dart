@@ -109,21 +109,30 @@ class MessageTarget {
   factory MessageTarget.fromJson(Map<String, dynamic> json) {
     return MessageTarget(
       uid: _text(json['uid']),
-      name: _optionalText(json['name']) ?? 'Unnamed staff',
-      role: _optionalText(json['role']) ?? 'GENERAL_STAFF',
-      department: _optionalText(json['department']) ?? 'Unassigned',
+      name: _optionalText(json['name']) ?? '',
+      role: _optionalText(json['role']) ?? '',
+      department: _optionalText(json['department']) ?? '',
       employeeId: _optionalText(json['employee_id']) ?? '',
       position: _optionalText(json['position']) ?? '',
     );
   }
 
-  String get subtitle {
+  String displayName(AppStrings s) {
+    return name.isEmpty
+        ? s.lookup('s4.lib.messaging_inbox.unnamed_staff')
+        : name;
+  }
+
+  String subtitle(AppStrings s) {
     final parts = [
       role.replaceAll('_', ' '),
       if (department.isNotEmpty) department,
       if (employeeId.isNotEmpty) employeeId,
     ];
-    return parts.join(' - ');
+    final subtitle = parts.where((part) => part.trim().isNotEmpty).join(' - ');
+    return subtitle.isEmpty
+        ? s.lookup('s4.lib.messaging_inbox.unassigned')
+        : subtitle;
   }
 }
 
@@ -187,7 +196,7 @@ class StaffMessageThread {
       threadId: _text(json['thread_id']),
       threadType: _optionalText(json['thread_type']) ?? 'direct',
       partnerUid: partnerUid,
-      partnerName: partnerName.isEmpty ? 'Staff conversation' : partnerName,
+      partnerName: partnerName,
       partnerRole: _optionalText(json['partner_role']) ?? '',
       partnerDepartment:
           _optionalText(json['partner_department']) ??
@@ -212,6 +221,12 @@ class StaffMessageThread {
 
   bool get hasUnread => unreadCount > 0;
   bool get isMuted => mutedUntil != null && mutedUntil!.isAfter(DateTime.now());
+
+  String displayPartnerName(AppStrings s) {
+    return partnerName.isEmpty
+        ? s.lookup('s4.lib.messaging_inbox.staff_conversation')
+        : partnerName;
+  }
 
   String get contextLabel {
     final parts = [
@@ -473,8 +488,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
               child: EmptyState(
                 icon: Icons.forum_outlined,
                 title: s.messagingEmpty,
-                body:
-                    'Start a direct staff message or use a team announcement.',
+                body: s.lookup('s4.lib.messaging_inbox.empty_body_team'),
               ),
             );
           }
@@ -485,6 +499,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   }
 
   Widget _buildThreadFilters() {
+    final s = AppStrings.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       child: Column(
@@ -518,33 +533,33 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
             child: Row(
               children: [
                 _FilterPill(
-                  label: 'Active',
+                  label: s.lookup('s4.lib.messaging_inbox.active'),
                   selected: _threadStatus == 'active',
                   onTap: () => _setStatusFilter('active'),
                 ),
                 _FilterPill(
-                  label: 'Archived',
+                  label: s.lookup('s4.lib.messaging_inbox.archived'),
                   selected: _threadStatus == 'archived',
                   onTap: () => _setStatusFilter('archived'),
                 ),
                 _FilterPill(
-                  label: 'All',
+                  label: s.lookup('s4.lib.messaging_inbox.all'),
                   selected: _threadStatus == 'all',
                   onTap: () => _setStatusFilter('all'),
                 ),
                 const SizedBox(width: 8),
                 _FilterPill(
-                  label: 'Any priority',
+                  label: s.lookup('s4.lib.messaging_inbox.any_priority'),
                   selected: _threadPriority.isEmpty,
                   onTap: () => _setPriorityFilter(''),
                 ),
                 _FilterPill(
-                  label: 'Urgent',
+                  label: s.priorityUrgent,
                   selected: _threadPriority == 'urgent',
                   onTap: () => _setPriorityFilter('urgent'),
                 ),
                 _FilterPill(
-                  label: 'Critical',
+                  label: s.lookup('clinical_inbox.group.critical'),
                   selected: _threadPriority == 'critical',
                   onTap: () => _setPriorityFilter('critical'),
                 ),
@@ -571,6 +586,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     final hasUnread = thread.hasUnread;
     final priorityColor = _priorityColor(thread.priority);
     final sentByMe = msg.sentBy(_myUid);
+    final s = AppStrings.of(context);
+    final partnerName = thread.displayPartnerName(s);
 
     return InkWell(
       onTap: () {
@@ -578,7 +595,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           '/messaging/thread/${thread.partnerUid}',
           extra: {
             'threadId': thread.threadId,
-            'otherStaffName': thread.partnerName,
+            'otherStaffName': partnerName,
             'otherStaffDepartment': thread.partnerDepartment,
             'patientName': thread.patientName,
             'patientUid': thread.patientUid,
@@ -597,9 +614,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                   radius: 24,
                   backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
                   child: Text(
-                    thread.partnerName.isNotEmpty
-                        ? thread.partnerName[0].toUpperCase()
-                        : '?',
+                    partnerName.isNotEmpty ? partnerName[0].toUpperCase() : '?',
                     style: const TextStyle(
                       color: AppTheme.primaryBlue,
                       fontWeight: FontWeight.bold,
@@ -644,7 +659,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          thread.partnerName,
+                          partnerName,
                           style: TextStyle(
                             fontWeight: hasUnread
                                 ? FontWeight.bold
@@ -742,7 +757,11 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                       ],
                       Expanded(
                         child: Text(
-                          thread.body.isEmpty ? 'No message text' : thread.body,
+                          thread.body.isEmpty
+                              ? s.lookup(
+                                  's4.lib.messaging_inbox.no_message_text',
+                                )
+                              : thread.body,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -858,11 +877,11 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       );
     }
     if (_adminMessages.isEmpty) {
-      return const EmptyState(
+      final s = AppStrings.of(context);
+      return EmptyState(
         icon: Icons.manage_search_outlined,
-        title: 'No staff messages logged',
-        body:
-            'All staff messages will appear here for Admin/SuperAdmin review.',
+        title: s.lookup('s4.lib.messaging_inbox.no_staff_messages_logged'),
+        body: s.lookup('s4.lib.messaging_inbox.admin_log_empty_body'),
       );
     }
     return RefreshIndicator(
@@ -1026,16 +1045,28 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
     if (body.isEmpty || _sending) return;
 
     if (_mode == 'direct' && _selected.length != 1) {
-      _showError('Select one staff member.');
+      _showError(
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.messaging_inbox.select_one_staff'),
+      );
       return;
     }
     if (_mode == 'selected' && _selected.isEmpty) {
-      _showError('Select at least one staff member.');
+      _showError(
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.messaging_inbox.select_at_least_one_staff'),
+      );
       return;
     }
     if (_mode == 'department' &&
         (_department == null || _department!.isEmpty)) {
-      _showError('Select a department.');
+      _showError(
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.messaging_inbox.select_department'),
+      );
       return;
     }
 
@@ -1114,7 +1145,7 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                     runSpacing: 8,
                     children: [
                       _ModeChip(
-                        label: 'One staff',
+                        label: s.lookup('s4.lib.messaging_inbox.one_staff'),
                         selected: _mode == 'direct',
                         onTap: () => setState(() {
                           _mode = 'direct';
@@ -1123,19 +1154,21 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                       ),
                       if (_canSelected)
                         _ModeChip(
-                          label: 'Selected team',
+                          label: s.lookup(
+                            's4.lib.messaging_inbox.selected_team',
+                          ),
                           selected: _mode == 'selected',
                           onTap: () => setState(() => _mode = 'selected'),
                         ),
                       if (_canDepartment)
                         _ModeChip(
-                          label: 'Department',
+                          label: s.profileFieldDepartment,
                           selected: _mode == 'department',
                           onTap: () => setState(() => _mode = 'department'),
                         ),
                       if (_canAll)
                         _ModeChip(
-                          label: 'All staff',
+                          label: s.lookup('s4.lib.messaging_inbox.all_staff'),
                           selected: _mode == 'all',
                           onTap: () => setState(() => _mode = 'all'),
                         ),
@@ -1246,15 +1279,16 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                               itemBuilder: (context, index) {
                                 final target = _filteredTargets[index];
                                 final selected = _selected.contains(target.uid);
+                                final targetName = target.displayName(s);
                                 return CheckboxListTile(
                                   value: selected,
                                   onChanged: (_) => _toggleTarget(target.uid),
-                                  title: Text(target.name),
-                                  subtitle: Text(target.subtitle),
+                                  title: Text(targetName),
+                                  subtitle: Text(target.subtitle(s)),
                                   secondary: CircleAvatar(
                                     child: Text(
-                                      target.name.isNotEmpty
-                                          ? target.name[0].toUpperCase()
+                                      targetName.isNotEmpty
+                                          ? targetName[0].toUpperCase()
                                           : '?',
                                     ),
                                   ),
@@ -1284,7 +1318,11 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.send),
-                    label: Text(_sending ? 'Sending...' : s.messagingSend),
+                    label: Text(
+                      _sending
+                          ? s.lookup('s4.lib.messaging_inbox.sending')
+                          : s.messagingSend,
+                    ),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(48),
                     ),
@@ -1394,7 +1432,11 @@ class _MessageReceiptIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final read = message.isRead;
     return Tooltip(
-      message: read ? 'Read' : 'Delivered',
+      message: AppStrings.of(context).lookup(
+        read
+            ? 's4.lib.messaging_thread.receipt_read'
+            : 's4.lib.messaging_thread.receipt_delivered',
+      ),
       child: Icon(
         read ? Icons.done_all : Icons.done,
         size: 14,

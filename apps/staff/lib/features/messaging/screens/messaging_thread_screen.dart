@@ -42,7 +42,7 @@ class ThreadAttachment {
       id: _text(json['id']),
       messageId: _nullableInt(json['message_id']),
       uploadedByUid: _text(json['uploaded_by_uid']),
-      fileName: _optionalText(json['file_name']) ?? 'Attachment',
+      fileName: _optionalText(json['file_name']) ?? '',
       contentType:
           _optionalText(json['content_type']) ?? 'application/octet-stream',
       fileSize: _nullableInt(json['file_size']) ?? 0,
@@ -58,6 +58,12 @@ class ThreadAttachment {
       return '${(fileSize / 1024).toStringAsFixed(1)} KB';
     }
     return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String displayFileName(AppStrings s) {
+    return fileName.isEmpty
+        ? s.lookup('s4.lib.messaging_thread.attachment')
+        : fileName;
   }
 }
 
@@ -419,12 +425,15 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
             )
           : null;
       final status = attachment?.scanStatus ?? 'pending';
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             status == 'clean'
-                ? 'Attachment sent'
-                : 'Attachment sent; scan status: $status',
+                ? s.lookup('s4.lib.messaging_thread.attachment_sent')
+                : s.format('s4.dynamic.messaging.attachment_sent_scan_status', {
+                    'status': _scanLabel(s, status),
+                  }),
           ),
           backgroundColor: status == 'clean'
               ? AppTheme.successGreen
@@ -435,8 +444,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Attachment failed: ${e.toString().replaceFirst('Exception: ', '')}',
+          content: AppText(
+            's4.dynamic.messaging.attachment_failed',
+            values: {'error': e.toString().replaceFirst('Exception: ', '')},
           ),
           backgroundColor: AppTheme.errorRed,
         ),
@@ -469,8 +479,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Download failed: ${e.toString().replaceFirst('Exception: ', '')}',
+          content: AppText(
+            's4.dynamic.messaging.download_failed',
+            values: {'error': e.toString().replaceFirst('Exception: ', '')},
           ),
           backgroundColor: AppTheme.errorRed,
         ),
@@ -737,8 +748,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       builder: (ctx) => AlertDialog(
         title: const AppText('s4.lib.messaging_thread.copy_clinical_message'),
         content: const AppText(
-          's4.lib.messaging_thread.this_message_may_contain_patient_sensitive_infor'
-          'The clipboard will be cleared automatically after 60 seconds.',
+          's4.lib.messaging_thread.copy_clinical_message_body',
         ),
         actions: [
           TextButton(
@@ -1237,7 +1247,11 @@ class _MessageBubble extends StatelessWidget {
                   if (showReceipt) ...[
                     const SizedBox(width: 4),
                     Tooltip(
-                      message: message.isRead ? 'Read' : 'Delivered',
+                      message: AppStrings.of(context).lookup(
+                        message.isRead
+                            ? 's4.lib.messaging_thread.receipt_read'
+                            : 's4.lib.messaging_thread.receipt_delivered',
+                      ),
                       child: Icon(
                         message.isRead ? Icons.done_all : Icons.done,
                         size: 12,
@@ -1273,6 +1287,8 @@ class _AttachmentChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocked = attachment.scanStatus == 'quarantined';
+    final s = AppStrings.of(context);
+    final fileName = attachment.displayFileName(s);
     final foreground = isMine ? Colors.white : AppTheme.primaryBlue;
     final background = isMine
         ? Colors.white.withValues(alpha: 0.14)
@@ -1324,7 +1340,7 @@ class _AttachmentChip extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      attachment.fileName,
+                      fileName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1338,7 +1354,7 @@ class _AttachmentChip extends StatelessWidget {
                       [
                         if (attachment.sizeLabel.isNotEmpty)
                           attachment.sizeLabel,
-                        _scanLabel(attachment.scanStatus),
+                        _scanLabel(s, attachment.scanStatus),
                       ].join(' - '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1378,18 +1394,19 @@ class _ThreadContextBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final chips = [
       if (contextLabel.isNotEmpty)
         _BannerChip(icon: Icons.person_search, label: contextLabel),
       if (urgentOnly)
-        const _BannerChip(
+        _BannerChip(
           icon: Icons.notification_important_outlined,
-          label: 'Urgent alerts only',
+          label: s.lookup('s4.lib.messaging_thread.urgent_alerts_only'),
         )
       else if (muted)
-        const _BannerChip(
+        _BannerChip(
           icon: Icons.notifications_off_outlined,
-          label: 'Muted',
+          label: s.lookup('s4.lib.messaging_thread.muted'),
         ),
     ];
     return Container(
@@ -1496,12 +1513,12 @@ DateTime? _dateValue(Object? value) {
   return DateTime.tryParse(value.toString());
 }
 
-String _scanLabel(String status) {
+String _scanLabel(AppStrings s, String status) {
   return switch (status) {
-    'clean' => 'Scan clean',
-    'failed' => 'Scan unavailable',
-    'quarantined' => 'Quarantined',
-    'pending' => 'Scan pending',
+    'clean' => s.lookup('s4.lib.messaging_thread.scan_clean'),
+    'failed' => s.lookup('s4.lib.messaging_thread.scan_unavailable'),
+    'quarantined' => s.lookup('s4.lib.messaging_thread.quarantined'),
+    'pending' => s.lookup('s4.lib.messaging_thread.scan_pending'),
     _ => status,
   };
 }
