@@ -11,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
@@ -140,6 +141,7 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
 
   Future<void> _saveDraftRow(_DrugChartDraftRow row) async {
     if (row.saving) return;
+    final s = AppStrings.of(context);
     final drug = row.drugCtrl.text.trim();
     final dose = row.doseCtrl.text.trim().isNotEmpty
         ? row.doseCtrl.text.trim()
@@ -149,11 +151,11 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
 
     String? error;
     if (drug.isEmpty) {
-      error = 'Drug is required';
+      error = s.lookup('s4.lib.drug_chart.drug_required');
     } else if (dose.isEmpty) {
-      error = 'Dose is required; select a drug with strength or enter dose';
+      error = s.lookup('s4.lib.drug_chart.dose_required');
     } else if (doseTimes.isEmpty) {
-      error = 'Select at least one administration time';
+      error = s.lookup('s4.lib.drug_chart.administration_time_required');
     }
     if (error != null) {
       _showSnack(error, isError: true);
@@ -205,7 +207,7 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         );
         if (!mounted) return;
         _removeDraftRow(row);
-        _showSnack('Medication order queued — will sync when back online.');
+        _showSnack(s.lookup('s4.lib.drug_chart.offline_order_queued'));
         return;
       }
       await MedicalApiService.createInpatientMedicationOrder(
@@ -414,11 +416,15 @@ class _DrugChartHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final admission =
         (chart['admission'] as Map?)?.cast<String, dynamic>() ?? const {};
     final governance =
         (chart['governance'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final patient = _text(admission['patient_name'], fallback: 'Patient');
+    final patient = _text(
+      admission['patient_name'],
+      fallback: s.lookup('s4.lib.drug_chart.patient'),
+    );
     final hospitalId = _text(admission['hospital_id']);
     final bed = _text(admission['bed_number']);
     final ward = _text(admission['ward_name']);
@@ -449,8 +455,11 @@ class _DrugChartHeader extends StatelessWidget {
             [
               if (hospitalId.isNotEmpty) hospitalId,
               if (ward.isNotEmpty) ward,
-              if (bed.isNotEmpty) 'Bed $bed',
-              'Admission #${admission['id'] ?? '-'}',
+              if (bed.isNotEmpty)
+                s.format('s4.dynamic.drug_chart.bed', {'bed': bed}),
+              s.format('s4.dynamic.drug_chart.admission_number', {
+                'id': admission['id'] ?? '-',
+              }),
             ].join(' · '),
             style: TextStyle(color: AppTheme.textSecondary),
           ),
@@ -462,20 +471,25 @@ class _DrugChartHeader extends StatelessWidget {
               _StatusPill(
                 icon: Icons.verified_user_outlined,
                 label: outcome == 'clear'
-                    ? 'Rules clear'
+                    ? s.lookup('s4.lib.drug_chart.rules_clear')
                     : outcome == 'blocked'
-                    ? 'Safety review needed'
+                    ? s.lookup('s4.lib.drug_chart.safety_review_needed')
                     : '$outcome · $state',
                 color: _stateColor(outcome),
               ),
               _StatusPill(
                 icon: Icons.source_outlined,
-                label: '$sourceCount sources',
+                label: s.format(
+                  sourceCount == 1
+                      ? 's4.dynamic.drug_chart.source_count_one'
+                      : 's4.dynamic.drug_chart.source_count',
+                  {'count': sourceCount},
+                ),
                 color: AppTheme.primaryBlue,
               ),
-              const _StatusPill(
+              _StatusPill(
                 icon: Icons.table_chart_outlined,
-                label: 'Doctor edit · Nurse MAR · Pharmacy indent',
+                label: s.lookup('s4.lib.drug_chart.workflow_hint'),
                 color: AppTheme.primaryTeal,
               ),
             ],
@@ -577,34 +591,22 @@ class _DrugChartTable extends StatelessWidget {
   }
 
   Widget _emptyRow(BuildContext context) {
+    final s = AppStrings.of(context);
     return SizedBox(
       width: _chartWidth,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 28, 16, 32),
-        child: Column(
-          children: [
-            Icon(
-              Icons.medication_outlined,
-              color: AppTheme.textSecondary,
-              size: 44,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              AppStrings.of(context).drugChartEmpty,
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (canPrescribe) ...[
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: onAddRow,
-                icon: const Icon(Icons.add),
-                label: Text(AppStrings.of(context).drugChartAddFirstRow),
-              ),
-            ],
-          ],
+        child: EmptyState(
+          icon: Icons.medication_outlined,
+          title: s.drugChartEmpty,
+          body: s.lookup('s4.lib.drug_chart.empty_body'),
+          action: canPrescribe
+              ? FilledButton.icon(
+                  onPressed: onAddRow,
+                  icon: const Icon(Icons.add),
+                  label: Text(s.drugChartAddFirstRow),
+                )
+              : null,
         ),
       ),
     );

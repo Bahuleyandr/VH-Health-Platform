@@ -391,6 +391,54 @@ void main() {
     );
   });
 
+  test('S4 Drug Chart state copy stores keys with required locale entries', () {
+    final file = File('lib/features/ipd/screens/drug_chart_screen.dart');
+    final source = file.readAsStringSync();
+    final keys = <String>{
+      ..._appStringKeysFrom(source, [
+        'drug_chart.',
+        's4.dynamic.drug_chart.',
+        's4.lib.drug_chart.',
+      ]),
+      ..._appStringCallKeysFrom(source, [
+        'drug_chart.',
+        's4.dynamic.drug_chart.',
+        's4.lib.drug_chart.',
+      ]),
+    };
+
+    expect(
+      source,
+      contains('EmptyState('),
+      reason: 'Drug Chart empty copy should use the shared EmptyState widget.',
+    );
+    for (final rawCopy in [
+      "'Drug is required'",
+      "'Dose is required; select a drug with strength or enter dose'",
+      "'Select at least one administration time'",
+      "'Medication order queued",
+      "'Rules clear'",
+      "'Safety review needed'",
+      "'Doctor edit",
+      "'Bed \$bed'",
+      "'Admission #",
+      "'\$sourceCount sources'",
+    ]) {
+      expect(
+        source,
+        isNot(contains(rawCopy)),
+        reason:
+            'Drug Chart validation, header, and status copy should use '
+            'AppStrings keys: $rawCopy',
+      );
+    }
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 Drug Chart keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('S4 housekeeping copy stores keys with required locale entries', () {
     final files = [
       File(
