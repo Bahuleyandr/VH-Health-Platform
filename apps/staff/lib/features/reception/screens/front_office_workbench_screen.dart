@@ -15,6 +15,7 @@ import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/billing_collect_button.dart';
 import '../widgets/billing_document_actions.dart';
@@ -3292,7 +3293,7 @@ class _FrontOfficeWorkbenchScreenState
     if (!_roleLoaded) {
       return StaffScaffold(
         title: s.lookup('role.feature.front_office_workbench'),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const SkeletonList(),
       );
     }
 
@@ -3364,6 +3365,14 @@ class _FrontOfficeWorkbenchScreenState
         child: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 980;
+            final showInitialSkeleton =
+                _loading &&
+                _selectedPatient == null &&
+                _patientMatches.isEmpty &&
+                _todayQueue.isEmpty &&
+                _patientInvoices.isEmpty &&
+                _admissionHandoffs.isEmpty &&
+                _activeAdmissions.isEmpty;
             return ListView(
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -3377,7 +3386,12 @@ class _FrontOfficeWorkbenchScreenState
                   const SizedBox(height: 12),
                 ],
                 if (_loading) const LinearProgressIndicator(minHeight: 2),
-                if (wide)
+                if (showInitialSkeleton)
+                  const SizedBox(
+                    height: 520,
+                    child: SkeletonList(itemCount: 5, itemHeight: 92),
+                  )
+                else if (wide)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

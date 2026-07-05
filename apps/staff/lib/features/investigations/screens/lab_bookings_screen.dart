@@ -11,6 +11,9 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
@@ -565,24 +568,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const SkeletonList()
                 : _error != null
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _fetchBookings,
-                          child: Text(s.actionRetry),
-                        ),
-                      ],
-                    ),
-                  )
+                ? ErrorState(message: _error!, onRetry: _fetchBookings)
                 : TabBarView(
                     controller: _tabController,
                     children: [
@@ -600,15 +588,17 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   Widget _buildBookingList(List<dynamic> bookings, String type) {
     final s = AppStrings.of(context);
     if (bookings.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return RefreshIndicator(
+        onRefresh: _fetchBookings,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 8),
-            Text(
-              '${s.labBookingsEmptyPrefix} $type',
-              style: TextStyle(color: Colors.grey.shade600),
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.48,
+              child: EmptyState(
+                icon: Icons.inbox_outlined,
+                title: '${s.labBookingsEmptyPrefix} $type',
+              ),
             ),
           ],
         ),

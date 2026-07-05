@@ -6,6 +6,9 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/theatre_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
 typedef TheatreScheduleLoader =
@@ -220,32 +223,22 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   Widget _buildScheduleTab() {
-    if (_error != null) return _buildError(_fetchSchedule);
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return ErrorState(message: _error!, onRetry: _fetchSchedule);
+    }
+    if (_loading) return const SkeletonList();
 
     return RefreshIndicator(
       onRefresh: _fetchSchedule,
       child: _schedule.isEmpty
           ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                const SizedBox(height: 120),
-                Center(
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.event_busy,
-                        size: 64,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        AppStrings.of(context).theatreNoSurgeries,
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.55,
+                  child: EmptyState(
+                    icon: Icons.event_busy,
+                    title: AppStrings.of(context).theatreNoSurgeries,
                   ),
                 ),
               ],
@@ -676,32 +669,22 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   Widget _buildAvailabilityTab() {
-    if (_error != null) return _buildError(_fetchAvailability);
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return ErrorState(message: _error!, onRetry: _fetchAvailability);
+    }
+    if (_loading) return const SkeletonList();
 
     return RefreshIndicator(
       onRefresh: _fetchAvailability,
       child: _availability.isEmpty
           ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                const SizedBox(height: 120),
-                Center(
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.meeting_room,
-                        size: 64,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        AppStrings.of(context).theatreNoRoomData,
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.55,
+                  child: EmptyState(
+                    icon: Icons.meeting_room,
+                    title: AppStrings.of(context).theatreNoRoomData,
                   ),
                 ),
               ],
@@ -782,33 +765,6 @@ class _TheatreScreenState extends State<TheatreScreen>
                 );
               },
             ),
-    );
-  }
-
-  Widget _buildError(VoidCallback retry) {
-    final s = AppStrings.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
-            const SizedBox(height: 16),
-            Text(
-              _error ?? s.errorSomethingWentWrong,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: retry,
-              icon: const Icon(Icons.refresh),
-              label: Text(s.actionRetry),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

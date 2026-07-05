@@ -6,6 +6,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/core/widgets/states/empty_state.dart';
+import 'package:vhhealth_staff/core/widgets/states/error_state.dart';
+import 'package:vhhealth_staff/core/widgets/states/skeleton_list.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class _ActiveLabor {
@@ -106,7 +109,6 @@ class _MaternityScreenState extends State<MaternityScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(s.maternityTitle),
@@ -119,57 +121,28 @@ class _MaternityScreenState extends State<MaternityScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList()
           : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.error_outline,
-                      size: 48,
-                      color: theme.colorScheme.error,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _fetch,
-                      child: Text(s.maternityRetry),
-                    ),
-                  ],
-                ),
-              ),
+          ? ErrorState(
+              message: _error!,
+              onRetry: _fetch,
+              retryLabel: s.maternityRetry,
             )
           : _labors.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.child_friendly,
-                      size: 64,
-                      color: Colors.grey,
+          ? RefreshIndicator(
+              onRefresh: _fetch,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(
+                    height: MediaQuery.sizeOf(context).height * 0.65,
+                    child: EmptyState(
+                      icon: Icons.child_friendly,
+                      title: s.maternityEmptyTitle,
+                      body: s.maternityEmptyBody,
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      s.maternityEmptyTitle,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      s.maternityEmptyBody,
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             )
           : RefreshIndicator(

@@ -8,6 +8,9 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
 class PharmacyScreen extends StatefulWidget {
@@ -1714,29 +1717,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Widget _buildOrderTab(List<dynamic> orders, String emptyMsg) {
     final s = AppStrings.of(context);
     if (!_canWorkPharmacyOrders) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: AppText(
-            's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
+      return EmptyState(
+        icon: Icons.lock_outline,
+        title: s.lookup(
+          's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm',
         ),
       );
     }
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const SkeletonList();
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_error!, style: const TextStyle(color: Colors.red)),
-            const SizedBox(height: 12),
-            ElevatedButton(onPressed: _loadOrders, child: Text(s.actionRetry)),
-          ],
-        ),
-      );
+      return ErrorState(message: _error!, onRetry: _loadOrders);
     }
     return _buildOrderList(orders, emptyMsg);
   }
@@ -1844,43 +1834,23 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           ),
           const SizedBox(height: 8),
           if (_catalogLoading)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
+            const SizedBox(
+              height: 320,
+              child: SkeletonList(itemCount: 3, itemHeight: 76),
             )
           else if (_catalogError != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  children: [
-                    Icon(Icons.error_outline, color: AppTheme.errorOnSurface),
-                    const SizedBox(height: 8),
-                    Text(
-                      _catalogError!,
-                      style: TextStyle(color: AppTheme.errorOnSurface),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () => _loadCatalog(),
-                      icon: const Icon(Icons.refresh),
-                      label: const AppText('action.retry'),
-                    ),
-                  ],
-                ),
-              ),
+            SizedBox(
+              height: 280,
+              child: ErrorState(message: _catalogError!, onRetry: _loadCatalog),
             )
           else if (_catalog.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: AppText(
-                    's4.lib.pharmacy.no_formulary_drugs_found',
-                    style: TextStyle(color: AppTheme.textSecondary),
-                  ),
-                ),
+            SizedBox(
+              height: 260,
+              child: EmptyState(
+                icon: Icons.inventory_2_outlined,
+                title: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.pharmacy.no_formulary_drugs_found'),
               ),
             )
           else
@@ -1998,31 +1968,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           ),
           const SizedBox(height: 8),
           if (_inventoryLoading)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
+            const SizedBox(
+              height: 320,
+              child: SkeletonList(itemCount: 3, itemHeight: 76),
             )
           else if (_inventoryError != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  children: [
-                    Icon(Icons.error_outline, color: AppTheme.errorOnSurface),
-                    const SizedBox(height: 8),
-                    Text(
-                      _inventoryError!,
-                      style: TextStyle(color: AppTheme.errorOnSurface),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () => _loadInventory(),
-                      icon: const Icon(Icons.refresh),
-                      label: const AppText('action.retry'),
-                    ),
-                  ],
-                ),
+            SizedBox(
+              height: 280,
+              child: ErrorState(
+                message: _inventoryError!,
+                onRetry: _loadInventory,
               ),
             )
           else ...[
@@ -2051,15 +2006,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               ),
             ),
             if (_inventoryItems.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Center(
-                    child: AppText(
-                      's4.lib.pharmacy.no_inventory_items_found',
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ),
+              SizedBox(
+                height: 260,
+                child: EmptyState(
+                  icon: Icons.warehouse_outlined,
+                  title: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.pharmacy.no_inventory_items_found'),
                 ),
               )
             else
@@ -2338,10 +2291,19 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
   Widget _buildOrderList(List<dynamic> orders, String emptyMsg) {
     if (orders.isEmpty) {
-      return Center(
-        child: Text(
-          emptyMsg,
-          style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+      return RefreshIndicator(
+        onRefresh: _loadOrders,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.5,
+              child: EmptyState(
+                icon: Icons.medication_outlined,
+                title: emptyMsg,
+              ),
+            ),
+          ],
         ),
       );
     }

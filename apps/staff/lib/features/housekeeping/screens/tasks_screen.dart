@@ -10,6 +10,9 @@ import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
 class HousekeepingTasksScreen extends StatefulWidget {
@@ -308,7 +311,9 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
             ),
             Expanded(
               child: _loading && _allTasks.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const SkeletonList()
+                  : _error != null && _allTasks.isEmpty
+                  ? ErrorState(message: _error!, onRetry: _loadTasks)
                   : TabBarView(
                       controller: _tabController,
                       children: [
@@ -371,18 +376,13 @@ class _TaskList extends StatelessWidget {
       return RefreshIndicator(
         onRefresh: () => onRefresh(showSpinner: false),
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            SizedBox(height: MediaQuery.sizeOf(context).height * 0.25),
-            Icon(Icons.task_alt, size: 56, color: AppTheme.textSecondary),
-            const SizedBox(height: 16),
-            Center(
-              child: Text(
-                AppStrings.of(context).housekeepingNoTasks,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary,
-                ),
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.5,
+              child: EmptyState(
+                icon: Icons.task_alt,
+                title: AppStrings.of(context).housekeepingNoTasks,
               ),
             ),
           ],

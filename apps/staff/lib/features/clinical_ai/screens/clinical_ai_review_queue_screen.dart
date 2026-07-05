@@ -18,6 +18,9 @@ import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../op_ai_assist_availability.dart';
 import '../clinical_ai_review_governance.dart';
@@ -125,13 +128,29 @@ class _ClinicalAiReviewQueueScreenState
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
     if (_reviews.isEmpty) {
-      return const _EmptyState();
+      final s = AppStrings.of(context);
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.58,
+              child: EmptyState(
+                icon: Icons.inbox,
+                title: s.clinicalAiQueueEmptyTitle,
+                body: s.clinicalAiQueueEmptyBody,
+              ),
+            ),
+          ],
+        ),
+      );
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -349,81 +368,6 @@ class _SeverityBadge extends StatelessWidget {
           color: color,
           fontSize: 11,
           fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    final s = AppStrings.of(context);
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [
-        const SizedBox(height: 80),
-        const Icon(Icons.inbox, size: 64, color: Colors.grey),
-        const SizedBox(height: 12),
-        Center(
-          child: Text(
-            s.clinicalAiQueueEmptyTitle,
-            style: const TextStyle(fontSize: 16),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              s.clinicalAiQueueEmptyBody,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = AppStrings.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 12),
-            Text(
-              s.clinicalAiQueueLoadFailed,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: Text(s.actionRetry),
-            ),
-          ],
         ),
       ),
     );

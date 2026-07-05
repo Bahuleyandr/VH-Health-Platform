@@ -9,6 +9,9 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
 class InvestigationsScreen extends StatefulWidget {
@@ -1385,43 +1388,23 @@ class _PendingTabState extends State<_PendingTab> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const SkeletonList();
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
-            const SizedBox(height: 8),
-            Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
-            TextButton(onPressed: _load, child: Text(s.actionRetry)),
-          ],
-        ),
-      );
+      return ErrorState(message: _error!, onRetry: _load);
     }
     if (_pending.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            const Icon(
-              Icons.check_circle_outline,
-              size: 56,
-              color: AppTheme.successGreen,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              s.investigationsPendingEmpty,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.52,
+              child: EmptyState(
+                icon: Icons.check_circle_outline,
+                title: s.investigationsPendingEmpty,
+                body: s.investigationsPendingEmptyBody,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              s.investigationsPendingEmptyBody,
-              style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
         ),
@@ -1638,43 +1621,23 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const SkeletonList();
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
-            const SizedBox(height: 8),
-            Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
-            TextButton(onPressed: _load, child: Text(s.actionRetry)),
-          ],
-        ),
-      );
+      return ErrorState(message: _error!, onRetry: _load);
     }
     if (_investigations.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            Icon(
-              Icons.science_outlined,
-              size: 56,
-              color: AppTheme.textSecondary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              s.investigationsRecentEmpty,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.52,
+              child: EmptyState(
+                icon: Icons.science_outlined,
+                title: s.investigationsRecentEmpty,
+                body: s.investigationsRecentEmptyBody,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              s.investigationsRecentEmptyBody,
-              style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
         ),
