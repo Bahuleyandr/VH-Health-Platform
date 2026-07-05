@@ -3505,6 +3505,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'Unable to cancel appointment. Please try again.';
 
   @override
+  String get appointmentsReschedule => 'Reschedule';
+
+  @override
+  String get appointmentsRescheduleTitle => 'Choose a new slot';
+
+  @override
+  String get appointmentsRescheduleDate => 'New date';
+
+  @override
+  String get appointmentsRescheduleTime => 'New time';
+
+  @override
+  String get appointmentsRescheduleNote => 'Note for the care team';
+
+  @override
+  String get appointmentsRescheduleReview => 'Review';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return 'Reschedule appointment with $doctor to $date at $time?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast => 'Appointment rescheduled';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'Unable to reschedule appointment. Please try another slot.';
+
+  @override
   String get appointmentsEmptyHint =>
       'Book a visit with your care team and it will appear here.';
 

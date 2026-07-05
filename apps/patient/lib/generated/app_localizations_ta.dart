@@ -3578,6 +3578,41 @@ class AppLocalizationsTa extends AppLocalizations {
       'அப்பாயின்ட்மென்டை ரத்து செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
+  String get appointmentsReschedule => 'மறு அட்டவணை';
+
+  @override
+  String get appointmentsRescheduleTitle => 'புதிய நேரத்தை தேர்வு செய்யுங்கள்';
+
+  @override
+  String get appointmentsRescheduleDate => 'புதிய தேதி';
+
+  @override
+  String get appointmentsRescheduleTime => 'புதிய நேரம்';
+
+  @override
+  String get appointmentsRescheduleNote => 'பராமரிப்பு குழுவிற்கான குறிப்பு';
+
+  @override
+  String get appointmentsRescheduleReview => 'மதிப்பாய்வு';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return '$doctor உடன் உள்ள அப்பாயின்ட்மென்டை $date அன்று $time மணிக்கு மறு அட்டவணை செய்யவா?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast =>
+      'அப்பாயின்ட்மென்ட் மறு அட்டவணை செய்யப்பட்டது';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'அப்பாயின்ட்மென்டை மறு அட்டவணை செய்ய முடியவில்லை. வேறு நேரத்தை முயற்சிக்கவும்.';
+
+  @override
   String get appointmentsEmptyHint =>
       'உங்கள் பராமரிப்பு குழுவுடன் ஒரு வருகையை புக் செய்யுங்கள்; அது இங்கே தோன்றும்.';
 

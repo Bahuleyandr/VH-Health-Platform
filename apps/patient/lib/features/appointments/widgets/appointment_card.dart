@@ -8,12 +8,14 @@ import 'package:vhhealth/generated/app_localizations.dart';
 class AppointmentCard extends StatelessWidget {
   final AppointmentInfo appt;
   final ValueChanged<AppointmentInfo> onViewPrescription;
+  final ValueChanged<AppointmentInfo> onReschedule;
   final ValueChanged<AppointmentInfo> onCancel;
 
   const AppointmentCard({
     super.key,
     required this.appt,
     required this.onViewPrescription,
+    required this.onReschedule,
     required this.onCancel,
   });
 
@@ -150,14 +152,27 @@ class AppointmentCard extends StatelessWidget {
             ],
             if (appt.isUpcoming && appt.status == 'scheduled') ...[
               const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => onCancel(appt),
-                  icon: const Icon(Icons.cancel_outlined, size: 18),
-                  label: const Text('Cancel'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                ),
+              OverflowBar(
+                alignment: MainAxisAlignment.end,
+                spacing: 8,
+                overflowSpacing: 4,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => onReschedule(appt),
+                    icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                    label: Text(
+                      AppLocalizations.of(context)!.appointmentsReschedule,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => onCancel(appt),
+                    icon: const Icon(Icons.cancel_outlined, size: 18),
+                    label: Text(
+                      AppLocalizations.of(context)!.commonCancelButton,
+                    ),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  ),
+                ],
               ),
             ],
           ],

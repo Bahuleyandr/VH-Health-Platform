@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/appointments/models/staff_appointment.dart';
 import 'package:vhhealth_staff/features/appointments/screens/appointments_screen.dart';
@@ -34,6 +35,63 @@ void main() {
       expect(appointmentMinuteOfDayFromText('12:15 AM'), 15);
       expect(appointmentMinuteOfDayFromText('Walk-in'), isNull);
       expect(appointmentMinuteOfDayFromText('not a time'), isNull);
+    });
+
+    test('reschedule affordance is active only for non-terminal statuses', () {
+      expect(appointmentCanReschedule('SCHEDULED'), isTrue);
+      expect(appointmentCanReschedule('confirmed'), isTrue);
+      expect(appointmentCanReschedule('pending'), isTrue);
+      expect(appointmentCanReschedule('COMPLETED'), isFalse);
+      expect(appointmentCanReschedule('CANCELLED'), isFalse);
+      expect(appointmentCanReschedule('NO_SHOW'), isFalse);
+      expect(appointmentCanReschedule('RESCHEDULED'), isFalse);
+    });
+
+    testWidgets('staff reschedule dialog captures date, time, and note', (
+      tester,
+    ) async {
+      StaffAppointmentRescheduleRequest? result;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showDialog<StaffAppointmentRescheduleRequest>(
+                  context: context,
+                  builder: (_) => StaffAppointmentRescheduleDialog(
+                    patientName: 'Ravi Kumar',
+                    initialDate: DateTime(2026, 7, 10),
+                    initialTime: const TimeOfDay(hour: 9, minute: 30),
+                    firstDate: DateTime(2026, 7, 1),
+                  ),
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reschedule appointment'), findsOneWidget);
+      expect(find.text('Ravi Kumar'), findsOneWidget);
+      expect(find.text('10 Jul 2026'), findsOneWidget);
+      expect(find.text('9:30 AM'), findsOneWidget);
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Patient asked for a later slot',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Reschedule'));
+      await tester.pumpAndSettle();
+
+      expect(result, isNotNull);
+      expect(result!.appointmentDate, DateTime(2026, 7, 10));
+      expect(result!.appointmentTime, const TimeOfDay(hour: 9, minute: 30));
+      expect(result!.notes, 'Patient asked for a later slot');
     });
   });
 

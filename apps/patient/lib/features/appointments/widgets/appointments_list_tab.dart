@@ -243,6 +243,164 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     }
   }
 
+  Future<void> _rescheduleAppointment(AppointmentInfo appt) async {
+    final l = AppLocalizations.of(context)!;
+    final initialDate =
+        DateTime.tryParse(appt.date) ??
+        DateTime.now().add(const Duration(days: 1));
+    final initialTime =
+        _parseTimeOfDay(appt.time) ?? const TimeOfDay(hour: 9, minute: 0);
+    final noteController = TextEditingController();
+
+    try {
+      final choice = await showModalBottomSheet<_RescheduleChoice>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) {
+          var selectedDate = initialDate;
+          var selectedTime = initialTime;
+          return StatefulBuilder(
+            builder: (context, setSheetState) {
+              final inset = MediaQuery.of(context).viewInsets.bottom;
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + inset),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l.appointmentsRescheduleTitle,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.event_outlined),
+                        title: Text(l.appointmentsRescheduleDate),
+                        subtitle: Text(_formatDate(selectedDate)),
+                        onTap: () async {
+                          final today = _dateOnly(DateTime.now());
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: selectedDate.isBefore(today)
+                                ? today
+                                : selectedDate,
+                            firstDate: today,
+                            lastDate: today.add(const Duration(days: 365)),
+                          );
+                          if (picked != null) {
+                            setSheetState(() => selectedDate = picked);
+                          }
+                        },
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.schedule_outlined),
+                        title: Text(l.appointmentsRescheduleTime),
+                        subtitle: Text(_formatTime(selectedTime)),
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: selectedTime,
+                          );
+                          if (picked != null) {
+                            setSheetState(() => selectedTime = picked);
+                          }
+                        },
+                      ),
+                      TextField(
+                        controller: noteController,
+                        maxLength: 280,
+                        decoration: InputDecoration(
+                          labelText: l.appointmentsRescheduleNote,
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: Text(l.commonCancelButton),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: () => Navigator.pop(
+                              ctx,
+                              _RescheduleChoice(
+                                date: selectedDate,
+                                time: selectedTime,
+                                note: noteController.text.trim(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.check_outlined),
+                            label: Text(l.appointmentsRescheduleReview),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+      if (choice == null) return;
+      if (!mounted) return;
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l.appointmentsReschedule),
+          content: Text(
+            l.appointmentsRescheduleConfirm(
+              appt.doctorName,
+              _formatDate(choice.date),
+              _formatTime(choice.time),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l.no),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l.appointmentsReschedule),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+
+      final resp = await ApiClient.patch(
+        '/appointments/${appt.id}/reschedule',
+        body: {
+          'appointment_date': _formatDate(choice.date),
+          'appointment_time': _formatTime(choice.time),
+          if (choice.note.isNotEmpty) 'notes': choice.note,
+        },
+      );
+      if (resp.isSuccess) {
+        await PatientCacheInvalidation.afterAppointmentMutation();
+        if (!mounted) return;
+        _showSuccess(l.appointmentsRescheduledToast);
+        _fetchAppointments();
+      } else {
+        _showError(resp.failureMessage(l.appointmentsRescheduleFailed));
+      }
+    } catch (e) {
+      debugPrint('Reschedule appointment failed: $e');
+      _showError(l.appointmentsRescheduleFailed);
+    } finally {
+      noteController.dispose();
+    }
+  }
+
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -313,6 +471,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                   (a) => AppointmentCard(
                     appt: a,
                     onViewPrescription: _viewPrescription,
+                    onReschedule: _rescheduleAppointment,
                     onCancel: _cancelAppointment,
                   ),
                 ),
@@ -324,6 +483,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                   (a) => AppointmentCard(
                     appt: a,
                     onViewPrescription: _viewPrescription,
+                    onReschedule: _rescheduleAppointment,
                     onCancel: _cancelAppointment,
                   ),
                 ),
@@ -335,3 +495,45 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     );
   }
 }
+
+class _RescheduleChoice {
+  const _RescheduleChoice({
+    required this.date,
+    required this.time,
+    required this.note,
+  });
+
+  final DateTime date;
+  final TimeOfDay time;
+  final String note;
+}
+
+TimeOfDay? _parseTimeOfDay(String value) {
+  final parts = value.split(':');
+  if (parts.length < 2) return null;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null ||
+      minute == null ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59) {
+    return null;
+  }
+  return TimeOfDay(hour: hour, minute: minute);
+}
+
+String _formatDate(DateTime value) {
+  return '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+}
+
+String _formatTime(TimeOfDay value) {
+  return '${value.hour.toString().padLeft(2, '0')}:'
+      '${value.minute.toString().padLeft(2, '0')}';
+}
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);

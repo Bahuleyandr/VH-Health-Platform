@@ -3516,6 +3516,40 @@ class AppLocalizationsHi extends AppLocalizations {
       'अपॉइंटमेंट रद्द नहीं हो सका। कृपया फिर कोशिश करें।';
 
   @override
+  String get appointmentsReschedule => 'रीशेड्यूल करें';
+
+  @override
+  String get appointmentsRescheduleTitle => 'नया स्लॉट चुनें';
+
+  @override
+  String get appointmentsRescheduleDate => 'नई तारीख';
+
+  @override
+  String get appointmentsRescheduleTime => 'नया समय';
+
+  @override
+  String get appointmentsRescheduleNote => 'केयर टीम के लिए नोट';
+
+  @override
+  String get appointmentsRescheduleReview => 'समीक्षा करें';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return '$doctor के साथ अपॉइंटमेंट $date को $time बजे रीशेड्यूल करें?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast => 'अपॉइंटमेंट रीशेड्यूल किया गया';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'अपॉइंटमेंट रीशेड्यूल नहीं हो सका। कृपया दूसरा स्लॉट आज़माएं।';
+
+  @override
   String get appointmentsEmptyHint =>
       'अपनी केयर टीम के साथ विज़िट बुक करें और वह यहां दिखाई देगी।';
 

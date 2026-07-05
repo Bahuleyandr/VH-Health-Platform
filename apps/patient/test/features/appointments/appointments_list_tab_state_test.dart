@@ -68,6 +68,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, 2);
   });
+
+  testWidgets('shows reschedule action for an upcoming scheduled appointment', (
+    tester,
+  ) async {
+    final future = DateTime.now().add(const Duration(days: 7));
+    final date =
+        '${future.year.toString().padLeft(4, '0')}-'
+        '${future.month.toString().padLeft(2, '0')}-'
+        '${future.day.toString().padLeft(2, '0')}';
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        expect(request.url.path, endsWith('/appointments/patient/patient-1'));
+        return http.Response(
+          '{"data":{"appointments":[{"id":101,"doctor_name":"Dr. Meera","department":"Cardiology","appointment_date":"$date","appointment_time":"10:30","status":"SCHEDULED","reason":"Follow-up"}]}}',
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      _Harness(child: AppointmentsListTab(onBookOne: () {})),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dr. Meera'), findsOneWidget);
+    expect(find.text('Reschedule'), findsOneWidget);
+
+    await tester.tap(find.text('Reschedule'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a new slot'), findsOneWidget);
+  });
 }
 
 class _Harness extends StatelessWidget {

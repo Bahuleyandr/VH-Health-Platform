@@ -3956,6 +3956,56 @@
   "@appointmentsCancelFailed": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
   },
+  "appointmentsReschedule": "Reschedule",
+  "@appointmentsReschedule": {
+    "description": "Patient app UI string. Button label for rescheduling an upcoming appointment."
+  },
+  "appointmentsRescheduleTitle": "Choose a new slot",
+  "@appointmentsRescheduleTitle": {
+    "description": "Patient app UI string. Bottom sheet title for appointment rescheduling."
+  },
+  "appointmentsRescheduleDate": "New date",
+  "@appointmentsRescheduleDate": {
+    "description": "Patient app UI string. Date picker label for appointment rescheduling."
+  },
+  "appointmentsRescheduleTime": "New time",
+  "@appointmentsRescheduleTime": {
+    "description": "Patient app UI string. Time picker label for appointment rescheduling."
+  },
+  "appointmentsRescheduleNote": "Note for the care team",
+  "@appointmentsRescheduleNote": {
+    "description": "Patient app UI string. Optional note field for appointment rescheduling."
+  },
+  "appointmentsRescheduleReview": "Review",
+  "@appointmentsRescheduleReview": {
+    "description": "Patient app UI string. Button label to review a reschedule choice before submitting."
+  },
+  "appointmentsRescheduleConfirm": "Reschedule appointment with {doctor} to {date} at {time}?",
+  "@appointmentsRescheduleConfirm": {
+    "description": "Patient app UI string. Confirmation text before rescheduling an appointment.",
+    "placeholders": {
+      "doctor": {
+        "type": "String",
+        "example": "Dr. Rao"
+      },
+      "date": {
+        "type": "String",
+        "example": "2026-07-04"
+      },
+      "time": {
+        "type": "String",
+        "example": "09:30"
+      }
+    }
+  },
+  "appointmentsRescheduledToast": "Appointment rescheduled",
+  "@appointmentsRescheduledToast": {
+    "description": "Patient app UI string. Toast after successful appointment reschedule."
+  },
+  "appointmentsRescheduleFailed": "Unable to reschedule appointment. Please try another slot.",
+  "@appointmentsRescheduleFailed": {
+    "description": "Patient app UI string. Error shown when appointment rescheduling fails."
+  },
   "appointmentsEmptyHint": "Book a visit with your care team and it will appear here.",
   "@appointmentsEmptyHint": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."

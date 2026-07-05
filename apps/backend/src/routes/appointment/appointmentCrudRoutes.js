@@ -23,6 +23,9 @@ router.post('/book', validators.createAppointmentValidators, sanitizeAppointment
 // Update appointment
 router.put('/:id', validators.updateAppointmentValidators, guardAppointmentWrite, sanitizeAppointmentFields, crudController.updateAppointment);
 
+// Reschedule appointment in place (NL-4 demo-basics path)
+router.patch('/:id/reschedule', validators.rescheduleAppointmentValidators, guardAppointmentWrite, sanitizeAppointmentFields, crudController.rescheduleAppointment);
+
 // Update appointment status
 router.put('/:id/status', validators.updateStatusValidators, guardAppointmentWrite, statusController.updateAppointmentStatus);
 

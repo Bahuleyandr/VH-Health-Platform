@@ -3546,6 +3546,40 @@ class AppLocalizationsTe extends AppLocalizations {
       'అపాయింట్‌మెంట్‌ను రద్దు చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
 
   @override
+  String get appointmentsReschedule => 'రీషెడ్యూల్ చేయండి';
+
+  @override
+  String get appointmentsRescheduleTitle => 'కొత్త స్లాట్ ఎంచుకోండి';
+
+  @override
+  String get appointmentsRescheduleDate => 'కొత్త తేదీ';
+
+  @override
+  String get appointmentsRescheduleTime => 'కొత్త సమయం';
+
+  @override
+  String get appointmentsRescheduleNote => 'కేర్ టీమ్ కోసం గమనిక';
+
+  @override
+  String get appointmentsRescheduleReview => 'సమీక్షించండి';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return '$doctor తో అపాయింట్‌మెంట్‌ను $date న $time కు రీషెడ్యూల్ చేయాలా?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast => 'అపాయింట్‌మెంట్ రీషెడ్యూల్ అయింది';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'అపాయింట్‌మెంట్‌ను రీషెడ్యూల్ చేయలేకపోయాం. దయచేసి మరో స్లాట్ ప్రయత్నించండి.';
+
+  @override
   String get appointmentsEmptyHint =>
       'మీ కేర్ టీమ్‌తో ఒక సందర్శనను బుక్ చేయండి; అది ఇక్కడ కనిపిస్తుంది.';
 

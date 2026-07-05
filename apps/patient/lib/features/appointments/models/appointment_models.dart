@@ -42,6 +42,14 @@ class AppointmentInfo {
 
   bool get isUpcoming {
     final dt = DateTime.tryParse('$date $time');
-    return dt != null && dt.isAfter(DateTime.now()) && status != 'cancelled';
+    final normalizedStatus = status.toLowerCase();
+    return dt != null &&
+        dt.isAfter(DateTime.now()) &&
+        ![
+          'cancelled',
+          'no_show',
+          'completed',
+          'rescheduled',
+        ].contains(normalizedStatus);
   }
 }

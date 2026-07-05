@@ -31,6 +31,14 @@ class ScheduleApiService {
     return _handle(resp);
   }
 
+  static Future<Map<String, dynamic>> _patch(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final resp = await ApiClient.patch(path, body: body);
+    return _handle(resp);
+  }
+
   static Map<String, dynamic> _handle(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
       final raw = Map<String, dynamic>.from(resp.raw as Map);
@@ -257,6 +265,22 @@ class ScheduleApiService {
       'appointment_time': appointmentTime,
       if (notes != null && notes.trim().isNotEmpty)
         'confirmation_notes': notes.trim(),
+    });
+  }
+
+  /// PATCH /appointments/:id/reschedule — update the same appointment row.
+  static Future<Map<String, dynamic>> rescheduleAppointmentInPlace(
+    int id, {
+    required String appointmentDate,
+    required String appointmentTime,
+    int? doctorId,
+    String? notes,
+  }) async {
+    return _patch('/appointments/$id/reschedule', {
+      'appointment_date': appointmentDate,
+      'appointment_time': appointmentTime,
+      'doctor_id': ?doctorId,
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
     });
   }
 

@@ -6608,6 +6608,60 @@ abstract class AppLocalizations {
   /// **'Unable to cancel appointment. Please try again.'**
   String get appointmentsCancelFailed;
 
+  /// Patient app UI string. Button label for rescheduling an upcoming appointment.
+  ///
+  /// In en, this message translates to:
+  /// **'Reschedule'**
+  String get appointmentsReschedule;
+
+  /// Patient app UI string. Bottom sheet title for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a new slot'**
+  String get appointmentsRescheduleTitle;
+
+  /// Patient app UI string. Date picker label for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'New date'**
+  String get appointmentsRescheduleDate;
+
+  /// Patient app UI string. Time picker label for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'New time'**
+  String get appointmentsRescheduleTime;
+
+  /// Patient app UI string. Optional note field for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'Note for the care team'**
+  String get appointmentsRescheduleNote;
+
+  /// Patient app UI string. Button label to review a reschedule choice before submitting.
+  ///
+  /// In en, this message translates to:
+  /// **'Review'**
+  String get appointmentsRescheduleReview;
+
+  /// Patient app UI string. Confirmation text before rescheduling an appointment.
+  ///
+  /// In en, this message translates to:
+  /// **'Reschedule appointment with {doctor} to {date} at {time}?'**
+  String appointmentsRescheduleConfirm(String doctor, String date, String time);
+
+  /// Patient app UI string. Toast after successful appointment reschedule.
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment rescheduled'**
+  String get appointmentsRescheduledToast;
+
+  /// Patient app UI string. Error shown when appointment rescheduling fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to reschedule appointment. Please try another slot.'**
+  String get appointmentsRescheduleFailed;
+
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:

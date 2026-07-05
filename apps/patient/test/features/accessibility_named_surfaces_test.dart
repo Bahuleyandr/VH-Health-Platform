@@ -112,6 +112,7 @@ void main() {
             ),
             onViewPrescription: (_) {},
             onCancel: (_) {},
+            onReschedule: (_) {},
           ),
         ),
       );
