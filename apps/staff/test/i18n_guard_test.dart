@@ -557,6 +557,64 @@ void main() {
     );
   });
 
+  test('S4 OP AI Assist copy stores keys with required locale entries', () {
+    final file = File(
+      'lib/features/clinical_ai/screens/op_ai_assist_screen.dart',
+    );
+    final patterns = [
+      _Pattern(
+        'AppText display copy',
+        RegExp(
+          r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
+        ),
+      ),
+      _Pattern(
+        'StaffScaffold title',
+        RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('hint', RegExp(r'''\bhint\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'submitLabel',
+        RegExp(r'''\bsubmitLabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'fallbackLabel',
+        RegExp(r'''\bfallbackLabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'fallbackPurpose',
+        RegExp(r'''\bfallbackPurpose\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+    ];
+    final allowedPrefixes = [
+      'action.',
+      'role.feature.',
+      's4.dynamic.op_ai_assist.',
+      's4.lib.op_ai_assist.',
+    ];
+
+    final hits = <String>[
+      ..._literalHits(file, patterns),
+      ..._interpolatedLiteralHits(file, patterns),
+    ];
+    final keys = _appStringKeysFrom(file.readAsStringSync(), allowedPrefixes);
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 OP AI Assist module labels, field labels, hints, and status copy '
+          'should use AppStrings keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 OP AI Assist keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

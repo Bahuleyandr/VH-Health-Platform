@@ -128,6 +128,11 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
 
   bool _enabled(String key) => _modules[key]?.enabled == true;
 
+  String _label(String key) => AppStrings.of(context).lookup(key);
+
+  String _format(String key, Map<String, Object?> values) =>
+      AppStrings.of(context).format(key, values);
+
   _OpAiModule _module(
     String key,
     String fallbackLabel,
@@ -148,7 +153,9 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     Future<Map<String, dynamic>> Function() action,
   ) async {
     if (!_enabled(key)) {
-      _showSnack('$title is disabled in Clinical AI Admin.');
+      _showSnack(
+        _format('s4.dynamic.op_ai_assist.disabled_in_admin', {'title': title}),
+      );
       return;
     }
     setState(() => _busyKey = key);
@@ -229,12 +236,12 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   Future<void> _visitPrep() async {
     final id = _intFrom(_appointmentIdController);
     if (id == null) {
-      _showSnack('Enter a valid appointment ID.');
+      _showSnack(_label('s4.lib.op_ai_assist.enter_valid_appointment_id'));
       return;
     }
     await _run(
       'op_visit_prep',
-      'OP Visit Prep',
+      _label('s4.lib.op_ai_assist.op_visit_prep'),
       () => ClinicalAiApiService.generateOpVisitPrep(appointmentId: id),
     );
   }
@@ -242,12 +249,12 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   Future<void> _prescriptionSafety() async {
     final meds = _parseMedications();
     if (meds.isEmpty) {
-      _showSnack('Enter at least one medication.');
+      _showSnack(_label('s4.lib.op_ai_assist.enter_at_least_one_medication'));
       return;
     }
     await _run(
       'polypharmacy_ai_review',
-      'Prescription Safety Assistant',
+      _label('s4.lib.op_ai_assist.prescription_safety_assistant'),
       () => ClinicalAiApiService.reviewOpPrescriptionSafety(
         patientId: _intFrom(_patientIdController),
         patientUid: _textFrom(_patientUidController),
@@ -260,12 +267,14 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     final investigationId = _intFrom(_investigationIdController);
     final resultText = _textFrom(_resultTextController);
     if (investigationId == null && resultText == null) {
-      _showSnack('Enter an investigation ID or paste a result.');
+      _showSnack(
+        _label('s4.lib.op_ai_assist.enter_investigation_id_or_result'),
+      );
       return;
     }
     await _run(
       'op_investigation_review',
-      'Investigation Review Aid',
+      _label('s4.lib.op_ai_assist.investigation_review_aid'),
       () => ClinicalAiApiService.generateOpInvestigationReview(
         investigationId: investigationId,
         patientUid: _textFrom(_patientUidController),
@@ -278,12 +287,12 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   Future<void> _differentialRedFlags() async {
     final complaint = _textFrom(_chiefComplaintController);
     if (complaint == null) {
-      _showSnack('Enter the chief complaint.');
+      _showSnack(_label('s4.lib.op_ai_assist.enter_chief_complaint'));
       return;
     }
     await _run(
       'op_differential_red_flags',
-      'Differential / Red Flag Checklist',
+      _label('s4.lib.op_ai_assist.differential_red_flag_checklist'),
       () => ClinicalAiApiService.generateOpDifferentialRedFlags(
         patientUid: _textFrom(_patientUidController),
         chiefComplaint: complaint,
@@ -300,12 +309,14 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     final diagnosis = _textFrom(_diagnosisController);
     final plan = _textFrom(_treatmentPlanController);
     if (diagnosis == null || plan == null) {
-      _showSnack('Enter diagnosis and treatment plan.');
+      _showSnack(
+        _label('s4.lib.op_ai_assist.enter_diagnosis_and_treatment_plan'),
+      );
       return;
     }
     await _run(
       'op_follow_up_plan',
-      'Follow-Up Plan Draft',
+      _label('s4.lib.op_ai_assist.follow_up_plan_draft'),
       () => ClinicalAiApiService.generateOpFollowUpPlan(
         patientUid: _textFrom(_patientUidController),
         diagnosis: diagnosis,
@@ -319,12 +330,14 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     final reason = _textFrom(_referralReasonController);
     final summary = _textFrom(_clinicalSummaryController);
     if (reason == null || summary == null) {
-      _showSnack('Enter referral reason and clinical summary.');
+      _showSnack(
+        _label('s4.lib.op_ai_assist.enter_referral_reason_and_summary'),
+      );
       return;
     }
     await _run(
       'op_referral_draft',
-      'Referral / Second Opinion Draft',
+      _label('s4.lib.op_ai_assist.referral_second_opinion_draft'),
       () => ClinicalAiApiService.generateOpReferralDraft(
         patientUid: _textFrom(_patientUidController),
         referralReason: reason,
@@ -438,7 +451,7 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   @override
   Widget build(BuildContext context) {
     return StaffScaffold(
-      title: 'OP AI Assist',
+      title: _label('role.feature.op_ai_assist'),
       actions: [
         IconButton(
           tooltip: AppStrings.of(
@@ -524,16 +537,16 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     return _ToolCard(
       module: _module(
         key,
-        'OP Visit Prep',
-        'Pre-consult doctor brief from appointment and chart context.',
+        _label('s4.lib.op_ai_assist.op_visit_prep'),
+        _label('s4.lib.op_ai_assist.op_visit_prep_purpose'),
       ),
       icon: Icons.assignment_outlined,
       busy: _busyKey == key,
       onSubmit: _visitPrep,
-      submitLabel: 'Draft visit prep',
+      submitLabel: _label('s4.lib.op_ai_assist.draft_visit_prep'),
       child: _Field(
         controller: _appointmentIdController,
-        label: 'Appointment ID',
+        label: _label('s4.lib.op_ai_assist.appointment_id'),
         keyboardType: TextInputType.number,
       ),
     );
@@ -544,30 +557,30 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     return _ToolCard(
       module: _module(
         key,
-        'Prescription Safety Assistant',
-        'Rules plus AI advisory review of a medication list.',
+        _label('s4.lib.op_ai_assist.prescription_safety_assistant'),
+        _label('s4.lib.op_ai_assist.prescription_safety_purpose'),
       ),
       icon: Icons.medication_liquid_outlined,
       busy: _busyKey == key,
       onSubmit: _prescriptionSafety,
-      submitLabel: 'Review safety',
+      submitLabel: _label('s4.lib.op_ai_assist.review_safety'),
       child: Column(
         children: [
           _Field(
             controller: _patientIdController,
-            label: 'Patient ID (optional)',
+            label: _label('s4.lib.op_ai_assist.patient_id_optional'),
             keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _patientUidController,
-            label: 'Patient UID (optional)',
+            label: _label('s4.lib.op_ai_assist.patient_uid_optional'),
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _medicationsController,
-            label: 'Medications',
-            hint: 'name | dose | route | frequency',
+            label: _label('s4.lib.op_ai_assist.medications'),
+            hint: _label('s4.lib.op_ai_assist.medications_hint'),
             maxLines: 5,
           ),
         ],
@@ -580,30 +593,30 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     return _ToolCard(
       module: _module(
         key,
-        'Investigation Review Aid',
-        'Doctor-facing interpretation aid for OP lab/radiology results.',
+        _label('s4.lib.op_ai_assist.investigation_review_aid'),
+        _label('s4.lib.op_ai_assist.investigation_review_purpose'),
       ),
       icon: Icons.biotech_outlined,
       busy: _busyKey == key,
       onSubmit: _investigationReview,
-      submitLabel: 'Review result',
+      submitLabel: _label('s4.lib.op_ai_assist.review_result'),
       child: Column(
         children: [
           _Field(
             controller: _investigationIdController,
-            label: 'Investigation ID (optional)',
+            label: _label('s4.lib.op_ai_assist.investigation_id_optional'),
             keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _resultTextController,
-            label: 'Result text',
+            label: _label('s4.lib.op_ai_assist.result_text'),
             maxLines: 5,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _clinicalQuestionController,
-            label: 'Clinical question (optional)',
+            label: _label('s4.lib.op_ai_assist.clinical_question_optional'),
             maxLines: 2,
           ),
         ],
@@ -616,18 +629,18 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     return _ToolCard(
       module: _module(
         key,
-        'Differential / Red Flag Checklist',
-        'Differentials to consider, red flags, and next checks.',
+        _label('s4.lib.op_ai_assist.differential_red_flag_checklist'),
+        _label('s4.lib.op_ai_assist.differential_red_flag_purpose'),
       ),
       icon: Icons.emergency_outlined,
       busy: _busyKey == key,
       onSubmit: _differentialRedFlags,
-      submitLabel: 'Draft checklist',
+      submitLabel: _label('s4.lib.op_ai_assist.draft_checklist'),
       child: Column(
         children: [
           _Field(
             controller: _chiefComplaintController,
-            label: 'Chief complaint',
+            label: _label('s4.lib.op_ai_assist.chief_complaint'),
             maxLines: 3,
           ),
           const SizedBox(height: 10),
@@ -636,34 +649,37 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
               Expanded(
                 child: _Field(
                   controller: _ageController,
-                  label: 'Age',
+                  label: _label('s4.lib.op_ai_assist.age'),
                   keyboardType: TextInputType.number,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _Field(controller: _sexController, label: 'Sex'),
+                child: _Field(
+                  controller: _sexController,
+                  label: _label('s4.lib.op_ai_assist.sex'),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _vitalsController,
-            label: 'Vitals',
-            hint: 'BP: 120/80',
+            label: _label('s4.lib.op_ai_assist.vitals'),
+            hint: _label('s4.lib.op_ai_assist.vitals_hint'),
             maxLines: 3,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _examNotesController,
-            label: 'Exam notes',
+            label: _label('s4.lib.op_ai_assist.exam_notes'),
             maxLines: 4,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _knownDiagnosesController,
-            label: 'Known diagnoses',
-            hint: 'One per line or comma-separated',
+            label: _label('s4.lib.op_ai_assist.known_diagnoses'),
+            hint: _label('s4.lib.op_ai_assist.known_diagnoses_hint'),
             maxLines: 2,
           ),
         ],
@@ -676,30 +692,30 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     return _ToolCard(
       module: _module(
         key,
-        'Follow-Up Plan Draft',
-        'Monitoring, repeat tests, review timing, and escalation cues.',
+        _label('s4.lib.op_ai_assist.follow_up_plan_draft'),
+        _label('s4.lib.op_ai_assist.follow_up_plan_purpose'),
       ),
       icon: Icons.event_repeat_outlined,
       busy: _busyKey == key,
       onSubmit: _followUpPlan,
-      submitLabel: 'Draft follow-up',
+      submitLabel: _label('s4.lib.op_ai_assist.draft_follow_up'),
       child: Column(
         children: [
           _Field(
             controller: _diagnosisController,
-            label: 'Diagnosis / working diagnosis',
+            label: _label('s4.lib.op_ai_assist.diagnosis_working_diagnosis'),
             maxLines: 2,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _treatmentPlanController,
-            label: 'Treatment plan',
+            label: _label('s4.lib.op_ai_assist.treatment_plan'),
             maxLines: 4,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _monitoringController,
-            label: 'Monitoring context (optional)',
+            label: _label('s4.lib.op_ai_assist.monitoring_context_optional'),
             maxLines: 3,
           ),
         ],
@@ -712,35 +728,35 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     return _ToolCard(
       module: _module(
         key,
-        'Referral / Second Opinion Draft',
-        'Structured referral draft for clinician editing.',
+        _label('s4.lib.op_ai_assist.referral_second_opinion_draft'),
+        _label('s4.lib.op_ai_assist.referral_second_opinion_purpose'),
       ),
       icon: Icons.forward_to_inbox_outlined,
       busy: _busyKey == key,
       onSubmit: _referralDraft,
-      submitLabel: 'Draft referral',
+      submitLabel: _label('s4.lib.op_ai_assist.draft_referral'),
       child: Column(
         children: [
           _Field(
             controller: _referralReasonController,
-            label: 'Referral reason',
+            label: _label('s4.lib.op_ai_assist.referral_reason'),
             maxLines: 2,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _targetSpecialtyController,
-            label: 'Target specialty (optional)',
+            label: _label('s4.lib.op_ai_assist.target_specialty_optional'),
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _clinicalSummaryController,
-            label: 'Clinical summary',
+            label: _label('s4.lib.op_ai_assist.clinical_summary'),
             maxLines: 5,
           ),
           const SizedBox(height: 10),
           _Field(
             controller: _currentTreatmentController,
-            label: 'Current treatment (optional)',
+            label: _label('s4.lib.op_ai_assist.current_treatment_optional'),
             maxLines: 3,
           ),
         ],
@@ -751,8 +767,8 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   Widget _voiceNoteCard() {
     final module = _module(
       'soap_from_dictation',
-      'Voice Note to SOAP Draft',
-      'Convert clinician voice-note transcripts into reviewable SOAP drafts.',
+      _label('s4.lib.op_ai_assist.voice_note_to_soap_draft'),
+      _label('s4.lib.op_ai_assist.voice_note_to_soap_purpose'),
     );
     return _ToolCard(
       module: module,
@@ -761,7 +777,7 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
       onSubmit: module.enabled
           ? () => context.push('/clinical-ai/voice-notes')
           : null,
-      submitLabel: 'Open voice notes',
+      submitLabel: _label('s4.lib.op_ai_assist.open_voice_notes'),
       child: AppText(
         's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap',
         style: TextStyle(color: AppTheme.textSecondary),
@@ -787,9 +803,7 @@ class _OpAiModule {
     return _OpAiModule(
       key: json['module_key']?.toString() ?? json['key']?.toString() ?? '',
       label:
-          json['display_name']?.toString() ??
-          json['label']?.toString() ??
-          'Clinical AI service',
+          json['display_name']?.toString() ?? json['label']?.toString() ?? '',
       purpose:
           json['description']?.toString() ?? json['purpose']?.toString() ?? '',
       enabled: opAiModuleEnabled(json),
@@ -805,6 +819,7 @@ class _GovernanceBand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1180),
@@ -823,17 +838,24 @@ class _GovernanceBand extends StatelessWidget {
               children: [
                 _StatusChip(
                   icon: Icons.admin_panel_settings_outlined,
-                  label: '$enabledCount/$totalCount enabled by Admin',
+                  label: strings.format(
+                    's4.dynamic.op_ai_assist.enabled_by_admin',
+                    {'enabled': enabledCount, 'total': totalCount},
+                  ),
                   color: AppTheme.primaryBlue,
                 ),
-                const _StatusChip(
+                _StatusChip(
                   icon: Icons.verified_user_outlined,
-                  label: 'Doctor decision support',
+                  label: strings.lookup(
+                    's4.lib.op_ai_assist.doctor_decision_support',
+                  ),
                   color: AppTheme.primaryTeal,
                 ),
-                const _StatusChip(
+                _StatusChip(
                   icon: Icons.assignment_turned_in_outlined,
-                  label: 'Clinician sign-off required',
+                  label: strings.lookup(
+                    's4.lib.op_ai_assist.clinician_sign_off_required',
+                  ),
                   color: AppTheme.warningAmber,
                 ),
               ],
@@ -865,6 +887,10 @@ class _ToolCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = module.enabled;
+    final strings = AppStrings.of(context);
+    final moduleLabel = module.label.trim().isEmpty
+        ? strings.lookup('s4.lib.op_ai_assist.clinical_ai_service')
+        : module.label;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -895,7 +921,7 @@ class _ToolCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        module.label,
+                        moduleLabel,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
@@ -930,7 +956,13 @@ class _ToolCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.auto_awesome, size: 16),
-                label: Text(enabled ? submitLabel : 'Disabled in Admin'),
+                label: Text(
+                  enabled
+                      ? submitLabel
+                      : strings.lookup(
+                          's4.lib.op_ai_assist.disabled_in_admin_label',
+                        ),
+                ),
               ),
             ),
           ],
@@ -979,6 +1011,9 @@ class _ToggleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = enabled ? AppTheme.successGreen : Colors.grey;
+    final label = AppStrings.of(
+      context,
+    ).lookup(enabled ? 's4.lib.op_ai_assist.on' : 's4.lib.op_ai_assist.off');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -996,7 +1031,7 @@ class _ToggleChip extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Text(
-            enabled ? 'On' : 'Off',
+            label,
             style: TextStyle(
               color: color,
               fontSize: 11,
@@ -1055,10 +1090,19 @@ class _ResultMeta extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final moduleKey = result['module_key']?.toString() ?? 'unknown';
-    final provider = result['provider']?.toString() ?? 'template';
+    final strings = AppStrings.of(context);
+    final moduleKey =
+        result['module_key']?.toString() ??
+        strings.lookup('s4.lib.op_ai_assist.unknown_module');
+    final provider =
+        result['provider']?.toString() ??
+        strings.lookup('s4.lib.op_ai_assist.template_provider');
     final reviewId = result['review_id']?.toString();
-    final usedAi = result['used_ai'] == true ? 'AI used' : 'Template/rules';
+    final usedAi = strings.lookup(
+      result['used_ai'] == true
+          ? 's4.lib.op_ai_assist.ai_used'
+          : 's4.lib.op_ai_assist.template_rules',
+    );
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -1070,13 +1114,18 @@ class _ResultMeta extends StatelessWidget {
         ),
         _StatusChip(
           icon: Icons.memory_outlined,
-          label: '$provider - $usedAi',
+          label: strings.format('s4.dynamic.op_ai_assist.provider_status', {
+            'provider': provider,
+            'status': usedAi,
+          }),
           color: AppTheme.primaryTeal,
         ),
         if (reviewId != null && reviewId != 'null')
           _StatusChip(
             icon: Icons.fact_check_outlined,
-            label: 'Review #$reviewId',
+            label: strings.format('s4.dynamic.op_ai_assist.review_number', {
+              'id': reviewId,
+            }),
             color: AppTheme.warningAmber,
           ),
       ],
