@@ -5128,6 +5128,29 @@ class AppStrings {
       'reception_counter.search_tooltip': 'Search',
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.admission.admitting_doctor': "Admitting doctor",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical workflow copy before production.
+      's4.lib.admission.all_wards': "All wards",
+      's4.lib.admission.status_active': "Active",
+      's4.lib.admission.status_discharged': "Discharged",
+      's4.lib.admission.status_filter': "Admission status",
+      's4.lib.admission.no_discharged': "No discharged admissions",
+      's4.lib.admission.loading_patients': "Loading patients",
+      's4.lib.admission.load_more_patients': "Load more patients",
+      's4.lib.admission.scope_all_active_inpatients': "All active inpatients",
+      's4.lib.admission.scope_assigned_to_you': "Patients assigned to you",
+      's4.lib.admission.scope_duty_floor': "Current duty floor coverage",
+      's4.lib.admission.scope_nursing_floor': "Current nursing floor",
+      's4.lib.admission.scope_housekeeping_area': "Current housekeeping area",
+      's4.lib.admission.scope_role_based': "Role-based inpatient scope",
+      's4.lib.admission.status_unknown': "UNKNOWN",
+      's4.lib.admission.admitting_doctor_required':
+          "Admitting doctor is required",
+      's4.lib.admission.hospital_id': "Hospital ID",
+      's4.dynamic.admission.floors': "Floor {floors}",
+      's4.dynamic.admission.showing_inpatients':
+          "Showing {showing} of {total} inpatients",
+      's4.dynamic.admission.scope_with_detail': "{scope} - {detail}",
+      's4.dynamic.admission.bed_inline': "- Bed {bed}",
       's4.lib.admission_case_sheet.case_sheet_saved': "Case sheet saved",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
       's4.lib.admission_case_sheet.section.history': "History",
@@ -5397,6 +5420,67 @@ class AppStrings {
           "Supervising clinician name / staff ID *",
       's4.lib.clinical_ai_review_queue.op_ai_assist': "OP AI Assist",
       's4.lib.clinical_notes.edit_consultation_note': "Edit consultation note",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm OP note labels before production.
+      's4.dynamic.clinical_notes.op_visit_closed_status':
+          "This OP visit is {status}; create a new appointment for fresh documentation.",
+      's4.lib.clinical_notes.op_visit_not_today':
+          "This OP visit is not dated today; create a new appointment for fresh documentation.",
+      's4.lib.clinical_notes.patient_fallback': "Patient",
+      's4.lib.clinical_notes.tab_op_consultation': "OP Consultation",
+      's4.lib.clinical_notes.tab_all_notes': "All Notes",
+      's4.dynamic.clinical_notes.op_consultation_title':
+          "OP consultation - {patient}",
+      's4.dynamic.clinical_notes.minutes_ago': "{count}m ago",
+      's4.dynamic.clinical_notes.hours_ago': "{count}h ago",
+      's4.lib.clinical_notes.chief_complaints': "Chief complaints",
+      's4.lib.clinical_notes.history': "History",
+      's4.lib.clinical_notes.examination': "Examination",
+      's4.lib.clinical_notes.diagnosis': "Diagnosis",
+      's4.lib.clinical_notes.summary': "Summary",
+      's4.lib.clinical_notes.current_status': "Current status",
+      's4.lib.clinical_notes.pre_op_diagnosis': "Pre-op diagnosis",
+      's4.lib.clinical_notes.post_op_diagnosis': "Post-op diagnosis",
+      's4.lib.clinical_notes.edit_op_consultation_note':
+          "Edit OP consultation note",
+      's4.lib.clinical_notes.new_op_consultation_note':
+          "New OP consultation note",
+      's4.lib.clinical_notes.pulse_rate': "Pulse Rate",
+      's4.lib.clinical_notes.bp_systolic': "BP Systolic",
+      's4.lib.clinical_notes.bp_diastolic': "BP Diastolic",
+      's4.lib.clinical_notes.spo2': "SpO2",
+      's4.lib.clinical_notes.cbg': "CBG",
+      's4.lib.clinical_notes.weight': "Weight",
+      's4.lib.clinical_notes.temperature': "Temperature",
+      's4.lib.clinical_notes.chief_complaints_hint':
+          "Symptoms, duration, and main concern for this visit",
+      's4.lib.clinical_notes.history_hint':
+          "Relevant illness history, comorbidities, medications, allergies",
+      's4.lib.clinical_notes.examination_hint':
+          "General and system examination findings",
+      's4.lib.clinical_notes.diagnosis_hint':
+          "Working diagnosis or differential diagnosis",
+      's4.lib.clinical_notes.op_plan_hint':
+          "Treatment plan, advice, investigations, follow-up",
+      's4.lib.clinical_notes.pre_op_diagnosis_hint':
+          "Diagnosis before the procedure",
+      's4.lib.clinical_notes.post_op_diagnosis_hint':
+          "Diagnosis after the procedure",
+      's4.lib.clinical_notes.consultation_note_updated':
+          "Consultation note updated",
+      's4.lib.clinical_notes.visit_locked': "Visit locked",
+      's4.lib.clinical_notes.edit_note': "Edit note",
+      's4.lib.clinical_notes.vital_pulse': "Pulse",
+      's4.lib.clinical_notes.vital_bp': "BP",
+      's4.lib.clinical_notes.vital_spo2': "SpO2",
+      's4.lib.clinical_notes.vital_cbg': "CBG",
+      's4.lib.clinical_notes.vital_weight': "Weight",
+      's4.lib.clinical_notes.vital_temp': "Temp",
+      's4.lib.clinical_notes.vitals': "Vitals",
+      's4.lib.clinical_notes.ai_review_pending': "review: pending",
+      's4.lib.clinical_notes.ai_fallback': "fallback",
+      's4.dynamic.clinical_notes.generation_id': "gen #{id}",
+      's4.dynamic.clinical_notes.safety_review_counts':
+          "{critical} critical · {high} high — review carefully",
       's4.lib.clinical_notes.save_and_investigations': "Save & investigations",
       's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
           "This OP consultation note is signed or no longer editable.",
@@ -5434,6 +5518,50 @@ class AppStrings {
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "Patients appear here after discharge is initiated and stay until final discharge is complete.",
       's4.lib.discharge_summary.correct_summary': "Correct summary",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
+      's4.dynamic.discharge_summary.load_error':
+          "Could not load existing summary: {error}",
+      's4.dynamic.discharge_summary.generate_error':
+          "Failed to generate summary: {error}",
+      's4.dynamic.discharge_summary.save_error': "Failed to save: {error}",
+      's4.dynamic.discharge_summary.sign_error': "Failed to sign: {error}",
+      's4.dynamic.discharge_summary.discharge_error':
+          "Discharge failed: {error}",
+      's4.dynamic.discharge_summary.patient_name_line':
+          "Name of the Patient : {patient}",
+      's4.lib.discharge_summary.medication': "Medication",
+      's4.lib.discharge_summary.not_documented': "Not documented",
+      's4.lib.discharge_summary.fallback_title': "DISCHARGE SUMMARY",
+      's4.lib.discharge_summary.diagnosis_heading': "DIAGNOSIS:",
+      's4.lib.discharge_summary.hospital_course_heading':
+          "COURSE IN THE HOSPITAL:",
+      's4.lib.discharge_summary.condition_heading': "CONDITION AT DISCHARGE:",
+      's4.lib.discharge_summary.advised_to_continue_heading':
+          "ADVISED TO CONTINUE:",
+      's4.lib.discharge_summary.follow_up_heading': "FOLLOW UP:",
+      's4.lib.discharge_summary.review_as_advised': "Review as advised.",
+      's4.lib.discharge_summary.doctor_review_required':
+          "Doctor review required",
+      's4.lib.discharge_summary.signer_unavailable': "Signer unavailable",
+      's4.lib.discharge_summary.hospital_formatted_summary':
+          "Hospital formatted summary",
+      's4.lib.discharge_summary.unknown_item': "Unknown",
+      's4.lib.discharge_summary.test_fallback': "Test",
+      's4.lib.discharge_summary.pending_result': "Pending",
+      's4.lib.discharge_summary.procedure_fallback': "Procedure",
+      's4.lib.discharge_summary.ai_generated_review_required':
+          "AI-generated draft - doctor review required",
+      's4.lib.discharge_summary.ai_fallback_unavailable':
+          "Fallback draft - AI unavailable",
+      's4.lib.discharge_summary.structured_review_required':
+          "Structured draft - doctor review required",
+      's4.dynamic.discharge_summary.source_count_one': "{count} source",
+      's4.dynamic.discharge_summary.source_count': "{count} sources",
+      's4.dynamic.discharge_summary.safety_flag_one':
+          "Review {count} safety flag",
+      's4.dynamic.discharge_summary.safety_flags':
+          "Review {count} safety flags",
+      's4.lib.discharge_summary.no_safety_flags': "No safety flags",
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "This summary has not been signed yet.",
       's4.lib.drug_chart.active_until_stopped': "Active until stopped",
@@ -9490,6 +9618,29 @@ class AppStrings {
       'appointments.no_today': 'आज कोई अपॉइंटमेंट नहीं',
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.admission.admitting_doctor': "भर्ती कर रहे डॉक्टर",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical workflow copy before production.
+      's4.lib.admission.all_wards': "सभी वार्ड",
+      's4.lib.admission.status_active': "सक्रिय",
+      's4.lib.admission.status_discharged': "डिस्चार्ज",
+      's4.lib.admission.status_filter': "भर्ती स्थिति",
+      's4.lib.admission.no_discharged': "कोई डिस्चार्ज भर्ती नहीं",
+      's4.lib.admission.loading_patients': "मरीज़ लोड हो रहे हैं",
+      's4.lib.admission.load_more_patients': "और मरीज़ लोड करें",
+      's4.lib.admission.scope_all_active_inpatients': "सभी सक्रिय इनपेशेंट",
+      's4.lib.admission.scope_assigned_to_you': "आपको सौंपे गए मरीज़",
+      's4.lib.admission.scope_duty_floor': "वर्तमान ड्यूटी फ्लोर कवरेज",
+      's4.lib.admission.scope_nursing_floor': "वर्तमान नर्सिंग फ्लोर",
+      's4.lib.admission.scope_housekeeping_area': "वर्तमान हाउसकीपिंग क्षेत्र",
+      's4.lib.admission.scope_role_based': "भूमिका-आधारित इनपेशेंट दायरा",
+      's4.lib.admission.status_unknown': "अज्ञात",
+      's4.lib.admission.admitting_doctor_required':
+          "भर्ती करने वाले डॉक्टर की आवश्यकता है",
+      's4.lib.admission.hospital_id': "अस्पताल ID",
+      's4.dynamic.admission.floors': "मंज़िल {floors}",
+      's4.dynamic.admission.showing_inpatients':
+          "{total} में से {showing} इनपेशेंट दिख रहे हैं",
+      's4.dynamic.admission.scope_with_detail': "{scope} - {detail}",
+      's4.dynamic.admission.bed_inline': "- बेड {bed}",
       's4.lib.admission_case_sheet.case_sheet_saved': "केस शीट सहेजी गई",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
       's4.lib.admission_case_sheet.section.history': "इतिहास",
@@ -9765,6 +9916,65 @@ class AppStrings {
       's4.lib.clinical_ai_review_queue.op_ai_assist': "ओपी एआई सहायता",
       's4.lib.clinical_notes.edit_consultation_note':
           "परामर्श नोट संपादित करें",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm OP note labels before production.
+      's4.dynamic.clinical_notes.op_visit_closed_status':
+          "यह OP विज़िट {status} है; नए दस्तावेज़ के लिए नया अपॉइंटमेंट बनाएँ.",
+      's4.lib.clinical_notes.op_visit_not_today':
+          "यह OP विज़िट आज की तारीख़ की नहीं है; नए दस्तावेज़ के लिए नया अपॉइंटमेंट बनाएँ.",
+      's4.lib.clinical_notes.patient_fallback': "मरीज़",
+      's4.lib.clinical_notes.tab_op_consultation': "OP परामर्श",
+      's4.lib.clinical_notes.tab_all_notes': "सभी नोट्स",
+      's4.dynamic.clinical_notes.op_consultation_title':
+          "OP परामर्श - {patient}",
+      's4.dynamic.clinical_notes.minutes_ago': "{count} मिनट पहले",
+      's4.dynamic.clinical_notes.hours_ago': "{count} घंटे पहले",
+      's4.lib.clinical_notes.chief_complaints': "मुख्य शिकायतें",
+      's4.lib.clinical_notes.history': "इतिहास",
+      's4.lib.clinical_notes.examination': "परीक्षण",
+      's4.lib.clinical_notes.diagnosis': "निदान",
+      's4.lib.clinical_notes.summary': "सारांश",
+      's4.lib.clinical_notes.current_status': "वर्तमान स्थिति",
+      's4.lib.clinical_notes.pre_op_diagnosis': "प्री-ऑप निदान",
+      's4.lib.clinical_notes.post_op_diagnosis': "पोस्ट-ऑप निदान",
+      's4.lib.clinical_notes.edit_op_consultation_note':
+          "OP परामर्श नोट संपादित करें",
+      's4.lib.clinical_notes.new_op_consultation_note': "नया OP परामर्श नोट",
+      's4.lib.clinical_notes.pulse_rate': "नाड़ी दर",
+      's4.lib.clinical_notes.bp_systolic': "BP सिस्टोलिक",
+      's4.lib.clinical_notes.bp_diastolic': "BP डायस्टोलिक",
+      's4.lib.clinical_notes.spo2': "SpO2",
+      's4.lib.clinical_notes.cbg': "CBG",
+      's4.lib.clinical_notes.weight': "वज़न",
+      's4.lib.clinical_notes.temperature': "तापमान",
+      's4.lib.clinical_notes.chief_complaints_hint':
+          "इस विज़िट की मुख्य चिंता, अवधि और लक्षण",
+      's4.lib.clinical_notes.history_hint':
+          "संबंधित बीमारी का इतिहास, सह-रोग, दवाएँ, एलर्जी",
+      's4.lib.clinical_notes.examination_hint':
+          "सामान्य और सिस्टम परीक्षण निष्कर्ष",
+      's4.lib.clinical_notes.diagnosis_hint': "कार्यशील निदान या अंतर निदान",
+      's4.lib.clinical_notes.op_plan_hint':
+          "उपचार योजना, सलाह, जाँचें, फ़ॉलो-अप",
+      's4.lib.clinical_notes.pre_op_diagnosis_hint':
+          "प्रक्रिया से पहले का निदान",
+      's4.lib.clinical_notes.post_op_diagnosis_hint':
+          "प्रक्रिया के बाद का निदान",
+      's4.lib.clinical_notes.consultation_note_updated':
+          "परामर्श नोट अपडेट किया गया",
+      's4.lib.clinical_notes.visit_locked': "विज़िट लॉक है",
+      's4.lib.clinical_notes.edit_note': "नोट संपादित करें",
+      's4.lib.clinical_notes.vital_pulse': "नाड़ी",
+      's4.lib.clinical_notes.vital_bp': "BP",
+      's4.lib.clinical_notes.vital_spo2': "SpO2",
+      's4.lib.clinical_notes.vital_cbg': "CBG",
+      's4.lib.clinical_notes.vital_weight': "वज़न",
+      's4.lib.clinical_notes.vital_temp': "तापमान",
+      's4.lib.clinical_notes.vitals': "वाइटल्स",
+      's4.lib.clinical_notes.ai_review_pending': "समीक्षा: लंबित",
+      's4.lib.clinical_notes.ai_fallback': "फॉलबैक",
+      's4.dynamic.clinical_notes.generation_id': "जन #{id}",
+      's4.dynamic.clinical_notes.safety_review_counts':
+          "{critical} गंभीर · {high} उच्च — ध्यान से समीक्षा करें",
       's4.lib.clinical_notes.save_and_investigations': "सहेजें और जांचें",
       's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
           "यह ओपी परामर्श नोट हस्ताक्षरित है या अब संपादन योग्य नहीं है।",
@@ -9803,6 +10013,50 @@ class AppStrings {
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "मरीज डिस्चार्ज शुरू होने के बाद यहां आते हैं और अंतिम डिस्चार्ज पूरा होने तक यहीं रहते हैं।",
       's4.lib.discharge_summary.correct_summary': "सही सारांश",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
+      's4.dynamic.discharge_summary.load_error':
+          "मौजूदा सारांश लोड नहीं हो सका: {error}",
+      's4.dynamic.discharge_summary.generate_error':
+          "सारांश जनरेट करने में विफल: {error}",
+      's4.dynamic.discharge_summary.save_error': "सहेजने में विफल: {error}",
+      's4.dynamic.discharge_summary.sign_error': "साइन करने में विफल: {error}",
+      's4.dynamic.discharge_summary.discharge_error': "डिस्चार्ज विफल: {error}",
+      's4.dynamic.discharge_summary.patient_name_line':
+          "मरीज़ का नाम : {patient}",
+      's4.lib.discharge_summary.medication': "दवा",
+      's4.lib.discharge_summary.not_documented': "दर्ज नहीं",
+      's4.lib.discharge_summary.fallback_title': "डिस्चार्ज सारांश",
+      's4.lib.discharge_summary.diagnosis_heading': "निदान:",
+      's4.lib.discharge_summary.hospital_course_heading': "अस्पताल में कोर्स:",
+      's4.lib.discharge_summary.condition_heading': "डिस्चार्ज पर स्थिति:",
+      's4.lib.discharge_summary.advised_to_continue_heading':
+          "जारी रखने की सलाह:",
+      's4.lib.discharge_summary.follow_up_heading': "फ़ॉलो अप:",
+      's4.lib.discharge_summary.review_as_advised':
+          "सलाह के अनुसार समीक्षा करें.",
+      's4.lib.discharge_summary.doctor_review_required':
+          "डॉक्टर समीक्षा आवश्यक",
+      's4.lib.discharge_summary.signer_unavailable':
+          "हस्ताक्षरकर्ता उपलब्ध नहीं",
+      's4.lib.discharge_summary.hospital_formatted_summary':
+          "अस्पताल प्रारूपित सारांश",
+      's4.lib.discharge_summary.unknown_item': "अज्ञात",
+      's4.lib.discharge_summary.test_fallback': "जाँच",
+      's4.lib.discharge_summary.pending_result': "लंबित",
+      's4.lib.discharge_summary.procedure_fallback': "प्रक्रिया",
+      's4.lib.discharge_summary.ai_generated_review_required':
+          "AI-जनरेटेड मसौदा - डॉक्टर समीक्षा आवश्यक",
+      's4.lib.discharge_summary.ai_fallback_unavailable':
+          "फॉलबैक मसौदा - AI उपलब्ध नहीं",
+      's4.lib.discharge_summary.structured_review_required':
+          "संरचित मसौदा - डॉक्टर समीक्षा आवश्यक",
+      's4.dynamic.discharge_summary.source_count_one': "{count} स्रोत",
+      's4.dynamic.discharge_summary.source_count': "{count} स्रोत",
+      's4.dynamic.discharge_summary.safety_flag_one':
+          "{count} सुरक्षा फ़्लैग की समीक्षा करें",
+      's4.dynamic.discharge_summary.safety_flags':
+          "{count} सुरक्षा फ़्लैग की समीक्षा करें",
+      's4.lib.discharge_summary.no_safety_flags': "कोई सुरक्षा फ़्लैग नहीं",
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "इस सारांश पर अभी तक हस्ताक्षर नहीं किए गए हैं.",
       's4.lib.drug_chart.active_until_stopped': "रुकने तक सक्रिय",
@@ -14380,6 +14634,34 @@ class AppStrings {
           'SOAP உருவாக்கம் தோல்வியடைந்தது:',
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.admission.admitting_doctor': "அனுமதிக்கும் மருத்துவர்",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical workflow copy before production.
+      's4.lib.admission.all_wards': "அனைத்து வார்டுகள்",
+      's4.lib.admission.status_active': "செயலில்",
+      's4.lib.admission.status_discharged': "டிஸ்சார்ஜ்",
+      's4.lib.admission.status_filter': "சேர்க்கை நிலை",
+      's4.lib.admission.no_discharged':
+          "டிஸ்சார்ஜ் செய்யப்பட்ட சேர்க்கைகள் இல்லை",
+      's4.lib.admission.loading_patients': "நோயாளிகள் ஏற்றப்படுகின்றனர்",
+      's4.lib.admission.load_more_patients': "மேலும் நோயாளிகளை ஏற்றவும்",
+      's4.lib.admission.scope_all_active_inpatients':
+          "அனைத்து செயலில் உள்ள உள்நோயாளிகள்",
+      's4.lib.admission.scope_assigned_to_you':
+          "உங்களுக்கு ஒதுக்கப்பட்ட நோயாளிகள்",
+      's4.lib.admission.scope_duty_floor': "தற்போதைய டியூட்டி தளக் கவரேஜ்",
+      's4.lib.admission.scope_nursing_floor': "தற்போதைய நர்சிங் தளம்",
+      's4.lib.admission.scope_housekeeping_area':
+          "தற்போதைய ஹவுஸ்கீப்பிங் பகுதி",
+      's4.lib.admission.scope_role_based':
+          "பாத்திர அடிப்படையிலான உள்நோயாளர் வரம்பு",
+      's4.lib.admission.status_unknown': "தெரியவில்லை",
+      's4.lib.admission.admitting_doctor_required':
+          "சேர்க்கும் மருத்துவர் தேவை",
+      's4.lib.admission.hospital_id': "மருத்துவமனை ID",
+      's4.dynamic.admission.floors': "தளம் {floors}",
+      's4.dynamic.admission.showing_inpatients':
+          "{total} உள்நோயாளிகளில் {showing} காட்டப்படுகிறது",
+      's4.dynamic.admission.scope_with_detail': "{scope} - {detail}",
+      's4.dynamic.admission.bed_inline': "- படுக்கை {bed}",
       's4.lib.admission_case_sheet.case_sheet_saved':
           "கேஸ் ஷீட் சேமிக்கப்பட்டது",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
@@ -14661,6 +14943,67 @@ class AppStrings {
       's4.lib.clinical_ai_review_queue.op_ai_assist': "OP AI உதவி",
       's4.lib.clinical_notes.edit_consultation_note':
           "ஆலோசனைக் குறிப்பைத் திருத்தவும்",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm OP note labels before production.
+      's4.dynamic.clinical_notes.op_visit_closed_status':
+          "இந்த OP வருகை {status}; புதிய ஆவணத்திற்குப் புதிய அப்பாயிண்ட்மெண்ட் உருவாக்கவும்.",
+      's4.lib.clinical_notes.op_visit_not_today':
+          "இந்த OP வருகை இன்றைய தேதியல்ல; புதிய ஆவணத்திற்குப் புதிய அப்பாயிண்ட்மெண்ட் உருவாக்கவும்.",
+      's4.lib.clinical_notes.patient_fallback': "நோயாளி",
+      's4.lib.clinical_notes.tab_op_consultation': "OP ஆலோசனை",
+      's4.lib.clinical_notes.tab_all_notes': "அனைத்து குறிப்புகள்",
+      's4.dynamic.clinical_notes.op_consultation_title':
+          "OP ஆலோசனை - {patient}",
+      's4.dynamic.clinical_notes.minutes_ago': "{count} நிமிடம் முன்பு",
+      's4.dynamic.clinical_notes.hours_ago': "{count} மணி நேரம் முன்பு",
+      's4.lib.clinical_notes.chief_complaints': "முக்கிய புகார்கள்",
+      's4.lib.clinical_notes.history': "வரலாறு",
+      's4.lib.clinical_notes.examination': "பரிசோதனை",
+      's4.lib.clinical_notes.diagnosis': "நோயறிதல்",
+      's4.lib.clinical_notes.summary': "சுருக்கம்",
+      's4.lib.clinical_notes.current_status': "தற்போதைய நிலை",
+      's4.lib.clinical_notes.pre_op_diagnosis': "அறுவைக்கு முன் நோயறிதல்",
+      's4.lib.clinical_notes.post_op_diagnosis': "அறுவைக்கு பின் நோயறிதல்",
+      's4.lib.clinical_notes.edit_op_consultation_note':
+          "OP ஆலோசனை குறிப்பைத் திருத்தவும்",
+      's4.lib.clinical_notes.new_op_consultation_note':
+          "புதிய OP ஆலோசனை குறிப்பு",
+      's4.lib.clinical_notes.pulse_rate': "நாடி வீதம்",
+      's4.lib.clinical_notes.bp_systolic': "BP சிஸ்டாலிக்",
+      's4.lib.clinical_notes.bp_diastolic': "BP டையஸ்டாலிக்",
+      's4.lib.clinical_notes.spo2': "SpO2",
+      's4.lib.clinical_notes.cbg': "CBG",
+      's4.lib.clinical_notes.weight': "எடை",
+      's4.lib.clinical_notes.temperature': "வெப்பநிலை",
+      's4.lib.clinical_notes.chief_complaints_hint':
+          "இந்த வருகையின் முக்கிய கவலை, காலம், அறிகுறிகள்",
+      's4.lib.clinical_notes.history_hint':
+          "தொடர்புடைய நோய் வரலாறு, இணைநோய்கள், மருந்துகள், ஒவ்வாமைகள்",
+      's4.lib.clinical_notes.examination_hint':
+          "பொது மற்றும் அமைப்பு பரிசோதனை கண்டுபிடிப்புகள்",
+      's4.lib.clinical_notes.diagnosis_hint':
+          "வேலை நோயறிதல் அல்லது வேறுபாடு நோயறிதல்",
+      's4.lib.clinical_notes.op_plan_hint':
+          "சிகிச்சை திட்டம், ஆலோசனை, பரிசோதனைகள், பின்தொடர்பு",
+      's4.lib.clinical_notes.pre_op_diagnosis_hint':
+          "செயல்முறைக்கு முன் நோயறிதல்",
+      's4.lib.clinical_notes.post_op_diagnosis_hint':
+          "செயல்முறைக்கு பின் நோயறிதல்",
+      's4.lib.clinical_notes.consultation_note_updated':
+          "ஆலோசனை குறிப்பு புதுப்பிக்கப்பட்டது",
+      's4.lib.clinical_notes.visit_locked': "வருகை பூட்டப்பட்டுள்ளது",
+      's4.lib.clinical_notes.edit_note': "குறிப்பைத் திருத்தவும்",
+      's4.lib.clinical_notes.vital_pulse': "நாடி",
+      's4.lib.clinical_notes.vital_bp': "BP",
+      's4.lib.clinical_notes.vital_spo2': "SpO2",
+      's4.lib.clinical_notes.vital_cbg': "CBG",
+      's4.lib.clinical_notes.vital_weight': "எடை",
+      's4.lib.clinical_notes.vital_temp': "வெப்பநிலை",
+      's4.lib.clinical_notes.vitals': "வைட்டல்ஸ்",
+      's4.lib.clinical_notes.ai_review_pending': "மதிப்பாய்வு: நிலுவை",
+      's4.lib.clinical_notes.ai_fallback': "பின்வாங்கல்",
+      's4.dynamic.clinical_notes.generation_id': "gen #{id}",
+      's4.dynamic.clinical_notes.safety_review_counts':
+          "{critical} முக்கியமான · {high} உயர் — கவனமாக மதிப்பாய்வு செய்யவும்",
       's4.lib.clinical_notes.save_and_investigations': "சேமிப்பு & விசாரணைகள்",
       's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
           "இந்த OP ஆலோசனைக் குறிப்பு கையொப்பமிடப்பட்டுள்ளது அல்லது இனி திருத்த முடியாது.",
@@ -14699,6 +15042,52 @@ class AppStrings {
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "வெளியேற்றம் தொடங்கப்பட்ட பிறகு நோயாளிகள் இங்கு தோன்றி, இறுதி வெளியேற்றம் முடியும் வரை அங்கேயே இருப்பார்கள்.",
       's4.lib.discharge_summary.correct_summary': "சரியான சுருக்கம்",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
+      's4.dynamic.discharge_summary.load_error':
+          "இருக்கும் சுருக்கத்தை ஏற்ற முடியவில்லை: {error}",
+      's4.dynamic.discharge_summary.generate_error':
+          "சுருக்கத்தை உருவாக்க முடியவில்லை: {error}",
+      's4.dynamic.discharge_summary.save_error': "சேமிக்க முடியவில்லை: {error}",
+      's4.dynamic.discharge_summary.sign_error':
+          "கையொப்பமிட முடியவில்லை: {error}",
+      's4.dynamic.discharge_summary.discharge_error':
+          "டிஸ்சார்ஜ் தோல்வியடைந்தது: {error}",
+      's4.dynamic.discharge_summary.patient_name_line':
+          "நோயாளியின் பெயர் : {patient}",
+      's4.lib.discharge_summary.medication': "மருந்து",
+      's4.lib.discharge_summary.not_documented': "ஆவணப்படுத்தப்படவில்லை",
+      's4.lib.discharge_summary.fallback_title': "டிஸ்சார்ஜ் சுருக்கம்",
+      's4.lib.discharge_summary.diagnosis_heading': "நோயறிதல்:",
+      's4.lib.discharge_summary.hospital_course_heading':
+          "மருத்துவமனை நிலைநடை:",
+      's4.lib.discharge_summary.condition_heading': "டிஸ்சார்ஜ் நேர நிலை:",
+      's4.lib.discharge_summary.advised_to_continue_heading': "தொடர அறிவுரை:",
+      's4.lib.discharge_summary.follow_up_heading': "பின்தொடர்பு:",
+      's4.lib.discharge_summary.review_as_advised':
+          "அறிவுறுத்தியபடி மதிப்பாய்வு செய்யவும்.",
+      's4.lib.discharge_summary.doctor_review_required':
+          "மருத்துவர் மதிப்பாய்வு தேவை",
+      's4.lib.discharge_summary.signer_unavailable':
+          "கையொப்பமிட்டவர் கிடைக்கவில்லை",
+      's4.lib.discharge_summary.hospital_formatted_summary':
+          "மருத்துவமனை வடிவமைத்த சுருக்கம்",
+      's4.lib.discharge_summary.unknown_item': "தெரியவில்லை",
+      's4.lib.discharge_summary.test_fallback': "பரிசோதனை",
+      's4.lib.discharge_summary.pending_result': "நிலுவை",
+      's4.lib.discharge_summary.procedure_fallback': "செயல்முறை",
+      's4.lib.discharge_summary.ai_generated_review_required':
+          "AI உருவாக்கிய வரைவு - மருத்துவர் மதிப்பாய்வு தேவை",
+      's4.lib.discharge_summary.ai_fallback_unavailable':
+          "பின்வாங்கல் வரைவு - AI கிடைக்கவில்லை",
+      's4.lib.discharge_summary.structured_review_required':
+          "கட்டமைக்கப்பட்ட வரைவு - மருத்துவர் மதிப்பாய்வு தேவை",
+      's4.dynamic.discharge_summary.source_count_one': "{count} ஆதாரம்",
+      's4.dynamic.discharge_summary.source_count': "{count} ஆதாரங்கள்",
+      's4.dynamic.discharge_summary.safety_flag_one':
+          "{count} பாதுகாப்பு கொடியை மதிப்பாய்வு செய்யவும்",
+      's4.dynamic.discharge_summary.safety_flags':
+          "{count} பாதுகாப்பு கொடிகளை மதிப்பாய்வு செய்யவும்",
+      's4.lib.discharge_summary.no_safety_flags': "பாதுகாப்பு கொடிகள் இல்லை",
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "இந்த சுருக்கம் இன்னும் கையெழுத்திடப்படவில்லை.",
       's4.lib.drug_chart.active_until_stopped':
@@ -19333,6 +19722,31 @@ class AppStrings {
           'SOAP ఉత్పత్తి విఫలమైంది:',
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.admission.admitting_doctor': "అడ్మిట్ అవుతున్న డాక్టర్",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical workflow copy before production.
+      's4.lib.admission.all_wards': "అన్ని వార్డులు",
+      's4.lib.admission.status_active': "చురుకుగా",
+      's4.lib.admission.status_discharged': "డిశ్చార్జ్",
+      's4.lib.admission.status_filter': "అడ్మిషన్ స్థితి",
+      's4.lib.admission.no_discharged': "డిశ్చార్జ్ అయిన అడ్మిషన్లు లేవు",
+      's4.lib.admission.loading_patients': "రోగులు లోడ్ అవుతున్నారు",
+      's4.lib.admission.load_more_patients': "మరిన్ని రోగులను లోడ్ చేయండి",
+      's4.lib.admission.scope_all_active_inpatients':
+          "అన్ని చురుకైన ఇన్‌పేషెంట్లు",
+      's4.lib.admission.scope_assigned_to_you': "మీకు కేటాయించిన రోగులు",
+      's4.lib.admission.scope_duty_floor': "ప్రస్తుత డ్యూటీ ఫ్లోర్ కవరేజ్",
+      's4.lib.admission.scope_nursing_floor': "ప్రస్తుత నర్సింగ్ ఫ్లోర్",
+      's4.lib.admission.scope_housekeeping_area':
+          "ప్రస్తుత హౌస్‌కీపింగ్ ప్రాంతం",
+      's4.lib.admission.scope_role_based': "పాత్ర ఆధారిత ఇన్‌పేషెంట్ పరిధి",
+      's4.lib.admission.status_unknown': "తెలియదు",
+      's4.lib.admission.admitting_doctor_required':
+          "అడ్మిట్ చేసే డాక్టర్ అవసరం",
+      's4.lib.admission.hospital_id': "హాస్పిటల్ ID",
+      's4.dynamic.admission.floors': "ఫ్లోర్ {floors}",
+      's4.dynamic.admission.showing_inpatients':
+          "{total} ఇన్‌పేషెంట్లలో {showing} చూపుతోంది",
+      's4.dynamic.admission.scope_with_detail': "{scope} - {detail}",
+      's4.dynamic.admission.bed_inline': "- బెడ్ {bed}",
       's4.lib.admission_case_sheet.case_sheet_saved':
           "కేస్ షీట్ సేవ్ చేయబడింది",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
@@ -19613,6 +20027,67 @@ class AppStrings {
       's4.lib.clinical_ai_review_queue.op_ai_assist': "OP AI సహాయం",
       's4.lib.clinical_notes.edit_consultation_note':
           "సంప్రదింపు గమనికను సవరించండి",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm OP note labels before production.
+      's4.dynamic.clinical_notes.op_visit_closed_status':
+          "ఈ OP సందర్శన {status}; కొత్త డాక్యుమెంటేషన్ కోసం కొత్త అపాయింట్‌మెంట్ సృష్టించండి.",
+      's4.lib.clinical_notes.op_visit_not_today':
+          "ఈ OP సందర్శన ఈరోజు తేదీకి చెందలేదు; కొత్త డాక్యుమెంటేషన్ కోసం కొత్త అపాయింట్‌మెంట్ సృష్టించండి.",
+      's4.lib.clinical_notes.patient_fallback': "రోగి",
+      's4.lib.clinical_notes.tab_op_consultation': "OP కన్సల్టేషన్",
+      's4.lib.clinical_notes.tab_all_notes': "అన్ని గమనికలు",
+      's4.dynamic.clinical_notes.op_consultation_title':
+          "OP కన్సల్టేషన్ - {patient}",
+      's4.dynamic.clinical_notes.minutes_ago': "{count} నిమిషాల క్రితం",
+      's4.dynamic.clinical_notes.hours_ago': "{count} గంటల క్రితం",
+      's4.lib.clinical_notes.chief_complaints': "ప్రధాన ఫిర్యాదులు",
+      's4.lib.clinical_notes.history': "చరిత్ర",
+      's4.lib.clinical_notes.examination': "పరీక్ష",
+      's4.lib.clinical_notes.diagnosis': "నిర్ధారణ",
+      's4.lib.clinical_notes.summary': "సారాంశం",
+      's4.lib.clinical_notes.current_status': "ప్రస్తుత స్థితి",
+      's4.lib.clinical_notes.pre_op_diagnosis': "ప్రీ-ఆప్ నిర్ధారణ",
+      's4.lib.clinical_notes.post_op_diagnosis': "పోస్ట్-ఆప్ నిర్ధారణ",
+      's4.lib.clinical_notes.edit_op_consultation_note':
+          "OP కన్సల్టేషన్ గమనికను సవరించండి",
+      's4.lib.clinical_notes.new_op_consultation_note':
+          "కొత్త OP కన్సల్టేషన్ గమనిక",
+      's4.lib.clinical_notes.pulse_rate': "పల్స్ రేట్",
+      's4.lib.clinical_notes.bp_systolic': "BP సిస్టోలిక్",
+      's4.lib.clinical_notes.bp_diastolic': "BP డయాస్టోలిక్",
+      's4.lib.clinical_notes.spo2': "SpO2",
+      's4.lib.clinical_notes.cbg': "CBG",
+      's4.lib.clinical_notes.weight': "బరువు",
+      's4.lib.clinical_notes.temperature': "ఉష్ణోగ్రత",
+      's4.lib.clinical_notes.chief_complaints_hint':
+          "ఈ సందర్శనకు ప్రధాన ఆందోళన, వ్యవధి, లక్షణాలు",
+      's4.lib.clinical_notes.history_hint':
+          "సంబంధిత వ్యాధి చరిత్ర, సహవ్యాధులు, మందులు, అలెర్జీలు",
+      's4.lib.clinical_notes.examination_hint':
+          "సాధారణ మరియు వ్యవస్థ పరీక్ష ఫలితాలు",
+      's4.lib.clinical_notes.diagnosis_hint':
+          "వర్కింగ్ నిర్ధారణ లేదా భేద నిర్ధారణ",
+      's4.lib.clinical_notes.op_plan_hint':
+          "చికిత్స ప్రణాళిక, సలహా, పరిశోధనలు, ఫాలో-అప్",
+      's4.lib.clinical_notes.pre_op_diagnosis_hint':
+          "ప్రక్రియకు ముందు నిర్ధారణ",
+      's4.lib.clinical_notes.post_op_diagnosis_hint':
+          "ప్రక్రియ తర్వాత నిర్ధారణ",
+      's4.lib.clinical_notes.consultation_note_updated':
+          "కన్సల్టేషన్ గమనిక నవీకరించబడింది",
+      's4.lib.clinical_notes.visit_locked': "సందర్శన లాక్ చేయబడింది",
+      's4.lib.clinical_notes.edit_note': "గమనికను సవరించండి",
+      's4.lib.clinical_notes.vital_pulse': "పల్స్",
+      's4.lib.clinical_notes.vital_bp': "BP",
+      's4.lib.clinical_notes.vital_spo2': "SpO2",
+      's4.lib.clinical_notes.vital_cbg': "CBG",
+      's4.lib.clinical_notes.vital_weight': "బరువు",
+      's4.lib.clinical_notes.vital_temp': "ఉష్ణోగ్రత",
+      's4.lib.clinical_notes.vitals': "వైటల్స్",
+      's4.lib.clinical_notes.ai_review_pending': "సమీక్ష: పెండింగ్",
+      's4.lib.clinical_notes.ai_fallback': "ఫాల్‌బ్యాక్",
+      's4.dynamic.clinical_notes.generation_id': "gen #{id}",
+      's4.dynamic.clinical_notes.safety_review_counts':
+          "{critical} కీలకం · {high} అధిక — జాగ్రత్తగా సమీక్షించండి",
       's4.lib.clinical_notes.save_and_investigations': "సేవ్ & పరిశోధనలు",
       's4.lib.clinical_notes.this_op_consultation_note_is_signed_or_no_longer':
           "ఈ OP కన్సల్టేషన్ నోట్ సంతకం చేయబడింది లేదా ఇకపై సవరించబడదు.",
@@ -19652,6 +20127,52 @@ class AppStrings {
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "డిశ్చార్జ్ ప్రారంభించిన తర్వాత రోగులు ఇక్కడ కనిపిస్తారు మరియు తుది ఉత్సర్గ పూర్తయ్యే వరకు ఉంటారు.",
       's4.lib.discharge_summary.correct_summary': "సరైన సారాంశం",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
+      's4.dynamic.discharge_summary.load_error':
+          "ప్రస్తుత సారాంశాన్ని లోడ్ చేయలేకపోయాం: {error}",
+      's4.dynamic.discharge_summary.generate_error':
+          "సారాంశాన్ని రూపొందించడంలో విఫలమైంది: {error}",
+      's4.dynamic.discharge_summary.save_error':
+          "సేవ్ చేయడంలో విఫలమైంది: {error}",
+      's4.dynamic.discharge_summary.sign_error':
+          "సంతకం చేయడంలో విఫలమైంది: {error}",
+      's4.dynamic.discharge_summary.discharge_error':
+          "డిశ్చార్జ్ విఫలమైంది: {error}",
+      's4.dynamic.discharge_summary.patient_name_line': "రోగి పేరు : {patient}",
+      's4.lib.discharge_summary.medication': "మందు",
+      's4.lib.discharge_summary.not_documented': "డాక్యుమెంట్ చేయబడలేదు",
+      's4.lib.discharge_summary.fallback_title': "డిశ్చార్జ్ సారాంశం",
+      's4.lib.discharge_summary.diagnosis_heading': "నిర్ధారణ:",
+      's4.lib.discharge_summary.hospital_course_heading': "ఆసుపత్రిలో కోర్సు:",
+      's4.lib.discharge_summary.condition_heading':
+          "డిశ్చార్జ్ సమయంలో పరిస్థితి:",
+      's4.lib.discharge_summary.advised_to_continue_heading':
+          "కొనసాగించమని సలహా:",
+      's4.lib.discharge_summary.follow_up_heading': "ఫాలో అప్:",
+      's4.lib.discharge_summary.review_as_advised':
+          "సలహా ప్రకారం సమీక్షించండి.",
+      's4.lib.discharge_summary.doctor_review_required': "డాక్టర్ సమీక్ష అవసరం",
+      's4.lib.discharge_summary.signer_unavailable':
+          "సంతకం చేసినవారు అందుబాటులో లేరు",
+      's4.lib.discharge_summary.hospital_formatted_summary':
+          "ఆసుపత్రి ఫార్మాట్ చేసిన సారాంశం",
+      's4.lib.discharge_summary.unknown_item': "తెలియదు",
+      's4.lib.discharge_summary.test_fallback': "పరీక్ష",
+      's4.lib.discharge_summary.pending_result': "పెండింగ్",
+      's4.lib.discharge_summary.procedure_fallback': "ప్రక్రియ",
+      's4.lib.discharge_summary.ai_generated_review_required':
+          "AI రూపొందించిన డ్రాఫ్ట్ - డాక్టర్ సమీక్ష అవసరం",
+      's4.lib.discharge_summary.ai_fallback_unavailable':
+          "ఫాల్‌బ్యాక్ డ్రాఫ్ట్ - AI అందుబాటులో లేదు",
+      's4.lib.discharge_summary.structured_review_required':
+          "నిర్మిత డ్రాఫ్ట్ - డాక్టర్ సమీక్ష అవసరం",
+      's4.dynamic.discharge_summary.source_count_one': "{count} మూలం",
+      's4.dynamic.discharge_summary.source_count': "{count} మూలాలు",
+      's4.dynamic.discharge_summary.safety_flag_one':
+          "{count} భద్రతా ఫ్లాగ్‌ను సమీక్షించండి",
+      's4.dynamic.discharge_summary.safety_flags':
+          "{count} భద్రతా ఫ్లాగ్‌లను సమీక్షించండి",
+      's4.lib.discharge_summary.no_safety_flags': "భద్రతా ఫ్లాగ్‌లు లేవు",
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "ఈ సారాంశం ఇంకా సంతకం చేయలేదు.",
       's4.lib.drug_chart.active_until_stopped': "ఆగిపోయే వరకు చురుకుగా ఉంటుంది",
