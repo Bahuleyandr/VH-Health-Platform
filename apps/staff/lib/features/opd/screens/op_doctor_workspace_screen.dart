@@ -146,6 +146,11 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     super.dispose();
   }
 
+  String _label(String key) => AppStrings.of(context).lookup(key);
+
+  String _format(String key, Map<String, Object?> values) =>
+      AppStrings.of(context).format(key, values);
+
   Future<void> _loadTimeline() async {
     setState(() {
       _loading = true;
@@ -255,13 +260,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       SnackBar(
         content: Text(
           when != null
-              ? 'Restored unsaved draft from $when'
-              : 'Restored unsaved draft',
+              ? _format('s4.dynamic.op_doctor_workspace.restored_draft_from', {
+                  'time': when,
+                })
+              : _label('s4.lib.op_doctor_workspace.restored_draft'),
         ),
         backgroundColor: AppTheme.primaryBlue,
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
-          label: 'Discard draft',
+          label: _label('s4.lib.op_doctor_workspace.discard_draft'),
           textColor: Colors.white,
           onPressed: _discardRestoredDraft,
         ),
@@ -291,7 +298,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     setState(() => _diagnosisCoding = null);
     messenger.showSnackBar(
       const SnackBar(
-        content: AppText('s4.lib.nursing_notes.draft_discarded'),
+        content: AppText('s4.lib.op_doctor_workspace.draft_discarded'),
         duration: Duration(seconds: 3),
       ),
     );
@@ -315,17 +322,23 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         'appointment_id':
             _asInt(note['appointment_id']) ?? _asInt(content['appointment_id']),
         'title': _clean(note['title']).isEmpty
-            ? 'OP consultation note'
+            ? _label('s4.lib.op_doctor_workspace.op_consultation_note')
             : _clean(note['title']),
         'summary': _clean(content['summary']).isNotEmpty
             ? _clean(content['summary'])
             : _joinNonEmpty([
                 if (_clean(content['chief_complaint']).isNotEmpty)
-                  'CC: ${_clean(content['chief_complaint'])}',
+                  _format('s4.dynamic.op_doctor_workspace.summary_cc', {
+                    'text': _clean(content['chief_complaint']),
+                  }),
                 if (_clean(content['diagnosis']).isNotEmpty)
-                  'Dx: ${_clean(content['diagnosis'])}',
+                  _format('s4.dynamic.op_doctor_workspace.summary_dx', {
+                    'text': _clean(content['diagnosis']),
+                  }),
                 if (_clean(content['plan']).isNotEmpty)
-                  'Plan: ${_clean(content['plan'])}',
+                  _format('s4.dynamic.op_doctor_workspace.summary_plan', {
+                    'text': _clean(content['plan']),
+                  }),
               ]),
         'timestamp': _clean(note['updated_at']).isNotEmpty
             ? _clean(note['updated_at'])
@@ -356,11 +369,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         'id': rx['id'],
         'appointment_id': _asInt(rx['appointment_id']) ?? appointmentId,
         'title': _clean(rx['prescription_number']).isNotEmpty
-            ? 'Prescription ${_clean(rx['prescription_number'])}'
-            : 'OP prescription',
+            ? _format('s4.dynamic.op_doctor_workspace.prescription_number', {
+                'number': _clean(rx['prescription_number']),
+              })
+            : _label('s4.lib.op_doctor_workspace.op_prescription'),
         'summary': _clean(rx['diagnosis']).isNotEmpty
             ? _clean(rx['diagnosis'])
-            : 'Prescription entered for this OP visit',
+            : _label(
+                's4.lib.op_doctor_workspace.prescription_entered_for_visit',
+              ),
         'timestamp': _clean(rx['updated_at']).isNotEmpty
             ? _clean(rx['updated_at'])
             : _clean(rx['created_at']),
@@ -458,7 +475,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
 
   String get _patientTitle {
     final name = _clean(widget.patientName);
-    return name.isEmpty ? 'Patient' : name;
+    return name.isEmpty ? _label('s4.lib.op_doctor_workspace.patient') : name;
   }
 
   String get _patientQuery {
@@ -535,9 +552,13 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
 
   String get _opSessionClosedReason {
     if (_isTerminalStatus(_status)) {
-      return 'This OP visit is ${_status.toLowerCase()}; create a new appointment for fresh documentation.';
+      return _format('s4.dynamic.op_doctor_workspace.visit_closed_status', {
+        'status': AppStrings.of(
+          context,
+        ).frontOfficeAppointmentStatusLabel(_status),
+      });
     }
-    return 'This OP visit is not dated today; create a new appointment for fresh documentation.';
+    return _label('s4.lib.op_doctor_workspace.visit_not_today');
   }
 
   String get _scheduledLabel {
@@ -545,7 +566,16 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       _clean(widget.appointmentDate),
       _clean(widget.appointmentTime),
     ].where((part) => part.isNotEmpty).toList();
-    return parts.isEmpty ? 'OP appointment' : parts.join(' at ');
+    if (parts.isEmpty) {
+      return _label('s4.lib.op_doctor_workspace.op_appointment');
+    }
+    if (parts.length == 2) {
+      return _format('s4.dynamic.op_doctor_workspace.scheduled_at', {
+        'date': parts.first,
+        'time': parts.last,
+      });
+    }
+    return parts.first;
   }
 
   Future<void> _completeAppointment() async {
@@ -562,7 +592,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         _status = 'COMPLETED';
         _completing = false;
       });
-      SuccessToast.show(context, 'OP consultation marked complete');
+      SuccessToast.show(
+        context,
+        _label('s4.lib.op_doctor_workspace.consultation_marked_complete'),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _completing = false);
@@ -653,7 +686,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         _clean(content['plan']).isEmpty) {
       ErrorToast.show(
         context,
-        'Enter at least a complaint, diagnosis, or plan',
+        _label('s4.lib.op_doctor_workspace.enter_complaint_diagnosis_or_plan'),
       );
       return;
     }
@@ -665,7 +698,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         final created = await MedicalApiService.createClinicalNote({
           'patient_uid': widget.patientUid,
           'note_type': 'op_consultation',
-          'title': 'OP consultation - $_patientTitle',
+          'title': _format(
+            's4.dynamic.op_doctor_workspace.op_consultation_title',
+            {'patient': _patientTitle},
+          ),
           'content': content,
           if (widget.appointmentId != null)
             'appointment_id': widget.appointmentId,
@@ -694,8 +730,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       SuccessToast.show(
         context,
         signAfter
-            ? 'Consultation note signed'
-            : (_opNoteId != null ? 'Consultation note saved' : 'Note saved'),
+            ? _label('s4.lib.op_doctor_workspace.consultation_note_signed')
+            : (_opNoteId != null
+                  ? _label('s4.lib.op_doctor_workspace.consultation_note_saved')
+                  : _label('s4.lib.op_doctor_workspace.note_saved')),
       );
       if (openInvestigationsAfter) {
         await _openInvestigationsAfterNote();
@@ -764,7 +802,12 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                               fontWeight: FontWeight.w900,
                             ),
                       ),
-                      _StatusPill(label: _status, color: statusColor),
+                      _StatusPill(
+                        label: AppStrings.of(
+                          context,
+                        ).frontOfficeAppointmentStatusLabel(_status),
+                        color: statusColor,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -815,17 +858,23 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                     icon: _opNoteSigned
                         ? Icons.lock_outline
                         : Icons.edit_note_outlined,
-                    title: 'OP consultation note',
+                    title: _label(
+                      's4.lib.op_doctor_workspace.op_consultation_note',
+                    ),
                     subtitle: _opNoteSigned
-                        ? 'Signed and locked'
+                        ? _label('s4.lib.op_doctor_workspace.signed_and_locked')
                         : (_opSessionClosed
                               ? _opSessionClosedReason
-                              : 'Editable until this consultation is signed'),
+                              : _label(
+                                  's4.lib.op_doctor_workspace.editable_until_signed',
+                                )),
                   ),
                 ),
                 if (_opNoteId != null)
                   _StatusPill(
-                    label: _opNoteSigned ? 'SIGNED' : 'DRAFT',
+                    label: _opNoteSigned
+                        ? _label('s4.lib.op_doctor_workspace.signed')
+                        : _label('s4.lib.op_doctor_workspace.draft'),
                     color: _opNoteSigned
                         ? AppTheme.successOnSurface
                         : AppTheme.warningOnSurface,
@@ -835,32 +884,32 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
             const SizedBox(height: 14),
             _ClinicalTextField(
               controller: _chiefCtrl,
-              label: 'Chief complaint',
-              hint: 'Main complaint or visit reason',
+              label: _label('s4.lib.op_doctor_workspace.chief_complaint'),
+              hint: _label('s4.lib.op_doctor_workspace.main_complaint_hint'),
               minLines: 2,
               enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
               controller: _historyCtrl,
-              label: 'History',
-              hint: 'Relevant history, negatives, risk factors',
+              label: _label('s4.lib.op_doctor_workspace.history'),
+              hint: _label('s4.lib.op_doctor_workspace.history_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
               controller: _examCtrl,
-              label: 'Examination',
-              hint: 'Vitals, examination findings, bedside observations',
+              label: _label('s4.lib.op_doctor_workspace.examination'),
+              hint: _label('s4.lib.op_doctor_workspace.examination_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             CodedDiagnosisPicker(
               controller: _diagnosisCtrl,
-              label: 'Diagnosis',
-              hint: 'Working diagnosis or differential',
+              label: _label('s4.lib.op_doctor_workspace.diagnosis'),
+              hint: _label('s4.lib.op_doctor_workspace.diagnosis_hint'),
               enabled: noteFieldsEnabled,
               minLines: 2,
               selectedCoding: _diagnosisCoding,
@@ -872,8 +921,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
             const SizedBox(height: 10),
             _ClinicalTextField(
               controller: _planCtrl,
-              label: 'Plan',
-              hint: 'Medicines, investigations, advice, follow-up',
+              label: _label('s4.lib.op_doctor_workspace.plan'),
+              hint: _label('s4.lib.op_doctor_workspace.plan_hint'),
               minLines: 3,
               enabled: noteFieldsEnabled,
             ),
@@ -931,40 +980,52 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     final actions = [
       _WorkspaceAction(
         icon: Icons.note_add_outlined,
-        label: 'Doctor notes',
-        detail: 'Write OP consultation notes',
+        label: _label('s4.lib.op_doctor_workspace.doctor_notes'),
+        detail: _label(
+          's4.lib.op_doctor_workspace.write_op_consultation_notes',
+        ),
         onTap: () =>
             context.push('/emr/notes/${widget.patientUid}$_patientQuery'),
       ),
       _WorkspaceAction(
         icon: Icons.medication_outlined,
-        label: 'Prescription',
-        detail: 'Create e-prescription from this appointment',
+        label: _label('s4.lib.op_doctor_workspace.prescription'),
+        detail: _label(
+          's4.lib.op_doctor_workspace.create_eprescription_from_appointment',
+        ),
         onTap: _openPrescription,
       ),
       _WorkspaceAction(
         icon: Icons.receipt_long_outlined,
-        label: 'Orders',
-        detail: 'Medication, nursing, or investigation orders',
+        label: _label('s4.lib.op_doctor_workspace.orders'),
+        detail: _label(
+          's4.lib.op_doctor_workspace.medication_nursing_investigation_orders',
+        ),
         onTap: () =>
             context.push('/emr/orders/${widget.patientUid}$_patientQuery'),
       ),
       _WorkspaceAction(
         icon: Icons.biotech_outlined,
-        label: 'Investigations',
-        detail: 'Review or request investigations',
+        label: _label('s4.lib.op_doctor_workspace.investigations'),
+        detail: _label(
+          's4.lib.op_doctor_workspace.review_or_request_investigations',
+        ),
         onTap: () => context.push(_investigationsRoute),
       ),
       _WorkspaceAction(
         icon: Icons.folder_shared_outlined,
-        label: 'Prior records',
-        detail: 'Open patient records with this patient selected',
+        label: _label('s4.lib.op_doctor_workspace.prior_records'),
+        detail: _label(
+          's4.lib.op_doctor_workspace.open_patient_records_selected',
+        ),
         onTap: _openPatientRecords,
       ),
       _WorkspaceAction(
         icon: Icons.timeline_outlined,
-        label: 'Full timeline',
-        detail: 'Notes, drug chart, orders, vitals and reports',
+        label: _label('s4.lib.op_doctor_workspace.full_timeline'),
+        detail: _label(
+          's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports',
+        ),
         onTap: () => context.push(_timelineRoute),
       ),
     ];
@@ -976,10 +1037,12 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionTitle(
+            _SectionTitle(
               icon: Icons.medical_information_outlined,
-              title: 'Consultation actions',
-              subtitle: 'Use one patient context for OP documentation',
+              title: _label('s4.lib.op_doctor_workspace.consultation_actions'),
+              subtitle: _label(
+                's4.lib.op_doctor_workspace.one_patient_context',
+              ),
             ),
             const SizedBox(height: 12),
             ...actions.map(
@@ -1000,8 +1063,17 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                   : const Icon(Icons.check_circle_outline, size: 18),
               label: Text(
                 _isTerminalStatus(_status)
-                    ? 'Consultation ${_status.toLowerCase()}'
-                    : 'Complete consultation',
+                    ? _format(
+                        's4.dynamic.op_doctor_workspace.consultation_status',
+                        {
+                          'status': AppStrings.of(
+                            context,
+                          ).frontOfficeAppointmentStatusLabel(_status),
+                        },
+                      )
+                    : _label(
+                        's4.lib.op_doctor_workspace.complete_consultation',
+                      ),
               ),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(44),
@@ -1024,12 +1096,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: _SectionTitle(
                     icon: Icons.history_outlined,
-                    title: 'Clinical timeline',
-                    subtitle:
-                        'Recent notes, prescriptions, drug chart and reports',
+                    title: _label(
+                      's4.lib.op_doctor_workspace.clinical_timeline',
+                    ),
+                    subtitle: _label(
+                      's4.lib.op_doctor_workspace.recent_notes_prescriptions_reports',
+                    ),
                   ),
                 ),
                 TextButton.icon(
@@ -1082,10 +1157,12 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionTitle(
+            _SectionTitle(
               icon: Icons.dashboard_customize_outlined,
-              title: 'Consultation cockpit',
-              subtitle: 'Records, prescription, investigation and follow-up',
+              title: _label('s4.lib.op_doctor_workspace.consultation_cockpit'),
+              subtitle: _label(
+                's4.lib.op_doctor_workspace.records_prescription_follow_up',
+              ),
             ),
             const SizedBox(height: 12),
             LayoutBuilder(
@@ -1101,32 +1178,42 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                   children: [
                     _CockpitTile(
                       icon: Icons.medication_outlined,
-                      title: 'Prescription',
-                      value: _eventTitle(latestPrescription) ?? 'Create Rx',
-                      action: 'Open',
+                      title: _label('s4.lib.op_doctor_workspace.prescription'),
+                      value:
+                          _eventTitle(latestPrescription) ??
+                          _label('s4.lib.op_doctor_workspace.create_rx'),
+                      action: _label('s4.lib.op_doctor_workspace.open'),
                       onTap: _openPrescription,
                     ),
                     _CockpitTile(
                       icon: Icons.biotech_outlined,
-                      title: 'Investigations',
-                      value: _eventTitle(latestInvestigation) ?? 'Review/order',
-                      action: 'Open',
+                      title: _label(
+                        's4.lib.op_doctor_workspace.investigations',
+                      ),
+                      value:
+                          _eventTitle(latestInvestigation) ??
+                          _label('s4.lib.op_doctor_workspace.review_order'),
+                      action: _label('s4.lib.op_doctor_workspace.open'),
                       onTap: () => context.push(_investigationsRoute),
                     ),
                     _CockpitTile(
                       icon: Icons.folder_shared_outlined,
-                      title: 'Old records',
-                      value: _eventTitle(latestNote) ?? 'Timeline ready',
-                      action: 'Open',
+                      title: _label('s4.lib.op_doctor_workspace.old_records'),
+                      value:
+                          _eventTitle(latestNote) ??
+                          _label('s4.lib.op_doctor_workspace.timeline_ready'),
+                      action: _label('s4.lib.op_doctor_workspace.open'),
                       onTap: _openPatientRecords,
                     ),
                     _CockpitTile(
                       icon: Icons.event_repeat_outlined,
-                      title: 'Follow-up',
+                      title: _label('s4.lib.op_doctor_workspace.follow_up'),
                       value: _isTerminalStatus(_status)
-                          ? 'Visit complete'
-                          : 'Set in Rx/plan',
-                      action: _canComplete ? 'Complete' : 'Status',
+                          ? _label('s4.lib.op_doctor_workspace.visit_complete')
+                          : _label('s4.lib.op_doctor_workspace.set_in_rx_plan'),
+                      action: _canComplete
+                          ? _label('s4.lib.op_doctor_workspace.complete')
+                          : _label('s4.lib.op_doctor_workspace.status'),
                       onTap: _canComplete ? _completeAppointment : () {},
                     ),
                   ],
@@ -1147,10 +1234,12 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionTitle(
+            _SectionTitle(
               icon: Icons.fact_check_outlined,
-              title: 'OP visit checklist',
-              subtitle: 'Keeps the consultation from scattering across pages',
+              title: _label('s4.lib.op_doctor_workspace.op_visit_checklist'),
+              subtitle: _label(
+                's4.lib.op_doctor_workspace.keeps_consultation_together',
+              ),
             ),
             const SizedBox(height: 12),
             _ChecklistRow(
@@ -1163,7 +1252,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                 'soap',
                 'progress',
               }),
-              label: 'Clinical note entered',
+              label: _label('s4.lib.op_doctor_workspace.clinical_note_entered'),
             ),
             _ChecklistRow(
               complete: _hasEventType({
@@ -1171,17 +1260,21 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                 'clinical_order',
                 'investigation',
               }),
-              label: 'Orders or investigations reviewed',
+              label: _label(
+                's4.lib.op_doctor_workspace.orders_investigations_reviewed',
+              ),
             ),
             _ChecklistRow(
               complete:
                   _hasAppointmentPrescription ||
                   _hasEventType({'medication', 'prescription'}),
-              label: 'Prescription reviewed if needed',
+              label: _label(
+                's4.lib.op_doctor_workspace.prescription_reviewed_if_needed',
+              ),
             ),
             _ChecklistRow(
               complete: _isTerminalStatus(_status),
-              label: 'Appointment completed',
+              label: _label('s4.lib.op_doctor_workspace.appointment_completed'),
             ),
           ],
         ),
@@ -1300,7 +1393,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
   @override
   Widget build(BuildContext context) {
     return StaffScaffold(
-      title: 'OP Workspace - $_patientTitle',
+      title: _format('s4.dynamic.op_doctor_workspace.workspace_title', {
+        'patient': _patientTitle,
+      }),
       body: _loading
           ? const SkeletonList()
           : _error != null
@@ -1634,6 +1729,7 @@ class _TimelineSummaryItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final type = _normalizedEventType(event['event_type']);
     final color = _eventColor(type);
     final description = _eventDescription(event);
@@ -1674,7 +1770,10 @@ class _TimelineSummaryItem extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        _StatusPill(label: type.toUpperCase(), color: color),
+                        _StatusPill(
+                          label: _eventTypeLabel(type, s),
+                          color: color,
+                        ),
                         const Spacer(),
                         Text(
                           _formatTimestamp(event['timestamp']),
@@ -1687,7 +1786,7 @@ class _TimelineSummaryItem extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _eventTitle(event),
+                      _eventTitle(event, s),
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w800,
@@ -1717,14 +1816,18 @@ class _TimelineSummaryItem extends StatelessWidget {
   }
 }
 
-String _eventTitle(Map<String, dynamic> event) {
+String _eventTitle(Map<String, dynamic> event, AppStrings s) {
   final explicit = _clean(event['title']);
   if (explicit.isNotEmpty) return explicit;
   final type = _normalizedEventType(event['event_type']);
   final payload = _asMap(event['payload']);
   if (type == 'note') {
     final noteType = _clean(payload['note_type']);
-    return noteType.isEmpty ? 'Clinical note' : '${_formatKey(noteType)} note';
+    return noteType.isEmpty
+        ? s.lookup('s4.lib.op_doctor_workspace.clinical_note')
+        : s.format('s4.dynamic.op_doctor_workspace.note_type_title', {
+            'type': _formatKey(noteType),
+          });
   }
   if (type == 'drug_chart') {
     final details = _asMap(payload['details']);
@@ -1734,9 +1837,40 @@ String _eventTitle(Map<String, dynamic> event) {
           details['medication'] ??
           payload['medication_name'],
     );
-    return medication.isEmpty ? 'Drug chart' : 'Drug chart - $medication';
+    return medication.isEmpty
+        ? s.lookup('s4.lib.op_doctor_workspace.drug_chart')
+        : s.format('s4.dynamic.op_doctor_workspace.drug_chart_medication', {
+            'medication': medication,
+          });
   }
   return _formatKey(type);
+}
+
+String _eventTypeLabel(String type, AppStrings s) {
+  switch (type) {
+    case 'admission':
+      return s.lookup('s4.lib.op_doctor_workspace.event_admission');
+    case 'discharge':
+      return s.lookup('s4.lib.op_doctor_workspace.event_discharge');
+    case 'drug_chart':
+      return s.lookup('s4.lib.op_doctor_workspace.event_drug_chart');
+    case 'event':
+      return s.lookup('s4.lib.op_doctor_workspace.event_generic');
+    case 'investigation':
+      return s.lookup('s4.lib.op_doctor_workspace.event_investigation');
+    case 'medication':
+      return s.lookup('s4.lib.op_doctor_workspace.event_medication');
+    case 'note':
+      return s.lookup('s4.lib.op_doctor_workspace.event_note');
+    case 'order':
+      return s.lookup('s4.lib.op_doctor_workspace.event_order');
+    case 'prescription':
+      return s.lookup('s4.lib.op_doctor_workspace.event_prescription');
+    case 'vitals':
+      return s.lookup('s4.lib.op_doctor_workspace.event_vitals');
+    default:
+      return _formatKey(type);
+  }
 }
 
 String _eventDescription(Map<String, dynamic> event) {
