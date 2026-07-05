@@ -12,66 +12,81 @@ import 'package:vhhealth_staff/l10n/app_strings.dart';
 class CalculatorField {
   const CalculatorField({
     required this.name,
-    required this.label,
+    required this.labelKey,
     this.kind = 'number',
     this.options,
-    this.hint,
+    this.hintKey,
   });
   final String name;
-  final String label;
+  final String labelKey;
 
   /// number | bool | enum
   final String kind;
   final List<String>? options;
-  final String? hint;
+  final String? hintKey;
 }
 
 class CalculatorDef {
   const CalculatorDef({
     required this.endpoint,
-    required this.title,
-    required this.subtitle,
+    required this.titleKey,
+    required this.subtitleKey,
     required this.fields,
   });
   final String endpoint;
-  final String title;
-  final String subtitle;
+  final String titleKey;
+  final String subtitleKey;
   final List<CalculatorField> fields;
 }
 
 const _calculators = <CalculatorDef>[
   CalculatorDef(
     endpoint: 'bmi',
-    title: 'BMI',
-    subtitle: 'Body mass index — WHO bands',
+    titleKey: 's4.calculators.bmi.title',
+    subtitleKey: 's4.calculators.bmi.subtitle',
     fields: [
-      CalculatorField(name: 'weight_kg', label: 'Weight (kg)'),
-      CalculatorField(name: 'height_cm', label: 'Height (cm)'),
+      CalculatorField(
+        name: 'weight_kg',
+        labelKey: 's4.calculators.field.weight_kg.label',
+      ),
+      CalculatorField(
+        name: 'height_cm',
+        labelKey: 's4.calculators.field.height_cm.label',
+      ),
     ],
   ),
   CalculatorDef(
     endpoint: 'bsaMosteller',
-    title: 'BSA (Mosteller)',
-    subtitle: 'Body surface area for chemo dosing',
+    titleKey: 's4.calculators.bsaMosteller.title',
+    subtitleKey: 's4.calculators.bsaMosteller.subtitle',
     fields: [
-      CalculatorField(name: 'weight_kg', label: 'Weight (kg)'),
-      CalculatorField(name: 'height_cm', label: 'Height (cm)'),
+      CalculatorField(
+        name: 'weight_kg',
+        labelKey: 's4.calculators.field.weight_kg.label',
+      ),
+      CalculatorField(
+        name: 'height_cm',
+        labelKey: 's4.calculators.field.height_cm.label',
+      ),
     ],
   ),
   CalculatorDef(
     endpoint: 'crClCockcroftGault',
-    title: 'CrCl (Cockcroft-Gault)',
-    subtitle: 'Renal clearance estimate',
+    titleKey: 's4.calculators.crClCockcroftGault.title',
+    subtitleKey: 's4.calculators.crClCockcroftGault.subtitle',
     fields: [
-      CalculatorField(name: 'age', label: 'Age (yr)'),
-      CalculatorField(name: 'weight_kg', label: 'Weight (kg)'),
+      CalculatorField(name: 'age', labelKey: 's4.calculators.field.age.label'),
+      CalculatorField(
+        name: 'weight_kg',
+        labelKey: 's4.calculators.field.weight_kg.label',
+      ),
       CalculatorField(
         name: 'serum_creatinine_mg_dl',
-        label: 'Serum creatinine (mg/dL)',
+        labelKey: 's4.calculators.field.serum_creatinine_mg_dl.label',
       ),
       CalculatorField(
         name: 'sex',
-        label: 'Sex',
+        labelKey: 's4.calculators.field.sex.label',
         kind: 'enum',
         options: ['male', 'female'],
       ),
@@ -79,284 +94,331 @@ const _calculators = <CalculatorDef>[
   ),
   CalculatorDef(
     endpoint: 'cha2ds2Vasc',
-    title: 'CHA₂DS₂-VASc',
-    subtitle: 'Stroke risk in non-valvular AF',
+    titleKey: 's4.calculators.cha2ds2Vasc.title',
+    subtitleKey: 's4.calculators.cha2ds2Vasc.subtitle',
     fields: [
-      CalculatorField(name: 'age', label: 'Age (yr)'),
+      CalculatorField(name: 'age', labelKey: 's4.calculators.field.age.label'),
       CalculatorField(
         name: 'sex',
-        label: 'Sex',
+        labelKey: 's4.calculators.field.sex.label',
         kind: 'enum',
         options: ['male', 'female'],
       ),
       CalculatorField(
         name: 'congestive_hf',
-        label: 'Congestive HF',
+        labelKey: 's4.calculators.field.congestive_hf.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'hypertension',
-        label: 'Hypertension',
+        labelKey: 's4.calculators.field.hypertension.label',
         kind: 'bool',
       ),
-      CalculatorField(name: 'diabetes', label: 'Diabetes', kind: 'bool'),
+      CalculatorField(
+        name: 'diabetes',
+        labelKey: 's4.calculators.field.diabetes.label',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'prior_stroke_tia',
-        label: 'Prior stroke / TIA',
+        labelKey: 's4.calculators.field.prior_stroke_tia.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'vascular_disease',
-        label: 'Vascular disease (MI / PAD / aortic plaque)',
+        labelKey: 's4.calculators.field.vascular_disease.label',
         kind: 'bool',
       ),
     ],
   ),
   CalculatorDef(
     endpoint: 'hasBled',
-    title: 'HAS-BLED',
-    subtitle: 'Major bleeding risk on anticoagulation',
+    titleKey: 's4.calculators.hasBled.title',
+    subtitleKey: 's4.calculators.hasBled.subtitle',
     fields: [
       CalculatorField(
         name: 'hypertension_uncontrolled',
-        label: 'Uncontrolled hypertension (SBP > 160)',
+        labelKey: 's4.calculators.field.hypertension_uncontrolled.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'abnormal_renal',
-        label: 'Abnormal renal function',
+        labelKey: 's4.calculators.field.abnormal_renal.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'abnormal_liver',
-        label: 'Abnormal liver function',
+        labelKey: 's4.calculators.field.abnormal_liver.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'prior_stroke',
-        label: 'Prior stroke',
+        labelKey: 's4.calculators.field.prior_stroke.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'prior_bleed',
-        label: 'Prior major bleed',
+        labelKey: 's4.calculators.field.prior_bleed.label',
         kind: 'bool',
       ),
-      CalculatorField(name: 'labile_inr', label: 'Labile INR', kind: 'bool'),
-      CalculatorField(name: 'age_over_65', label: 'Age > 65', kind: 'bool'),
+      CalculatorField(
+        name: 'labile_inr',
+        labelKey: 's4.calculators.field.labile_inr.label',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'age_over_65',
+        labelKey: 's4.calculators.field.age_over_65.label',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'drugs_predisposing_bleed',
-        label: 'Drugs that predispose to bleeding',
+        labelKey: 's4.calculators.field.drugs_predisposing_bleed.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'alcohol_excess',
-        label: 'Alcohol excess',
+        labelKey: 's4.calculators.field.alcohol_excess.label',
         kind: 'bool',
       ),
     ],
   ),
   CalculatorDef(
     endpoint: 'wellsPe',
-    title: 'Wells PE',
-    subtitle: 'Pulmonary embolism probability',
+    titleKey: 's4.calculators.wellsPe.title',
+    subtitleKey: 's4.calculators.wellsPe.subtitle',
     fields: [
       CalculatorField(
         name: 'clinical_signs_dvt',
-        label: 'Clinical signs of DVT',
+        labelKey: 's4.calculators.field.clinical_signs_dvt.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'pe_most_likely_diagnosis',
-        label: 'PE is the most likely diagnosis',
+        labelKey: 's4.calculators.field.pe_most_likely_diagnosis.label',
         kind: 'bool',
       ),
-      CalculatorField(name: 'hr_over_100', label: 'HR > 100', kind: 'bool'),
+      CalculatorField(
+        name: 'hr_over_100',
+        labelKey: 's4.calculators.field.hr_over_100.label',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'immobilisation_or_recent_surgery',
-        label: 'Immobilisation / recent surgery',
+        labelKey: 's4.calculators.field.immobilisation_or_recent_surgery.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'prior_dvt_or_pe',
-        label: 'Prior DVT / PE',
+        labelKey: 's4.calculators.field.prior_dvt_or_pe.label',
         kind: 'bool',
       ),
-      CalculatorField(name: 'hemoptysis', label: 'Haemoptysis', kind: 'bool'),
+      CalculatorField(
+        name: 'hemoptysis',
+        labelKey: 's4.calculators.field.hemoptysis.label',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'malignancy',
-        label: 'Malignancy (active)',
+        labelKey: 's4.calculators.field.malignancy.label',
         kind: 'bool',
       ),
     ],
   ),
   CalculatorDef(
     endpoint: 'wellsDvt',
-    title: 'Wells DVT',
-    subtitle: 'Deep vein thrombosis probability',
+    titleKey: 's4.calculators.wellsDvt.title',
+    subtitleKey: 's4.calculators.wellsDvt.subtitle',
     fields: [
       CalculatorField(
         name: 'active_cancer',
-        label: 'Active cancer',
+        labelKey: 's4.calculators.field.active_cancer.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'paralysis_paresis_recent_immob',
-        label: 'Paralysis / paresis / recent immobilisation',
+        labelKey: 's4.calculators.field.paralysis_paresis_recent_immob.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'bedridden_3d_or_surgery_4w',
-        label: 'Bedridden ≥3d or surgery within 4w',
+        labelKey: 's4.calculators.field.bedridden_3d_or_surgery_4w.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'tenderness_along_deep_veins',
-        label: 'Tenderness along deep veins',
+        labelKey: 's4.calculators.field.tenderness_along_deep_veins.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'entire_leg_swollen',
-        label: 'Entire leg swollen',
+        labelKey: 's4.calculators.field.entire_leg_swollen.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'calf_swelling_3cm',
-        label: 'Calf swelling > 3cm vs other',
+        labelKey: 's4.calculators.field.calf_swelling_3cm.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'pitting_edema_symptomatic_leg',
-        label: 'Pitting oedema (symptomatic leg)',
+        labelKey: 's4.calculators.field.pitting_edema_symptomatic_leg.label',
         kind: 'bool',
       ),
       CalculatorField(
         name: 'collateral_superficial_veins',
-        label: 'Collateral superficial veins',
+        labelKey: 's4.calculators.field.collateral_superficial_veins.label',
         kind: 'bool',
       ),
-      CalculatorField(name: 'prior_dvt', label: 'Prior DVT', kind: 'bool'),
+      CalculatorField(
+        name: 'prior_dvt',
+        labelKey: 's4.calculators.field.prior_dvt.label',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'alternative_dx_at_least_as_likely',
-        label: 'Alternative dx at least as likely',
+        labelKey:
+            's4.calculators.field.alternative_dx_at_least_as_likely.label',
         kind: 'bool',
       ),
     ],
   ),
   CalculatorDef(
     endpoint: 'qsofa',
-    title: 'qSOFA',
-    subtitle: 'Bedside sepsis screen (≥2 = high risk)',
+    titleKey: 's4.calculators.qsofa.title',
+    subtitleKey: 's4.calculators.qsofa.subtitle',
     fields: [
-      CalculatorField(name: 'rr_over_22', label: 'RR > 22', kind: 'bool'),
       CalculatorField(
-        name: 'altered_mentation',
-        label: 'Altered mentation (GCS < 15)',
+        name: 'rr_over_22',
+        labelKey: 's4.calculators.field.rr_over_22.label',
         kind: 'bool',
       ),
-      CalculatorField(name: 'sbp_under_100', label: 'SBP < 100', kind: 'bool'),
+      CalculatorField(
+        name: 'altered_mentation',
+        labelKey: 's4.calculators.field.altered_mentation.label',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'sbp_under_100',
+        labelKey: 's4.calculators.field.sbp_under_100.label',
+        kind: 'bool',
+      ),
     ],
   ),
   CalculatorDef(
     endpoint: 'gcs',
-    title: 'GCS',
-    subtitle: 'Glasgow Coma Scale',
+    titleKey: 's4.calculators.gcs.title',
+    subtitleKey: 's4.calculators.gcs.subtitle',
     fields: [
       CalculatorField(
         name: 'eye',
-        label: 'Eye opening',
+        labelKey: 's4.calculators.field.eye.label',
         kind: 'enum',
         options: ['1', '2', '3', '4'],
-        hint: '1 none · 2 to pain · 3 to voice · 4 spontaneous',
+        hintKey: 's4.calculators.field.eye.hint',
       ),
       CalculatorField(
         name: 'verbal',
-        label: 'Verbal response',
+        labelKey: 's4.calculators.field.verbal.label',
         kind: 'enum',
         options: ['1', '2', '3', '4', '5'],
-        hint: '1 none · 2 sounds · 3 words · 4 confused · 5 oriented',
+        hintKey: 's4.calculators.field.verbal.hint',
       ),
       CalculatorField(
         name: 'motor',
-        label: 'Motor response',
+        labelKey: 's4.calculators.field.motor.label',
         kind: 'enum',
         options: ['1', '2', '3', '4', '5', '6'],
-        hint:
-            '1 none · 2 extension · 3 flexion · 4 withdraws · 5 localises · 6 obeys',
+        hintKey: 's4.calculators.field.motor.hint',
       ),
     ],
   ),
   CalculatorDef(
     endpoint: 'meld',
-    title: 'MELD',
-    subtitle: 'Liver disease severity',
+    titleKey: 's4.calculators.meld.title',
+    subtitleKey: 's4.calculators.meld.subtitle',
     fields: [
-      CalculatorField(name: 'creatinine_mg_dl', label: 'Creatinine (mg/dL)'),
-      CalculatorField(name: 'bilirubin_mg_dl', label: 'Bilirubin (mg/dL)'),
-      CalculatorField(name: 'inr', label: 'INR'),
+      CalculatorField(
+        name: 'creatinine_mg_dl',
+        labelKey: 's4.calculators.field.creatinine_mg_dl.label',
+      ),
+      CalculatorField(
+        name: 'bilirubin_mg_dl',
+        labelKey: 's4.calculators.field.bilirubin_mg_dl.label',
+      ),
+      CalculatorField(name: 'inr', labelKey: 's4.calculators.field.inr.label'),
       CalculatorField(
         name: 'on_dialysis',
-        label: 'On dialysis (≥2 sessions/wk)',
+        labelKey: 's4.calculators.field.on_dialysis.label',
         kind: 'bool',
       ),
     ],
   ),
   CalculatorDef(
     endpoint: 'anionGap',
-    title: 'Anion Gap',
-    subtitle: 'Na − (Cl + HCO₃) — normal 8–12',
+    titleKey: 's4.calculators.anionGap.title',
+    subtitleKey: 's4.calculators.anionGap.subtitle',
     fields: [
-      CalculatorField(name: 'na', label: 'Sodium (mEq/L)'),
-      CalculatorField(name: 'cl', label: 'Chloride (mEq/L)'),
-      CalculatorField(name: 'hco3', label: 'Bicarbonate (mEq/L)'),
+      CalculatorField(name: 'na', labelKey: 's4.calculators.field.na.label'),
+      CalculatorField(name: 'cl', labelKey: 's4.calculators.field.cl.label'),
+      CalculatorField(
+        name: 'hco3',
+        labelKey: 's4.calculators.field.hco3.label',
+      ),
     ],
   ),
   CalculatorDef(
     endpoint: 'correctedCalcium',
-    title: 'Corrected Ca²⁺',
-    subtitle: 'Albumin-adjusted calcium (Payne)',
+    titleKey: 's4.calculators.correctedCalcium.title',
+    subtitleKey: 's4.calculators.correctedCalcium.subtitle',
     fields: [
-      CalculatorField(name: 'calcium_mg_dl', label: 'Calcium (mg/dL)'),
-      CalculatorField(name: 'albumin_g_dl', label: 'Albumin (g/dL)'),
+      CalculatorField(
+        name: 'calcium_mg_dl',
+        labelKey: 's4.calculators.field.calcium_mg_dl.label',
+      ),
+      CalculatorField(
+        name: 'albumin_g_dl',
+        labelKey: 's4.calculators.field.albumin_g_dl.label',
+      ),
     ],
   ),
   CalculatorDef(
     endpoint: 'apgar',
-    title: 'Apgar',
-    subtitle: 'Newborn score (each 0–2)',
+    titleKey: 's4.calculators.apgar.title',
+    subtitleKey: 's4.calculators.apgar.subtitle',
     fields: [
       CalculatorField(
         name: 'appearance',
-        label: 'Appearance',
+        labelKey: 's4.calculators.field.appearance.label',
         kind: 'enum',
         options: ['0', '1', '2'],
-        hint: '0 blue/pale · 1 acrocyanotic · 2 pink',
+        hintKey: 's4.calculators.field.appearance.hint',
       ),
       CalculatorField(
         name: 'pulse',
-        label: 'Pulse',
+        labelKey: 's4.calculators.field.pulse.label',
         kind: 'enum',
         options: ['0', '1', '2'],
-        hint: '0 absent · 1 < 100 · 2 ≥ 100',
+        hintKey: 's4.calculators.field.pulse.hint',
       ),
       CalculatorField(
         name: 'grimace',
-        label: 'Grimace (reflex irritability)',
+        labelKey: 's4.calculators.field.grimace.label',
         kind: 'enum',
         options: ['0', '1', '2'],
       ),
       CalculatorField(
         name: 'activity',
-        label: 'Activity (muscle tone)',
+        labelKey: 's4.calculators.field.activity.label',
         kind: 'enum',
         options: ['0', '1', '2'],
       ),
       CalculatorField(
         name: 'respiration',
-        label: 'Respiration',
+        labelKey: 's4.calculators.field.respiration.label',
         kind: 'enum',
         options: ['0', '1', '2'],
-        hint: '0 absent · 1 weak/irregular · 2 strong cry',
+        hintKey: 's4.calculators.field.respiration.hint',
       ),
     ],
   ),
@@ -367,6 +429,7 @@ class CalculatorsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
         title: const AppText('s4.lib.calculators.clinical_calculators'),
@@ -380,8 +443,8 @@ class CalculatorsScreen extends StatelessWidget {
           return Card(
             clipBehavior: Clip.antiAlias,
             child: ListTile(
-              title: Text(c.title),
-              subtitle: Text(c.subtitle),
+              title: Text(s.lookup(c.titleKey)),
+              subtitle: Text(s.lookup(c.subtitleKey)),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
@@ -476,7 +539,11 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
         });
       } else {
         setState(() {
-          _error = response.failureMessage('Calculation failed');
+          _error = response.failureMessage(
+            AppStrings.of(
+              context,
+            ).lookup('s4.lib.calculators.calculation_failed'),
+          );
           _computing = false;
         });
       }
@@ -492,13 +559,14 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(widget.calculator.title)),
+      appBar: AppBar(title: Text(s.lookup(widget.calculator.titleKey))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            widget.calculator.subtitle,
+            s.lookup(widget.calculator.subtitleKey),
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.outline,
             ),
@@ -515,7 +583,13 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.calculate),
-            label: Text(_computing ? 'Calculating…' : 'Calculate'),
+            label: Text(
+              s.lookup(
+                _computing
+                    ? 's4.lib.calculators.calculating'
+                    : 's4.lib.calculators.calculate',
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           if (_error != null)
@@ -539,7 +613,7 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
     switch (f.kind) {
       case 'bool':
         return SwitchListTile(
-          title: Text(f.label),
+          title: Text(AppStrings.of(context).lookup(f.labelKey)),
           value: _boolValues[f.name] ?? false,
           onChanged: (v) => setState(() => _boolValues[f.name] = v),
         );
@@ -549,12 +623,19 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
           child: DropdownButtonFormField<String>(
             initialValue: _enumValues[f.name],
             decoration: InputDecoration(
-              labelText: f.label,
-              helperText: f.hint,
+              labelText: AppStrings.of(context).lookup(f.labelKey),
+              helperText: f.hintKey == null
+                  ? null
+                  : AppStrings.of(context).lookup(f.hintKey!),
               border: const OutlineInputBorder(),
             ),
             items: (f.options ?? const [])
-                .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+                .map(
+                  (o) => DropdownMenuItem(
+                    value: o,
+                    child: Text(_optionLabel(AppStrings.of(context), f, o)),
+                  ),
+                )
                 .toList(),
             onChanged: (v) => setState(() => _enumValues[f.name] = v),
           ),
@@ -567,13 +648,21 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
             controller: _controllers[f.name],
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
-              labelText: f.label,
-              helperText: f.hint,
+              labelText: AppStrings.of(context).lookup(f.labelKey),
+              helperText: f.hintKey == null
+                  ? null
+                  : AppStrings.of(context).lookup(f.hintKey!),
               border: const OutlineInputBorder(),
             ),
           ),
         );
     }
+  }
+
+  String _optionLabel(AppStrings s, CalculatorField field, String value) {
+    final key = 's4.calculators.option.${field.name}.$value';
+    final label = s.lookup(key);
+    return label == key ? value : label;
   }
 
   Widget _buildResult(ThemeData theme) {

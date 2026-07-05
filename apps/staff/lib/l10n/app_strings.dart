@@ -5168,6 +5168,122 @@ class AppStrings {
       's4.lib.break_tracker.ongoing': " (ongoing)",
       's4.lib.calculators.clinical_calculators': "Clinical Calculators",
       's4.lib.calculators.result': "Result",
+      // REVIEW: AI first-pass S4 calculators i18n sweep - confirm clinical wording before production.
+      's4.lib.calculators.calculate': "Calculate",
+      's4.lib.calculators.calculating': "Calculating…",
+      's4.lib.calculators.calculation_failed': "Calculation failed",
+      's4.calculators.bmi.title': "BMI",
+      's4.calculators.bmi.subtitle': "Body mass index — WHO bands",
+      's4.calculators.bsaMosteller.title': "BSA (Mosteller)",
+      's4.calculators.bsaMosteller.subtitle':
+          "Body surface area for chemo dosing",
+      's4.calculators.crClCockcroftGault.title': "CrCl (Cockcroft-Gault)",
+      's4.calculators.crClCockcroftGault.subtitle': "Renal clearance estimate",
+      's4.calculators.cha2ds2Vasc.title': "CHA₂DS₂-VASc",
+      's4.calculators.cha2ds2Vasc.subtitle': "Stroke risk in non-valvular AF",
+      's4.calculators.hasBled.title': "HAS-BLED",
+      's4.calculators.hasBled.subtitle':
+          "Major bleeding risk on anticoagulation",
+      's4.calculators.wellsPe.title': "Wells PE",
+      's4.calculators.wellsPe.subtitle': "Pulmonary embolism probability",
+      's4.calculators.wellsDvt.title': "Wells DVT",
+      's4.calculators.wellsDvt.subtitle': "Deep vein thrombosis probability",
+      's4.calculators.qsofa.title': "qSOFA",
+      's4.calculators.qsofa.subtitle': "Bedside sepsis screen (≥2 = high risk)",
+      's4.calculators.gcs.title': "GCS",
+      's4.calculators.gcs.subtitle': "Glasgow Coma Scale",
+      's4.calculators.meld.title': "MELD",
+      's4.calculators.meld.subtitle': "Liver disease severity",
+      's4.calculators.anionGap.title': "Anion Gap",
+      's4.calculators.anionGap.subtitle': "Na − (Cl + HCO₃) — normal 8–12",
+      's4.calculators.correctedCalcium.title': "Corrected Ca²⁺",
+      's4.calculators.correctedCalcium.subtitle':
+          "Albumin-adjusted calcium (Payne)",
+      's4.calculators.apgar.title': "Apgar",
+      's4.calculators.apgar.subtitle': "Newborn score (each 0–2)",
+      's4.calculators.field.activity.label': "Activity (muscle tone)",
+      's4.calculators.field.age.label': "Age (yr)",
+      's4.calculators.field.albumin_g_dl.label': "Albumin (g/dL)",
+      's4.calculators.field.altered_mentation.label':
+          "Altered mentation (GCS < 15)",
+      's4.calculators.field.bilirubin_mg_dl.label': "Bilirubin (mg/dL)",
+      's4.calculators.field.calcium_mg_dl.label': "Calcium (mg/dL)",
+      's4.calculators.field.cl.label': "Chloride (mEq/L)",
+      's4.calculators.field.creatinine_mg_dl.label': "Creatinine (mg/dL)",
+      's4.calculators.field.grimace.label': "Grimace (reflex irritability)",
+      's4.calculators.field.hco3.label': "Bicarbonate (mEq/L)",
+      's4.calculators.field.height_cm.label': "Height (cm)",
+      's4.calculators.field.hypertension_uncontrolled.label':
+          "Uncontrolled hypertension (SBP > 160)",
+      's4.calculators.field.malignancy.label': "Malignancy (active)",
+      's4.calculators.field.na.label': "Sodium (mEq/L)",
+      's4.calculators.field.on_dialysis.label': "On dialysis (≥2 sessions/wk)",
+      's4.calculators.field.pitting_edema_symptomatic_leg.label':
+          "Pitting oedema (symptomatic leg)",
+      's4.calculators.field.serum_creatinine_mg_dl.label':
+          "Serum creatinine (mg/dL)",
+      's4.calculators.field.vascular_disease.label':
+          "Vascular disease (MI / PAD / aortic plaque)",
+      's4.calculators.field.weight_kg.label': "Weight (kg)",
+      's4.calculators.field.abnormal_liver.label': "Abnormal liver function",
+      's4.calculators.field.abnormal_renal.label': "Abnormal renal function",
+      's4.calculators.field.active_cancer.label': "Active cancer",
+      's4.calculators.field.age_over_65.label': "Age > 65",
+      's4.calculators.field.alcohol_excess.label': "Alcohol excess",
+      's4.calculators.field.alternative_dx_at_least_as_likely.label':
+          "Alternative dx at least as likely",
+      's4.calculators.field.appearance.label': "Appearance",
+      's4.calculators.field.bedridden_3d_or_surgery_4w.label':
+          "Bedridden ≥3d or surgery within 4w",
+      's4.calculators.field.calf_swelling_3cm.label':
+          "Calf swelling > 3cm vs other",
+      's4.calculators.field.clinical_signs_dvt.label': "Clinical signs of DVT",
+      's4.calculators.field.collateral_superficial_veins.label':
+          "Collateral superficial veins",
+      's4.calculators.field.congestive_hf.label': "Congestive HF",
+      's4.calculators.field.diabetes.label': "Diabetes",
+      's4.calculators.field.drugs_predisposing_bleed.label':
+          "Drugs that predispose to bleeding",
+      's4.calculators.field.entire_leg_swollen.label': "Entire leg swollen",
+      's4.calculators.field.eye.label': "Eye opening",
+      's4.calculators.field.hemoptysis.label': "Haemoptysis",
+      's4.calculators.field.hr_over_100.label': "HR > 100",
+      's4.calculators.field.hypertension.label': "Hypertension",
+      's4.calculators.field.immobilisation_or_recent_surgery.label':
+          "Immobilisation / recent surgery",
+      's4.calculators.field.inr.label': "INR",
+      's4.calculators.field.labile_inr.label': "Labile INR",
+      's4.calculators.field.motor.label': "Motor response",
+      's4.calculators.field.paralysis_paresis_recent_immob.label':
+          "Paralysis / paresis / recent immobilisation",
+      's4.calculators.field.pe_most_likely_diagnosis.label':
+          "PE is the most likely diagnosis",
+      's4.calculators.field.prior_bleed.label': "Prior major bleed",
+      's4.calculators.field.prior_dvt.label': "Prior DVT",
+      's4.calculators.field.prior_dvt_or_pe.label': "Prior DVT / PE",
+      's4.calculators.field.prior_stroke.label': "Prior stroke",
+      's4.calculators.field.prior_stroke_tia.label': "Prior stroke / TIA",
+      's4.calculators.field.pulse.label': "Pulse",
+      's4.calculators.field.respiration.label': "Respiration",
+      's4.calculators.field.rr_over_22.label': "RR > 22",
+      's4.calculators.field.sbp_under_100.label': "SBP < 100",
+      's4.calculators.field.sex.label': "Sex",
+      's4.calculators.field.tenderness_along_deep_veins.label':
+          "Tenderness along deep veins",
+      's4.calculators.field.verbal.label': "Verbal response",
+      's4.calculators.field.appearance.hint':
+          "0 blue/pale · 1 acrocyanotic · 2 pink",
+      's4.calculators.field.eye.hint':
+          "1 none · 2 to pain · 3 to voice · 4 spontaneous",
+      's4.calculators.field.motor.hint':
+          "1 none · 2 extension · 3 flexion · 4 withdraws · 5 localises · 6 obeys",
+      's4.calculators.field.pulse.hint': "0 absent · 1 < 100 · 2 ≥ 100",
+      's4.calculators.field.respiration.hint':
+          "0 absent · 1 weak/irregular · 2 strong cry",
+      's4.calculators.field.verbal.hint':
+          "1 none · 2 sounds · 3 words · 4 confused · 5 oriented",
+      's4.calculators.option.sex.male': "Male",
+      's4.calculators.option.sex.female': "Female",
       's4.lib.cath_lab.cath_lab': "Cath Lab",
       's4.lib.cath_lab.readiness': "Readiness",
       's4.lib.cds_blocker_modal.clinical_justification':
@@ -8146,6 +8262,129 @@ class AppStrings {
       's4.lib.break_tracker.ongoing': "(चल रहे)",
       's4.lib.calculators.clinical_calculators': "क्लिनिकल कैलकुलेटर",
       's4.lib.calculators.result': "परिणाम",
+      // REVIEW: AI first-pass S4 calculators i18n sweep - confirm clinical wording before production.
+      's4.lib.calculators.calculate': "गणना",
+      's4.lib.calculators.calculating': "गणना हो रही है...",
+      's4.lib.calculators.calculation_failed': "गणना विफल रही",
+      's4.calculators.bmi.title': "बीएमआई",
+      's4.calculators.bmi.subtitle': "बॉडी मास इंडेक्स - WHO बैंड",
+      's4.calculators.bsaMosteller.title': "बीएसए (मोस्टेलर)",
+      's4.calculators.bsaMosteller.subtitle':
+          "कीमो खुराक के लिए शरीर का सतह क्षेत्र",
+      's4.calculators.crClCockcroftGault.title': "सीआरसीएल (कॉकक्रॉफ्ट-गॉल्ट)",
+      's4.calculators.crClCockcroftGault.subtitle':
+          "गुर्दे की निकासी का अनुमान",
+      's4.calculators.cha2ds2Vasc.title': "CHA₂DS₂-VASc",
+      's4.calculators.cha2ds2Vasc.subtitle':
+          "गैर-वाल्वुलर एएफ में स्ट्रोक का जोखिम",
+      's4.calculators.hasBled.title': "खून बह गया है",
+      's4.calculators.hasBled.subtitle':
+          "एंटीकोआग्यूलेशन पर रक्तस्राव का बड़ा जोखिम",
+      's4.calculators.wellsPe.title': "वेल्स पी.ई",
+      's4.calculators.wellsPe.subtitle': "पल्मोनरी एम्बोलिज्म की संभावना",
+      's4.calculators.wellsDvt.title': "वेल्स डीवीटी",
+      's4.calculators.wellsDvt.subtitle': "गहरी शिरा घनास्त्रता संभावना",
+      's4.calculators.qsofa.title': "क्यूएसओएफए",
+      's4.calculators.qsofa.subtitle':
+          "बेडसाइड सेप्सिस स्क्रीन (≥2 = उच्च जोखिम)",
+      's4.calculators.gcs.title': "जेंटलमैन कैडेट",
+      's4.calculators.gcs.subtitle': "ग्लासगो कोमा पैमाना",
+      's4.calculators.meld.title': "मिलकर एक हो जाना",
+      's4.calculators.meld.subtitle': "लिवर रोग की गंभीरता",
+      's4.calculators.anionGap.title': "आयनों की खाई",
+      's4.calculators.anionGap.subtitle': "Na - (Cl + HCO₃) - सामान्य 8-12",
+      's4.calculators.correctedCalcium.title': "सही किया गया Ca²⁺",
+      's4.calculators.correctedCalcium.subtitle':
+          "एल्बुमिन-समायोजित कैल्शियम (पायने)",
+      's4.calculators.apgar.title': "Apgar",
+      's4.calculators.apgar.subtitle': "नवजात शिशु का स्कोर (प्रत्येक 0-2)",
+      's4.calculators.field.activity.label': "गतिविधि (मांसपेशियों की टोन)",
+      's4.calculators.field.age.label': "आयु (वर्ष)",
+      's4.calculators.field.albumin_g_dl.label': "एल्बुमिन (जी/डीएल)",
+      's4.calculators.field.altered_mentation.label':
+          "परिवर्तित उल्लेख (जीसीएस <15)",
+      's4.calculators.field.bilirubin_mg_dl.label':
+          "बिलीरुबिन (मिलीग्राम/डीएल)",
+      's4.calculators.field.calcium_mg_dl.label': "कैल्शियम (मिलीग्राम/डीएल)",
+      's4.calculators.field.cl.label': "क्लोराइड (mEq/L)",
+      's4.calculators.field.creatinine_mg_dl.label':
+          "क्रिएटिनिन (मिलीग्राम/डीएल)",
+      's4.calculators.field.grimace.label':
+          "मुँह बनाना (प्रतिवर्ती चिड़चिड़ापन)",
+      's4.calculators.field.hco3.label': "बाइकार्बोनेट (mEq/L)",
+      's4.calculators.field.height_cm.label': "ऊंचाई (सेमी)",
+      's4.calculators.field.hypertension_uncontrolled.label':
+          "अनियंत्रित उच्च रक्तचाप (एसबीपी > 160)",
+      's4.calculators.field.malignancy.label': "दुर्दमता (सक्रिय)",
+      's4.calculators.field.na.label': "सोडियम (एमईक्यू/एल)",
+      's4.calculators.field.on_dialysis.label': "डायलिसिस पर (≥2 सत्र/सप्ताह)",
+      's4.calculators.field.pitting_edema_symptomatic_leg.label':
+          "पिटिंग एडिमा (लक्षणात्मक पैर)",
+      's4.calculators.field.serum_creatinine_mg_dl.label':
+          "सीरम क्रिएटिनिन (मिलीग्राम/डीएल)",
+      's4.calculators.field.vascular_disease.label':
+          "संवहनी रोग (एमआई / पीएडी / महाधमनी पट्टिका)",
+      's4.calculators.field.weight_kg.label': "वजन (किलो)",
+      's4.calculators.field.abnormal_liver.label': "असामान्य यकृत कार्य",
+      's4.calculators.field.abnormal_renal.label': "असामान्य गुर्दे का कार्य",
+      's4.calculators.field.active_cancer.label': "सक्रिय कैंसर",
+      's4.calculators.field.age_over_65.label': "उम्र > 65",
+      's4.calculators.field.alcohol_excess.label': "शराब की अधिकता",
+      's4.calculators.field.alternative_dx_at_least_as_likely.label':
+          "वैकल्पिक डीएक्स कम से कम संभावना के रूप में",
+      's4.calculators.field.appearance.label': "उपस्थिति",
+      's4.calculators.field.bedridden_3d_or_surgery_4w.label':
+          "बिस्तर पर पड़े ≥3डी या 4 सप्ताह के भीतर सर्जरी",
+      's4.calculators.field.calf_swelling_3cm.label':
+          "बछड़े की सूजन > 3 सेमी बनाम अन्य",
+      's4.calculators.field.clinical_signs_dvt.label':
+          "डीवीटी के नैदानिक ​​लक्षण",
+      's4.calculators.field.collateral_superficial_veins.label':
+          "संपार्श्विक सतही नसें",
+      's4.calculators.field.congestive_hf.label': "कंजेस्टिव एचएफ",
+      's4.calculators.field.diabetes.label': "मधुमेह",
+      's4.calculators.field.drugs_predisposing_bleed.label':
+          "ऐसी दवाएं जो रक्तस्राव का कारण बनती हैं",
+      's4.calculators.field.entire_leg_swollen.label': "पूरा पैर सूज गया",
+      's4.calculators.field.eye.label': "आँख खुलना",
+      's4.calculators.field.hemoptysis.label': "हेमोटाईसिस",
+      's4.calculators.field.hr_over_100.label': "एचआर > 100",
+      's4.calculators.field.hypertension.label': "उच्च रक्तचाप",
+      's4.calculators.field.immobilisation_or_recent_surgery.label':
+          "स्थिरीकरण/हाल ही में हुई सर्जरी",
+      's4.calculators.field.inr.label': "आईएनआर",
+      's4.calculators.field.labile_inr.label': "लैबाइल आईएनआर",
+      's4.calculators.field.motor.label': "मोटर प्रतिक्रिया",
+      's4.calculators.field.paralysis_paresis_recent_immob.label':
+          "पक्षाघात / पक्षाघात / हाल ही में स्थिरीकरण",
+      's4.calculators.field.pe_most_likely_diagnosis.label':
+          "पीई सबसे संभावित निदान है",
+      's4.calculators.field.prior_bleed.label': "पूर्व प्रमुख रक्तस्राव",
+      's4.calculators.field.prior_dvt.label': "पूर्व डीवीटी",
+      's4.calculators.field.prior_dvt_or_pe.label': "पूर्व डीवीटी/पीई",
+      's4.calculators.field.prior_stroke.label': "पूर्व स्ट्रोक",
+      's4.calculators.field.prior_stroke_tia.label': "पूर्व स्ट्रोक / टीआईए",
+      's4.calculators.field.pulse.label': "नाड़ी",
+      's4.calculators.field.respiration.label': "श्वसन",
+      's4.calculators.field.rr_over_22.label': "आरआर > 22",
+      's4.calculators.field.sbp_under_100.label': "एसबीपी <100",
+      's4.calculators.field.sex.label': "सेक्स",
+      's4.calculators.field.tenderness_along_deep_veins.label':
+          "गहरी नसों के साथ कोमलता",
+      's4.calculators.field.verbal.label': "मौखिक प्रतिक्रिया",
+      's4.calculators.field.appearance.hint':
+          "0 नीला/पीला · 1 एक्रोसायनोटिक · 2 गुलाबी",
+      's4.calculators.field.eye.hint':
+          "1 कोई नहीं · 2 दर्द को · 3 आवाज · 4 सहज",
+      's4.calculators.field.motor.hint':
+          "1 कोई नहीं · 2 विस्तार · 3 लचीलापन · 4 निकासी · 5 स्थानीयकरण · 6 पालन",
+      's4.calculators.field.pulse.hint': "0 अनुपस्थित · 1 < 100 · 2 ≥ 100",
+      's4.calculators.field.respiration.hint':
+          "0 अनुपस्थित · 1 कमजोर/अनियमित · 2 तीव्र रोना",
+      's4.calculators.field.verbal.hint':
+          "1 कोई नहीं · 2 ध्वनियाँ · 3 शब्द · 4 भ्रमित · 5 उन्मुख",
+      's4.calculators.option.sex.male': "पुरुष",
+      's4.calculators.option.sex.female': "महिला",
       's4.lib.cath_lab.cath_lab': "कैथ लैब",
       's4.lib.cath_lab.readiness': "तत्परता",
       's4.lib.cds_blocker_modal.clinical_justification': "नैदानिक ​​औचित्य *",
@@ -11630,6 +11869,127 @@ class AppStrings {
       's4.lib.break_tracker.ongoing': "(தொடர்ந்து)",
       's4.lib.calculators.clinical_calculators': "மருத்துவ கால்குலேட்டர்கள்",
       's4.lib.calculators.result': "முடிவு",
+      // REVIEW: AI first-pass S4 calculators i18n sweep - confirm clinical wording before production.
+      's4.lib.calculators.calculate': "கணக்கிடு",
+      's4.lib.calculators.calculating': "கணக்கிடுகிறது…",
+      's4.lib.calculators.calculation_failed': "கணக்கீடு தோல்வியடைந்தது",
+      's4.calculators.bmi.title': "பிஎம்ஐ",
+      's4.calculators.bmi.subtitle': "உடல் நிறை குறியீட்டெண் - WHO பட்டைகள்",
+      's4.calculators.bsaMosteller.title': "பிஎஸ்ஏ (மோஸ்டெல்லர்)",
+      's4.calculators.bsaMosteller.subtitle':
+          "கீமோ டோஸிங்கிற்கான உடல் மேற்பரப்பு",
+      's4.calculators.crClCockcroftGault.title': "CrCl (காக்கிராஃப்ட்-கால்ட்)",
+      's4.calculators.crClCockcroftGault.subtitle': "சிறுநீரக அனுமதி மதிப்பீடு",
+      's4.calculators.cha2ds2Vasc.title': "CHA₂DS₂-VASc",
+      's4.calculators.cha2ds2Vasc.subtitle':
+          "வால்வுலர் அல்லாத AF இல் பக்கவாதம் ஆபத்து",
+      's4.calculators.hasBled.title': "இரத்தக் கசிவு உள்ளது",
+      's4.calculators.hasBled.subtitle':
+          "ஆன்டிகோகுலேஷன் மீது பெரிய இரத்தப்போக்கு ஆபத்து",
+      's4.calculators.wellsPe.title': "வெல்ஸ் PE",
+      's4.calculators.wellsPe.subtitle': "நுரையீரல் தக்கையடைப்பு நிகழ்தகவு",
+      's4.calculators.wellsDvt.title': "வெல்ஸ் டி.வி.டி",
+      's4.calculators.wellsDvt.subtitle': "ஆழமான நரம்பு இரத்த உறைவு நிகழ்தகவு",
+      's4.calculators.qsofa.title': "qSOFA",
+      's4.calculators.qsofa.subtitle':
+          "படுக்கையில் செப்சிஸ் திரை (≥2 = அதிக ஆபத்து)",
+      's4.calculators.gcs.title': "ஜி.சி.எஸ்",
+      's4.calculators.gcs.subtitle': "கிளாஸ்கோ கோமா அளவுகோல்",
+      's4.calculators.meld.title': "மெல்ட்",
+      's4.calculators.meld.subtitle': "கல்லீரல் நோயின் தீவிரம்",
+      's4.calculators.anionGap.title': "அயன் இடைவெளி",
+      's4.calculators.anionGap.subtitle': "Na - (Cl + HCO₃) - சாதாரண 8-12",
+      's4.calculators.correctedCalcium.title': "சரி செய்யப்பட்டது Ca²⁺",
+      's4.calculators.correctedCalcium.subtitle':
+          "அல்புமின்-சரிசெய்யப்பட்ட கால்சியம் (பெய்ன்)",
+      's4.calculators.apgar.title': "Apgar",
+      's4.calculators.apgar.subtitle': "பிறந்த மதிப்பெண் (ஒவ்வொன்றும் 0–2)",
+      's4.calculators.field.activity.label': "செயல்பாடு (தசை தொனி)",
+      's4.calculators.field.age.label': "வயது (வயது)",
+      's4.calculators.field.albumin_g_dl.label': "அல்புமின் (g/dL)",
+      's4.calculators.field.altered_mentation.label':
+          "மாற்றப்பட்ட குறிப்பு (GCS < 15)",
+      's4.calculators.field.bilirubin_mg_dl.label': "பிலிரூபின் (mg/dL)",
+      's4.calculators.field.calcium_mg_dl.label': "கால்சியம் (mg/dL)",
+      's4.calculators.field.cl.label': "குளோரைடு (mEq/L)",
+      's4.calculators.field.creatinine_mg_dl.label': "கிரியேட்டினின் (mg/dL)",
+      's4.calculators.field.grimace.label': "கிரிமேஸ் (நிர்பந்தமான எரிச்சல்)",
+      's4.calculators.field.hco3.label': "பைகார்பனேட் (mEq/L)",
+      's4.calculators.field.height_cm.label': "உயரம் (செ.மீ.)",
+      's4.calculators.field.hypertension_uncontrolled.label':
+          "கட்டுப்பாடற்ற உயர் இரத்த அழுத்தம் (SBP > 160)",
+      's4.calculators.field.malignancy.label': "வீரியம் (செயலில்)",
+      's4.calculators.field.na.label': "சோடியம் (mEq/L)",
+      's4.calculators.field.on_dialysis.label':
+          "டயாலிசிஸில் (≥2 அமர்வுகள்/வாரம்)",
+      's4.calculators.field.pitting_edema_symptomatic_leg.label':
+          "பிட்டிங் எடிமா (அறிகுறியான கால்)",
+      's4.calculators.field.serum_creatinine_mg_dl.label':
+          "சீரம் கிரியேட்டினின் (mg/dL)",
+      's4.calculators.field.vascular_disease.label':
+          "வாஸ்குலர் நோய் (MI / PAD / aortic plaque)",
+      's4.calculators.field.weight_kg.label': "எடை (கிலோ)",
+      's4.calculators.field.abnormal_liver.label': "அசாதாரண கல்லீரல் செயல்பாடு",
+      's4.calculators.field.abnormal_renal.label': "அசாதாரண சிறுநீரக செயல்பாடு",
+      's4.calculators.field.active_cancer.label': "செயலில் புற்றுநோய்",
+      's4.calculators.field.age_over_65.label': "வயது > 65",
+      's4.calculators.field.alcohol_excess.label': "அதிகப்படியான ஆல்கஹால்",
+      's4.calculators.field.alternative_dx_at_least_as_likely.label':
+          "மாற்று dx குறைந்தபட்சம் சாத்தியம்",
+      's4.calculators.field.appearance.label': "தோற்றம்",
+      's4.calculators.field.bedridden_3d_or_surgery_4w.label':
+          "படுக்கையில் ≥3d அல்லது 4wக்குள் அறுவை சிகிச்சை",
+      's4.calculators.field.calf_swelling_3cm.label':
+          "கன்று வீக்கம் > 3cm vs மற்றது",
+      's4.calculators.field.clinical_signs_dvt.label':
+          "DVT இன் மருத்துவ அறிகுறிகள்",
+      's4.calculators.field.collateral_superficial_veins.label':
+          "இணை மேலோட்டமான நரம்புகள்",
+      's4.calculators.field.congestive_hf.label': "நெரிசல் HF",
+      's4.calculators.field.diabetes.label': "நீரிழிவு நோய்",
+      's4.calculators.field.drugs_predisposing_bleed.label':
+          "இரத்தப்போக்குக்கு வழிவகுக்கும் மருந்துகள்",
+      's4.calculators.field.entire_leg_swollen.label':
+          "கால் முழுவதும் வீங்கியது",
+      's4.calculators.field.eye.label': "கண் திறப்பு",
+      's4.calculators.field.hemoptysis.label': "ஹீமோப்டிசிஸ்",
+      's4.calculators.field.hr_over_100.label': "HR > 100",
+      's4.calculators.field.hypertension.label': "உயர் இரத்த அழுத்தம்",
+      's4.calculators.field.immobilisation_or_recent_surgery.label':
+          "அசையாமை / சமீபத்திய அறுவை சிகிச்சை",
+      's4.calculators.field.inr.label': "INR",
+      's4.calculators.field.labile_inr.label': "லேபிள் INR",
+      's4.calculators.field.motor.label': "மோட்டார் பதில்",
+      's4.calculators.field.paralysis_paresis_recent_immob.label':
+          "பக்கவாதம் / பரேசிஸ் / சமீபத்திய அசையாமை",
+      's4.calculators.field.pe_most_likely_diagnosis.label':
+          "PE என்பது மிகவும் சாத்தியமான நோயறிதல் ஆகும்",
+      's4.calculators.field.prior_bleed.label': "முந்தைய பெரிய இரத்தப்போக்கு",
+      's4.calculators.field.prior_dvt.label': "முந்தைய டி.வி.டி",
+      's4.calculators.field.prior_dvt_or_pe.label': "முந்தைய DVT / PE",
+      's4.calculators.field.prior_stroke.label': "முன் பக்கவாதம்",
+      's4.calculators.field.prior_stroke_tia.label': "முன் பக்கவாதம் / TIA",
+      's4.calculators.field.pulse.label': "துடிப்பு",
+      's4.calculators.field.respiration.label': "சுவாசம்",
+      's4.calculators.field.rr_over_22.label': "RR > 22",
+      's4.calculators.field.sbp_under_100.label': "எஸ்பிபி <100",
+      's4.calculators.field.sex.label': "செக்ஸ்",
+      's4.calculators.field.tenderness_along_deep_veins.label':
+          "ஆழமான நரம்புகளில் மென்மை",
+      's4.calculators.field.verbal.label': "வாய்மொழி பதில்",
+      's4.calculators.field.appearance.hint':
+          "0 நீலம்/வெளிர் நிறம் · 1 அக்ரோசயனோடிக் · 2 இளஞ்சிவப்பு",
+      's4.calculators.field.eye.hint':
+          "1 இல்லை · 2 வலி வரை · 3 குரல் வரை · 4 தன்னிச்சையானது",
+      's4.calculators.field.motor.hint':
+          "1 இல்லை · 2 நீட்டிப்பு · 3 நெகிழ்வு · 4 திரும்பப் பெறுகிறது · 5 இடங்கள் · 6 கீழ்ப்படிகிறது",
+      's4.calculators.field.pulse.hint': "0 இல்லை · 1 < 100 · 2 ≥ 100",
+      's4.calculators.field.respiration.hint':
+          "0 இல்லாதது · 1 பலவீனம் / ஒழுங்கற்றது · 2 வலுவான அழுகை",
+      's4.calculators.field.verbal.hint':
+          "1 இல்லை · 2 ஒலிகள் · 3 வார்த்தைகள் · 4 குழப்பம் · 5 சார்ந்தவை",
+      's4.calculators.option.sex.male': "ஆண்",
+      's4.calculators.option.sex.female': "பெண்",
       's4.lib.cath_lab.cath_lab': "கேத் லேப்",
       's4.lib.cath_lab.readiness': "தயார்நிலை",
       's4.lib.cds_blocker_modal.clinical_justification':
@@ -15108,6 +15468,127 @@ class AppStrings {
       's4.lib.break_tracker.ongoing': "(కొనసాగుతోంది)",
       's4.lib.calculators.clinical_calculators': "క్లినికల్ కాలిక్యులేటర్లు",
       's4.lib.calculators.result': "ఫలితం",
+      // REVIEW: AI first-pass S4 calculators i18n sweep - confirm clinical wording before production.
+      's4.lib.calculators.calculate': "లెక్కించు",
+      's4.lib.calculators.calculating': "లెక్కిస్తోంది...",
+      's4.lib.calculators.calculation_failed': "గణన విఫలమైంది",
+      's4.calculators.bmi.title': "BMI",
+      's4.calculators.bmi.subtitle': "బాడీ మాస్ ఇండెక్స్ - WHO బ్యాండ్లు",
+      's4.calculators.bsaMosteller.title': "BSA (మోస్టెల్లర్)",
+      's4.calculators.bsaMosteller.subtitle':
+          "కీమో డోసింగ్ కోసం శరీర ఉపరితల వైశాల్యం",
+      's4.calculators.crClCockcroftGault.title': "CrCl (కాక్‌క్రాఫ్ట్-గాల్ట్)",
+      's4.calculators.crClCockcroftGault.subtitle':
+          "మూత్రపిండ క్లియరెన్స్ అంచనా",
+      's4.calculators.cha2ds2Vasc.title': "CHA₂DS₂-VASc",
+      's4.calculators.cha2ds2Vasc.subtitle':
+          "నాన్-వాల్యులర్ AFలో స్ట్రోక్ రిస్క్",
+      's4.calculators.hasBled.title': "రక్తస్రావం కలిగి ఉంది",
+      's4.calculators.hasBled.subtitle':
+          "ప్రతిస్కందకంపై ప్రధాన రక్తస్రావం ప్రమాదం",
+      's4.calculators.wellsPe.title': "వెల్స్ PE",
+      's4.calculators.wellsPe.subtitle': "పల్మనరీ ఎంబోలిజం సంభావ్యత",
+      's4.calculators.wellsDvt.title': "వెల్స్ DVT",
+      's4.calculators.wellsDvt.subtitle': "డీప్ వెయిన్ థ్రాంబోసిస్ సంభావ్యత",
+      's4.calculators.qsofa.title': "qSOFA",
+      's4.calculators.qsofa.subtitle':
+          "పడక సెప్సిస్ స్క్రీన్ (≥2 = అధిక ప్రమాదం)",
+      's4.calculators.gcs.title': "GCS",
+      's4.calculators.gcs.subtitle': "గ్లాస్గో కోమా స్కేల్",
+      's4.calculators.meld.title': "మెల్డ్",
+      's4.calculators.meld.subtitle': "కాలేయ వ్యాధి తీవ్రత",
+      's4.calculators.anionGap.title': "అయాన్ గ్యాప్",
+      's4.calculators.anionGap.subtitle': "Na - (Cl + HCO₃) — సాధారణ 8–12",
+      's4.calculators.correctedCalcium.title': "సరిదిద్దబడింది Ca²⁺",
+      's4.calculators.correctedCalcium.subtitle':
+          "అల్బుమిన్-సర్దుబాటు చేసిన కాల్షియం (పేన్)",
+      's4.calculators.apgar.title': "అప్గర్",
+      's4.calculators.apgar.subtitle': "నవజాత స్కోరు (ప్రతి 0–2)",
+      's4.calculators.field.activity.label': "కార్యాచరణ (కండరాల టోన్)",
+      's4.calculators.field.age.label': "వయస్సు (సంవత్సరం)",
+      's4.calculators.field.albumin_g_dl.label': "అల్బుమిన్ (g/dL)",
+      's4.calculators.field.altered_mentation.label':
+          "మార్చబడిన మెంటేషన్ (GCS <15)",
+      's4.calculators.field.bilirubin_mg_dl.label': "బిలిరుబిన్ (mg/dL)",
+      's4.calculators.field.calcium_mg_dl.label': "కాల్షియం (mg/dL)",
+      's4.calculators.field.cl.label': "క్లోరైడ్ (mEq/L)",
+      's4.calculators.field.creatinine_mg_dl.label': "క్రియాటినిన్ (mg/dL)",
+      's4.calculators.field.grimace.label': "గ్రిమేస్ (రిఫ్లెక్స్ చిరాకు)",
+      's4.calculators.field.hco3.label': "బైకార్బోనేట్ (mEq/L)",
+      's4.calculators.field.height_cm.label': "ఎత్తు (సెం.మీ.)",
+      's4.calculators.field.hypertension_uncontrolled.label':
+          "అనియంత్రిత రక్తపోటు (SBP > 160)",
+      's4.calculators.field.malignancy.label': "ప్రాణాంతకత (క్రియాశీల)",
+      's4.calculators.field.na.label': "సోడియం (mEq/L)",
+      's4.calculators.field.on_dialysis.label':
+          "డయాలసిస్‌లో (≥2 సెషన్‌లు/వారం)",
+      's4.calculators.field.pitting_edema_symptomatic_leg.label':
+          "పిట్టింగ్ ఎడెమా (రోగలక్షణ కాలు)",
+      's4.calculators.field.serum_creatinine_mg_dl.label':
+          "సీరం క్రియాటినిన్ (mg/dL)",
+      's4.calculators.field.vascular_disease.label':
+          "వాస్కులర్ వ్యాధి (MI / PAD / బృహద్ధమని ఫలకం)",
+      's4.calculators.field.weight_kg.label': "బరువు (కిలోలు)",
+      's4.calculators.field.abnormal_liver.label': "అసాధారణ కాలేయ పనితీరు",
+      's4.calculators.field.abnormal_renal.label': "అసాధారణ మూత్రపిండ పనితీరు",
+      's4.calculators.field.active_cancer.label': "క్రియాశీల క్యాన్సర్",
+      's4.calculators.field.age_over_65.label': "వయస్సు > 65",
+      's4.calculators.field.alcohol_excess.label': "మద్యం అధికంగా",
+      's4.calculators.field.alternative_dx_at_least_as_likely.label':
+          "ప్రత్యామ్నాయ dx కనీసం అవకాశం ఉంది",
+      's4.calculators.field.appearance.label': "స్వరూపం",
+      's4.calculators.field.bedridden_3d_or_surgery_4w.label':
+          "మంచం మీద ≥3d లేదా 4w లోపల శస్త్రచికిత్స",
+      's4.calculators.field.calf_swelling_3cm.label': "దూడ వాపు > 3cm vs ఇతర",
+      's4.calculators.field.clinical_signs_dvt.label':
+          "DVT యొక్క క్లినికల్ సంకేతాలు",
+      's4.calculators.field.collateral_superficial_veins.label':
+          "అనుషంగిక ఉపరితల సిరలు",
+      's4.calculators.field.congestive_hf.label': "రక్తప్రసరణ HF",
+      's4.calculators.field.diabetes.label': "మధుమేహం",
+      's4.calculators.field.drugs_predisposing_bleed.label':
+          "రక్తస్రావానికి ముందడుగు వేసే మందులు",
+      's4.calculators.field.entire_leg_swollen.label':
+          "కాలు మొత్తం వాచిపోయింది",
+      's4.calculators.field.eye.label': "కన్ను తెరవడం",
+      's4.calculators.field.hemoptysis.label': "హేమోప్టిసిస్",
+      's4.calculators.field.hr_over_100.label': "HR > 100",
+      's4.calculators.field.hypertension.label': "హైపర్ టెన్షన్",
+      's4.calculators.field.immobilisation_or_recent_surgery.label':
+          "స్థిరీకరణ / ఇటీవలి శస్త్రచికిత్స",
+      's4.calculators.field.inr.label': "INR",
+      's4.calculators.field.labile_inr.label': "లేబుల్ INR",
+      's4.calculators.field.motor.label': "మోటార్ ప్రతిస్పందన",
+      's4.calculators.field.paralysis_paresis_recent_immob.label':
+          "పక్షవాతం / పరేసిస్ / ఇటీవలి స్థిరీకరణ",
+      's4.calculators.field.pe_most_likely_diagnosis.label':
+          "PE అనేది చాలా మటుకు రోగనిర్ధారణ",
+      's4.calculators.field.prior_bleed.label': "ముందు పెద్ద రక్తస్రావం",
+      's4.calculators.field.prior_dvt.label': "ముందు DVT",
+      's4.calculators.field.prior_dvt_or_pe.label': "ముందు DVT / PE",
+      's4.calculators.field.prior_stroke.label': "ముందు స్ట్రోక్",
+      's4.calculators.field.prior_stroke_tia.label': "ముందు స్ట్రోక్ / TIA",
+      's4.calculators.field.pulse.label': "పల్స్",
+      's4.calculators.field.respiration.label': "శ్వాసక్రియ",
+      's4.calculators.field.rr_over_22.label': "RR > 22",
+      's4.calculators.field.sbp_under_100.label': "SBP <100",
+      's4.calculators.field.sex.label': "సెక్స్",
+      's4.calculators.field.tenderness_along_deep_veins.label':
+          "లోతైన సిరల వెంట సున్నితత్వం",
+      's4.calculators.field.verbal.label': "మౌఖిక ప్రతిస్పందన",
+      's4.calculators.field.appearance.hint':
+          "0 నీలం/లేత · 1 అక్రోసైనోటిక్ · 2 గులాబీ",
+      's4.calculators.field.eye.hint':
+          "1 ఏదీ లేదు · 2 నొప్పికి · 3 స్వరానికి · 4 స్వయంచాలకంగా",
+      's4.calculators.field.motor.hint':
+          "1 ఏదీ లేదు · 2 పొడిగింపు · 3 వంగుట · 4 ఉపసంహరణలు · 5 స్థానికీకరణలు · 6 కట్టుబడి ఉన్నాయి",
+      's4.calculators.field.pulse.hint': "0 హాజరుకాలేదు · 1 < 100 · 2 ≥ 100",
+      's4.calculators.field.respiration.hint':
+          "0 గైర్హాజరు · 1 బలహీనమైన/క్రమరహితం · 2 బలమైన ఏడుపు",
+      's4.calculators.field.verbal.hint':
+          "1 ఏదీ లేదు · 2 శబ్దాలు · 3 పదాలు · 4 గందరగోళం · 5 ఓరియెంటెడ్",
+      's4.calculators.option.sex.male': "పురుషుడు",
+      's4.calculators.option.sex.female': "స్త్రీ",
       's4.lib.cath_lab.cath_lab': "క్యాథ్ ల్యాబ్",
       's4.lib.cath_lab.readiness': "సంసిద్ధత",
       's4.lib.cds_blocker_modal.clinical_justification': "క్లినికల్ సమర్థన *",

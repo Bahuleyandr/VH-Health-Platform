@@ -108,6 +108,63 @@ void main() {
           'raw display copy.',
     );
   });
+
+  test('calculator metadata stores keys with required locale entries', () {
+    final calculatorFile = File(
+      'lib/features/productivity/screens/calculators_screen.dart',
+    );
+    final hits = <String>[];
+    for (final entry in _literalHits(calculatorFile, [
+      _Pattern(
+        'calculator title',
+        RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'calculator subtitle',
+        RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'calculator label',
+        RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'calculator hint',
+        RegExp(r'''\bhint\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+    ])) {
+      hits.add(entry);
+    }
+
+    final calculatorSource = calculatorFile.readAsStringSync();
+    final appStringsSource = File(
+      'lib/l10n/app_strings.dart',
+    ).readAsStringSync();
+    final keyRegex = RegExp(
+      r'''['"]((?:s4\.calculators|s4\.lib\.calculators)\.[^'"]+)['"]''',
+    );
+    final missingKeys = <String>[];
+    for (final match in keyRegex.allMatches(calculatorSource)) {
+      final key = match.group(1)!;
+      if (key.contains(r'$')) continue;
+      final occurrences = RegExp(
+        "'${RegExp.escape(key)}'",
+      ).allMatches(appStringsSource);
+      if (occurrences.length < 4) {
+        missingKeys.add('$key (${occurrences.length}/4 locales)');
+      }
+    }
+
+    expect(
+      hits,
+      isEmpty,
+      reason: 'Calculator metadata display copy should use AppStrings keys.',
+    );
+    expect(
+      missingKeys,
+      isEmpty,
+      reason: 'Calculator keys must have en/hi/ta/te entries.',
+    );
+  });
 }
 
 class _Pattern {
