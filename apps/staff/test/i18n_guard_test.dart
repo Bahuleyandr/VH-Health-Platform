@@ -82,6 +82,32 @@ void main() {
           'en/hi/ta/te so AppStrings.format can inject runtime values.',
     );
   });
+
+  test('role navigation config stores keys instead of display copy', () {
+    final hits = <String>[];
+    final roleConfig = File('lib/core/config/role_config.dart');
+    for (final entry in _literalHits(roleConfig, [
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+    ])) {
+      hits.add(entry);
+    }
+
+    final staffScaffold = File('lib/core/widgets/staff_scaffold.dart');
+    for (final entry in _literalHits(staffScaffold, [
+      _Pattern('_NavItem', RegExp(r'''_NavItem\(\s*(?:r)?(['"])(.*?)\1''')),
+    ], allowedPrefix: 'role.nav.')) {
+      hits.add(entry);
+    }
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'Role/dashboard navigation labels should be AppStrings keys, not '
+          'raw display copy.',
+    );
+  });
 }
 
 class _Pattern {
@@ -148,6 +174,28 @@ Iterable<File> _guardedFiles() sync* {
     for (final entity in root.listSync(recursive: true)) {
       if (entity is File && entity.path.endsWith('.dart')) {
         yield entity;
+      }
+    }
+  }
+}
+
+Iterable<String> _literalHits(
+  File file,
+  List<_Pattern> patterns, {
+  String? allowedPrefix,
+}) sync* {
+  final path = file.path.replaceAll('\\', '/');
+  final lines = file.readAsLinesSync();
+  for (var index = 0; index < lines.length; index += 1) {
+    final line = lines[index];
+    final trimmed = line.trimLeft();
+    if (trimmed.startsWith('//') || trimmed.startsWith('///')) continue;
+    for (final pattern in patterns) {
+      for (final match in pattern.regex.allMatches(line)) {
+        final value = match.group(2) ?? '';
+        if (allowedPrefix != null && value.startsWith(allowedPrefix)) continue;
+        if (!_isVisibleStaticCopy(value)) continue;
+        yield '$path:${index + 1}: ${pattern.name}: "$value"';
       }
     }
   }
