@@ -47,8 +47,9 @@ class _OrganizationHierarchyScreenState
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Hospital hierarchy',
+      title: s.lookup('s4.lib.organization_hierarchy.hospital_hierarchy'),
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading
@@ -77,6 +78,7 @@ class _HierarchyBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final lanes = _maps('lanes');
     final nodes = _maps('nodes');
     final edges = _maps('edges');
@@ -95,26 +97,34 @@ class _HierarchyBody extends StatelessWidget {
         const SizedBox(height: 14),
         _LaneChart(lanes: lanes, nodes: nodes, edges: edges),
         const SizedBox(height: 18),
-        const _SectionTitle(
+        _SectionTitle(
           icon: Icons.rule_folder_outlined,
-          title: 'Role boundaries',
-          subtitle: 'What each authority line can and cannot do.',
+          title: s.lookup('s4.lib.organization_hierarchy.role_boundaries'),
+          subtitle: s.lookup(
+            's4.lib.organization_hierarchy.role_boundaries_subtitle',
+          ),
         ),
         const SizedBox(height: 8),
         ...boundaries.map((boundary) => _BoundaryCard(boundary: boundary)),
         const SizedBox(height: 18),
-        const _SectionTitle(
+        _SectionTitle(
           icon: Icons.verified_user_outlined,
-          title: 'Guardrails',
-          subtitle: 'Rules that prevent roles from overstepping.',
+          title: s.lookup('s4.lib.organization_hierarchy.guardrails'),
+          subtitle: s.lookup(
+            's4.lib.organization_hierarchy.guardrails_subtitle',
+          ),
         ),
         const SizedBox(height: 8),
         _GuardrailList(items: guardrails),
         const SizedBox(height: 18),
-        const _SectionTitle(
+        _SectionTitle(
           icon: Icons.auto_awesome_outlined,
-          title: 'Suggested improvements',
-          subtitle: 'A cleaner structure for hospital-scale operations.',
+          title: s.lookup(
+            's4.lib.organization_hierarchy.suggested_improvements',
+          ),
+          subtitle: s.lookup(
+            's4.lib.organization_hierarchy.suggested_improvements_subtitle',
+          ),
         ),
         const SizedBox(height: 8),
         ...recommendations.map(
@@ -134,6 +144,7 @@ class _OverviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
     final tenantScoped = data['tenant_scoped'] == true;
     final countsStatus = data['counts_status']?.toString() ?? 'unknown';
     final version = data['version']?.toString() ?? 'v1';
@@ -182,7 +193,9 @@ class _OverviewCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         data['design_note']?.toString() ??
-                            'Access, work supervision, and leave approval are separate.',
+                            s.lookup(
+                              's4.lib.organization_hierarchy.design_note_fallback',
+                            ),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -206,14 +219,21 @@ class _OverviewCard extends StatelessWidget {
                   icon: tenantScoped
                       ? Icons.domain_verification_outlined
                       : Icons.warning_amber_outlined,
-                  label: tenantScoped ? 'Tenant scoped' : 'Tenant unavailable',
+                  label: tenantScoped
+                      ? s.lookup('s4.lib.organization_hierarchy.tenant_scoped')
+                      : s.lookup(
+                          's4.lib.organization_hierarchy.tenant_unavailable',
+                        ),
                   color: tenantScoped
                       ? AppTheme.successGreen
                       : AppTheme.warningOnSurface,
                 ),
                 _InfoPill(
                   icon: Icons.groups_outlined,
-                  label: 'Counts: $countsStatus',
+                  label: s.format(
+                    's4.dynamic.organization_hierarchy.counts_status',
+                    {'status': countsStatus},
+                  ),
                   color: AppTheme.primaryTeal,
                 ),
                 if (policyVersion != null)
@@ -225,13 +245,19 @@ class _OverviewCard extends StatelessWidget {
                 if (shortPolicyHash != null)
                   _InfoPill(
                     icon: Icons.tag,
-                    label: 'Policy $shortPolicyHash',
+                    label: s.format(
+                      's4.dynamic.organization_hierarchy.policy_hash',
+                      {'hash': shortPolicyHash},
+                    ),
                     color: scheme.onSurfaceVariant,
                   ),
                 if (shortCommit != null)
                   _InfoPill(
                     icon: Icons.commit,
-                    label: 'Commit $shortCommit',
+                    label: s.format(
+                      's4.dynamic.organization_hierarchy.commit_hash',
+                      {'hash': shortCommit},
+                    ),
                     color: scheme.onSurfaceVariant,
                   ),
               ],
@@ -248,14 +274,35 @@ class _RelationshipLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Wrap(
+    final s = AppStrings.of(context);
+    return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        _LegendChip(type: 'governance', label: 'Executive / governance'),
-        _LegendChip(type: 'work', label: 'Daily work supervision'),
-        _LegendChip(type: 'leave', label: 'HR leave process'),
-        _LegendChip(type: 'leave_recommendation', label: 'Coverage advice'),
+        _LegendChip(
+          type: 'governance',
+          label: s.lookup(
+            's4.lib.organization_hierarchy.legend.executive_governance',
+          ),
+        ),
+        _LegendChip(
+          type: 'work',
+          label: s.lookup(
+            's4.lib.organization_hierarchy.legend.daily_work_supervision',
+          ),
+        ),
+        _LegendChip(
+          type: 'leave',
+          label: s.lookup(
+            's4.lib.organization_hierarchy.legend.hr_leave_process',
+          ),
+        ),
+        _LegendChip(
+          type: 'leave_recommendation',
+          label: s.lookup(
+            's4.lib.organization_hierarchy.legend.coverage_advice',
+          ),
+        ),
       ],
     );
   }
@@ -550,6 +597,7 @@ class _FlowNodeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
     final roles = _stringsFrom(node, 'role_codes');
     final staff = _staffMembers(node);
     final count = node['active_staff_count']?.toString() ?? '${staff.length}';
@@ -558,8 +606,12 @@ class _FlowNodeCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       onTap: () => _showStaffSheet(
         context,
-        title: node['title']?.toString() ?? 'Role',
-        subtitle: 'Current enrolled staff for this hierarchy role',
+        title:
+            node['title']?.toString() ??
+            s.lookup('s4.lib.organization_hierarchy.role_fallback'),
+        subtitle: s.lookup(
+          's4.lib.organization_hierarchy.current_enrolled_staff_for_role',
+        ),
         staff: staff,
       ),
       child: Container(
@@ -584,7 +636,8 @@ class _FlowNodeCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    node['title']?.toString() ?? 'Role',
+                    node['title']?.toString() ??
+                        s.lookup('s4.lib.organization_hierarchy.role_fallback'),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -613,7 +666,7 @@ class _FlowNodeCard extends StatelessWidget {
               children: roles
                   .map(
                     (role) => _RoleActionChip(
-                      label: role,
+                      label: _roleDisplayLabel(context, role),
                       staff: _staffForRole(node, role),
                     ),
                   )
@@ -624,7 +677,8 @@ class _FlowNodeCard extends StatelessWidget {
               _EdgeChip(
                 type: incomingEdges.first['type']?.toString() ?? 'work',
                 label:
-                    incomingEdges.first['label']?.toString() ?? 'Reports here',
+                    incomingEdges.first['label']?.toString() ??
+                    s.lookup('s4.lib.organization_hierarchy.reports_here'),
               ),
             ],
             const SizedBox(height: 10),
@@ -651,6 +705,7 @@ class _LaneCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -672,7 +727,10 @@ class _LaneCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  lane['title']?.toString() ?? 'Hierarchy lane',
+                  lane['title']?.toString() ??
+                      s.lookup(
+                        's4.lib.organization_hierarchy.hierarchy_lane_fallback',
+                      ),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
@@ -718,6 +776,7 @@ class _HierarchyNodeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
     final roles = _strings('role_codes');
     final futureRoles = _strings('recommended_role_codes');
     final responsibilities = _strings('responsibilities');
@@ -743,7 +802,10 @@ class _HierarchyNodeCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      node['title']?.toString() ?? 'Role',
+                      node['title']?.toString() ??
+                          s.lookup(
+                            's4.lib.organization_hierarchy.role_fallback',
+                          ),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -772,12 +834,18 @@ class _HierarchyNodeCard extends StatelessWidget {
             children: [
               ...roles.map(
                 (role) => _RoleActionChip(
-                  label: role,
+                  label: _roleDisplayLabel(context, role),
                   staff: _staffForRole(node, role),
                 ),
               ),
               ...futureRoles.map(
-                (role) => _RoleChip(label: '$role later', muted: true),
+                (role) => _RoleChip(
+                  label: s.format(
+                    's4.dynamic.organization_hierarchy.role_later',
+                    {'role': _roleDisplayLabel(context, role)},
+                  ),
+                  muted: true,
+                ),
               ),
             ],
           ),
@@ -790,7 +858,11 @@ class _HierarchyNodeCard extends StatelessWidget {
                   .map(
                     (edge) => _EdgeChip(
                       type: edge['type']?.toString() ?? 'work',
-                      label: edge['label']?.toString() ?? 'Reports here',
+                      label:
+                          edge['label']?.toString() ??
+                          s.lookup(
+                            's4.lib.organization_hierarchy.reports_here',
+                          ),
                     ),
                   )
                   .toList(),
@@ -829,6 +901,7 @@ class _BoundaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
     final roles = (boundary['role_codes'] as List? ?? const [])
         .map((item) => item.toString())
         .toList();
@@ -841,7 +914,8 @@ class _BoundaryCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              boundary['title']?.toString() ?? 'Boundary',
+              boundary['title']?.toString() ??
+                  s.lookup('s4.lib.organization_hierarchy.boundary_fallback'),
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
@@ -850,7 +924,12 @@ class _BoundaryCard extends StatelessWidget {
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: roles.map((role) => _RoleChip(label: role)).toList(),
+              children: roles
+                  .map(
+                    (role) =>
+                        _RoleChip(label: _roleDisplayLabel(context, role)),
+                  )
+                  .toList(),
             ),
             const SizedBox(height: 10),
             Text(
@@ -859,7 +938,9 @@ class _BoundaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Cannot: ${boundary['cannot'] ?? ''}',
+              s.format('s4.dynamic.organization_hierarchy.cannot_value', {
+                'value': boundary['cannot'] ?? '',
+              }),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: scheme.error,
                 fontWeight: FontWeight.w600,
@@ -917,6 +998,7 @@ class _RecommendationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -932,7 +1014,10 @@ class _RecommendationCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    recommendation['title']?.toString() ?? 'Suggestion',
+                    recommendation['title']?.toString() ??
+                        s.lookup(
+                          's4.lib.organization_hierarchy.suggestion_fallback',
+                        ),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -1043,6 +1128,7 @@ class _StaffPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final s = AppStrings.of(context);
     if (staff.isEmpty) {
       return AppText(
         's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet',
@@ -1067,7 +1153,7 @@ class _StaffPreview extends StatelessWidget {
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(
-                    _staffName(member),
+                    _staffName(context, member),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -1081,8 +1167,13 @@ class _StaffPreview extends StatelessWidget {
         ),
         Text(
           remaining > 0
-              ? 'Tap to view all ${staff.length} staff'
-              : 'Tap to view staff details',
+              ? s.format(
+                  's4.dynamic.organization_hierarchy.tap_to_view_all_staff',
+                  {'count': staff.length},
+                )
+              : s.lookup(
+                  's4.lib.organization_hierarchy.tap_to_view_staff_details',
+                ),
           style: theme.textTheme.bodySmall?.copyWith(
             color: AppTheme.primaryBlue,
             fontWeight: FontWeight.w800,
@@ -1105,8 +1196,11 @@ class _RoleActionChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       onTap: () => _showStaffSheet(
         context,
-        title: label.replaceAll('_', ' '),
-        subtitle: '${staff.length} registered staff',
+        title: label,
+        subtitle: AppStrings.of(context).format(
+          's4.dynamic.organization_hierarchy.registered_staff_count',
+          {'count': staff.length},
+        ),
         staff: staff,
       ),
       child: _RoleChip(label: '$label (${staff.length})'),
@@ -1123,7 +1217,7 @@ class _RoleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = muted ? AppTheme.textSecondary : AppTheme.primaryBlue;
-    return _TextChip(label: label.replaceAll('_', ' '), color: color);
+    return _TextChip(label: label, color: color);
   }
 }
 
@@ -1222,7 +1316,7 @@ class _StaffMemberTile extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final active = member['is_active'] != false;
-    final role = member['role']?.toString().replaceAll('_', ' ') ?? 'Staff';
+    final role = _roleDisplayLabel(context, member['role']?.toString());
     final details = [
       _staffText(member, 'employee_id'),
       _staffText(member, 'department'),
@@ -1235,8 +1329,8 @@ class _StaffMemberTile extends StatelessWidget {
       leading: CircleAvatar(
         backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
         child: Text(
-          _staffName(member).isNotEmpty
-              ? _staffName(member)[0].toUpperCase()
+          _staffName(context, member).isNotEmpty
+              ? _staffName(context, member)[0].toUpperCase()
               : '?',
           style: const TextStyle(
             color: AppTheme.primaryBlue,
@@ -1245,7 +1339,7 @@ class _StaffMemberTile extends StatelessWidget {
         ),
       ),
       title: Text(
-        _staffName(member),
+        _staffName(context, member),
         style: theme.textTheme.titleSmall?.copyWith(
           fontWeight: FontWeight.w800,
         ),
@@ -1254,7 +1348,9 @@ class _StaffMemberTile extends StatelessWidget {
       isThreeLine: details.isNotEmpty,
       trailing: _InfoPill(
         icon: active ? Icons.check_circle_outline : Icons.pause_circle_outline,
-        label: active ? 'Active' : 'Inactive',
+        label: active
+            ? AppStrings.of(context).lookup('staff_mgmt.active')
+            : AppStrings.of(context).lookup('staff_mgmt.inactive'),
         color: active ? AppTheme.successGreen : scheme.onSurfaceVariant,
       ),
     );
@@ -1292,10 +1388,22 @@ String _staffText(Map<String, dynamic> member, String key) {
   return value.toString().trim();
 }
 
-String _staffName(Map<String, dynamic> member) {
+String _staffName(BuildContext context, Map<String, dynamic> member) {
   return _staffText(member, 'name').isNotEmpty
       ? _staffText(member, 'name')
-      : 'Unnamed staff';
+      : AppStrings.of(
+          context,
+        ).lookup('s4.lib.organization_hierarchy.unnamed_staff');
+}
+
+String _roleDisplayLabel(BuildContext context, String? roleCode) {
+  final raw = roleCode?.trim().toUpperCase() ?? '';
+  if (raw.isEmpty) {
+    return AppStrings.of(context).lookup('role.display.general_staff');
+  }
+  final key = 'role.display.${raw.toLowerCase()}';
+  final label = AppStrings.of(context).lookup(key);
+  return label == key ? raw.replaceAll('_', ' ') : label;
 }
 
 class _LegendChip extends StatelessWidget {

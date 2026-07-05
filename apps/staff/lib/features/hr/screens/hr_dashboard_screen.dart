@@ -146,7 +146,9 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
                   const SizedBox(height: 20),
 
                   // Staff roster snapshot
-                  const _SectionTitle('Staff roster snapshot'),
+                  _SectionTitle(
+                    s.lookup('s4.lib.hr_dashboard.staff_roster_snapshot'),
+                  ),
                   const SizedBox(height: 10),
                   _buildStaffRosterSnapshot(context),
                   const SizedBox(height: 20),
@@ -207,9 +209,13 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         .length;
     final departmentCounts = <String, int>{};
     for (final row in sortedStaff) {
-      final department = _staffText(row, const [
-        'department',
-      ], fallback: 'Unassigned');
+      final department = _staffText(
+        row,
+        const ['department'],
+        fallback: AppStrings.of(
+          context,
+        ).lookup('s4.lib.hr_dashboard.unassigned_department'),
+      );
       departmentCounts[department] = (departmentCounts[department] ?? 0) + 1;
     }
 
@@ -404,9 +410,8 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.calendar_month_outlined,
-          title: 'Staff roster',
-          subtitle:
-              'Open doctor, nursing, OP, reception, driver, maintenance, pharmacy, or housekeeping boards',
+          title: s.lookup('hr.action.staff_roster'),
+          subtitle: s.lookup('hr.action.staff_roster.subtitle'),
           color: const Color(0xFF1565C0),
           onTap: () => context.push('/staff-rosters'),
         ),
@@ -421,16 +426,16 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.fact_check_outlined,
-          title: 'Leave approvals',
-          subtitle: 'Review pending leave requests and record HR decisions',
+          title: s.lookup('hr.action.leave_approvals'),
+          subtitle: s.lookup('hr.action.leave_approvals.subtitle'),
           color: AppTheme.successGreen,
           onTap: () => context.push('/leave-approvals'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.schedule_outlined,
-          title: 'My roster',
-          subtitle: 'View duty roster, leave, attendance, and duty requests',
+          title: s.lookup('hr.action.my_roster'),
+          subtitle: s.lookup('hr.action.my_roster.subtitle'),
           color: AppTheme.accentCyan,
           onTap: () => context.push('/schedule'),
         ),
@@ -448,8 +453,8 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.fact_check_outlined,
-          title: 'HR/Admin Report Review',
-          subtitle: 'Central incident and grievance queue with activity logs',
+          title: s.lookup('hr.action.hr_admin_report_review'),
+          subtitle: s.lookup('hr.action.hr_admin_report_review.subtitle'),
           color: AppTheme.warningOnSurface,
           onTap: () => context.push('/reports-grievances/admin'),
         ),
@@ -488,6 +493,7 @@ class _StaffSnapshotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final departmentEntries = departmentCounts.entries.take(8).toList();
     return Card(
       child: Padding(
@@ -515,7 +521,10 @@ class _StaffSnapshotCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '$activeStaff active of $totalStaff staff',
+                        s.format(
+                          's4.dynamic.hr_dashboard.active_of_total_staff',
+                          {'active': activeStaff, 'total': totalStaff},
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -594,6 +603,7 @@ class _DepartmentChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -602,7 +612,10 @@ class _DepartmentChip extends StatelessWidget {
         border: Border.all(color: AppTheme.divider),
       ),
       child: Text(
-        '$department $count',
+        s.format('s4.dynamic.hr_dashboard.department_count', {
+          'department': department,
+          'count': count,
+        }),
         style: TextStyle(
           color: AppTheme.textPrimary,
           fontSize: 12,
@@ -620,16 +633,18 @@ class _StaffSnapshotRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final name = _staffText(staff, const [
       'name',
       'fullName',
-    ], fallback: 'Staff');
-    final role = _staffText(staff, const [
-      'role',
-    ], fallback: 'GENERAL_STAFF').replaceAll('_', ' ');
+    ], fallback: s.lookup('s4.lib.hr_dashboard.staff_name_fallback'));
+    final role = _roleDisplayLabel(
+      context,
+      _staffText(staff, const ['role'], fallback: 'GENERAL_STAFF'),
+    );
     final department = _staffText(staff, const [
       'department',
-    ], fallback: 'Unassigned');
+    ], fallback: s.lookup('s4.lib.hr_dashboard.unassigned_department'));
     final empId = _staffText(staff, const [
       'employee_id',
       'employeeId',
@@ -922,6 +937,16 @@ bool _staffBool(
     }
   }
   return defaultValue;
+}
+
+String _roleDisplayLabel(BuildContext context, String? roleCode) {
+  final raw = roleCode?.trim().toUpperCase() ?? '';
+  if (raw.isEmpty) {
+    return AppStrings.of(context).lookup('role.display.general_staff');
+  }
+  final key = 'role.display.${raw.toLowerCase()}';
+  final label = AppStrings.of(context).lookup(key);
+  return label == key ? raw.replaceAll('_', ' ') : label;
 }
 
 class _ErrorState extends StatelessWidget {
