@@ -1055,6 +1055,71 @@ void main() {
     },
   );
 
+  test(
+    'S4 EMR notes admissions and discharge copy stores keys with required locale entries',
+    () {
+      final files = [
+        File('lib/features/emr/screens/clinical_notes_screen.dart'),
+        File('lib/features/emr/screens/admission_screen.dart'),
+        File('lib/features/emr/screens/discharge_summary_screen.dart'),
+      ];
+      final allowedPrefixes = [
+        'admission.',
+        'ai_assist.',
+        'clinical_notes.',
+        'discharge.',
+        's4.dynamic.admission.',
+        's4.dynamic.clinical_notes.',
+        's4.dynamic.discharge_summary.',
+        's4.lib.admission.',
+        's4.lib.clinical_notes.',
+        's4.lib.discharge_hub.',
+        's4.lib.discharge_summary.',
+      ];
+      final rawFragments = [
+        "'This OP visit is",
+        "'OP Consultation'",
+        "'review: pending'",
+        "'gen #",
+        "'Consultation note updated'",
+        "'Could not load existing summary:",
+        "'Failed to generate summary:",
+        "'Hospital formatted summary'",
+        "'AI-generated draft - doctor review required'",
+        "'No safety flags'",
+        "'All active inpatients'",
+        "'Admitting doctor is required'",
+        "'Hospital ID'",
+        "'Admission status'",
+        "'No discharged admissions'",
+      ];
+
+      final keys = <String>{};
+      for (final file in files) {
+        final source = file.readAsStringSync();
+        keys
+          ..addAll(_appStringKeysFrom(source, allowedPrefixes))
+          ..addAll(_appStringCallKeysFrom(source, allowedPrefixes))
+          ..addAll(_appStringPrefixedTokensFrom(source, allowedPrefixes));
+        for (final rawCopy in rawFragments) {
+          expect(
+            source,
+            isNot(contains(rawCopy)),
+            reason:
+                'S4 EMR notes/admissions/discharge copy should use '
+                'AppStrings keys: $rawCopy',
+          );
+        }
+      }
+
+      expect(
+        _missingLocaleEntries(keys),
+        isEmpty,
+        reason: 'S4 EMR copy keys must have en/hi/ta/te entries.',
+      );
+    },
+  );
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

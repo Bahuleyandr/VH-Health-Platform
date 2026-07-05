@@ -95,24 +95,33 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   String get _opSessionClosedReason {
+    final s = AppStrings.of(context);
     final status = (widget.appointmentStatus ?? '').trim().toUpperCase();
     if (_terminalAppointmentStatuses.contains(status)) {
-      return 'This OP visit is $status; create a new appointment for fresh documentation.';
+      return s.format('s4.dynamic.clinical_notes.op_visit_closed_status', {
+        'status': status,
+      });
     }
-    return 'This OP visit is not dated today; create a new appointment for fresh documentation.';
+    return s.lookup('s4.lib.clinical_notes.op_visit_not_today');
   }
 
   String get _patientTitle {
     final name = widget.patientName?.trim() ?? '';
-    return name.isEmpty ? 'Patient' : name;
+    return name.isEmpty
+        ? AppStrings.of(
+            context,
+          ).lookup('s4.lib.clinical_notes.patient_fallback')
+        : name;
   }
 
   List<String> _tabLabels(BuildContext context) {
     final s = AppStrings.of(context);
     return [
-      _isOpConsultation ? 'OP Consultation' : s.clinicalNotesTabProgress,
+      _isOpConsultation
+          ? s.lookup('s4.lib.clinical_notes.tab_op_consultation')
+          : s.clinicalNotesTabProgress,
       s.clinicalNotesTabProcedure,
-      'All Notes',
+      s.lookup('s4.lib.clinical_notes.tab_all_notes'),
     ];
   }
 
@@ -340,7 +349,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     return content is String && content.trim().isNotEmpty ? content : null;
   }
 
-  Map<String, String> _noteVitals(Map<String, dynamic> note) {
+  Map<String, String> _noteVitals(Map<String, dynamic> note, AppStrings s) {
     final content = _contentMap(note);
     final raw = content['vitals'];
     final vitals = raw is Map ? Map<String, dynamic>.from(raw) : content;
@@ -355,12 +364,31 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     }
 
     return {
-      'Pulse': value(['pulse_rate', 'pulse', 'heart_rate'], VitalUnit.pulse),
-      'BP': value(['blood_pressure', 'bp'], VitalUnit.bp),
-      'SpO2': value(['spo2', 'sp_o2'], VitalUnit.spo2),
-      'CBG': value(['cbg', 'blood_glucose'], VitalUnit.cbg),
-      'Weight': value(['weight_kg', 'weight'], VitalUnit.weight),
-      'Temp': value(['temperature', 'temp'], VitalUnit.temperature),
+      s.lookup('s4.lib.clinical_notes.vital_pulse'): value([
+        'pulse_rate',
+        'pulse',
+        'heart_rate',
+      ], VitalUnit.pulse),
+      s.lookup('s4.lib.clinical_notes.vital_bp'): value([
+        'blood_pressure',
+        'bp',
+      ], VitalUnit.bp),
+      s.lookup('s4.lib.clinical_notes.vital_spo2'): value([
+        'spo2',
+        'sp_o2',
+      ], VitalUnit.spo2),
+      s.lookup('s4.lib.clinical_notes.vital_cbg'): value([
+        'cbg',
+        'blood_glucose',
+      ], VitalUnit.cbg),
+      s.lookup('s4.lib.clinical_notes.vital_weight'): value([
+        'weight_kg',
+        'weight',
+      ], VitalUnit.weight),
+      s.lookup('s4.lib.clinical_notes.vital_temp'): value([
+        'temperature',
+        'temp',
+      ], VitalUnit.temperature),
     }..removeWhere((_, v) => v.isEmpty);
   }
 
@@ -526,7 +554,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          _formatTimestamp(note['created_at'] as String?),
+                          _formatTimestamp(
+                            note['created_at'] as String?,
+                            AppStrings.of(context),
+                          ),
                           style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.textSecondary,
@@ -617,6 +648,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── Note Detail ──
 
   void _showNoteDetail(Map<String, dynamic> note) {
+    final s = AppStrings.of(context);
     final opFields = _opConsultationContent(note);
     final chiefComplaint = opFields['chief_complaint']?.trim();
     final history = opFields['history']?.trim();
@@ -635,7 +667,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final postOpDiagnosis = _noteText(note, 'post_op_diagnosis');
     final complications = _noteText(note, 'complications');
     final plainContent = _plainContentText(note);
-    final vitals = _noteVitals(note);
+    final vitals = _noteVitals(note, s);
     final canEdit = _canEditOpNote(note);
     final showLegacySoapFields = !_isOpConsultation;
     showModalBottomSheet(
@@ -689,19 +721,31 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${_noteAuthorName(note, AppStrings.of(ctx))} - ${_formatTimestamp(note['created_at'] as String?)}',
+                  '${_noteAuthorName(note, AppStrings.of(ctx))} - ${_formatTimestamp(note['created_at'] as String?, AppStrings.of(ctx))}',
                   style: TextStyle(color: _sheetTextSecondary, fontSize: 13),
                 ),
                 const Divider(height: 24, color: Color(0xFFD0D5DD)),
                 if (_isOpConsultation) ...[
                   if (chiefComplaint != null && chiefComplaint.isNotEmpty)
-                    _noteSection('Chief complaints', chiefComplaint),
+                    _noteSection(
+                      s.lookup('s4.lib.clinical_notes.chief_complaints'),
+                      chiefComplaint,
+                    ),
                   if (history != null && history.isNotEmpty)
-                    _noteSection('History', history),
+                    _noteSection(
+                      s.lookup('s4.lib.clinical_notes.history'),
+                      history,
+                    ),
                   if (examination != null && examination.isNotEmpty)
-                    _noteSection('Examination', examination),
+                    _noteSection(
+                      s.lookup('s4.lib.clinical_notes.examination'),
+                      examination,
+                    ),
                   if (diagnosis != null && diagnosis.isNotEmpty)
-                    _noteSection('Diagnosis', diagnosis),
+                    _noteSection(
+                      s.lookup('s4.lib.clinical_notes.diagnosis'),
+                      diagnosis,
+                    ),
                 ],
                 // Problem-oriented OP fields and legacy SOAP fields.
                 if (showLegacySoapFields && subjective != null)
@@ -722,9 +766,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 if (plan != null)
                   _noteSection(AppStrings.of(ctx).clinicalNotesPlan, plan),
                 _vitalsSection(vitals),
-                if (summary != null) _noteSection('Summary', summary),
+                if (summary != null)
+                  _noteSection(
+                    s.lookup('s4.lib.clinical_notes.summary'),
+                    summary,
+                  ),
                 if (currentStatus != null)
-                  _noteSection('Current status', currentStatus),
+                  _noteSection(
+                    s.lookup('s4.lib.clinical_notes.current_status'),
+                    currentStatus,
+                  ),
                 // Generic content
                 if (plainContent != null)
                   _noteSection(
@@ -737,9 +788,15 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     procedureName,
                   ),
                 if (preOpDiagnosis != null)
-                  _noteSection('Pre-op diagnosis', preOpDiagnosis),
+                  _noteSection(
+                    s.lookup('s4.lib.clinical_notes.pre_op_diagnosis'),
+                    preOpDiagnosis,
+                  ),
                 if (postOpDiagnosis != null)
-                  _noteSection('Post-op diagnosis', postOpDiagnosis),
+                  _noteSection(
+                    s.lookup('s4.lib.clinical_notes.post_op_diagnosis'),
+                    postOpDiagnosis,
+                  ),
                 if (findings != null)
                   _noteSection(
                     AppStrings.of(ctx).clinicalNotesFindings,
@@ -864,6 +921,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   /// OP consultation notes use the problem-oriented fields first; older SOAP,
   /// progress, and procedure notes fall back to their legacy content.
   String _composeReportText(Map<String, dynamic> note) {
+    final s = AppStrings.of(context);
     final parts = <String>[];
     void add(String label, String? value) {
       final v = (value ?? '').trim();
@@ -872,32 +930,48 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
     if (_isOpConsultation) {
       final opFields = _opConsultationContent(note);
-      add('Chief complaints', opFields['chief_complaint']);
-      add('History', opFields['history']);
-      add('Examination', opFields['examination']);
-      add('Diagnosis', opFields['diagnosis']);
-      add('Plan', opFields['plan']);
+      add(
+        s.lookup('s4.lib.clinical_notes.chief_complaints'),
+        opFields['chief_complaint'],
+      );
+      add(s.lookup('s4.lib.clinical_notes.history'), opFields['history']);
+      add(
+        s.lookup('s4.lib.clinical_notes.examination'),
+        opFields['examination'],
+      );
+      add(s.lookup('s4.lib.clinical_notes.diagnosis'), opFields['diagnosis']);
+      add(s.clinicalNotesPlan, opFields['plan']);
     } else {
-      add('Subjective', _noteText(note, 'subjective'));
-      add('Objective', _noteText(note, 'objective'));
-      add('Assessment', _noteText(note, 'assessment'));
-      add('Plan', _noteText(note, 'plan'));
+      add(s.clinicalNotesSubjective, _noteText(note, 'subjective'));
+      add(s.clinicalNotesObjective, _noteText(note, 'objective'));
+      add(s.clinicalNotesAssessment, _noteText(note, 'assessment'));
+      add(s.clinicalNotesPlan, _noteText(note, 'plan'));
     }
-    final vitals = _noteVitals(note);
+    final vitals = _noteVitals(note, s);
     if (vitals.isNotEmpty) {
       parts.add(
-        'Vitals: ${vitals.entries.map((e) => '${e.key} ${e.value}').join(', ')}',
+        '${s.lookup('s4.lib.clinical_notes.vitals')}: '
+        '${vitals.entries.map((e) => '${e.key} ${e.value}').join(', ')}',
       );
     }
-    add('Summary', _noteText(note, 'summary'));
-    add('Current status', _noteText(note, 'current_status'));
-    add('Content', _plainContentText(note));
-    add('Procedure name', _noteText(note, 'procedure_name'));
-    add('Pre-op diagnosis', _noteText(note, 'pre_op_diagnosis'));
-    add('Post-op diagnosis', _noteText(note, 'post_op_diagnosis'));
-    add('Findings', _noteText(note, 'findings'));
-    add('Procedure details', _noteText(note, 'procedure_details'));
-    add('Complications', _noteText(note, 'complications'));
+    add(s.lookup('s4.lib.clinical_notes.summary'), _noteText(note, 'summary'));
+    add(
+      s.lookup('s4.lib.clinical_notes.current_status'),
+      _noteText(note, 'current_status'),
+    );
+    add(s.clinicalNotesContent, _plainContentText(note));
+    add(s.clinicalNotesProcedureName, _noteText(note, 'procedure_name'));
+    add(
+      s.lookup('s4.lib.clinical_notes.pre_op_diagnosis'),
+      _noteText(note, 'pre_op_diagnosis'),
+    );
+    add(
+      s.lookup('s4.lib.clinical_notes.post_op_diagnosis'),
+      _noteText(note, 'post_op_diagnosis'),
+    );
+    add(s.clinicalNotesFindings, _noteText(note, 'findings'));
+    add(s.clinicalNotesProcedureDetails, _noteText(note, 'procedure_details'));
+    add(s.clinicalNotesComplications, _noteText(note, 'complications'));
     return parts.join('\n\n');
   }
 
@@ -1211,7 +1285,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
     _showNoteFormSheet(
       title: isOpForm
-          ? (editing ? 'Edit OP consultation note' : 'New OP consultation note')
+          ? (editing
+                ? s.lookup('s4.lib.clinical_notes.edit_op_consultation_note')
+                : s.lookup('s4.lib.clinical_notes.new_op_consultation_note'))
           : s.clinicalNotesNewProgress,
       formKey: formKey,
       fields: [
@@ -1224,13 +1300,17 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           ),
         ),
         const SizedBox(height: 10),
-        _buildOptionalNumberField(pulse, 'Pulse Rate', VitalUnit.pulse),
+        _buildOptionalNumberField(
+          pulse,
+          s.lookup('s4.lib.clinical_notes.pulse_rate'),
+          VitalUnit.pulse,
+        ),
         Row(
           children: [
             Expanded(
               child: _buildOptionalNumberField(
                 bpSystolic,
-                'BP Systolic',
+                s.lookup('s4.lib.clinical_notes.bp_systolic'),
                 VitalUnit.bp,
               ),
             ),
@@ -1238,46 +1318,58 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             Expanded(
               child: _buildOptionalNumberField(
                 bpDiastolic,
-                'BP Diastolic',
+                s.lookup('s4.lib.clinical_notes.bp_diastolic'),
                 VitalUnit.bp,
               ),
             ),
           ],
         ),
-        _buildOptionalNumberField(spo2, 'SpO2', '%'),
-        _buildOptionalNumberField(cbg, 'CBG', VitalUnit.cbg),
-        _buildOptionalNumberField(weight, 'Weight', VitalUnit.weight),
+        _buildOptionalNumberField(
+          spo2,
+          s.lookup('s4.lib.clinical_notes.spo2'),
+          '%',
+        ),
+        _buildOptionalNumberField(
+          cbg,
+          s.lookup('s4.lib.clinical_notes.cbg'),
+          VitalUnit.cbg,
+        ),
+        _buildOptionalNumberField(
+          weight,
+          s.lookup('s4.lib.clinical_notes.weight'),
+          VitalUnit.weight,
+        ),
         _buildOptionalNumberField(
           temperature,
-          'Temperature',
+          s.lookup('s4.lib.clinical_notes.temperature'),
           VitalUnit.temperature,
         ),
         const Divider(height: 28),
         if (isOpForm) ...[
           _buildTextArea(
             chiefComplaint,
-            'Chief complaints',
-            'Symptoms, duration, and main concern for this visit',
+            s.lookup('s4.lib.clinical_notes.chief_complaints'),
+            s.lookup('s4.lib.clinical_notes.chief_complaints_hint'),
           ),
           _buildTextArea(
             history,
-            'History',
-            'Relevant illness history, comorbidities, medications, allergies',
+            s.lookup('s4.lib.clinical_notes.history'),
+            s.lookup('s4.lib.clinical_notes.history_hint'),
           ),
           _buildTextArea(
             examination,
-            'Examination',
-            'General and system examination findings',
+            s.lookup('s4.lib.clinical_notes.examination'),
+            s.lookup('s4.lib.clinical_notes.examination_hint'),
           ),
           _buildTextArea(
             diagnosis,
-            'Diagnosis',
-            'Working diagnosis or differential diagnosis',
+            s.lookup('s4.lib.clinical_notes.diagnosis'),
+            s.lookup('s4.lib.clinical_notes.diagnosis_hint'),
           ),
           _buildTextArea(
             plan,
-            'Plan',
-            'Treatment plan, advice, investigations, follow-up',
+            s.clinicalNotesPlan,
+            s.lookup('s4.lib.clinical_notes.op_plan_hint'),
           ),
         ] else ...[
           _buildTextArea(
@@ -1397,7 +1489,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             'note_type': noteType,
             if (widget.appointmentId != null)
               'appointment_id': widget.appointmentId,
-            'title': isOpForm ? 'OP consultation - $_patientTitle' : null,
+            'title': isOpForm
+                ? s.format('s4.dynamic.clinical_notes.op_consultation_title', {
+                    'patient': _patientTitle,
+                  })
+                : null,
             'content': content,
           },
         );
@@ -1431,13 +1527,13 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         const SizedBox(height: 12),
         _buildTextArea(
           preOpDiagnosis,
-          'Pre-op diagnosis',
-          'Diagnosis before the procedure',
+          s.lookup('s4.lib.clinical_notes.pre_op_diagnosis'),
+          s.lookup('s4.lib.clinical_notes.pre_op_diagnosis_hint'),
         ),
         _buildTextArea(
           postOpDiagnosis,
-          'Post-op diagnosis',
-          'Diagnosis after the procedure',
+          s.lookup('s4.lib.clinical_notes.post_op_diagnosis'),
+          s.lookup('s4.lib.clinical_notes.post_op_diagnosis_hint'),
         ),
         _buildTextArea(
           procedureDetails,
@@ -1744,7 +1840,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           SnackBar(
             content: Text(
               existingNoteId != null
-                  ? 'Consultation note updated'
+                  ? AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.clinical_notes.consultation_note_updated')
                   : AppStrings.of(context).clinicalNotesCreatedSuccess,
             ),
             backgroundColor: AppTheme.successGreen,
@@ -1791,14 +1889,22 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     return normalized;
   }
 
-  String _formatTimestamp(String? ts) {
+  String _formatTimestamp(String? ts, AppStrings s) {
     if (ts == null) return '-';
     try {
       final dt = DateTime.parse(ts);
       final now = DateTime.now();
       final diff = now.difference(dt);
-      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inMinutes < 60) {
+        return s.format('s4.dynamic.clinical_notes.minutes_ago', {
+          'count': diff.inMinutes,
+        });
+      }
+      if (diff.inHours < 24) {
+        return s.format('s4.dynamic.clinical_notes.hours_ago', {
+          'count': diff.inHours,
+        });
+      }
       return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return ts;
@@ -1836,9 +1942,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         ),
         label: Text(
           _opSessionClosed
-              ? 'Visit locked'
+              ? s.lookup('s4.lib.clinical_notes.visit_locked')
               : (_isOpConsultation && existingOpNote != null
-                    ? 'Edit note'
+                    ? s.lookup('s4.lib.clinical_notes.edit_note')
                     : s.clinicalNotesNewNote),
         ),
       ),
@@ -2071,6 +2177,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final summary = ((_draft['explanation_summary'] as String?) ?? '').trim();
     final keyPoints = _list('key_points');
     final nextSteps = _stringList('next_steps');
@@ -2137,19 +2244,24 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                 spacing: 6,
                 runSpacing: 4,
                 children: [
-                  const _Chip(
-                    label: 'review: pending',
+                  _Chip(
+                    label: s.lookup('s4.lib.clinical_notes.ai_review_pending'),
                     color: AppTheme.warningAmber,
                   ),
                   _Chip(
-                    label: usedAi ? provider : 'fallback',
+                    label: usedAi
+                        ? provider
+                        : s.lookup('s4.lib.clinical_notes.ai_fallback'),
                     color: usedAi
                         ? AppTheme.successGreen
                         : AppTheme.warningAmber,
                   ),
                   if (widget.result['generation_id'] != null)
                     _Chip(
-                      label: 'gen #${widget.result['generation_id']}',
+                      label: s.format(
+                        's4.dynamic.clinical_notes.generation_id',
+                        {'id': widget.result['generation_id']},
+                      ),
                       color: AppTheme.textSecondary,
                     ),
                 ],
@@ -2168,7 +2280,10 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${critical.length} critical · ${high.length} high — review carefully',
+                        s.format(
+                          's4.dynamic.clinical_notes.safety_review_counts',
+                          {'critical': critical.length, 'high': high.length},
+                        ),
                         style: const TextStyle(
                           color: AppTheme.errorRed,
                           fontWeight: FontWeight.w600,

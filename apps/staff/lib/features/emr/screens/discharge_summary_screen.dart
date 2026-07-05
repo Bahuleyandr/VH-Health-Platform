@@ -93,7 +93,13 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         }
       }
     } catch (e) {
-      setState(() => _error = 'Could not load existing summary: $e');
+      if (!mounted) return;
+      final s = AppStrings.of(context);
+      setState(
+        () => _error = s.format('s4.dynamic.discharge_summary.load_error', {
+          'error': e,
+        }),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -117,7 +123,13 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         _isSigned = false;
       });
     } catch (e) {
-      setState(() => _error = 'Failed to generate summary: $e');
+      if (!mounted) return;
+      final s = AppStrings.of(context);
+      setState(
+        () => _error = s.format('s4.dynamic.discharge_summary.generate_error', {
+          'error': e,
+        }),
+      );
     } finally {
       if (mounted) setState(() => _generating = false);
     }
@@ -175,13 +187,16 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   String _fallbackFormattedSummary(Map<String, dynamic> summary) {
+    final s = AppStrings.of(context);
+    final medication = s.lookup('s4.lib.discharge_summary.medication');
+    final notDocumented = s.lookup('s4.lib.discharge_summary.not_documented');
     final meds = summary['medications_on_discharge'];
     final medLines = meds is List
         ? meds
               .map((med) {
                 if (med is! Map) return med.toString();
                 final name =
-                    med['name'] ?? med['medication_name'] ?? 'Medication';
+                    med['name'] ?? med['medication_name'] ?? medication;
                 final dose = med['dose'] ?? med['dosage'] ?? '';
                 final route = med['route'] ?? '';
                 final frequency = med['frequency'] ?? '';
@@ -189,26 +204,29 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                 return '$name $dose $route $frequency $duration'.trim();
               })
               .join('\n')
-        : 'Not documented';
+        : notDocumented;
     return [
-      'DISCHARGE SUMMARY',
+      s.lookup('s4.lib.discharge_summary.fallback_title'),
       '',
-      'Name of the Patient : ${widget.patientName}',
+      s.format('s4.dynamic.discharge_summary.patient_name_line', {
+        'patient': widget.patientName,
+      }),
       '',
-      'DIAGNOSIS:',
-      summary['discharge_diagnosis'] ?? 'Not documented',
+      s.lookup('s4.lib.discharge_summary.diagnosis_heading'),
+      summary['discharge_diagnosis'] ?? notDocumented,
       '',
-      'COURSE IN THE HOSPITAL:',
-      summary['hospital_course'] ?? 'Not documented',
+      s.lookup('s4.lib.discharge_summary.hospital_course_heading'),
+      summary['hospital_course'] ?? notDocumented,
       '',
-      'CONDITION AT DISCHARGE:',
-      summary['discharge_condition'] ?? 'Not documented',
+      s.lookup('s4.lib.discharge_summary.condition_heading'),
+      summary['discharge_condition'] ?? notDocumented,
       '',
-      'ADVISED TO CONTINUE:',
+      s.lookup('s4.lib.discharge_summary.advised_to_continue_heading'),
       medLines,
       '',
-      'FOLLOW UP:',
-      summary['follow_up_instructions'] ?? 'Review as advised.',
+      s.lookup('s4.lib.discharge_summary.follow_up_heading'),
+      summary['follow_up_instructions'] ??
+          s.lookup('s4.lib.discharge_summary.review_as_advised'),
     ].join('\n');
   }
 
@@ -231,7 +249,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         );
       }
     } catch (e) {
-      setState(() => _error = 'Failed to save: $e');
+      setState(
+        () => _error = s.format('s4.dynamic.discharge_summary.save_error', {
+          'error': e,
+        }),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -278,7 +300,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         );
       }
     } catch (e) {
-      setState(() => _error = 'Failed to sign: $e');
+      setState(
+        () => _error = s.format('s4.dynamic.discharge_summary.sign_error', {
+          'error': e,
+        }),
+      );
     } finally {
       if (mounted) setState(() => _signing = false);
     }
@@ -333,7 +359,12 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         Navigator.of(context).pop(true); // Return to admission list
       }
     } catch (e) {
-      setState(() => _error = 'Discharge failed: $e');
+      setState(
+        () => _error = s.format(
+          's4.dynamic.discharge_summary.discharge_error',
+          {'error': e},
+        ),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -348,6 +379,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _showSafetyFlags() async {
+    final s = AppStrings.of(context);
     final flags = _listOfMaps(_summary?['safety_flags']);
     final theme = Theme.of(context);
     await showModalBottomSheet<void>(
@@ -391,7 +423,9 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                           (flag['message'] ??
                                   flag['description'] ??
                                   flag['reason'] ??
-                                  'Doctor review required')
+                                  s.lookup(
+                                    's4.lib.discharge_summary.doctor_review_required',
+                                  ))
                               .toString();
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -466,7 +500,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               )
             else ...[
               Text(
-                signedByName.isNotEmpty ? signedByName : 'Signer unavailable',
+                signedByName.isNotEmpty
+                    ? signedByName
+                    : AppStrings.of(
+                        context,
+                      ).lookup('s4.lib.discharge_summary.signer_unavailable'),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               if (signedByRole.isNotEmpty) Text(signedByRole),
@@ -686,7 +724,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           const SizedBox(height: 16),
 
           _buildSection(
-            'Hospital formatted summary',
+            s.lookup('s4.lib.discharge_summary.hospital_formatted_summary'),
             _formattedSummaryCtrl,
             maxLines: 18,
           ),
@@ -726,7 +764,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               (med) => Card(
                 child: ListTile(
                   leading: const Icon(Icons.medication),
-                  title: Text(med['name']?.toString() ?? 'Unknown'),
+                  title: Text(
+                    med['name']?.toString() ??
+                        s.lookup('s4.lib.discharge_summary.unknown_item'),
+                  ),
                   subtitle: Text(
                     '${med['dose'] ?? ''} ${med['route'] ?? ''} ${med['frequency'] ?? ''}',
                   ),
@@ -747,9 +788,12 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               (inv) => Card(
                 child: ListTile(
                   leading: const Icon(Icons.biotech),
-                  title: Text(inv['test']?.toString() ?? 'Test'),
+                  title: Text(
+                    inv['test']?.toString() ??
+                        s.lookup('s4.lib.discharge_summary.test_fallback'),
+                  ),
                   subtitle: Text(
-                    '${inv['status'] ?? ''} — ${inv['result'] ?? 'Pending'}',
+                    '${inv['status'] ?? ''} — ${inv['result'] ?? s.lookup('s4.lib.discharge_summary.pending_result')}',
                   ),
                 ),
               ),
@@ -769,7 +813,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               (proc) => Card(
                 child: ListTile(
                   leading: const Icon(Icons.medical_services),
-                  title: Text(proc?.toString() ?? 'Procedure'),
+                  title: Text(
+                    proc?.toString() ??
+                        s.lookup('s4.lib.discharge_summary.procedure_fallback'),
+                  ),
                 ),
               ),
             ),
@@ -791,6 +838,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Widget _buildAiBanner(ThemeData theme) {
+    final s = AppStrings.of(context);
     final metadata = _summary?['ai_metadata'];
     final citations = _summary?['source_citations'];
     final flags = _summary?['safety_flags'];
@@ -800,10 +848,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     final sourceCount = citations is List ? citations.length : 0;
     final flagCount = flags is List ? flags.length : 0;
     final label = usedAi
-        ? 'AI-generated draft - doctor review required'
+        ? s.lookup('s4.lib.discharge_summary.ai_generated_review_required')
         : fallback.isNotEmpty
-        ? 'Fallback draft - AI unavailable'
-        : 'Structured draft - doctor review required';
+        ? s.lookup('s4.lib.discharge_summary.ai_fallback_unavailable')
+        : s.lookup('s4.lib.discharge_summary.structured_review_required');
 
     return Container(
       width: double.infinity,
@@ -827,8 +875,18 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          _infoPill(theme, '$sourceCount sources', Icons.source_outlined),
-          _safetyFlagButton(theme, flagCount),
+          _infoPill(
+            theme,
+            sourceCount == 1
+                ? s.format('s4.dynamic.discharge_summary.source_count_one', {
+                    'count': sourceCount,
+                  })
+                : s.format('s4.dynamic.discharge_summary.source_count', {
+                    'count': sourceCount,
+                  }),
+            Icons.source_outlined,
+          ),
+          _safetyFlagButton(theme, flagCount, s),
         ],
       ),
     );
@@ -846,7 +904,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     );
   }
 
-  Widget _safetyFlagButton(ThemeData theme, int flagCount) {
+  Widget _safetyFlagButton(ThemeData theme, int flagCount, AppStrings s) {
     final hasFlags = flagCount > 0;
     final color = hasFlags
         ? AppTheme.errorOnSurface
@@ -856,8 +914,14 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       icon: Icon(Icons.health_and_safety, size: 18, color: color),
       label: Text(
         hasFlags
-            ? 'Review $flagCount safety ${flagCount == 1 ? 'flag' : 'flags'}'
-            : 'No safety flags',
+            ? flagCount == 1
+                  ? s.format('s4.dynamic.discharge_summary.safety_flag_one', {
+                      'count': flagCount,
+                    })
+                  : s.format('s4.dynamic.discharge_summary.safety_flags', {
+                      'count': flagCount,
+                    })
+            : s.lookup('s4.lib.discharge_summary.no_safety_flags'),
       ),
       style: OutlinedButton.styleFrom(
         visualDensity: VisualDensity.compact,

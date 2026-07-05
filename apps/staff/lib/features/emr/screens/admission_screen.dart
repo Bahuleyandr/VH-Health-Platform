@@ -13,8 +13,9 @@ const String admissionActiveStatus = 'active';
 const String admissionDischargedStatus = 'discharged';
 
 List<WardListFilterOption> admissionWardFilterOptions(
-  List<Map<String, dynamic>> rows,
-) {
+  List<Map<String, dynamic>> rows, {
+  required String allWardsLabel,
+}) {
   final byValue = <String, String>{};
   for (final row in rows) {
     final value = _admissionText(
@@ -27,16 +28,22 @@ List<WardListFilterOption> admissionWardFilterOptions(
   final options = byValue.entries.toList()
     ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
   return [
-    const WardListFilterOption(value: admissionAllWards, label: 'All wards'),
+    WardListFilterOption(value: admissionAllWards, label: allWardsLabel),
     for (final option in options)
       WardListFilterOption(value: option.key, label: option.value),
   ];
 }
 
-List<WardListFilterOption> admissionStatusFilterOptions() {
-  return const [
-    WardListFilterOption(value: admissionActiveStatus, label: 'Active'),
-    WardListFilterOption(value: admissionDischargedStatus, label: 'Discharged'),
+List<WardListFilterOption> admissionStatusFilterOptions({
+  required String activeLabel,
+  required String dischargedLabel,
+}) {
+  return [
+    WardListFilterOption(value: admissionActiveStatus, label: activeLabel),
+    WardListFilterOption(
+      value: admissionDischargedStatus,
+      label: dischargedLabel,
+    ),
   ];
 }
 
@@ -86,9 +93,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
   Map<String, dynamic> _scope = const {};
   String _selectedWardValue = admissionAllWards;
   String _selectedAdmissionStatus = admissionActiveStatus;
-  List<WardListFilterOption> _wardOptions = const [
-    WardListFilterOption(value: admissionAllWards, label: 'All wards'),
-  ];
+  List<WardListFilterOption> _wardOptions = const [];
   static const int _pageSize = 100;
 
   @override
@@ -102,7 +107,13 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     try {
       final rows = await MedicalApiService.getAdmissionWardOptions();
       if (!mounted) return;
-      setState(() => _wardOptions = admissionWardFilterOptions(rows));
+      final s = AppStrings.of(context);
+      setState(
+        () => _wardOptions = admissionWardFilterOptions(
+          rows,
+          allWardsLabel: _allWardsLabel(s),
+        ),
+      );
     } catch (_) {
       // The admission list itself still carries ward names; fall back to them.
     }
@@ -138,7 +149,10 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         _scope = _mapFrom(data['scope']);
         if (_wardOptions.length <= 1 &&
             _selectedWardValue == admissionAllWards) {
-          _wardOptions = admissionWardFilterOptions(list);
+          _wardOptions = admissionWardFilterOptions(
+            list,
+            allWardsLabel: _allWardsLabel(AppStrings.of(context)),
+          );
         }
         _loading = false;
         _loadingMore = false;
@@ -179,6 +193,33 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       _selectedWardValue != admissionAllWards ||
       _selectedAdmissionStatus != admissionActiveStatus;
 
+  String _allWardsLabel(AppStrings s) => s.lookup('s4.lib.admission.all_wards');
+
+  List<WardListFilterOption> _localizedWardOptions(AppStrings s) {
+    final allWardsLabel = _allWardsLabel(s);
+    if (_wardOptions.isEmpty) {
+      return [
+        WardListFilterOption(value: admissionAllWards, label: allWardsLabel),
+      ];
+    }
+    return [
+      for (final option in _wardOptions)
+        option.value == admissionAllWards
+            ? WardListFilterOption(
+                value: admissionAllWards,
+                label: allWardsLabel,
+              )
+            : option,
+    ];
+  }
+
+  List<WardListFilterOption> _localizedStatusOptions(AppStrings s) {
+    return admissionStatusFilterOptions(
+      activeLabel: s.lookup('s4.lib.admission.status_active'),
+      dischargedLabel: s.lookup('s4.lib.admission.status_discharged'),
+    );
+  }
+
   Map<String, dynamic> _mapFrom(dynamic value) {
     if (value is Map<String, dynamic>) return value;
     if (value is Map) return Map<String, dynamic>.from(value);
@@ -191,24 +232,26 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
   }
 
   String get _scopeLabel {
+    final s = AppStrings.of(context);
     final type = _text(_scope['type']);
     switch (type) {
       case 'full':
-        return 'All active inpatients';
+        return s.lookup('s4.lib.admission.scope_all_active_inpatients');
       case 'own_patients':
-        return 'Patients assigned to you';
+        return s.lookup('s4.lib.admission.scope_assigned_to_you');
       case 'duty_doctor':
-        return 'Current duty floor coverage';
+        return s.lookup('s4.lib.admission.scope_duty_floor');
       case 'ward_nursing':
-        return 'Current nursing floor';
+        return s.lookup('s4.lib.admission.scope_nursing_floor');
       case 'housekeeping':
-        return 'Current housekeeping area';
+        return s.lookup('s4.lib.admission.scope_housekeeping_area');
       default:
-        return 'Role-based inpatient scope';
+        return s.lookup('s4.lib.admission.scope_role_based');
     }
   }
 
   String get _scopeDetail {
+    final s = AppStrings.of(context);
     final wards = _scope['wards'];
     if (wards is List && wards.isNotEmpty) {
       return wards
@@ -218,7 +261,9 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     }
     final floors = _scope['floors'];
     if (floors is List && floors.isNotEmpty) {
-      return 'Floor ${floors.join(', ')}';
+      return s.format('s4.dynamic.admission.floors', {
+        'floors': floors.join(', '),
+      });
     }
     return _text(_scope['source']).replaceAll('_', ' ');
   }
@@ -237,7 +282,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     }
   }
 
-  Widget _statusBadge(String? status) {
+  Widget _statusBadge(String? status, AppStrings s) {
     Color bg;
     Color fg;
     switch (status?.toLowerCase()) {
@@ -264,13 +309,13 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        status?.toUpperCase() ?? 'UNKNOWN',
+        status?.toUpperCase() ?? s.lookup('s4.lib.admission.status_unknown'),
         style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600),
       ),
     );
   }
 
-  Widget _buildScopeSummary(ThemeData theme) {
+  Widget _buildScopeSummary(ThemeData theme, AppStrings s) {
     final showing = _admissions.length;
     final total = _totalAdmissions > 0 ? _totalAdmissions : showing;
     final detail = _scopeDetail;
@@ -299,14 +344,22 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Showing $showing of $total inpatients',
+                    s.format('s4.dynamic.admission.showing_inpatients', {
+                      'showing': showing,
+                      'total': total,
+                    }),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    detail.isEmpty ? _scopeLabel : '$_scopeLabel - $detail',
+                    detail.isEmpty
+                        ? _scopeLabel
+                        : s.format('s4.dynamic.admission.scope_with_detail', {
+                            'scope': _scopeLabel,
+                            'detail': detail,
+                          }),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -450,7 +503,9 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                             onChanged: (v) =>
                                 setSheetState(() => selectedDoctorUid = v),
                             validator: (v) => (v == null || v.isEmpty)
-                                ? 'Admitting doctor is required'
+                                ? AppStrings.of(ctx).lookup(
+                                    's4.lib.admission.admitting_doctor_required',
+                                  )
                                 : null,
                           );
                         },
@@ -700,14 +755,14 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
               children: [
                 WardListFilterBar(
                   keyPrefix: 'admissions',
-                  wardOptions: _wardOptions,
+                  wardOptions: _localizedWardOptions(s),
                   selectedWardValue: _selectedWardValue,
                   onWardChanged: (value) {
                     setState(() => _selectedWardValue = value);
                     _loadAdmissions();
                   },
-                  filterLabel: 'Admission status',
-                  filterOptions: admissionStatusFilterOptions(),
+                  filterLabel: s.lookup('s4.lib.admission.status_filter'),
+                  filterOptions: _localizedStatusOptions(s),
                   selectedFilterValue: _selectedAdmissionStatus,
                   onFilterChanged: (value) {
                     setState(() => _selectedAdmissionStatus = value);
@@ -738,7 +793,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
             const SizedBox(height: 12),
             Text(
               _selectedAdmissionStatus == admissionDischargedStatus
-                  ? 'No discharged admissions'
+                  ? s.lookup('s4.lib.admission.no_discharged')
                   : s.admissionNoActive,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
@@ -753,7 +808,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         padding: const EdgeInsets.all(12),
         itemCount: _admissions.length + 1 + (_hasMoreAdmissions ? 1 : 0),
         itemBuilder: (ctx, i) {
-          if (i == 0) return _buildScopeSummary(Theme.of(context));
+          if (i == 0) return _buildScopeSummary(Theme.of(context), s);
           final admissionIndex = i - 1;
           if (admissionIndex >= _admissions.length) {
             return Padding(
@@ -771,7 +826,9 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         )
                       : const Icon(Icons.expand_more),
                   label: Text(
-                    _loadingMore ? 'Loading patients' : 'Load more patients',
+                    _loadingMore
+                        ? s.lookup('s4.lib.admission.loading_patients')
+                        : s.lookup('s4.lib.admission.load_more_patients'),
                   ),
                 ),
               ),
@@ -803,7 +860,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${a['ward'] ?? ''} ${bedNumber != null ? '- Bed $bedNumber' : ''}',
+                    '${a['ward'] ?? ''} ${bedNumber != null ? s.format('s4.dynamic.admission.bed_inline', {'bed': bedNumber}) : ''}',
                     style: const TextStyle(fontSize: 13),
                   ),
                   if (a['chief_complaint'] != null)
@@ -818,7 +875,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     ),
                 ],
               ),
-              trailing: _statusBadge(a['status'] as String?),
+              trailing: _statusBadge(a['status'] as String?, s),
               onTap: () => _showAdmissionDetail(a),
             ),
           );
@@ -971,7 +1028,9 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   ),
                   const SizedBox(height: 8),
                   _infoRow(
-                    'Hospital ID',
+                    AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.admission.hospital_id'),
                     _firstText([
                       _detail?['patient_hospital_number'],
                       _detail?['hospital_number'],
