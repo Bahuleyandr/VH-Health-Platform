@@ -150,11 +150,14 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
       body: !_roleLoaded
           ? const Center(child: CircularProgressIndicator())
           : !_allowed
-          ? const EmptyState(
+          ? EmptyState(
               icon: Icons.lock_outline,
-              title: 'Admin access required',
-              body:
-                  'Audit logs are available only to Admin and Super Admin roles.',
+              title: AppStrings.of(
+                context,
+              ).lookup('s4.lib.audit_logs.admin_access_required'),
+              body: AppStrings.of(
+                context,
+              ).lookup('s4.lib.audit_logs.admin_only_body'),
             )
           : Column(
               children: [
@@ -204,7 +207,9 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _TypeChip(
-                    label: 'Change audit',
+                    label: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.audit_logs.change_audit'),
                     icon: Icons.manage_search,
                     selected: _kind == AuditLogKind.audit,
                     onSelected: () {
@@ -213,7 +218,9 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     },
                   ),
                   _TypeChip(
-                    label: 'Admin activity',
+                    label: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.audit_logs.admin_activity'),
                     icon: Icons.admin_panel_settings_outlined,
                     selected: _kind == AuditLogKind.system,
                     onSelected: () {
@@ -299,12 +306,16 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                     ),
                   ),
                   _DateButton(
-                    label: 'From',
+                    label: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.audit_logs.from'),
                     value: _from == null ? null : _dateOnlyFmt.format(_from!),
                     onPressed: () => _pickDate(isFrom: true),
                   ),
                   _DateButton(
-                    label: 'To',
+                    label: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.audit_logs.to'),
                     value: _to == null ? null : _dateOnlyFmt.format(_to!),
                     onPressed: () => _pickDate(isFrom: false),
                   ),
@@ -379,10 +390,14 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_result.logs.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.manage_search,
-        title: 'No matching logs',
-        body: 'Adjust the filters or date range.',
+        title: AppStrings.of(
+          context,
+        ).lookup('s4.lib.audit_logs.no_matching_logs'),
+        body: AppStrings.of(
+          context,
+        ).lookup('s4.lib.audit_logs.adjust_filters_or_date_range'),
       );
     }
     return RefreshIndicator(
@@ -420,7 +435,11 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
           child: Row(
             children: [
               Text(
-                '$start-$end of ${_result.total}',
+                AppStrings.of(context).format('s4.dynamic.audit_logs.range', {
+                  'start': start,
+                  'end': end,
+                  'total': _result.total,
+                }),
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               const Spacer(),
@@ -434,7 +453,10 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 icon: const Icon(Icons.chevron_left),
               ),
               Text(
-                'Page ${_result.page} / ${_result.totalPages}',
+                AppStrings.of(context).format('s4.dynamic.audit_logs.page', {
+                  'page': _result.page,
+                  'totalPages': _result.totalPages,
+                }),
                 style: TextStyle(color: AppTheme.textPrimary),
               ),
               IconButton(
@@ -456,7 +478,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
   void _showDetails(Map<String, dynamic> row) {
     final title = _text(row['action']).isNotEmpty
         ? _text(row['action'])
-        : 'Log detail';
+        : AppStrings.of(context).lookup('s4.lib.audit_logs.log_detail');
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -525,6 +547,7 @@ class _SummaryStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return Container(
       color: AppTheme.cardSurface,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -540,8 +563,8 @@ class _SummaryStrip extends StatelessWidget {
           Expanded(
             child: Text(
               kind == AuditLogKind.audit
-                  ? 'Change audit trail'
-                  : 'Admin activity log',
+                  ? strings.lookup('s4.lib.audit_logs.change_audit_trail')
+                  : strings.lookup('s4.lib.audit_logs.admin_activity_log'),
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -557,7 +580,7 @@ class _SummaryStrip extends StatelessWidget {
             )
           else
             Text(
-              '$total entries',
+              strings.format('s4.dynamic.audit_logs.entries', {'total': total}),
               style: TextStyle(
                 color: AppTheme.textSecondary,
                 fontWeight: FontWeight.w600,
@@ -565,7 +588,10 @@ class _SummaryStrip extends StatelessWidget {
             ),
           const SizedBox(width: 14),
           Text(
-            'Page $page/$totalPages',
+            strings.format('s4.dynamic.audit_logs.page', {
+              'page': page,
+              'totalPages': totalPages,
+            }),
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ],
@@ -643,7 +669,9 @@ class _LogRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final action = _text(row['action']);
-    final title = action.isEmpty ? 'Log entry' : action;
+    final title = action.isEmpty
+        ? AppStrings.of(context).lookup('s4.lib.audit_logs.log_entry')
+        : action;
     final time = _parseTime(row['created_at']);
     final resource = kind == AuditLogKind.audit
         ? _text(row['resource'])
@@ -710,7 +738,11 @@ class _LogRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      subject.isEmpty ? 'No extra details' : subject,
+                      subject.isEmpty
+                          ? AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.audit_logs.no_extra_details')
+                          : subject,
                       style: TextStyle(color: AppTheme.textSecondary),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,

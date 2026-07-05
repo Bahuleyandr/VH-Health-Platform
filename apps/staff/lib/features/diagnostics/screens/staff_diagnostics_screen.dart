@@ -80,11 +80,14 @@ class _StaffDiagnosticsScreenState extends State<StaffDiagnosticsScreen> {
       body: !_roleLoaded
           ? const Center(child: CircularProgressIndicator())
           : !_allowed
-          ? const EmptyState(
+          ? EmptyState(
               icon: Icons.lock_outline,
-              title: 'Admin access required',
-              body:
-                  'Staff diagnostics are available only to Admin and Super Admin roles.',
+              title: AppStrings.of(
+                context,
+              ).lookup('s4.lib.staff_diagnostics.admin_access_required'),
+              body: AppStrings.of(
+                context,
+              ).lookup('s4.lib.staff_diagnostics.admin_only_body'),
             )
           : RefreshIndicator(
               onRefresh: _load,
@@ -156,8 +159,12 @@ class _RuntimeHeader extends StatelessWidget {
               Expanded(
                 child: Text(
                   ok
-                      ? 'Trial runtime checks are clean'
-                      : 'Runtime checks need review',
+                      ? AppStrings.of(context).lookup(
+                          's4.lib.staff_diagnostics.runtime_checks_clean',
+                        )
+                      : AppStrings.of(context).lookup(
+                          's4.lib.staff_diagnostics.runtime_checks_need_review',
+                        ),
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 18,
@@ -172,15 +179,45 @@ class _RuntimeHeader extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _MetaChip(label: 'API', value: snapshot.apiBaseUrl),
-              _MetaChip(label: 'Role', value: snapshot.role),
+              _MetaChip(
+                label: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.staff_diagnostics.api'),
+                value: snapshot.apiBaseUrl,
+              ),
+              _MetaChip(
+                label: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.staff_diagnostics.role'),
+                value: snapshot.role,
+              ),
               if (snapshot.employeeId != null)
-                _MetaChip(label: 'Employee', value: snapshot.employeeId!),
+                _MetaChip(
+                  label: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.staff_diagnostics.employee'),
+                  value: snapshot.employeeId!,
+                ),
               if (snapshot.staffId != null)
-                _MetaChip(label: 'Staff ID', value: snapshot.staffId!),
+                _MetaChip(
+                  label: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.staff_diagnostics.staff_id'),
+                  value: snapshot.staffId!,
+                ),
               if (snapshot.staffUid != null)
-                _MetaChip(label: 'UID', value: snapshot.staffUid!),
-              _MetaChip(label: 'Generated', value: generatedLabel),
+                _MetaChip(
+                  label: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.staff_diagnostics.uid'),
+                  value: snapshot.staffUid!,
+                ),
+              _MetaChip(
+                label: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.staff_diagnostics.generated'),
+                value: generatedLabel,
+              ),
             ],
           ),
         ],
@@ -304,12 +341,26 @@ class _PolicyPanel extends StatelessWidget {
     final roleCount = roles is List ? roles.length : null;
     return _DetailPanel(
       icon: Icons.account_tree_outlined,
-      title: 'Role Policy',
+      title: AppStrings.of(
+        context,
+      ).lookup('s4.lib.staff_diagnostics.role_policy'),
       rows: [
-        _DetailRow('Version', data['policy_version'] ?? data['version']),
-        _DetailRow('Hash', data['policy_hash']),
-        _DetailRow('Roles', roleCount),
-        _DetailRow('Generated', data['generated_at']),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.version'),
+          data['policy_version'] ?? data['version'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.hash'),
+          data['policy_hash'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.roles'),
+          roleCount,
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.generated'),
+          data['generated_at'],
+        ),
       ],
     );
   }
@@ -325,13 +376,32 @@ class _VersionPanel extends StatelessWidget {
     final data = check?.data ?? const <String, dynamic>{};
     return _DetailPanel(
       icon: Icons.commit_outlined,
-      title: 'Backend Version',
+      title: AppStrings.of(
+        context,
+      ).lookup('s4.lib.staff_diagnostics.backend_version'),
       rows: [
-        _DetailRow('Commit', data['commit']),
-        _DetailRow('Branch', data['branch']),
-        _DetailRow('Built at', data['built_at']),
-        _DetailRow('Node env', data['node_env']),
-        _DetailRow('Uptime seconds', data['uptime_seconds']),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.commit'),
+          data['commit'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.branch'),
+          data['branch'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.built_at'),
+          data['built_at'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.node_env'),
+          data['node_env'],
+        ),
+        _DetailRow(
+          AppStrings.of(
+            context,
+          ).lookup('s4.lib.staff_diagnostics.uptime_seconds'),
+          data['uptime_seconds'],
+        ),
       ],
     );
   }
@@ -350,13 +420,30 @@ class _ProfilePanel extends StatelessWidget {
         : data;
     return _DetailPanel(
       icon: Icons.badge_outlined,
-      title: 'Signed-in Staff',
+      title: AppStrings.of(
+        context,
+      ).lookup('s4.lib.staff_diagnostics.signed_in_staff'),
       rows: [
-        _DetailRow('Name', staff['name']),
-        _DetailRow('Role', staff['role']),
-        _DetailRow('Department', staff['department']),
-        _DetailRow('UID', staff['uid']),
-        _DetailRow('Employee ID', staff['employee_id'] ?? staff['employeeId']),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.name'),
+          staff['name'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.role'),
+          staff['role'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.department'),
+          staff['department'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.uid'),
+          staff['uid'],
+        ),
+        _DetailRow(
+          AppStrings.of(context).lookup('s4.lib.staff_diagnostics.employee_id'),
+          staff['employee_id'] ?? staff['employeeId'],
+        ),
       ],
     );
   }

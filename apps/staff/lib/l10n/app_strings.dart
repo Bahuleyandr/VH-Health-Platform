@@ -5195,14 +5195,38 @@ class AppStrings {
       's4.lib.audit_logs.refresh_logs': "Refresh logs",
       's4.lib.audit_logs.reset': "Reset",
       's4.lib.audit_logs.resource': "Resource",
+      // REVIEW: AI first-pass S4 ops/static i18n sweep - confirm wording before production.
+      's4.lib.audit_logs.admin_access_required': "Admin access required",
+      's4.lib.audit_logs.admin_activity': "Admin activity",
+      's4.lib.audit_logs.admin_activity_log': "Admin activity log",
+      's4.lib.audit_logs.admin_only_body':
+          "Audit logs are available only to Admin and Super Admin roles.",
+      's4.lib.audit_logs.adjust_filters_or_date_range':
+          "Adjust the filters or date range.",
+      's4.lib.audit_logs.change_audit': "Change audit",
+      's4.lib.audit_logs.change_audit_trail': "Change audit trail",
+      's4.lib.audit_logs.from': "From",
+      's4.lib.audit_logs.log_detail': "Log detail",
+      's4.lib.audit_logs.log_entry': "Log entry",
+      's4.lib.audit_logs.no_matching_logs': "No matching logs",
+      's4.lib.audit_logs.no_extra_details': "No extra details",
+      's4.lib.audit_logs.to': "To",
+      's4.dynamic.audit_logs.entries': "{total} entries",
+      's4.dynamic.audit_logs.page': "Page {page}/{totalPages}",
+      's4.dynamic.audit_logs.range': "{start}-{end} of {total}",
       's4.lib.billing_desk.billing_desk': "Billing Desk",
       's4.lib.billing_desk.draft_invoice_created': "Draft invoice created",
       's4.lib.billing_desk.draft_op': "Draft OP",
+      's4.lib.billing_desk.due': "Due",
       's4.lib.billing_desk.invoice_issued': "Invoice issued",
+      's4.lib.billing_desk.invoices': "Invoices",
       's4.lib.billing_desk.issue': "Issue",
+      's4.lib.billing_desk.no_invoices_found': "No invoices found",
+      's4.lib.billing_desk.patient': "Patient",
       's4.lib.billing_desk.payment_collected': "Payment collected",
       's4.lib.billing_desk.print_receipt': "Print receipt",
       's4.lib.billing_desk.print_tax_invoice': "Print tax invoice",
+      's4.lib.billing_desk.select_a_patient': "Select a patient",
       's4.lib.blood_bank.bedside_verification_recorded':
           "Bedside verification recorded",
       's4.lib.blood_bank.first_verifier': "First verifier",
@@ -5331,7 +5355,14 @@ class AppStrings {
       's4.calculators.option.sex.male': "Male",
       's4.calculators.option.sex.female': "Female",
       's4.lib.cath_lab.cath_lab': "Cath Lab",
+      's4.lib.cath_lab.equipment': "Equipment",
+      's4.lib.cath_lab.no_cases': "No Cath Lab cases",
+      's4.lib.cath_lab.not_assigned': "Not assigned",
+      's4.lib.cath_lab.not_configured': "Not configured",
+      's4.lib.cath_lab.pending_checklist': "Pending checklist",
       's4.lib.cath_lab.readiness': "Readiness",
+      's4.lib.cath_lab.room': "Cath Lab room",
+      's4.lib.cath_lab.team': "Cath team",
       's4.lib.cds_blocker_modal.clinical_justification':
           "Clinical justification *",
       's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
@@ -6111,9 +6142,36 @@ class AppStrings {
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "This cannot be overridden. Re-scan the correct wristband and tube.",
       's4.lib.specimen_scan.title': "Specimen scan",
+      's4.lib.staff_diagnostics.admin_access_required': "Admin access required",
+      's4.lib.staff_diagnostics.admin_only_body':
+          "Staff diagnostics are available only to Admin and Super Admin roles.",
+      's4.lib.staff_diagnostics.api': "API",
+      's4.lib.staff_diagnostics.backend_version': "Backend Version",
+      's4.lib.staff_diagnostics.branch': "Branch",
+      's4.lib.staff_diagnostics.built_at': "Built at",
+      's4.lib.staff_diagnostics.commit': "Commit",
+      's4.lib.staff_diagnostics.department': "Department",
+      's4.lib.staff_diagnostics.employee': "Employee",
+      's4.lib.staff_diagnostics.employee_id': "Employee ID",
+      's4.lib.staff_diagnostics.generated': "Generated",
+      's4.lib.staff_diagnostics.hash': "Hash",
+      's4.lib.staff_diagnostics.name': "Name",
+      's4.lib.staff_diagnostics.node_env': "Node env",
       's4.lib.staff_diagnostics.no_details_returned': "No details returned.",
       's4.lib.staff_diagnostics.refresh_diagnostics': "Refresh diagnostics",
+      's4.lib.staff_diagnostics.role': "Role",
+      's4.lib.staff_diagnostics.role_policy': "Role Policy",
+      's4.lib.staff_diagnostics.roles': "Roles",
+      's4.lib.staff_diagnostics.runtime_checks_clean':
+          "Trial runtime checks are clean",
+      's4.lib.staff_diagnostics.runtime_checks_need_review':
+          "Runtime checks need review",
+      's4.lib.staff_diagnostics.signed_in_staff': "Signed-in Staff",
       's4.lib.staff_diagnostics.staff_diagnostics': "Staff Diagnostics",
+      's4.lib.staff_diagnostics.staff_id': "Staff ID",
+      's4.lib.staff_diagnostics.uid': "UID",
+      's4.lib.staff_diagnostics.uptime_seconds': "Uptime seconds",
+      's4.lib.staff_diagnostics.version': "Version",
       's4.lib.staff_management.default_shift': "Default shift",
       's4.lib.staff_management.leave_blank_to_auto_generate':
           "Leave blank to auto-generate",
@@ -6130,7 +6188,25 @@ class AppStrings {
       's4.lib.staff_management.shift.night': "Night",
       's4.lib.staff_management.shift.on_call': "On call",
       's4.lib.staff_management.temporary_password': "Temporary password",
+      's4.lib.staff_phone_more.incident_grievance':
+          "Incident Report / Staff Grievance",
+      's4.lib.staff_phone_more.incident_grievance_subtitle':
+          "Confidential reporting and grievance submission",
+      's4.lib.staff_phone_more.leave_subtitle':
+          "Apply for leave and review status",
       's4.lib.staff_phone_more.more': "More",
+      's4.lib.staff_phone_more.my_roster': "My Roster",
+      's4.lib.staff_phone_more.my_roster_subtitle': "Your shifts and duty plan",
+      's4.lib.staff_phone_more.profile_subtitle':
+          "Staff profile and device details",
+      's4.lib.staff_phone_more.raise_query_subtitle':
+          "Ask HR/Admin or your incharge",
+      's4.lib.staff_phone_more.read_only_patient_lookup':
+          "Read-Only Patient Lookup",
+      's4.lib.staff_phone_more.read_only_patient_lookup_subtitle':
+          "Open authorized patient chart without write actions",
+      's4.lib.staff_phone_more.settings_subtitle':
+          "Theme, language, and app settings",
       's4.lib.staff_query.it': "IT",
       's4.lib.staff_query.my_queries': "My queries",
       's4.lib.staff_query.no_queries_raised_yet': "No queries raised yet.",
@@ -6168,8 +6244,36 @@ class AppStrings {
       's4.dynamic.specimen_scan.context_label': "Specimen collection #{id}",
       's4.dynamic.transfusion_scan.context_label':
           "Transfusion verification #{id}",
+      's4.lib.ward_mode.bed_board': "Bed Board",
+      's4.lib.ward_mode.bed_board_clinical_subtitle': "Select admitted patient",
+      's4.lib.ward_mode.bed_board_nursing_subtitle': "Ward and ICU census",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "Built for ward-specific flows",
+      's4.lib.ward_mode.clinical_ai': "Clinical AI",
+      's4.lib.ward_mode.clinical_ai_subtitle': "Review queued drafts",
+      's4.lib.ward_mode.clinical_header':
+          "Notes, investigations, orders, admissions, and discharge work.",
+      's4.lib.ward_mode.command_board': "Command Board",
+      's4.lib.ward_mode.command_board_clinical_subtitle':
+          "Priority, diagnosis, tasks",
+      's4.lib.ward_mode.command_board_nursing_subtitle':
+          "Patients, alerts, tasks",
+      's4.lib.ward_mode.discharge_hub': "Discharge Hub",
+      's4.lib.ward_mode.discharge_hub_subtitle': "Pending discharge work",
+      's4.lib.ward_mode.due_medications': "Due Medications",
+      's4.lib.ward_mode.due_medications_subtitle': "Medication rounds",
+      's4.lib.ward_mode.investigations': "Investigations",
+      's4.lib.ward_mode.investigations_subtitle': "Orders and results",
+      's4.lib.ward_mode.ip_records': "IP Records",
+      's4.lib.ward_mode.ip_records_subtitle': "Current admission files",
+      's4.lib.ward_mode.nursing_header':
+          "Vitals, nursing notes, medication rounds, and handover.",
+      's4.lib.ward_mode.nursing_notes': "Nursing Notes",
+      's4.lib.ward_mode.nursing_notes_subtitle': "IP notes",
+      's4.lib.ward_mode.prescriptions': "Prescriptions",
+      's4.lib.ward_mode.prescriptions_subtitle': "OP and IP medicines",
+      's4.lib.ward_mode.shift_handover': "Shift Handover",
+      's4.lib.ward_mode.shift_handover_subtitle': "General shift notes",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
           "This uses the same workbench pattern as Reception Counter; the next step is patient-aware shortcuts from the bed board into notes, vitals, investigations, and drug charts.",
       's4.lib.ward_mode.ward_workbench': "Ward workbench",
@@ -8909,14 +9013,38 @@ class AppStrings {
       's4.lib.audit_logs.refresh_logs': "लॉग ताज़ा करें",
       's4.lib.audit_logs.reset': "रीसेट करें",
       's4.lib.audit_logs.resource': "संसाधन",
+      // REVIEW: AI first-pass S4 ops/static i18n sweep - confirm wording before production.
+      's4.lib.audit_logs.admin_access_required': "एडमिन पहुंच आवश्यक",
+      's4.lib.audit_logs.admin_activity': "एडमिन गतिविधि",
+      's4.lib.audit_logs.admin_activity_log': "एडमिन गतिविधि लॉग",
+      's4.lib.audit_logs.admin_only_body':
+          "ऑडिट लॉग केवल एडमिन और सुपर एडमिन भूमिकाओं के लिए उपलब्ध हैं।",
+      's4.lib.audit_logs.adjust_filters_or_date_range':
+          "फ़िल्टर या तारीख़ सीमा समायोजित करें।",
+      's4.lib.audit_logs.change_audit': "बदलाव ऑडिट",
+      's4.lib.audit_logs.change_audit_trail': "बदलाव ऑडिट ट्रेल",
+      's4.lib.audit_logs.from': "से",
+      's4.lib.audit_logs.log_detail': "लॉग विवरण",
+      's4.lib.audit_logs.log_entry': "लॉग प्रविष्टि",
+      's4.lib.audit_logs.no_extra_details': "कोई अतिरिक्त विवरण नहीं",
+      's4.lib.audit_logs.no_matching_logs': "कोई मेल खाता लॉग नहीं",
+      's4.lib.audit_logs.to': "तक",
+      's4.dynamic.audit_logs.entries': "{total} प्रविष्टियाँ",
+      's4.dynamic.audit_logs.page': "पृष्ठ {page}/{totalPages}",
+      's4.dynamic.audit_logs.range': "{start}-{end} कुल {total} में से",
       's4.lib.billing_desk.billing_desk': "बिलिंग डेस्क",
       's4.lib.billing_desk.draft_invoice_created': "ड्राफ्ट चालान बनाया गया",
       's4.lib.billing_desk.draft_op': "ड्राफ्ट ओपी",
+      's4.lib.billing_desk.due': "बकाया",
       's4.lib.billing_desk.invoice_issued': "चालान जारी किया गया",
+      's4.lib.billing_desk.invoices': "चालान",
       's4.lib.billing_desk.issue': "मुद्दा",
+      's4.lib.billing_desk.no_invoices_found': "कोई चालान नहीं मिला",
+      's4.lib.billing_desk.patient': "मरीज",
       's4.lib.billing_desk.payment_collected': "भुगतान एकत्र किया गया",
       's4.lib.billing_desk.print_receipt': "रसीद प्रिंट करें",
       's4.lib.billing_desk.print_tax_invoice': "टैक्स चालान प्रिंट करें",
+      's4.lib.billing_desk.select_a_patient': "मरीज चुनें",
       's4.lib.blood_bank.bedside_verification_recorded':
           "बेडसाइड सत्यापन दर्ज किया गया",
       's4.lib.blood_bank.first_verifier': "पहला सत्यापनकर्ता",
@@ -9052,7 +9180,14 @@ class AppStrings {
       's4.calculators.option.sex.male': "पुरुष",
       's4.calculators.option.sex.female': "महिला",
       's4.lib.cath_lab.cath_lab': "कैथ लैब",
+      's4.lib.cath_lab.equipment': "उपकरण",
+      's4.lib.cath_lab.no_cases': "कोई कैथ लैब केस नहीं",
+      's4.lib.cath_lab.not_assigned': "असाइन नहीं किया गया",
+      's4.lib.cath_lab.not_configured': "कॉन्फ़िगर नहीं किया गया",
+      's4.lib.cath_lab.pending_checklist': "चेकलिस्ट लंबित",
       's4.lib.cath_lab.readiness': "तत्परता",
+      's4.lib.cath_lab.room': "कैथ लैब कक्ष",
+      's4.lib.cath_lab.team': "कैथ टीम",
       's4.lib.cds_blocker_modal.clinical_justification': "नैदानिक ​​औचित्य *",
       's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
           "जैसे डॉ. शर्मा - ईएमपी-1042",
@@ -9846,10 +9981,37 @@ class AppStrings {
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "इसे ओवरराइड नहीं किया जा सकता. सही रिस्टबैंड और ट्यूब को दोबारा स्कैन करें।",
       's4.lib.specimen_scan.title': "नमूना स्कैन",
+      's4.lib.staff_diagnostics.admin_access_required': "एडमिन पहुंच आवश्यक",
+      's4.lib.staff_diagnostics.admin_only_body':
+          "स्टाफ डायग्नोस्टिक्स केवल एडमिन और सुपर एडमिन भूमिकाओं के लिए उपलब्ध हैं।",
+      's4.lib.staff_diagnostics.api': "API",
+      's4.lib.staff_diagnostics.backend_version': "बैकएंड संस्करण",
+      's4.lib.staff_diagnostics.branch': "ब्रांच",
+      's4.lib.staff_diagnostics.built_at': "बनाया गया",
+      's4.lib.staff_diagnostics.commit': "कमिट",
+      's4.lib.staff_diagnostics.department': "विभाग",
+      's4.lib.staff_diagnostics.employee': "कर्मचारी",
+      's4.lib.staff_diagnostics.employee_id': "कर्मचारी ID",
+      's4.lib.staff_diagnostics.generated': "जनरेट किया गया",
+      's4.lib.staff_diagnostics.hash': "हैश",
+      's4.lib.staff_diagnostics.name': "नाम",
+      's4.lib.staff_diagnostics.node_env': "Node env",
       's4.lib.staff_diagnostics.no_details_returned':
           "कोई विवरण नहीं लौटाया गया.",
       's4.lib.staff_diagnostics.refresh_diagnostics': "निदान ताज़ा करें",
+      's4.lib.staff_diagnostics.role': "भूमिका",
+      's4.lib.staff_diagnostics.role_policy': "भूमिका नीति",
+      's4.lib.staff_diagnostics.roles': "भूमिकाएँ",
+      's4.lib.staff_diagnostics.runtime_checks_clean':
+          "ट्रायल रनटाइम जांच साफ़ हैं",
+      's4.lib.staff_diagnostics.runtime_checks_need_review':
+          "रनटाइम जांचों की समीक्षा आवश्यक है",
+      's4.lib.staff_diagnostics.signed_in_staff': "साइन-इन स्टाफ",
       's4.lib.staff_diagnostics.staff_diagnostics': "स्टाफ डायग्नोस्टिक्स",
+      's4.lib.staff_diagnostics.staff_id': "स्टाफ ID",
+      's4.lib.staff_diagnostics.uid': "UID",
+      's4.lib.staff_diagnostics.uptime_seconds': "अपटाइम सेकंड",
+      's4.lib.staff_diagnostics.version': "संस्करण",
       's4.lib.staff_management.default_shift': "डिफ़ॉल्ट बदलाव",
       's4.lib.staff_management.leave_blank_to_auto_generate':
           "स्वतः उत्पन्न होने के लिए खाली छोड़ें",
@@ -9866,7 +10028,24 @@ class AppStrings {
       's4.lib.staff_management.shift.night': "रात",
       's4.lib.staff_management.shift.on_call': "ऑन कॉल",
       's4.lib.staff_management.temporary_password': "अस्थायी पासवर्ड",
+      's4.lib.staff_phone_more.incident_grievance':
+          "घटना रिपोर्ट / स्टाफ शिकायत",
+      's4.lib.staff_phone_more.incident_grievance_subtitle':
+          "गोपनीय रिपोर्टिंग और शिकायत जमा करना",
+      's4.lib.staff_phone_more.leave_subtitle':
+          "छुट्टी के लिए आवेदन करें और स्थिति देखें",
       's4.lib.staff_phone_more.more': "अधिक",
+      's4.lib.staff_phone_more.my_roster': "मेरा रोस्टर",
+      's4.lib.staff_phone_more.my_roster_subtitle':
+          "आपकी शिफ्ट और ड्यूटी योजना",
+      's4.lib.staff_phone_more.profile_subtitle':
+          "स्टाफ प्रोफ़ाइल और डिवाइस विवरण",
+      's4.lib.staff_phone_more.raise_query_subtitle':
+          "HR/Admin या अपने प्रभारी से पूछें",
+      's4.lib.staff_phone_more.read_only_patient_lookup': "केवल-पठन मरीज खोज",
+      's4.lib.staff_phone_more.read_only_patient_lookup_subtitle':
+          "लिखने की कार्रवाई के बिना अधिकृत मरीज चार्ट खोलें",
+      's4.lib.staff_phone_more.settings_subtitle': "थीम, भाषा और ऐप सेटिंग्स",
       's4.lib.staff_query.it': "IT",
       's4.lib.staff_query.my_queries': "मेरे प्रश्न",
       's4.lib.staff_query.no_queries_raised_yet':
@@ -9905,8 +10084,36 @@ class AppStrings {
       's4.dynamic.specimen_scan.context_label': "नमूना संग्रह #{id}",
       's4.dynamic.transfusion_scan.context_label':
           "ट्रांसफ़्यूज़न सत्यापन #{id}",
+      's4.lib.ward_mode.bed_board': "बेड बोर्ड",
+      's4.lib.ward_mode.bed_board_clinical_subtitle': "भर्ती मरीज चुनें",
+      's4.lib.ward_mode.bed_board_nursing_subtitle': "वार्ड और ICU जनगणना",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "वार्ड-विशिष्ट प्रवाह के लिए निर्मित",
+      's4.lib.ward_mode.clinical_ai': "क्लिनिकल AI",
+      's4.lib.ward_mode.clinical_ai_subtitle':
+          "कतारबद्ध ड्राफ्ट की समीक्षा करें",
+      's4.lib.ward_mode.clinical_header':
+          "नोट्स, जांच, आदेश, भर्ती और डिस्चार्ज कार्य।",
+      's4.lib.ward_mode.command_board': "कमांड बोर्ड",
+      's4.lib.ward_mode.command_board_clinical_subtitle':
+          "प्राथमिकता, निदान, कार्य",
+      's4.lib.ward_mode.command_board_nursing_subtitle': "मरीज, अलर्ट, कार्य",
+      's4.lib.ward_mode.discharge_hub': "डिस्चार्ज हब",
+      's4.lib.ward_mode.discharge_hub_subtitle': "लंबित डिस्चार्ज कार्य",
+      's4.lib.ward_mode.due_medications': "देय दवाएँ",
+      's4.lib.ward_mode.due_medications_subtitle': "दवा राउंड",
+      's4.lib.ward_mode.investigations': "जांच",
+      's4.lib.ward_mode.investigations_subtitle': "आदेश और परिणाम",
+      's4.lib.ward_mode.ip_records': "IP रिकॉर्ड",
+      's4.lib.ward_mode.ip_records_subtitle': "वर्तमान भर्ती फ़ाइलें",
+      's4.lib.ward_mode.nursing_header':
+          "वाइटल्स, नर्सिंग नोट्स, दवा राउंड और हैंडओवर।",
+      's4.lib.ward_mode.nursing_notes': "नर्सिंग नोट्स",
+      's4.lib.ward_mode.nursing_notes_subtitle': "IP नोट्स",
+      's4.lib.ward_mode.prescriptions': "प्रिस्क्रिप्शन",
+      's4.lib.ward_mode.prescriptions_subtitle': "OP और IP दवाएँ",
+      's4.lib.ward_mode.shift_handover': "शिफ्ट हैंडओवर",
+      's4.lib.ward_mode.shift_handover_subtitle': "सामान्य शिफ्ट नोट्स",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
           "यह रिसेप्शन काउंटर के समान कार्यक्षेत्र पैटर्न का उपयोग करता है; अगला चरण बेड बोर्ड से नोट्स, महत्वपूर्ण जानकारी, जांच और दवा चार्ट में रोगी-जागरूक शॉर्टकट है।",
       's4.lib.ward_mode.ward_workbench': "वार्ड कार्यक्षेत्र",
@@ -13135,15 +13342,40 @@ class AppStrings {
       's4.lib.audit_logs.refresh_logs': "பதிவுகளைப் புதுப்பிக்கவும்",
       's4.lib.audit_logs.reset': "மீட்டமை",
       's4.lib.audit_logs.resource': "வளம்",
+      // REVIEW: AI first-pass S4 ops/static i18n sweep - confirm wording before production.
+      's4.lib.audit_logs.admin_access_required': "நிர்வாக அணுகல் தேவை",
+      's4.lib.audit_logs.admin_activity': "நிர்வாக செயல்பாடு",
+      's4.lib.audit_logs.admin_activity_log': "நிர்வாக செயல்பாட்டு பதிவு",
+      's4.lib.audit_logs.admin_only_body':
+          "தணிக்கை பதிவுகள் நிர்வாகி மற்றும் சூப்பர் நிர்வாகி பங்குகளுக்கு மட்டுமே கிடைக்கும்.",
+      's4.lib.audit_logs.adjust_filters_or_date_range':
+          "வடிப்பான்கள் அல்லது தேதி வரம்பை மாற்றவும்.",
+      's4.lib.audit_logs.change_audit': "மாற்ற தணிக்கை",
+      's4.lib.audit_logs.change_audit_trail': "மாற்ற தணிக்கை தடம்",
+      's4.lib.audit_logs.from': "இருந்து",
+      's4.lib.audit_logs.log_detail': "பதிவு விவரம்",
+      's4.lib.audit_logs.log_entry': "பதிவு உள்ளீடு",
+      's4.lib.audit_logs.no_extra_details': "கூடுதல் விவரங்கள் இல்லை",
+      's4.lib.audit_logs.no_matching_logs': "பொருந்தும் பதிவுகள் இல்லை",
+      's4.lib.audit_logs.to': "வரை",
+      's4.dynamic.audit_logs.entries': "{total} பதிவுகள்",
+      's4.dynamic.audit_logs.page': "பக்கம் {page}/{totalPages}",
+      's4.dynamic.audit_logs.range': "{start}-{end} / {total}",
       's4.lib.billing_desk.billing_desk': "பில்லிங் மேசை",
       's4.lib.billing_desk.draft_invoice_created':
           "வரைவு விலைப்பட்டியல் உருவாக்கப்பட்டது",
       's4.lib.billing_desk.draft_op': "வரைவு OP",
+      's4.lib.billing_desk.due': "நிலுவை",
       's4.lib.billing_desk.invoice_issued': "விலைப்பட்டியல் வழங்கப்பட்டது",
+      's4.lib.billing_desk.invoices': "விலைப்பட்டியல்கள்",
       's4.lib.billing_desk.issue': "பிரச்சினை",
+      's4.lib.billing_desk.no_invoices_found':
+          "விலைப்பட்டியல்கள் எதுவும் இல்லை",
+      's4.lib.billing_desk.patient': "நோயாளி",
       's4.lib.billing_desk.payment_collected': "கட்டணம் வசூலிக்கப்பட்டது",
       's4.lib.billing_desk.print_receipt': "அச்சு ரசீது",
       's4.lib.billing_desk.print_tax_invoice': "வரி விலைப்பட்டியல் அச்சிடவும்",
+      's4.lib.billing_desk.select_a_patient': "நோயாளியைத் தேர்ந்தெடுக்கவும்",
       's4.lib.blood_bank.bedside_verification_recorded':
           "படுக்கை சரிபார்ப்பு பதிவு செய்யப்பட்டது",
       's4.lib.blood_bank.first_verifier': "முதல் சரிபார்ப்பாளர்",
@@ -13277,7 +13509,14 @@ class AppStrings {
       's4.calculators.option.sex.male': "ஆண்",
       's4.calculators.option.sex.female': "பெண்",
       's4.lib.cath_lab.cath_lab': "கேத் லேப்",
+      's4.lib.cath_lab.equipment': "உபகரணம்",
+      's4.lib.cath_lab.no_cases': "கேத் லேப் வழக்குகள் இல்லை",
+      's4.lib.cath_lab.not_assigned': "ஒதுக்கப்படவில்லை",
+      's4.lib.cath_lab.not_configured': "அமைக்கப்படவில்லை",
+      's4.lib.cath_lab.pending_checklist': "சரிபார்ப்பு பட்டியல் நிலுவையில்",
       's4.lib.cath_lab.readiness': "தயார்நிலை",
+      's4.lib.cath_lab.room': "கேத் லேப் அறை",
+      's4.lib.cath_lab.team': "கேத் குழு",
       's4.lib.cds_blocker_modal.clinical_justification':
           "மருத்துவ நியாயப்படுத்தல் *",
       's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
@@ -14114,11 +14353,38 @@ class AppStrings {
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "இதை மீற முடியாது. சரியான மணிக்கட்டு மற்றும் குழாயை மீண்டும் ஸ்கேன் செய்யவும்.",
       's4.lib.specimen_scan.title': "மாதிரி ஸ்கேன்",
+      's4.lib.staff_diagnostics.admin_access_required': "நிர்வாக அணுகல் தேவை",
+      's4.lib.staff_diagnostics.admin_only_body':
+          "பணியாளர் நோயறிதல் நிர்வாகி மற்றும் சூப்பர் நிர்வாகி பங்குகளுக்கு மட்டுமே கிடைக்கும்.",
+      's4.lib.staff_diagnostics.api': "API",
+      's4.lib.staff_diagnostics.backend_version': "பின்தள பதிப்பு",
+      's4.lib.staff_diagnostics.branch': "கிளை",
+      's4.lib.staff_diagnostics.built_at': "உருவாக்கப்பட்டது",
+      's4.lib.staff_diagnostics.commit': "கமிட்",
+      's4.lib.staff_diagnostics.department': "துறை",
+      's4.lib.staff_diagnostics.employee': "பணியாளர்",
+      's4.lib.staff_diagnostics.employee_id': "பணியாளர் ID",
+      's4.lib.staff_diagnostics.generated': "உருவாக்கப்பட்டது",
+      's4.lib.staff_diagnostics.hash': "ஹாஷ்",
+      's4.lib.staff_diagnostics.name': "பெயர்",
+      's4.lib.staff_diagnostics.node_env': "Node env",
       's4.lib.staff_diagnostics.no_details_returned':
           "விவரங்கள் எதுவும் திரும்பவில்லை.",
       's4.lib.staff_diagnostics.refresh_diagnostics':
           "நோயறிதலைப் புதுப்பிக்கவும்",
+      's4.lib.staff_diagnostics.role': "பங்கு",
+      's4.lib.staff_diagnostics.role_policy': "பங்கு கொள்கை",
+      's4.lib.staff_diagnostics.roles': "பங்குகள்",
+      's4.lib.staff_diagnostics.runtime_checks_clean':
+          "சோதனை இயக்கநேர சரிபார்ப்புகள் சரியாக உள்ளன",
+      's4.lib.staff_diagnostics.runtime_checks_need_review':
+          "இயக்கநேர சரிபார்ப்புகளுக்கு மதிப்பாய்வு தேவை",
+      's4.lib.staff_diagnostics.signed_in_staff': "உள்நுழைந்த பணியாளர்",
       's4.lib.staff_diagnostics.staff_diagnostics': "பணியாளர் நோய் கண்டறிதல்",
+      's4.lib.staff_diagnostics.staff_id': "பணியாளர் ID",
+      's4.lib.staff_diagnostics.uid': "UID",
+      's4.lib.staff_diagnostics.uptime_seconds': "இயங்கிய விநாடிகள்",
+      's4.lib.staff_diagnostics.version': "பதிப்பு",
       's4.lib.staff_management.default_shift': "இயல்புநிலை மாற்றம்",
       's4.lib.staff_management.leave_blank_to_auto_generate':
           "தானாக உருவாக்க, காலியாக விடவும்",
@@ -14135,7 +14401,26 @@ class AppStrings {
       's4.lib.staff_management.shift.night': "இரவு",
       's4.lib.staff_management.shift.on_call': "அழைப்பில்",
       's4.lib.staff_management.temporary_password': "தற்காலிக கடவுச்சொல்",
+      's4.lib.staff_phone_more.incident_grievance':
+          "சம்பவ அறிக்கை / பணியாளர் குறை",
+      's4.lib.staff_phone_more.incident_grievance_subtitle':
+          "ரகசிய அறிக்கை மற்றும் குறை சமர்ப்பிப்பு",
+      's4.lib.staff_phone_more.leave_subtitle':
+          "விடுப்புக்கு விண்ணப்பித்து நிலையைப் பார்க்கவும்",
       's4.lib.staff_phone_more.more': "மேலும்",
+      's4.lib.staff_phone_more.my_roster': "என் ரோஸ்டர்",
+      's4.lib.staff_phone_more.my_roster_subtitle':
+          "உங்கள் ஷிப்ட்கள் மற்றும் கடமை திட்டம்",
+      's4.lib.staff_phone_more.profile_subtitle':
+          "பணியாளர் சுயவிவரம் மற்றும் சாதன விவரங்கள்",
+      's4.lib.staff_phone_more.raise_query_subtitle':
+          "HR/Admin அல்லது உங்கள் பொறுப்பாளரிடம் கேளுங்கள்",
+      's4.lib.staff_phone_more.read_only_patient_lookup':
+          "படிக்க மட்டும் நோயாளி தேடல்",
+      's4.lib.staff_phone_more.read_only_patient_lookup_subtitle':
+          "எழுதும் செயல்கள் இல்லாமல் அங்கீகரிக்கப்பட்ட நோயாளி பதிவைத் திறக்கவும்",
+      's4.lib.staff_phone_more.settings_subtitle':
+          "தீம், மொழி மற்றும் பயன்பாட்டு அமைப்புகள்",
       's4.lib.staff_query.it': "IT",
       's4.lib.staff_query.my_queries': "என் கேள்விகள்",
       's4.lib.staff_query.no_queries_raised_yet':
@@ -14176,8 +14461,40 @@ class AppStrings {
       's4.dynamic.specimen_scan.context_label': "மாதிரி சேகரிப்பு #{id}",
       's4.dynamic.transfusion_scan.context_label':
           "இரத்தமாற்ற சரிபார்ப்பு #{id}",
+      's4.lib.ward_mode.bed_board': "படுக்கை பலகை",
+      's4.lib.ward_mode.bed_board_clinical_subtitle':
+          "அனுமதிக்கப்பட்ட நோயாளியைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.ward_mode.bed_board_nursing_subtitle':
+          "வார்டு மற்றும் ICU கணக்கெடுப்பு",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "வார்டு-குறிப்பிட்ட ஓட்டங்களுக்காக கட்டப்பட்டது",
+      's4.lib.ward_mode.clinical_ai': "மருத்துவ AI",
+      's4.lib.ward_mode.clinical_ai_subtitle':
+          "வரிசையில் உள்ள வரைபுகளை மதிப்பாய்வு செய்யவும்",
+      's4.lib.ward_mode.clinical_header':
+          "குறிப்புகள், ஆய்வுகள், ஆணைகள், சேர்க்கைகள் மற்றும் வெளியேற்றப் பணி.",
+      's4.lib.ward_mode.command_board': "கட்டளை பலகை",
+      's4.lib.ward_mode.command_board_clinical_subtitle':
+          "முன்னுரிமை, நோயறிதல், பணிகள்",
+      's4.lib.ward_mode.command_board_nursing_subtitle':
+          "நோயாளிகள், எச்சரிக்கைகள், பணிகள்",
+      's4.lib.ward_mode.discharge_hub': "வெளியேற்ற மையம்",
+      's4.lib.ward_mode.discharge_hub_subtitle':
+          "நிலுவையில் உள்ள வெளியேற்றப் பணி",
+      's4.lib.ward_mode.due_medications': "செலுத்த வேண்டிய மருந்துகள்",
+      's4.lib.ward_mode.due_medications_subtitle': "மருந்து சுற்றுகள்",
+      's4.lib.ward_mode.investigations': "ஆய்வுகள்",
+      's4.lib.ward_mode.investigations_subtitle': "ஆணைகள் மற்றும் முடிவுகள்",
+      's4.lib.ward_mode.ip_records': "IP பதிவுகள்",
+      's4.lib.ward_mode.ip_records_subtitle': "தற்போதைய சேர்க்கை கோப்புகள்",
+      's4.lib.ward_mode.nursing_header':
+          "வைட்டல்கள், நர்சிங் குறிப்புகள், மருந்து சுற்றுகள் மற்றும் ஒப்படைப்பு.",
+      's4.lib.ward_mode.nursing_notes': "நர்சிங் குறிப்புகள்",
+      's4.lib.ward_mode.nursing_notes_subtitle': "IP குறிப்புகள்",
+      's4.lib.ward_mode.prescriptions': "மருந்துச் சீட்டுகள்",
+      's4.lib.ward_mode.prescriptions_subtitle': "OP மற்றும் IP மருந்துகள்",
+      's4.lib.ward_mode.shift_handover': "ஷிப்ட் ஒப்படைப்பு",
+      's4.lib.ward_mode.shift_handover_subtitle': "பொது ஷிப்ட் குறிப்புகள்",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
           "இது ரிசப்ஷன் கவுண்டரின் அதே ஒர்க் பெஞ்ச் பேட்டர்னைப் பயன்படுத்துகிறது; அடுத்த கட்டமாக, நோயாளி-உணர்வுப் பலகையில் இருந்து குறிப்புகள், உயிர்கள், விசாரணைகள் மற்றும் மருந்து விளக்கப்படங்களுக்கு குறுக்குவழிகள்.",
       's4.lib.ward_mode.ward_workbench': "வார்டு பணிமனை",
@@ -17381,16 +17698,40 @@ class AppStrings {
       's4.lib.audit_logs.refresh_logs': "లాగ్‌లను రిఫ్రెష్ చేయండి",
       's4.lib.audit_logs.reset': "రీసెట్ చేయండి",
       's4.lib.audit_logs.resource': "వనరు",
+      // REVIEW: AI first-pass S4 ops/static i18n sweep - confirm wording before production.
+      's4.lib.audit_logs.admin_access_required': "అడ్మిన్ యాక్సెస్ అవసరం",
+      's4.lib.audit_logs.admin_activity': "అడ్మిన్ కార్యాచరణ",
+      's4.lib.audit_logs.admin_activity_log': "అడ్మిన్ కార్యాచరణ లాగ్",
+      's4.lib.audit_logs.admin_only_body':
+          "ఆడిట్ లాగ్‌లు అడ్మిన్ మరియు సూపర్ అడ్మిన్ పాత్రలకు మాత్రమే అందుబాటులో ఉంటాయి.",
+      's4.lib.audit_logs.adjust_filters_or_date_range':
+          "ఫిల్టర్‌లు లేదా తేదీ పరిధిని మార్చండి.",
+      's4.lib.audit_logs.change_audit': "మార్పు ఆడిట్",
+      's4.lib.audit_logs.change_audit_trail': "మార్పు ఆడిట్ ట్రైల్",
+      's4.lib.audit_logs.from': "నుండి",
+      's4.lib.audit_logs.log_detail': "లాగ్ వివరాలు",
+      's4.lib.audit_logs.log_entry': "లాగ్ నమోదు",
+      's4.lib.audit_logs.no_extra_details': "అదనపు వివరాలు లేవు",
+      's4.lib.audit_logs.no_matching_logs': "సరిపోలే లాగ్‌లు లేవు",
+      's4.lib.audit_logs.to': "వరకు",
+      's4.dynamic.audit_logs.entries': "{total} నమోదులు",
+      's4.dynamic.audit_logs.page': "పేజీ {page}/{totalPages}",
+      's4.dynamic.audit_logs.range': "{start}-{end} / {total}",
       's4.lib.billing_desk.billing_desk': "బిల్లింగ్ డెస్క్",
       's4.lib.billing_desk.draft_invoice_created':
           "డ్రాఫ్ట్ ఇన్‌వాయిస్ సృష్టించబడింది",
       's4.lib.billing_desk.draft_op': "డ్రాఫ్ట్ OP",
+      's4.lib.billing_desk.due': "బకాయి",
       's4.lib.billing_desk.invoice_issued': "ఇన్వాయిస్ జారీ చేయబడింది",
+      's4.lib.billing_desk.invoices': "ఇన్‌వాయిస్‌లు",
       's4.lib.billing_desk.issue': "సమస్య",
+      's4.lib.billing_desk.no_invoices_found': "ఇన్‌వాయిస్‌లు లేవు",
+      's4.lib.billing_desk.patient': "రోగి",
       's4.lib.billing_desk.payment_collected': "చెల్లింపు సేకరించబడింది",
       's4.lib.billing_desk.print_receipt': "రసీదుని ముద్రించండి",
       's4.lib.billing_desk.print_tax_invoice':
           "పన్ను ఇన్‌వాయిస్‌ని ముద్రించండి",
+      's4.lib.billing_desk.select_a_patient': "రోగిని ఎంచుకోండి",
       's4.lib.blood_bank.bedside_verification_recorded':
           "పడక వెరిఫికేషన్ రికార్డ్ చేయబడింది",
       's4.lib.blood_bank.first_verifier': "మొదటి వెరిఫైయర్",
@@ -17524,7 +17865,14 @@ class AppStrings {
       's4.calculators.option.sex.male': "పురుషుడు",
       's4.calculators.option.sex.female': "స్త్రీ",
       's4.lib.cath_lab.cath_lab': "క్యాథ్ ల్యాబ్",
+      's4.lib.cath_lab.equipment': "పరికరాలు",
+      's4.lib.cath_lab.no_cases': "క్యాథ్ ల్యాబ్ కేసులు లేవు",
+      's4.lib.cath_lab.not_assigned': "కేటాయించబడలేదు",
+      's4.lib.cath_lab.not_configured': "కాన్ఫిగర్ చేయబడలేదు",
+      's4.lib.cath_lab.pending_checklist': "చెక్‌లిస్ట్ పెండింగ్‌లో ఉంది",
       's4.lib.cath_lab.readiness': "సంసిద్ధత",
+      's4.lib.cath_lab.room': "క్యాథ్ ల్యాబ్ గది",
+      's4.lib.cath_lab.team': "క్యాథ్ బృందం",
       's4.lib.cds_blocker_modal.clinical_justification': "క్లినికల్ సమర్థన *",
       's4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042':
           "ఉదా డాక్టర్ శర్మ — EMP-1042",
@@ -18341,10 +18689,38 @@ class AppStrings {
       's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr':
           "దీన్ని భర్తీ చేయడం సాధ్యం కాదు. సరైన రిస్ట్‌బ్యాండ్ మరియు ట్యూబ్‌ని మళ్లీ స్కాన్ చేయండి.",
       's4.lib.specimen_scan.title': "నమూనా స్కాన్",
+      's4.lib.staff_diagnostics.admin_access_required':
+          "అడ్మిన్ యాక్సెస్ అవసరం",
+      's4.lib.staff_diagnostics.admin_only_body':
+          "స్టాఫ్ డయాగ్నస్టిక్స్ అడ్మిన్ మరియు సూపర్ అడ్మిన్ పాత్రలకు మాత్రమే అందుబాటులో ఉంటాయి.",
+      's4.lib.staff_diagnostics.api': "API",
+      's4.lib.staff_diagnostics.backend_version': "బ్యాకెండ్ వెర్షన్",
+      's4.lib.staff_diagnostics.branch': "బ్రాంచ్",
+      's4.lib.staff_diagnostics.built_at': "నిర్మించిన సమయం",
+      's4.lib.staff_diagnostics.commit': "కమిట్",
+      's4.lib.staff_diagnostics.department': "విభాగం",
+      's4.lib.staff_diagnostics.employee': "ఉద్యోగి",
+      's4.lib.staff_diagnostics.employee_id': "ఉద్యోగి ID",
+      's4.lib.staff_diagnostics.generated': "సృష్టించబడింది",
+      's4.lib.staff_diagnostics.hash': "హాష్",
+      's4.lib.staff_diagnostics.name': "పేరు",
+      's4.lib.staff_diagnostics.node_env': "Node env",
       's4.lib.staff_diagnostics.no_details_returned': "వివరాలు ఏవీ ఇవ్వలేదు.",
       's4.lib.staff_diagnostics.refresh_diagnostics':
           "విశ్లేషణలను రిఫ్రెష్ చేయండి",
+      's4.lib.staff_diagnostics.role': "పాత్ర",
+      's4.lib.staff_diagnostics.role_policy': "పాత్ర విధానం",
+      's4.lib.staff_diagnostics.roles': "పాత్రలు",
+      's4.lib.staff_diagnostics.runtime_checks_clean':
+          "ట్రయల్ రన్‌టైమ్ తనిఖీలు సరిగా ఉన్నాయి",
+      's4.lib.staff_diagnostics.runtime_checks_need_review':
+          "రన్‌టైమ్ తనిఖీలకు సమీక్ష అవసరం",
+      's4.lib.staff_diagnostics.signed_in_staff': "సైన్-ఇన్ చేసిన సిబ్బంది",
       's4.lib.staff_diagnostics.staff_diagnostics': "స్టాఫ్ డయాగ్నస్టిక్స్",
+      's4.lib.staff_diagnostics.staff_id': "సిబ్బంది ID",
+      's4.lib.staff_diagnostics.uid': "UID",
+      's4.lib.staff_diagnostics.uptime_seconds': "అప్‌టైమ్ సెకన్లు",
+      's4.lib.staff_diagnostics.version': "వెర్షన్",
       's4.lib.staff_management.default_shift': "డిఫాల్ట్ షిఫ్ట్",
       's4.lib.staff_management.leave_blank_to_auto_generate':
           "స్వయంచాలకంగా రూపొందించడానికి ఖాళీని వదిలివేయండి",
@@ -18360,7 +18736,26 @@ class AppStrings {
       's4.lib.staff_management.shift.night': "రాత్రి",
       's4.lib.staff_management.shift.on_call': "ఆన్ కాల్",
       's4.lib.staff_management.temporary_password': "తాత్కాలిక పాస్వర్డ్",
+      's4.lib.staff_phone_more.incident_grievance':
+          "సంఘటన నివేదిక / సిబ్బంది ఫిర్యాదు",
+      's4.lib.staff_phone_more.incident_grievance_subtitle':
+          "గోప్య నివేదిక మరియు ఫిర్యాదు సమర్పణ",
+      's4.lib.staff_phone_more.leave_subtitle':
+          "సెలవుకు దరఖాస్తు చేసి స్థితిని చూడండి",
       's4.lib.staff_phone_more.more': "మరిన్ని",
+      's4.lib.staff_phone_more.my_roster': "నా రోస్టర్",
+      's4.lib.staff_phone_more.my_roster_subtitle':
+          "మీ షిఫ్టులు మరియు డ్యూటీ ప్రణాళిక",
+      's4.lib.staff_phone_more.profile_subtitle':
+          "సిబ్బంది ప్రొఫైల్ మరియు పరికర వివరాలు",
+      's4.lib.staff_phone_more.raise_query_subtitle':
+          "HR/Admin లేదా మీ ఇన్‌చార్జ్‌ను అడగండి",
+      's4.lib.staff_phone_more.read_only_patient_lookup':
+          "చదవడానికి మాత్రమే రోగి శోధన",
+      's4.lib.staff_phone_more.read_only_patient_lookup_subtitle':
+          "రైట్ చర్యలు లేకుండా అధీకృత రోగి చార్ట్ తెరవండి",
+      's4.lib.staff_phone_more.settings_subtitle':
+          "థీమ్, భాష మరియు యాప్ సెట్టింగ్‌లు",
       's4.lib.staff_query.it': "IT",
       's4.lib.staff_query.my_queries': "నా ప్రశ్నలు",
       's4.lib.staff_query.no_queries_raised_yet':
@@ -18400,8 +18795,37 @@ class AppStrings {
       's4.dynamic.specimen_scan.context_label': "నమూనా సేకరణ #{id}",
       's4.dynamic.transfusion_scan.context_label':
           "ట్రాన్స్‌ఫ్యూజన్ ధృవీకరణ #{id}",
+      's4.lib.ward_mode.bed_board': "బెడ్ బోర్డ్",
+      's4.lib.ward_mode.bed_board_clinical_subtitle': "చేరిన రోగిని ఎంచుకోండి",
+      's4.lib.ward_mode.bed_board_nursing_subtitle': "వార్డ్ మరియు ICU లెక్కలు",
       's4.lib.ward_mode.built_for_ward_specific_flows':
           "వార్డ్-నిర్దిష్ట ప్రవాహాల కోసం నిర్మించబడింది",
+      's4.lib.ward_mode.clinical_ai': "క్లినికల్ AI",
+      's4.lib.ward_mode.clinical_ai_subtitle':
+          "క్యూలో ఉన్న డ్రాఫ్ట్‌లను సమీక్షించండి",
+      's4.lib.ward_mode.clinical_header':
+          "గమనికలు, పరిశోధనలు, ఆర్డర్లు, అడ్మిషన్లు మరియు డిశ్చార్జ్ పని.",
+      's4.lib.ward_mode.command_board': "కమాండ్ బోర్డ్",
+      's4.lib.ward_mode.command_board_clinical_subtitle':
+          "ప్రాధాన్యత, నిర్ధారణ, పనులు",
+      's4.lib.ward_mode.command_board_nursing_subtitle':
+          "రోగులు, హెచ్చరికలు, పనులు",
+      's4.lib.ward_mode.discharge_hub': "డిశ్చార్జ్ హబ్",
+      's4.lib.ward_mode.discharge_hub_subtitle': "పెండింగ్ డిశ్చార్జ్ పని",
+      's4.lib.ward_mode.due_medications': "చేయాల్సిన మందులు",
+      's4.lib.ward_mode.due_medications_subtitle': "మందుల రౌండ్లు",
+      's4.lib.ward_mode.investigations': "పరిశోధనలు",
+      's4.lib.ward_mode.investigations_subtitle': "ఆర్డర్లు మరియు ఫలితాలు",
+      's4.lib.ward_mode.ip_records': "IP రికార్డులు",
+      's4.lib.ward_mode.ip_records_subtitle': "ప్రస్తుత అడ్మిషన్ ఫైళ్లు",
+      's4.lib.ward_mode.nursing_header':
+          "వైటల్స్, నర్సింగ్ నోట్లు, మందుల రౌండ్లు మరియు హ్యాండోవర్.",
+      's4.lib.ward_mode.nursing_notes': "నర్సింగ్ నోట్లు",
+      's4.lib.ward_mode.nursing_notes_subtitle': "IP నోట్లు",
+      's4.lib.ward_mode.prescriptions': "ప్రిస్క్రిప్షన్లు",
+      's4.lib.ward_mode.prescriptions_subtitle': "OP మరియు IP మందులు",
+      's4.lib.ward_mode.shift_handover': "షిఫ్ట్ హ్యాండోవర్",
+      's4.lib.ward_mode.shift_handover_subtitle': "సాధారణ షిఫ్ట్ నోట్లు",
       's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio':
           "ఇది రిసెప్షన్ కౌంటర్ వలె అదే వర్క్‌బెంచ్ నమూనాను ఉపయోగిస్తుంది; తదుపరి దశ రోగి-తెలుసుకునే షార్ట్‌కట్‌లను బెడ్ బోర్డ్ నుండి నోట్స్, వైటల్స్, ఇన్వెస్టిగేషన్‌లు మరియు డ్రగ్ చార్ట్‌లుగా మార్చడం.",
       's4.lib.ward_mode.ward_workbench': "వార్డ్ వర్క్‌బెంచ్",

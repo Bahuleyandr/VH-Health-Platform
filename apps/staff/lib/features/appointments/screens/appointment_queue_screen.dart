@@ -29,7 +29,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen> {
   @override
   Widget build(BuildContext context) {
     return StaffScaffold(
-      title: 'Front Office',
+      title: AppStrings.of(
+        context,
+      ).lookup('role.feature.front_office_workbench'),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

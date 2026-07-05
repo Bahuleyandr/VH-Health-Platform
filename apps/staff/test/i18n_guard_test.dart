@@ -479,6 +479,84 @@ void main() {
     );
   });
 
+  test('S4 operational static copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/phone/screens/staff_phone_more_screen.dart'),
+      File('lib/features/ward/screens/ward_mode_screen.dart'),
+      File('lib/features/cath_lab/screens/cath_lab_screen.dart'),
+      File('lib/features/audit/screens/audit_logs_screen.dart'),
+      File('lib/features/diagnostics/screens/staff_diagnostics_screen.dart'),
+      File('lib/features/appointments/screens/appointment_queue_screen.dart'),
+      File('lib/features/reception/screens/billing_desk_screen.dart'),
+    ];
+    final patterns = [
+      _Pattern(
+        'AppText display copy',
+        RegExp(
+          r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
+        ),
+      ),
+      _Pattern(
+        'StaffScaffold title',
+        RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'title key',
+        RegExp(r'''\btitleKey\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'subtitle key',
+        RegExp(r'''\bsubtitleKey\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('subtitle', RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('text', RegExp(r'''\btext\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('body', RegExp(r'''\bbody\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('tooltip', RegExp(r'''\btooltip\s*:\s*(?:r)?(['"])(.*?)\1''')),
+    ];
+    final allowedPrefixes = [
+      'action.',
+      'leave.',
+      'profile.',
+      'role.feature.',
+      's4.dynamic.audit_logs.',
+      's4.lib.appointment_queue.',
+      's4.lib.audit_logs.',
+      's4.lib.billing_desk.',
+      's4.lib.cath_lab.',
+      's4.lib.staff_diagnostics.',
+      's4.lib.staff_phone_more.',
+      's4.lib.staff_query.',
+      's4.lib.ward_mode.',
+      'settings.',
+    ];
+
+    final hits = <String>[];
+    for (final file in files) {
+      hits.addAll(_literalHits(file, patterns));
+      hits.addAll(_interpolatedLiteralHits(file, patterns));
+    }
+
+    final keys = <String>{};
+    for (final file in files) {
+      keys.addAll(_appStringKeysFrom(file.readAsStringSync(), allowedPrefixes));
+    }
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 operational labels, menu metadata, empty states, and pagination '
+          'copy should use AppStrings/AppText keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 operational copy keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

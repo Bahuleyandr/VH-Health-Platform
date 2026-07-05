@@ -261,7 +261,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   Widget build(BuildContext context) {
     final selected = _selectedPatient;
     return StaffScaffold(
-      title: 'Billing Desk',
+      title: AppStrings.of(context).lookup('s4.lib.billing_desk.billing_desk'),
       body: RefreshIndicator(
         onRefresh: _loadInvoices,
         child: LayoutBuilder(
@@ -325,13 +325,15 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           ),
           _Metric(
             icon: Icons.receipt_long_outlined,
-            label: 'Invoices',
+            label: AppStrings.of(
+              context,
+            ).lookup('s4.lib.billing_desk.invoices'),
             value: '${_invoices.length}',
             color: AppTheme.primaryBlue,
           ),
           _Metric(
             icon: Icons.payments_outlined,
-            label: 'Due',
+            label: AppStrings.of(context).lookup('s4.lib.billing_desk.due'),
             value: _money(_sumDue()),
             color: AppTheme.warningAmber,
           ),
@@ -351,7 +353,10 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle(icon: Icons.manage_search, title: 'Patient'),
+          _SectionTitle(
+            icon: Icons.manage_search,
+            title: AppStrings.of(context).lookup('s4.lib.billing_desk.patient'),
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -414,7 +419,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
         children: [
           _SectionTitle(
             icon: Icons.receipt,
-            title: 'Invoices',
+            title: AppStrings.of(
+              context,
+            ).lookup('s4.lib.billing_desk.invoices'),
             trailing: selected == null
                 ? null
                 : FilledButton.icon(
@@ -431,16 +438,20 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           ),
           const SizedBox(height: 10),
           if (selected == null)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.person_search,
-              text: 'Select a patient',
+              text: AppStrings.of(
+                context,
+              ).lookup('s4.lib.billing_desk.select_a_patient'),
             )
           else if (_invoiceBusy)
             const LinearProgressIndicator(minHeight: 2)
           else if (_invoices.isEmpty)
-            const _EmptyLine(
+            _EmptyLine(
               icon: Icons.receipt_long,
-              text: 'No invoices found',
+              text: AppStrings.of(
+                context,
+              ).lookup('s4.lib.billing_desk.no_invoices_found'),
             )
           else
             ..._invoices.map(_invoiceTile),

@@ -41,45 +41,46 @@ class _StaffPhoneMoreScreenState extends State<StaffPhoneMoreScreen> {
     final tiles = <Widget>[
       const _MoreTile(
         icon: Icons.schedule_outlined,
-        title: 'My Roster',
-        subtitle: 'Your shifts and duty plan',
+        titleKey: 's4.lib.staff_phone_more.my_roster',
+        subtitleKey: 's4.lib.staff_phone_more.my_roster_subtitle',
         route: '/schedule',
       ),
       const _MoreTile(
         icon: Icons.event_available_outlined,
-        title: 'Leave',
-        subtitle: 'Apply for leave and review status',
+        titleKey: 'leave.title',
+        subtitleKey: 's4.lib.staff_phone_more.leave_subtitle',
         route: '/leave',
       ),
       const _MoreTile(
         icon: Icons.help_outline,
-        title: 'Raise Query',
-        subtitle: 'Ask HR/Admin or your incharge',
+        titleKey: 's4.lib.staff_query.raise_query',
+        subtitleKey: 's4.lib.staff_phone_more.raise_query_subtitle',
         route: '/phone/queries',
       ),
       const _MoreTile(
         icon: Icons.report_gmailerrorred_outlined,
-        title: 'Incident Report / Staff Grievance',
-        subtitle: 'Confidential reporting and grievance submission',
+        titleKey: 's4.lib.staff_phone_more.incident_grievance',
+        subtitleKey: 's4.lib.staff_phone_more.incident_grievance_subtitle',
         route: '/reports-grievances',
       ),
       if (RoleFeatures.hasPhoneReadOnlyPatientLookup(_role))
         const _MoreTile(
           icon: Icons.folder_shared_outlined,
-          title: 'Read-Only Patient Lookup',
-          subtitle: 'Open authorized patient chart without write actions',
+          titleKey: 's4.lib.staff_phone_more.read_only_patient_lookup',
+          subtitleKey:
+              's4.lib.staff_phone_more.read_only_patient_lookup_subtitle',
           route: '/phone/patient-lookup',
         ),
       const _MoreTile(
         icon: Icons.person_outline,
-        title: 'Profile',
-        subtitle: 'Staff profile and device details',
+        titleKey: 'profile.title',
+        subtitleKey: 's4.lib.staff_phone_more.profile_subtitle',
         route: '/profile',
       ),
       const _MoreTile(
         icon: Icons.settings_outlined,
-        title: 'Settings',
-        subtitle: 'Theme, language, and app settings',
+        titleKey: 'settings.title',
+        subtitleKey: 's4.lib.staff_phone_more.settings_subtitle',
         route: '/settings',
       ),
     ];
@@ -99,14 +100,14 @@ class _StaffPhoneMoreScreenState extends State<StaffPhoneMoreScreen> {
 
 class _MoreTile extends StatelessWidget {
   final IconData icon;
-  final String title;
-  final String subtitle;
+  final String titleKey;
+  final String subtitleKey;
   final String route;
 
   const _MoreTile({
     required this.icon,
-    required this.title,
-    required this.subtitle,
+    required this.titleKey,
+    required this.subtitleKey,
     required this.route,
   });
 
@@ -115,8 +116,8 @@ class _MoreTile extends StatelessWidget {
     return Card(
       child: ListTile(
         leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
+        title: AppText(titleKey),
+        subtitle: AppText(subtitleKey),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => context.push(route),
       ),
