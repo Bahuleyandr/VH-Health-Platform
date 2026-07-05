@@ -670,7 +670,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 const Icon(Icons.person, size: 14, color: Colors.grey),
                 const SizedBox(width: 4),
                 Text(
-                  booking['patient_name'] ?? 'Unknown',
+                  booking['patient_name'] ?? s.queueUnknownPatient,
                   style: const TextStyle(fontSize: 13),
                 ),
                 const Spacer(),
@@ -751,8 +751,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 const SizedBox(width: 4),
                 Text(
                   minsSinceBooked > 60
-                      ? '${(minsSinceBooked / 60).toStringAsFixed(1)}h ago'
-                      : '${minsSinceBooked}m ago',
+                      ? s.labBookingsHoursAgo(
+                          (minsSinceBooked / 60).toStringAsFixed(1),
+                        )
+                      : s.labBookingsMinutesAgo(minsSinceBooked),
                   style: TextStyle(
                     fontSize: 12,
                     color: slaBreach ? Colors.red : Colors.grey.shade600,
@@ -847,7 +849,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
-        status.replaceAll('_', ' '),
+        _labBookingStatusLabel(AppStrings.of(context), status),
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.bold,
@@ -855,6 +857,25 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         ),
       ),
     );
+  }
+
+  String _labBookingStatusLabel(AppStrings s, String status) {
+    switch (status) {
+      case 'BOOKED':
+        return s.labBookingsStatusBooked;
+      case 'CONFIRMED':
+        return s.labBookingsStatusConfirmed;
+      case 'DISPATCHED':
+        return s.labBookingsStatusDispatched;
+      case 'COLLECTED':
+        return s.labBookingsStatusCollected;
+      case 'PROCESSING':
+        return s.labBookingsStatusProcessing;
+      case 'RESULT_READY':
+        return s.labBookingsStatusResultReady;
+      default:
+        return status;
+    }
   }
 
   Widget _buildActions(Map<String, dynamic> booking) {

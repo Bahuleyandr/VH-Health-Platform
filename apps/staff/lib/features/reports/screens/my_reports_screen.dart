@@ -4,6 +4,55 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
+String _reportStatusLabel(AppStrings s, String status) => switch (status) {
+  'submitted' => s.lookup('reports.status.submitted'),
+  'acknowledged' => s.lookup('reports.status.acknowledged'),
+  'under_review' => s.lookup('reports.status.under_review'),
+  'investigating' => s.lookup('reports.status.investigating'),
+  'in_review' => s.lookup('reports.status.in_review'),
+  'mediation' => s.lookup('reports.status.mediation'),
+  'resolved' => s.lookup('reports.status.resolved'),
+  'closed' => s.lookup('reports.status.closed'),
+  'rejected' => s.lookup('reports.status.rejected'),
+  'escalated' => s.lookup('reports.status.escalated'),
+  _ => status.replaceAll('_', ' '),
+};
+
+String _incidentTypeLabel(AppStrings s, String type) => switch (type) {
+  'near_miss' => s.incidentReportTypeNearMiss,
+  'patient_fall' => s.incidentReportTypePatientFall,
+  'medication_error' => s.incidentReportTypeMedicationError,
+  'needle_stick' => s.incidentReportTypeNeedleStick,
+  'equipment_failure' => s.incidentReportTypeEquipmentFailure,
+  'infection' => s.incidentReportTypeInfection,
+  'fire_safety' => s.incidentReportTypeFireSafety,
+  'patient_aggression' => s.incidentReportTypePatientAggression,
+  'security_breach' => s.incidentReportTypeSecurityBreach,
+  'other' => s.incidentReportTypeOther,
+  _ => type.replaceAll('_', ' '),
+};
+
+String _grievanceTypeLabel(AppStrings s, String type) => switch (type) {
+  'harassment' => s.grievanceTypeHarassment,
+  'discrimination' => s.grievanceTypeDiscrimination,
+  'unfair_treatment' => s.grievanceTypeUnfairTreatment,
+  'unsafe_conditions' => s.grievanceTypeUnsafeConditions,
+  'workload' => s.grievanceTypeWorkload,
+  'pay_dispute' => s.grievanceTypePayDispute,
+  'schedule_conflict' => s.grievanceTypeScheduleConflict,
+  'policy_violation' => s.grievanceTypePolicyViolation,
+  'other' => s.grievanceTypeOther,
+  _ => type.replaceAll('_', ' '),
+};
+
+String _severityLabel(AppStrings s, String severity) => switch (severity) {
+  'low' => s.incidentReportSeverityLow,
+  'moderate' => s.incidentReportSeverityModerate,
+  'severe' => s.incidentReportSeveritySevere,
+  'sentinel' => s.incidentReportSeveritySentinel,
+  _ => severity.replaceAll('_', ' '),
+};
+
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key});
 
@@ -97,8 +146,16 @@ class _MyReportsScreenState extends State<MyReportsScreen>
         bottom: TabBar(
           controller: _tabController,
           tabs: [
-            Tab(text: '${s.myReportsTabIncidents} (${_incidents.length})'),
-            Tab(text: '${s.myReportsTabGrievances} (${_grievances.length})'),
+            Tab(
+              text: s.format('s4.dynamic.reports.incidents_count', {
+                'count': _incidents.length,
+              }),
+            ),
+            Tab(
+              text: s.format('s4.dynamic.reports.grievances_count', {
+                'count': _grievances.length,
+              }),
+            ),
           ],
         ),
       ),
@@ -142,10 +199,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
           final inc = _incidents[i] as Map<String, dynamic>;
           final severity = inc['severity'] as String? ?? 'moderate';
           final status = inc['status'] as String? ?? 'submitted';
-          final type = (inc['incident_type'] as String? ?? '').replaceAll(
-            '_',
-            ' ',
-          );
+          final type = inc['incident_type'] as String? ?? '';
 
           return Card(
             color: AppTheme.cardSurface,
@@ -164,7 +218,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                 ),
               ),
               title: Text(
-                inc['title'] as String? ?? '',
+                inc['title'] as String? ??
+                    s.lookup('s4.lib.reports_admin_queue.untitled_incident'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -185,7 +240,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                     ),
                   ),
                   Text(
-                    type.toUpperCase(),
+                    _incidentTypeLabel(s, type),
                     style: TextStyle(
                       fontSize: 10,
                       color: AppTheme.textSecondary,
@@ -203,7 +258,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                   border: Border.all(color: _statusColor(status)),
                 ),
                 child: Text(
-                  status.replaceAll('_', ' ').toUpperCase(),
+                  _reportStatusLabel(s, status),
                   style: TextStyle(
                     fontSize: 9,
                     color: _statusColor(status),
@@ -226,70 +281,77 @@ class _MyReportsScreenState extends State<MyReportsScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.95,
-        minChildSize: 0.4,
-        expand: false,
-        builder: (_, ctrl) => Material(
-          color: AppTheme.cardSurface,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: ListView(
-              controller: ctrl,
-              children: [
-                Text(
-                  inc['report_number'] as String? ?? '',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Theme.of(context).colorScheme.primary,
+      builder: (ctx) {
+        final s = AppStrings.of(ctx);
+        final status = inc['status'] as String? ?? '';
+        final severity = inc['severity'] as String? ?? '';
+        final type = inc['incident_type'] as String? ?? '';
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.95,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (_, ctrl) => Material(
+            color: AppTheme.cardSurface,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: ListView(
+                controller: ctrl,
+                children: [
+                  Text(
+                    inc['report_number'] as String? ?? '',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  inc['title'] as String? ?? '',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
+                  const SizedBox(height: 4),
+                  Text(
+                    inc['title'] as String? ??
+                        s.lookup(
+                          's4.lib.reports_admin_queue.untitled_incident',
+                        ),
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                _detailRow(
-                  'Status',
-                  (inc['status'] as String? ?? '')
-                      .replaceAll('_', ' ')
-                      .toUpperCase(),
-                ),
-                _detailRow(
-                  'Severity',
-                  (inc['severity'] as String? ?? '').toUpperCase(),
-                ),
-                _detailRow(
-                  'Type',
-                  (inc['incident_type'] as String? ?? '').replaceAll('_', ' '),
-                ),
-                if (inc['location'] != null)
-                  _detailRow('Location', inc['location'] as String),
-                const Divider(),
-                AppText(
-                  'my_reports.label.description',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.bold,
+                  const SizedBox(height: 12),
+                  _detailRow(
+                    s.myReportsLabelStatus,
+                    _reportStatusLabel(s, status),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  inc['description'] as String? ?? '',
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
-              ],
+                  _detailRow(
+                    s.myReportsLabelSeverity,
+                    _severityLabel(s, severity),
+                  ),
+                  _detailRow(s.myReportsLabelType, _incidentTypeLabel(s, type)),
+                  if (inc['location'] != null)
+                    _detailRow(
+                      s.myReportsLabelLocation,
+                      inc['location'] as String,
+                    ),
+                  const Divider(),
+                  AppText(
+                    'my_reports.label.description',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    inc['description'] as String? ?? '',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -323,10 +385,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
         itemBuilder: (ctx, i) {
           final grv = _grievances[i] as Map<String, dynamic>;
           final status = grv['status'] as String? ?? 'submitted';
-          final type = (grv['grievance_type'] as String? ?? '').replaceAll(
-            '_',
-            ' ',
-          );
+          final type = grv['grievance_type'] as String? ?? '';
 
           return Card(
             color: AppTheme.cardSurface,
@@ -345,7 +404,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                 ),
               ),
               title: Text(
-                grv['subject'] as String? ?? '',
+                grv['subject'] as String? ??
+                    s.lookup('s4.lib.reports_admin_queue.untitled_grievance'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -367,7 +427,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                     ),
                   ),
                   Text(
-                    type.toUpperCase(),
+                    _grievanceTypeLabel(s, type),
                     style: TextStyle(
                       fontSize: 10,
                       color: AppTheme.textSecondary,
@@ -393,7 +453,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                   border: Border.all(color: _statusColor(status)),
                 ),
                 child: Text(
-                  status.replaceAll('_', ' ').toUpperCase(),
+                  _reportStatusLabel(s, status),
                   style: TextStyle(
                     fontSize: 9,
                     color: _statusColor(status),

@@ -64,6 +64,7 @@ class PartographChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 16, 16, 12),
@@ -91,23 +92,29 @@ class PartographChart extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Wrap(
+            Wrap(
               spacing: 16,
               runSpacing: 4,
               children: [
-                _LegendDot(colour: Color(0xFF10B981), label: 'On track'),
-                _LegendDot(colour: Color(0xFFF59E0B), label: 'Past alert line'),
                 _LegendDot(
-                  colour: Color(0xFFEF4444),
-                  label: 'Past action line',
+                  colour: const Color(0xFF10B981),
+                  label: s.partographChartOnTrack,
+                ),
+                _LegendDot(
+                  colour: const Color(0xFFF59E0B),
+                  label: s.partographChartPastAlertLine,
+                ),
+                _LegendDot(
+                  colour: const Color(0xFFEF4444),
+                  label: s.partographChartPastActionLine,
                 ),
                 _LegendLine(
-                  colour: Color(0xFFF59E0B),
-                  label: 'Alert line (1 cm/hr)',
+                  colour: const Color(0xFFF59E0B),
+                  label: s.partographChartAlertLine,
                 ),
                 _LegendLine(
-                  colour: Color(0xFFEF4444),
-                  label: 'Action line (alert + 4h)',
+                  colour: const Color(0xFFEF4444),
+                  label: s.partographChartActionLine,
                 ),
               ],
             ),

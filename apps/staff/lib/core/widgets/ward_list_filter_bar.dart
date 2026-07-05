@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_strings.dart';
+
 class WardListFilterOption {
   const WardListFilterOption({required this.value, required this.label});
 
@@ -19,8 +21,8 @@ class WardListFilterBar extends StatelessWidget {
     required this.onFilterChanged,
     required this.onClear,
     this.hasActiveFilters = false,
-    this.wardLabel = 'Ward',
-    this.clearTooltip = 'Clear filters',
+    this.wardLabel,
+    this.clearTooltip,
     this.keyPrefix = 'ward-list',
     this.padding = const EdgeInsets.fromLTRB(16, 8, 16, 8),
   });
@@ -28,22 +30,28 @@ class WardListFilterBar extends StatelessWidget {
   final List<WardListFilterOption> wardOptions;
   final String selectedWardValue;
   final ValueChanged<String> onWardChanged;
-  final String wardLabel;
+  final String? wardLabel;
   final String filterLabel;
   final List<WardListFilterOption> filterOptions;
   final String selectedFilterValue;
   final ValueChanged<String> onFilterChanged;
   final VoidCallback onClear;
   final bool hasActiveFilters;
-  final String clearTooltip;
+  final String? clearTooltip;
   final String keyPrefix;
   final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final theme = Theme.of(context);
     final wardValue = _valueInOptions(selectedWardValue, wardOptions);
     final filterValue = _valueInOptions(selectedFilterValue, filterOptions);
+    final effectiveWardLabel =
+        wardLabel ?? strings.lookup('s4.lib.ward_list_filter_bar.ward');
+    final effectiveClearTooltip =
+        clearTooltip ??
+        strings.lookup('s4.lib.ward_list_filter_bar.clear_filters');
 
     return Padding(
       padding: padding,
@@ -52,7 +60,7 @@ class WardListFilterBar extends StatelessWidget {
           Expanded(
             child: _FilterDropdown(
               key: Key('$keyPrefix-ward-filter'),
-              label: wardLabel,
+              label: effectiveWardLabel,
               icon: Icons.local_hospital_outlined,
               value: wardValue,
               options: wardOptions,
@@ -72,7 +80,7 @@ class WardListFilterBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Tooltip(
-            message: clearTooltip,
+            message: effectiveClearTooltip,
             child: IconButton.filledTonal(
               key: Key('$keyPrefix-clear-filters'),
               onPressed: hasActiveFilters ? onClear : null,

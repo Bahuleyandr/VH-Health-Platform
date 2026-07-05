@@ -314,7 +314,12 @@ class _InvestmentDeclarationScreenState
           labelText: label,
           hintText: hint ?? '0',
           prefixText: '₹ ',
-          suffixText: max != null ? '(max ₹${_fmtK(max)})' : null,
+          suffixText: max != null
+              ? AppStrings.of(context).format(
+                  's4.dynamic.payroll.max_amount_suffix',
+                  {'amount': _fmtK(max)},
+                )
+              : null,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 12,
@@ -367,7 +372,7 @@ class _InvestmentDeclarationScreenState
                       (fy) => Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'FY $fy',
+                          s.payrollFyLabel(fy),
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w500,
@@ -378,8 +383,10 @@ class _InvestmentDeclarationScreenState
                     .toList(),
                 items: _fyOptions
                     .map(
-                      (fy) =>
-                          DropdownMenuItem(value: fy, child: Text('FY $fy')),
+                      (fy) => DropdownMenuItem(
+                        value: fy,
+                        child: Text(s.payrollFyLabel(fy)),
+                      ),
                     )
                     .toList(),
                 onChanged: (fy) {
@@ -430,16 +437,16 @@ class _InvestmentDeclarationScreenState
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
                         _TotalChip(
-                          label: '80C (max ₹1.5L)',
+                          label: s.payrollDeclarationChip80c,
                           value: _fmtCurrency(_total80C),
                           cap: _total80C >= 150000,
                         ),
                         _TotalChip(
-                          label: '80D',
+                          label: s.payrollDeclarationChip80d,
                           value: _fmtCurrency(_total80D),
                         ),
                         _TotalChip(
-                          label: 'NPS',
+                          label: s.payrollDeclarationChipNps,
                           value: _fmtCurrency(_npsDeduction),
                         ),
                       ],
@@ -623,6 +630,11 @@ class _DeclarationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final submittedDate = d['submitted_at'] != null
+        ? d['submitted_at'].toString().split('T')[0]
+        : '—';
+    final status = d['status']?.toString() ?? '—';
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -631,15 +643,13 @@ class _DeclarationCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: ListTile(
           title: Text(
-            'FY ${d['financial_year']}',
+            s.payrollFyLabel(d['financial_year']?.toString() ?? ''),
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: Text(
-            'Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}',
-          ),
+          subtitle: Text(s.payrollSubmittedOn(submittedDate)),
           trailing: Chip(
             label: Text(
-              d['status'] ?? '—',
+              s.payrollQueryStatus(status),
               style: const TextStyle(fontSize: 11, color: Colors.white),
             ),
             backgroundColor: _statusColor,

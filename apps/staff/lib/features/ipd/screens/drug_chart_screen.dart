@@ -196,14 +196,16 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         );
         if (intent.block) {
           if (!mounted) return;
-          _showSnack(intent.reason!, isError: true);
+          _showSnack(s.lookup(intent.reason!), isError: true);
           return; // keep the row; NEVER enqueue on a blocked device
         }
         await ConnectivitySyncService.instance.enqueue(
           endpoint: intent.endpoint,
           method: 'POST',
           body: intent.body,
-          contextLabel: 'Medication order — $drug',
+          contextLabel: s.format('s4.dynamic.drug_chart.medication_order', {
+            'drug': drug,
+          }),
         );
         if (!mounted) return;
         _removeDraftRow(row);
@@ -628,6 +630,7 @@ class _DrugChartToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
@@ -657,8 +660,8 @@ class _DrugChartToolbar extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   canPrescribe
-                      ? 'Add rows inline. Time ticks become nurse MAR due doses.'
-                      : 'Read-only chart with nurse MAR and pharmacy indent status.',
+                      ? s.drugChartToolbarEditableHint
+                      : s.drugChartToolbarReadOnlyHint,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
@@ -667,12 +670,12 @@ class _DrugChartToolbar extends StatelessWidget {
             ),
           ),
           _MiniPill(
-            label: '$orderCount active rows',
+            label: s.drugChartActiveRows(orderCount),
             color: AppTheme.primaryBlue,
           ),
           if (draftCount > 0)
             _MiniPill(
-              label: '$draftCount unsaved',
+              label: s.drugChartUnsavedRows(draftCount),
               color: AppTheme.warningOnSurface,
             ),
           if (canPrescribe)
@@ -757,11 +760,17 @@ class _DrugChartOrderRow extends StatelessWidget {
     final blockers = (safety['blockers'] as List? ?? const [])
         .whereType<Map>()
         .toList();
-    final medicationName = _text(details['name'], fallback: 'Medication');
+    final medicationName = _text(
+      details['name'],
+      fallback: s.composerChipMedication,
+    );
     final dose = _displayDose(details, medicationName);
     final startedAt =
         _dateTime(order['start_date']) ?? _dateTime(order['created_at']);
-    final startedBy = _text(order['ordered_by_name'], fallback: 'Doctor');
+    final startedBy = _text(
+      order['ordered_by_name'],
+      fallback: s.prescriptionsDoctorLabel,
+    );
     final antibiotic = isAntibioticMedication(medicationName, details: details);
 
     return Container(
@@ -800,7 +809,7 @@ class _DrugChartOrderRow extends StatelessWidget {
                     _MiniPill(
                       label: _text(
                         order['pharmacy_status'],
-                        fallback: 'pharmacy pending',
+                        fallback: s.drugChartPharmacyPending,
                       ),
                       color: AppTheme.warningOnSurface,
                     ),
@@ -1255,6 +1264,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                   ]);
                   final strength = _catalogStrength(row);
                   final form = _catalogForm(row);
+                  final s = AppStrings.of(context);
                   final catalogBacked = row['__fallback'] != true;
                   final availability = _text(
                     row['availability_status'],
@@ -1279,7 +1289,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                               if (strength.isNotEmpty) strength,
                               if (form.isNotEmpty) form,
                             ].join(' - ')
-                          : 'Free text',
+                          : AppStrings.of(context).drugChartFreeText,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1289,7 +1299,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                     ),
                     trailing: catalogBacked
                         ? _MiniPill(
-                            label: _catalogStockLabel(row),
+                            label: _catalogStockLabel(s, row),
                             color: stockColor,
                           )
                         : null,
@@ -1320,6 +1330,7 @@ class _StartedCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return _tableCell(
       width: width,
       height: _orderRowHeight,
@@ -1327,7 +1338,7 @@ class _StartedCell extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Started ${formatDrugChartDate(startedAt)}',
+            s.drugChartStartedOn(formatDrugChartDate(startedAt)),
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontWeight: FontWeight.w700,
@@ -1336,7 +1347,7 @@ class _StartedCell extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'By $startedBy',
+            s.drugChartStartedBy(startedBy),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
@@ -1344,7 +1355,7 @@ class _StartedCell extends StatelessWidget {
           if (showAntibioticDay && startedAt != null) ...[
             const SizedBox(height: 8),
             _MiniPill(
-              label: 'Antibiotic day ${antibioticDay(startedAt!)}',
+              label: s.drugChartAntibioticDay(antibioticDay(startedAt!)),
               color: AppTheme.warningOnSurface,
             ),
           ],
@@ -1455,6 +1466,7 @@ class _SafetyAndActionsCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final nextDue = administrations.where((row) {
       final status = _text(row['status']);
       return status == 'scheduled' || status == 'held';
@@ -1471,13 +1483,21 @@ class _SafetyAndActionsCell extends StatelessWidget {
         else if (warnings.isNotEmpty)
           _SafetyLine(row: warnings.first, color: AppTheme.warningOnSurface)
         else
-          _MiniPill(label: 'Safety clear', color: AppTheme.successOnSurface),
+          _MiniPill(
+            label: s.drugChartSafetyClear,
+            color: AppTheme.successOnSurface,
+          ),
         const SizedBox(height: 8),
         Text(
           [
             if (nextDue.isNotEmpty)
-              'Next due ${_timeLabel(_dateTime(nextDue.first['scheduled_time']))}',
-            '$given given',
+              s.drugChartNextDue(
+                _timeLabel(
+                  _dateTime(nextDue.first['scheduled_time']),
+                  notTimedLabel: s.lookup('s4.lib.drug_chart.not_timed'),
+                ),
+              ),
+            s.drugChartGivenCount(given),
           ].join(' · '),
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
         ),
@@ -1799,12 +1819,18 @@ bool _isCatalogRowInStock(Map<String, dynamic> row) {
   return _catalogStockCount(row) > 0 || explicit == true;
 }
 
-String _catalogStockLabel(Map<String, dynamic> row) {
+String _catalogStockLabel(AppStrings s, Map<String, dynamic> row) {
   final availability = _text(row['availability_status']).toLowerCase();
-  if (availability == 'may_be_available') return 'May be available';
+  if (availability == 'may_be_available') {
+    return s.lookup('s4.lib.drug_chart.may_be_available');
+  }
   final count = _catalogStockCount(row);
-  if (!_isCatalogRowInStock(row)) return 'Out of stock';
-  return count > 0 ? 'In stock ($count)' : 'In stock';
+  if (!_isCatalogRowInStock(row)) {
+    return s.lookup('s4.lib.drug_chart.out_of_stock');
+  }
+  return count > 0
+      ? s.format('s4.dynamic.drug_chart.in_stock_count', {'count': count})
+      : s.lookup('s4.lib.drug_chart.in_stock');
 }
 
 int? _catalogIdFromRow(Map<String, dynamic> row) {
@@ -1904,8 +1930,8 @@ DateTime? _dateTime(Object? value) {
   }
 }
 
-String _timeLabel(DateTime? value) {
-  if (value == null) return 'not timed';
+String _timeLabel(DateTime? value, {String notTimedLabel = ''}) {
+  if (value == null) return notTimedLabel;
   final h = value.hour.toString().padLeft(2, '0');
   final m = value.minute.toString().padLeft(2, '0');
   return '$h:$m';

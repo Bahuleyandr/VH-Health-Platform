@@ -65,11 +65,13 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
     }).toList();
   }
 
-  Map<String, List<dynamic>> get _groupedByDept {
+  Map<String, List<dynamic>> _groupedByDept(AppStrings strings) {
     final grouped = <String, List<dynamic>>{};
-    for (final s in _filtered) {
-      final dept = _staffText(s, const ['department'], fallback: 'Other');
-      grouped.putIfAbsent(dept, () => []).add(s);
+    for (final staff in _filtered) {
+      final dept = _staffText(staff, const [
+        'department',
+      ], fallback: strings.lookup('s4.lib.directory.other'));
+      grouped.putIfAbsent(dept, () => []).add(staff);
     }
     final sorted = Map.fromEntries(
       grouped.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
@@ -122,11 +124,11 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
                   ? _ErrorState(error: _error!, onRetry: _load)
                   : _filtered.isEmpty
                   ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
-                  : _groupedByDept.isEmpty
+                  : _groupedByDept(s).isEmpty
                   ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
                   : ListView(
                       padding: const EdgeInsets.all(12),
-                      children: _groupedByDept.entries
+                      children: _groupedByDept(s).entries
                           .map(
                             (entry) => _DeptSection(
                               dept: entry.key,
@@ -178,15 +180,17 @@ class _StaffTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final name = _staffText(staff, const [
       'name',
       'fullName',
-    ], fallback: 'Unknown');
+    ], fallback: s.lookup('s4.lib.staff_management.unknown_staff'));
     final rawRole = _staffText(staff, const ['role']);
-    final role = rawRole.isEmpty ? '-' : rawRole.replaceAll('_', ' ');
+    final role = rawRole.isEmpty ? '-' : _directoryRoleLabel(s, rawRole);
     final dept = _staffText(staff, const ['department'], fallback: '-');
     final position = _staffText(staff, const ['position']);
     final shift = _staffText(staff, const ['shift']);
+    final shiftLabel = shift.isEmpty ? '' : _directoryShiftLabel(s, shift);
     final uid = _staffText(staff, const ['uid', 'user_id', 'staff_uid']);
     final empId = _staffText(staff, const [
       'employee_id',
@@ -239,12 +243,12 @@ class _StaffTile extends StatelessWidget {
               ),
             if (empId.isNotEmpty)
               Text(
-                'ID: $empId',
+                s.format('s4.dynamic.directory.employee_id', {'id': empId}),
                 style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
               ),
-            if (shift.isNotEmpty)
+            if (shiftLabel.isNotEmpty)
               Text(
-                'Shift: $shift',
+                s.format('s4.dynamic.directory.shift', {'shift': shiftLabel}),
                 style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
               ),
           ],
@@ -262,7 +266,7 @@ class _StaffTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                isActive ? 'Active' : 'Inactive',
+                isActive ? s.staffMgmtActive : s.staffMgmtInactive,
                 style: TextStyle(
                   fontSize: 10,
                   color: isActive ? AppTheme.successGreen : AppTheme.errorRed,
@@ -383,4 +387,20 @@ bool _staffBool(
     }
   }
   return defaultValue;
+}
+
+String _directoryRoleLabel(AppStrings s, String roleCode) {
+  final raw = roleCode.trim().toUpperCase();
+  if (raw.isEmpty) return '-';
+  final key = 'role.display.${raw.toLowerCase()}';
+  final label = s.lookup(key);
+  return label == key ? raw.replaceAll('_', ' ') : label;
+}
+
+String _directoryShiftLabel(AppStrings s, String shiftCode) {
+  final raw = shiftCode.trim().toUpperCase();
+  if (raw.isEmpty) return '';
+  final key = 's4.lib.staff_management.shift.${raw.toLowerCase()}';
+  final label = s.lookup(key);
+  return label == key ? raw.replaceAll('_', ' ') : label;
 }

@@ -131,11 +131,15 @@ class _ReferralsScreenState extends State<ReferralsScreen>
   }
 
   Future<void> _submitReferral() async {
+    final s = AppStrings.of(context);
     final patientUid = _text(_admission['patient_uid']);
     final department = _departmentCtrl.text.trim();
     final reason = _reasonCtrl.text.trim();
     if (patientUid.isEmpty || department.isEmpty || reason.isEmpty) {
-      _showSnack('Patient, department, and reason are required', isError: true);
+      _showSnack(
+        s.lookup('s4.lib.referrals.patient_department_reason_required'),
+        isError: true,
+      );
       return;
     }
 
@@ -158,7 +162,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             : _summaryCtrl.text.trim(),
       );
       if (!mounted) return;
-      _showSnack('Referral requested and specialist notified');
+      _showSnack(s.lookup('s4.lib.referrals.requested_notified'));
       context.go('/referrals');
     } catch (e) {
       if (!mounted) return;
@@ -205,6 +209,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
     Map<String, dynamic> referral, {
     String actionContext = 'incoming',
   }) {
+    final s = AppStrings.of(context);
     final status = _text(referral['status'], 'pending').toLowerCase();
     final isIncoming = actionContext == 'incoming';
     final isOutgoing = actionContext == 'outgoing';
@@ -230,7 +235,10 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _text(referral['referral_number'], 'Referral'),
+                  _text(
+                    referral['referral_number'],
+                    s.lookup('s4.lib.referrals.referral'),
+                  ),
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.w800,
@@ -241,25 +249,41 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _pill(_text(referral['urgency'], 'routine')),
-                    _pill(_text(referral['status'], 'pending')),
                     _pill(
-                      _text(referral['referred_to_department'], 'Department'),
+                      _referralUrgencyLabel(
+                        s,
+                        _text(referral['urgency'], 'routine'),
+                      ),
+                    ),
+                    _pill(
+                      _referralStatusLabel(
+                        s,
+                        _text(referral['status'], 'pending'),
+                      ),
+                    ),
+                    _pill(
+                      _text(
+                        referral['referred_to_department'],
+                        s.lookup('s4.lib.referrals.department'),
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
-                _labelValue('Reason', _text(referral['reason'])),
                 _labelValue(
-                  'Summary',
+                  s.lookup('s4.lib.referrals.reason'),
+                  _text(referral['reason']),
+                ),
+                _labelValue(
+                  s.lookup('s4.lib.referrals.summary'),
                   _text(referral['clinical_summary'], '-'),
                 ),
                 _labelValue(
-                  'Requested',
+                  s.lookup('s4.lib.referrals.requested'),
                   _formatDateTime(referral['created_at']),
                 ),
                 _labelValue(
-                  'First seen',
+                  s.lookup('s4.lib.referrals.first_seen'),
                   _formatDateTime(referral['first_seen_at']),
                 ),
                 const SizedBox(height: 16),
@@ -288,7 +312,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                         onPressed: () =>
                             _transitionReferral(referral, 'decline'),
                         icon: const Icon(Icons.block),
-                        label: Text(isOutgoing ? 'Decline request' : 'Decline'),
+                        label: Text(
+                          isOutgoing
+                              ? s.lookup('s4.lib.referrals.decline_request')
+                              : s.lookup('s4.lib.referrals.decline'),
+                        ),
                       ),
                     OutlinedButton.icon(
                       onPressed: () {
@@ -304,8 +332,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                 const SizedBox(height: 8),
                 Text(
                   isIncoming
-                      ? 'Accept and Complete are limited to the referred specialist or matching department doctor.'
-                      : 'Outgoing requests can be declined by the requesting or primary doctor while pending.',
+                      ? s.lookup('s4.lib.referrals.incoming_action_hint')
+                      : s.lookup('s4.lib.referrals.outgoing_action_hint'),
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                 ),
               ],
@@ -327,8 +355,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: _requestMode ? 'Request Referral' : 'Referrals',
+      title: _requestMode
+          ? s.lookup('s4.lib.referrals.request_referral')
+          : s.lookup('s4.lib.referrals.referrals'),
       body: _loading
           ? const SkeletonList()
           : _error != null
@@ -360,12 +391,16 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             children: [
               _ReferralList(
                 rows: _incoming,
-                empty: 'No incoming referrals',
+                empty: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.referrals.no_incoming_referrals'),
                 onTap: _markSeenAndOpen,
               ),
               _ReferralList(
                 rows: _outgoing,
-                empty: 'No outgoing referrals',
+                empty: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.referrals.no_outgoing_referrals'),
                 onTap: (row) =>
                     _showReferralSheet(row, actionContext: 'outgoing'),
               ),
@@ -384,7 +419,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
   }
 
   Widget _buildRequestForm() {
-    final patient = _text(_admission['patient_name'], 'Patient');
+    final s = AppStrings.of(context);
+    final patient = _text(
+      _admission['patient_name'],
+      s.lookup('s4.lib.referrals.patient'),
+    );
     final bed = _text(_admission['bed_number']);
     final ward = _text(_admission['ward_name']);
     return DesktopScrollControls(
@@ -410,8 +449,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                     Text(
                       [
                         if (ward.isNotEmpty) ward,
-                        if (bed.isNotEmpty) 'Bed $bed',
-                        'Admission #${widget.requestAdmissionId}',
+                        if (bed.isNotEmpty)
+                          s.format('s4.dynamic.referrals.bed', {'bed': bed}),
+                        s.format('s4.dynamic.referrals.admission_id', {
+                          'id': widget.requestAdmissionId,
+                        }),
                       ].join(' - '),
                     ),
                   ],
@@ -513,8 +555,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                   : const Icon(Icons.auto_awesome_outlined),
               label: Text(
                 _draftingSummary
-                    ? 'Drafting clinical summary'
-                    : 'AI assist clinical summary',
+                    ? s.lookup('s4.lib.referrals.drafting_clinical_summary')
+                    : s.lookup('s4.lib.referrals.ai_assist_clinical_summary'),
               ),
             ),
             const SizedBox(height: 18),
@@ -527,7 +569,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.send_outlined),
-              label: Text(_saving ? 'Sending referral' : 'Request referral'),
+              label: Text(
+                _saving
+                    ? s.lookup('s4.lib.referrals.sending_referral')
+                    : s.lookup('s4.lib.referrals.request_referral'),
+              ),
             ),
           ],
         ),
@@ -538,10 +584,12 @@ class _ReferralsScreenState extends State<ReferralsScreen>
   Future<void> _draftClinicalSummary() async {
     final admissionId = widget.requestAdmissionId;
     if (admissionId == null) return;
+    final s = AppStrings.of(context);
+    final draftAddedMessage = s.lookup('s4.lib.referrals.ai_draft_added');
     final reason = _reasonCtrl.text.trim();
     if (reason.isEmpty) {
       _showSnack(
-        'Enter the reason for referral before asking AI to draft a summary',
+        s.lookup('s4.lib.referrals.enter_reason_before_ai'),
         isError: true,
       );
       return;
@@ -556,12 +604,12 @@ class _ReferralsScreenState extends State<ReferralsScreen>
       final draft =
           (result['draft'] as Map?)?.cast<String, dynamic>() ??
           const <String, dynamic>{};
-      final summary = _formatAiReferralSummary(draft, reason);
+      final summary = _formatAiReferralSummary(s, draft, reason);
       if (!mounted) return;
       final confirmed = await _showAiSummaryEditor(summary);
       if (confirmed == null || confirmed.trim().isEmpty) return;
       setState(() => _summaryCtrl.text = confirmed.trim());
-      _showSnack('AI draft added. Review it before requesting referral.');
+      _showSnack(draftAddedMessage);
     } catch (e) {
       if (!mounted) return;
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
@@ -648,12 +696,17 @@ class _ReferralsScreenState extends State<ReferralsScreen>
   }
 
   String _formatAiReferralSummary(
+    AppStrings s,
     Map<String, dynamic> draft,
     String fallbackReason,
   ) {
     final lines = <String>[];
     final reason = _text(draft['reason_for_referral'], fallbackReason);
-    if (reason.isNotEmpty) lines.add('Reason: $reason');
+    if (reason.isNotEmpty) {
+      lines.add(
+        s.format('s4.dynamic.referrals.reason_line', {'reason': reason}),
+      );
+    }
     final summary = _text(draft['clinical_summary']);
     if (summary.isNotEmpty) lines.add(summary);
 
@@ -666,10 +719,19 @@ class _ReferralsScreenState extends State<ReferralsScreen>
       }
     }
 
-    addList('Active diagnoses', draft['active_diagnoses']);
-    addList('Current treatment', draft['current_treatment']);
-    addList('Investigations', draft['investigations']);
-    addList('Pending items', draft['pending_items']);
+    addList(
+      s.lookup('s4.lib.referrals.active_diagnoses'),
+      draft['active_diagnoses'],
+    );
+    addList(
+      s.lookup('s4.lib.referrals.current_treatment'),
+      draft['current_treatment'],
+    );
+    addList(
+      s.lookup('s4.lib.referrals.investigations'),
+      draft['investigations'],
+    );
+    addList(s.lookup('s4.lib.referrals.pending_items'), draft['pending_items']);
     return lines.where((line) => line.trim().isNotEmpty).join('\n');
   }
 }
@@ -687,6 +749,7 @@ class _ReferralList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (rows.isEmpty) return Center(child: Text(empty));
     return DesktopScrollControls(
       axis: Axis.vertical,
@@ -706,14 +769,17 @@ class _ReferralList extends StatelessWidget {
                   ),
                   title: Text(
                     [
-                      _text(row['referral_number'], 'Referral'),
+                      _text(
+                        row['referral_number'],
+                        s.lookup('s4.lib.referrals.referral'),
+                      ),
                       _text(row['referred_to_department']),
                     ].where((part) => part.isNotEmpty).join(' - '),
                   ),
                   subtitle: Text(
                     [
                       _text(row['reason']),
-                      _text(row['status']),
+                      _referralStatusLabel(s, _text(row['status'])),
                       _formatDateTime(row['created_at']),
                     ].where((part) => part.isNotEmpty).join(' - '),
                   ),
@@ -737,6 +803,7 @@ class _AuditList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (rows.isEmpty) {
       return const Center(
         child: AppText('s4.lib.referrals.no_referral_audit_rows'),
@@ -758,17 +825,22 @@ class _AuditList extends StatelessWidget {
                   ),
                   title: Text(
                     [
-                      _text(row['referral_number'], 'Referral'),
+                      _text(
+                        row['referral_number'],
+                        s.lookup('s4.lib.referrals.referral'),
+                      ),
                       _text(row['patient_name'], _text(row['patient_uid'])),
                     ].where((part) => part.isNotEmpty).join(' - '),
                   ),
                   subtitle: Text(
                     [
                       _text(row['referred_to_department']),
-                      _text(row['status']),
+                      _referralStatusLabel(s, _text(row['status'])),
                       _int(row['minutes_to_first_seen']) > 0
-                          ? '${_int(row['minutes_to_first_seen'])} min to first seen'
-                          : 'Not seen yet',
+                          ? s.format('s4.dynamic.referrals.min_to_first_seen', {
+                              'minutes': _int(row['minutes_to_first_seen']),
+                            })
+                          : s.lookup('s4.lib.referrals.not_seen_yet'),
                     ].join(' - '),
                   ),
                 ),
@@ -795,6 +867,7 @@ class _ConsultantResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       constraints: const BoxConstraints(maxHeight: 220),
       decoration: BoxDecoration(
@@ -818,7 +891,9 @@ class _ConsultantResults extends StatelessWidget {
                   ? AppTheme.successOnSurface
                   : AppTheme.primaryBlue,
             ),
-            title: Text(_text(row['name'], 'Consultant')),
+            title: Text(
+              _text(row['name'], s.lookup('s4.lib.referrals.consultant')),
+            ),
             subtitle: Text(
               [
                 _text(row['department']),
@@ -873,6 +948,39 @@ Color _urgencyColor(dynamic value) {
   if (urgency == 'emergency') return AppTheme.errorOnSurface;
   if (urgency == 'urgent') return AppTheme.warningOnSurface;
   return AppTheme.primaryBlue;
+}
+
+String _referralStatusLabel(AppStrings s, String status) {
+  switch (status.toLowerCase()) {
+    case 'pending':
+      return s.lookup('s4.lib.referrals.status.pending');
+    case 'accepted':
+      return s.lookup('s4.lib.referrals.status.accepted');
+    case 'in_progress':
+      return s.lookup('s4.lib.referrals.status.in_progress');
+    case 'completed':
+      return s.lookup('s4.lib.referrals.status.completed');
+    case 'declined':
+      return s.lookup('s4.lib.referrals.status.declined');
+    case 'cancelled':
+    case 'canceled':
+      return s.lookup('s4.lib.referrals.status.cancelled');
+    default:
+      return status.replaceAll('_', ' ');
+  }
+}
+
+String _referralUrgencyLabel(AppStrings s, String urgency) {
+  switch (urgency.toLowerCase()) {
+    case 'routine':
+      return s.lookup('admission.priority.routine');
+    case 'urgent':
+      return s.lookup('priority.urgent');
+    case 'emergency':
+      return s.lookup('department.emergency');
+    default:
+      return urgency.replaceAll('_', ' ');
+  }
 }
 
 String _text(dynamic value, [String fallback = '']) {

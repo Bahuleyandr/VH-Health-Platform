@@ -107,8 +107,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         MedicalApiService.getActiveAdmissions(limit: 10),
       ]);
       if (!mounted) return;
+      final strings = AppStrings.of(context);
       setState(() {
-        _todayAppointments = StaffAppointment.listFrom(results[0]);
+        _todayAppointments = StaffAppointment.listFrom(
+          results[0],
+          patientFallback: strings.patientRecordsUnknownPatient,
+        );
         _activeAdmissions = _listFromAdmissions(results[1]);
       });
     } catch (_) {

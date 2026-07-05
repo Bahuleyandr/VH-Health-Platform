@@ -50,25 +50,6 @@ class _PayslipScreenState extends State<PayslipScreen> {
     }
   }
 
-  String _monthName(int m) {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    if (m < 1 || m > 12) return '—';
-    return months[m - 1];
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -237,10 +218,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                         itemCount: _payslips.length,
                         itemBuilder: (ctx, i) {
                           final p = _payslips[i] as Map<String, dynamic>;
-                          return _PayslipCard(
-                            payslip: p,
-                            monthName: _monthName,
-                          );
+                          return _PayslipCard(payslip: p);
                         },
                       ),
                     ),
@@ -254,9 +232,8 @@ class _PayslipScreenState extends State<PayslipScreen> {
 
 class _PayslipCard extends StatelessWidget {
   final Map<String, dynamic> payslip;
-  final String Function(int) monthName;
 
-  const _PayslipCard({required this.payslip, required this.monthName});
+  const _PayslipCard({required this.payslip});
 
   @override
   Widget build(BuildContext context) {
@@ -280,7 +257,7 @@ class _PayslipCard extends StatelessWidget {
           MaterialPageRoute(
             builder: (_) => PayslipDetailScreen(
               payslipId: payslip['id'].toString(),
-              monthLabel: '${monthName(month)} $year',
+              monthLabel: '${s.payrollMonthName(month)} $year',
             ),
           ),
         ),
@@ -311,7 +288,7 @@ class _PayslipCard extends StatelessWidget {
                         Row(
                           children: [
                             Text(
-                              '${monthName(month)} $year',
+                              '${s.payrollMonthName(month)} $year',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,

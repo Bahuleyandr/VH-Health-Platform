@@ -1,24 +1,33 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_strings.dart';
+
 class MessageUnreadBadge extends StatelessWidget {
   final Widget child;
   final int unreadCount;
-  final String semanticLabel;
+  final String? semanticLabel;
 
   const MessageUnreadBadge({
     super.key,
     required this.child,
     required this.unreadCount,
-    this.semanticLabel = 'unread messages',
+    this.semanticLabel,
   });
 
   @override
   Widget build(BuildContext context) {
     if (unreadCount <= 0) return child;
 
+    final strings = AppStrings.of(context);
     final label = unreadCount > 99 ? '99+' : '$unreadCount';
+    final effectiveSemanticLabel =
+        semanticLabel ??
+        strings.lookup('s4.lib.message_unread_badge.unread_messages');
     return Semantics(
-      label: '$label $semanticLabel',
+      label: strings.format('s4.dynamic.message_unread_badge.count_label', {
+        'count': label,
+        'label': effectiveSemanticLabel,
+      }),
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.center,

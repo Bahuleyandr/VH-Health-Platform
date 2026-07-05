@@ -248,6 +248,70 @@ class _ReportsAdminQueueScreenState extends State<ReportsAdminQueueScreen>
 
 enum _ReportType { incident, grievance }
 
+String _statusLabel(AppStrings s, String status) => switch (status) {
+  'submitted' => s.lookup('reports.status.submitted'),
+  'acknowledged' => s.lookup('reports.status.acknowledged'),
+  'under_review' => s.lookup('reports.status.under_review'),
+  'investigating' => s.lookup('reports.status.investigating'),
+  'in_review' => s.lookup('reports.status.in_review'),
+  'mediation' => s.lookup('reports.status.mediation'),
+  'resolved' => s.lookup('reports.status.resolved'),
+  'closed' => s.lookup('reports.status.closed'),
+  'rejected' => s.lookup('reports.status.rejected'),
+  'escalated' => s.lookup('reports.status.escalated'),
+  _ => _titleCase(status.replaceAll('_', ' ')),
+};
+
+String _incidentTypeLabel(AppStrings s, String type) => switch (type) {
+  'near_miss' => s.incidentReportTypeNearMiss,
+  'patient_fall' => s.incidentReportTypePatientFall,
+  'medication_error' => s.incidentReportTypeMedicationError,
+  'needle_stick' => s.incidentReportTypeNeedleStick,
+  'equipment_failure' => s.incidentReportTypeEquipmentFailure,
+  'infection' => s.incidentReportTypeInfection,
+  'fire_safety' => s.incidentReportTypeFireSafety,
+  'patient_aggression' => s.incidentReportTypePatientAggression,
+  'security_breach' => s.incidentReportTypeSecurityBreach,
+  'other' => s.incidentReportTypeOther,
+  _ => _titleCase(type.replaceAll('_', ' ')),
+};
+
+String _grievanceTypeLabel(AppStrings s, String type) => switch (type) {
+  'harassment' => s.grievanceTypeHarassment,
+  'discrimination' => s.grievanceTypeDiscrimination,
+  'unfair_treatment' => s.grievanceTypeUnfairTreatment,
+  'unsafe_conditions' => s.grievanceTypeUnsafeConditions,
+  'workload' => s.grievanceTypeWorkload,
+  'pay_dispute' => s.grievanceTypePayDispute,
+  'schedule_conflict' => s.grievanceTypeScheduleConflict,
+  'policy_violation' => s.grievanceTypePolicyViolation,
+  'other' => s.grievanceTypeOther,
+  _ => _titleCase(type.replaceAll('_', ' ')),
+};
+
+String _reportTypeLabel(AppStrings s, _ReportType reportType, String type) =>
+    reportType == _ReportType.incident
+    ? _incidentTypeLabel(s, type)
+    : _grievanceTypeLabel(s, type);
+
+String _severityLabel(AppStrings s, String severity) => switch (severity) {
+  'low' => s.incidentReportSeverityLow,
+  'moderate' => s.incidentReportSeverityModerate,
+  'severe' => s.incidentReportSeveritySevere,
+  'sentinel' => s.incidentReportSeveritySentinel,
+  _ => _titleCase(severity.replaceAll('_', ' ')),
+};
+
+String _priorityLabel(AppStrings s, String priority) => switch (priority) {
+  'low' => s.lookup('reports.priority.low'),
+  'medium' => s.lookup('reports.priority.medium'),
+  'moderate' => s.lookup('reports.priority.medium'),
+  'high' => s.lookup('reports.priority.high'),
+  'urgent' => s.lookup('reports.priority.urgent'),
+  'escalated' => s.lookup('reports.status.escalated'),
+  _ => _titleCase(priority.replaceAll('_', ' ')),
+};
+
 typedef _LoadDetail = Future<Map<String, dynamic>> Function();
 typedef _SaveUpdate =
     Future<Map<String, dynamic>> Function({
@@ -323,11 +387,18 @@ class _ReportTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final isIncident = type == _ReportType.incident;
     final color = isIncident ? AppTheme.warningOnSurface : Colors.purpleAccent;
     final title = isIncident
-        ? _text(report['title'], fallback: 'Untitled incident')
-        : _text(report['subject'], fallback: 'Untitled grievance');
+        ? _text(
+            report['title'],
+            fallback: s.lookup('s4.lib.reports_admin_queue.untitled_incident'),
+          )
+        : _text(
+            report['subject'],
+            fallback: s.lookup('s4.lib.reports_admin_queue.untitled_grievance'),
+          );
     final number = isIncident
         ? _text(report['report_number'], fallback: 'INC-${report['id'] ?? ''}')
         : _text(
@@ -336,9 +407,9 @@ class _ReportTile extends StatelessWidget {
           );
     final status = _text(report['status'], fallback: 'submitted');
     final typeLabel = isIncident
-        ? _text(report['incident_type']).replaceAll('_', ' ')
-        : _text(report['grievance_type']).replaceAll('_', ' ');
-    final reporter = _reporterLabel(report);
+        ? _incidentTypeLabel(s, _text(report['incident_type']))
+        : _grievanceTypeLabel(s, _text(report['grievance_type']));
+    final reporter = _reporterLabel(report, s);
     final created = _formatDate(report['created_at']);
 
     return Card(
@@ -383,7 +454,7 @@ class _ReportTile extends StatelessWidget {
               ),
               Text(
                 [
-                  if (typeLabel.isNotEmpty) typeLabel.toUpperCase(),
+                  if (typeLabel.isNotEmpty) typeLabel,
                   reporter,
                   if (created.isNotEmpty) created,
                 ].join(' | '),
@@ -506,10 +577,17 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final detail = _detail ?? widget.initial;
     final title = _isIncident
-        ? _text(detail['title'], fallback: 'Incident report')
-        : _text(detail['subject'], fallback: 'Staff grievance');
+        ? _text(
+            detail['title'],
+            fallback: s.lookup('s4.lib.reports_admin_queue.incident_report'),
+          )
+        : _text(
+            detail['subject'],
+            fallback: s.lookup('s4.lib.reports_admin_queue.staff_grievance'),
+          );
     final number = _isIncident
         ? _text(detail['report_number'])
         : _text(detail['grievance_number']);
@@ -594,7 +672,7 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                     _StatusChip(status: _text(detail['status'])),
                     _MetaChip(
                       icon: Icons.person_outline,
-                      label: _reporterLabel(detail),
+                      label: _reporterLabel(detail, s),
                     ),
                     _MetaChip(
                       icon: Icons.schedule_outlined,
@@ -603,55 +681,65 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                     if (_text(detail['priority']).isNotEmpty)
                       _MetaChip(
                         icon: Icons.flag_outlined,
-                        label: _text(detail['priority']).toUpperCase(),
+                        label: _priorityLabel(s, _text(detail['priority'])),
                       ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                const _SectionTitle('Details'),
+                _SectionTitle(s.lookup('s4.lib.reports_admin_queue.details')),
                 _DetailRow(
-                  label: _isIncident ? 'Incident type' : 'Grievance type',
-                  value: _text(
-                    _isIncident
-                        ? detail['incident_type']
-                        : detail['grievance_type'],
-                  ).replaceAll('_', ' '),
+                  label: _isIncident
+                      ? s.lookup('s4.lib.reports_admin_queue.incident_type')
+                      : s.lookup('s4.lib.reports_admin_queue.grievance_type'),
+                  value: _reportTypeLabel(
+                    s,
+                    widget.type,
+                    _text(
+                      _isIncident
+                          ? detail['incident_type']
+                          : detail['grievance_type'],
+                    ),
+                  ),
                 ),
                 if (_isIncident)
                   _DetailRow(
-                    label: 'Severity',
-                    value: _text(detail['severity']).toUpperCase(),
+                    label: s.lookup('s4.lib.reports_admin_queue.severity'),
+                    value: _severityLabel(s, _text(detail['severity'])),
                   ),
                 if (_text(detail['department']).isNotEmpty)
                   _DetailRow(
-                    label: 'Department',
+                    label: s.lookup('s4.lib.reports_admin_queue.department'),
                     value: _text(detail['department']),
                   ),
                 if (_text(detail['location']).isNotEmpty)
                   _DetailRow(
-                    label: 'Location',
+                    label: s.lookup('s4.lib.reports_admin_queue.location'),
                     value: _text(detail['location']),
                   ),
                 if (_text(detail['against_whom']).isNotEmpty)
                   _DetailRow(
-                    label: 'Against whom',
+                    label: s.lookup('s4.lib.reports_admin_queue.against_whom'),
                     value: _text(detail['against_whom']),
                   ),
                 const SizedBox(height: 8),
                 _BodyBlock(
-                  title: _isIncident ? 'Description' : 'Concern',
+                  title: _isIncident
+                      ? s.lookup('s4.lib.reports_admin_queue.description')
+                      : s.lookup('s4.lib.reports_admin_queue.concern'),
                   body: _text(
                     detail['description'],
-                    fallback: 'No details recorded.',
+                    fallback: s.lookup(
+                      's4.lib.reports_admin_queue.no_details_recorded',
+                    ),
                   ),
                 ),
                 if (_text(detail['resolution']).isNotEmpty)
                   _BodyBlock(
-                    title: 'Resolution',
+                    title: s.lookup('s4.lib.reports_admin_queue.resolution'),
                     body: _text(detail['resolution']),
                   ),
                 const SizedBox(height: 16),
-                const _SectionTitle('Action'),
+                _SectionTitle(s.lookup('s4.lib.reports_admin_queue.action')),
                 DropdownButtonFormField<String>(
                   initialValue: widget.statuses.contains(_status)
                       ? _status
@@ -665,7 +753,7 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                       .map(
                         (status) => DropdownMenuItem(
                           value: status,
-                          child: Text(_titleCase(status.replaceAll('_', ' '))),
+                          child: Text(_statusLabel(s, status)),
                         ),
                       )
                       .toList(),
@@ -708,7 +796,9 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                const _SectionTitle('Activity log'),
+                _SectionTitle(
+                  s.lookup('s4.lib.reports_admin_queue.activity_log'),
+                ),
                 if (updates.isEmpty)
                   AppText(
                     's4.lib.reports_admin_queue.no_activity_recorded',
@@ -818,6 +908,7 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(status);
+    final s = AppStrings.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
@@ -826,7 +917,7 @@ class _StatusChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.7)),
       ),
       child: Text(
-        _titleCase(status.replaceAll('_', ' ')),
+        _statusLabel(s, status),
         style: TextStyle(
           color: color,
           fontSize: 11,
@@ -966,6 +1057,7 @@ class _LogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final internal = update['is_internal'] == true;
     final role = _text(update['author_role'], fallback: 'system');
     final author = _text(update['author_name']);
@@ -973,7 +1065,7 @@ class _LogRow extends StatelessWidget {
       if (author.isNotEmpty) author,
       role.toUpperCase(),
       _formatDate(update['created_at']),
-      if (internal) 'INTERNAL',
+      if (internal) s.lookup('s4.lib.reports_admin_queue.internal'),
     ].where((part) => part.isNotEmpty).join(' | ');
 
     return Container(
@@ -1000,7 +1092,12 @@ class _LogRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _text(update['message'], fallback: 'Update recorded'),
+                  _text(
+                    update['message'],
+                    fallback: s.lookup(
+                      's4.lib.reports_admin_queue.update_recorded',
+                    ),
+                  ),
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 13,
@@ -1027,16 +1124,18 @@ String _text(dynamic value, {String fallback = ''}) {
   return text;
 }
 
-String _reporterLabel(Map<String, dynamic> report) {
+String _reporterLabel(Map<String, dynamic> report, AppStrings s) {
   final reporter = _text(report['reporter_name']);
   final anonymous =
       report['is_anonymous'] == true || reporter.toLowerCase() == 'anonymous';
   final visible = reporter.isNotEmpty
       ? reporter
-      : (anonymous ? 'Anonymous' : '-');
+      : (anonymous ? s.lookup('s4.lib.reports_admin_queue.anonymous') : '-');
   final privilegedSender = _text(report['anonymous_reporter_name']);
   if (anonymous && privilegedSender.isNotEmpty) {
-    return 'Anonymous ($privilegedSender)';
+    return s.format('s4.dynamic.reports_admin_queue.anonymous_with_sender', {
+      'sender': privilegedSender,
+    });
   }
   return visible;
 }

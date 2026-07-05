@@ -57,8 +57,12 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
         limit: 150,
       );
       if (!mounted) return;
+      final strings = AppStrings.of(context);
       setState(() {
-        _appointments = StaffAppointment.listFrom(data);
+        _appointments = StaffAppointment.listFrom(
+          data,
+          patientFallback: strings.patientRecordsUnknownPatient,
+        );
         _loading = false;
       });
     } catch (e) {

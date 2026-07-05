@@ -106,6 +106,21 @@ String investigationStatus(Map<String, dynamic> investigation) {
   return _firstText([investigation['status']]).toUpperCase();
 }
 
+String _investigationPriorityLabel(AppStrings s, String value) {
+  switch (value.toUpperCase()) {
+    case 'NORMAL':
+      return s.lookup('s4.lib.investigations.priority.normal');
+    case 'HIGH':
+      return s.lookup('s4.lib.investigations.priority.high');
+    case 'URGENT':
+      return s.lookup('s4.lib.investigations.priority.urgent');
+    case 'LOW':
+      return s.lookup('s4.lib.investigations.priority.low');
+    default:
+      return value;
+  }
+}
+
 @visibleForTesting
 bool investigationIsPending(Map<String, dynamic> investigation) {
   final status = investigationStatus(investigation);
@@ -523,7 +538,12 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                             .map(
                               (value) => DropdownMenuItem(
                                 value: value,
-                                child: Text(value),
+                                child: Text(
+                                  _investigationPriorityLabel(
+                                    AppStrings.of(context),
+                                    value,
+                                  ),
+                                ),
                               ),
                             )
                             .toList(),
@@ -563,7 +583,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                                 )
                               : const Icon(Icons.add, color: Colors.white),
                           label: Text(
-                            submitting ? 'Ordering...' : 'Order Investigation',
+                            submitting
+                                ? AppStrings.of(
+                                    context,
+                                  ).lookup('s4.lib.investigations.ordering')
+                                : AppStrings.of(context).lookup(
+                                    's4.lib.investigations.order_investigation',
+                                  ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.accentCyan,
@@ -590,7 +616,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             backgroundColor: AppTheme.successGreen,
             action: _isScopedOpVisit
                 ? SnackBarAction(
-                    label: 'Prescription',
+                    label: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.investigations.prescription'),
                     textColor: AppTheme.surfaceWhite,
                     onPressed: _continueToPrescription,
                   )
@@ -1056,7 +1084,12 @@ class _UploadTabState extends State<_UploadTab> {
                     Text(
                       _files.isEmpty
                           ? s.investigationsAttachReport
-                          : '${_files.length} file${_files.length == 1 ? '' : 's'} selected',
+                          : s.format(
+                              _files.length == 1
+                                  ? 's4.dynamic.investigations.file_selected_one'
+                                  : 's4.dynamic.investigations.file_selected_other',
+                              {'count': _files.length},
+                            ),
                       style: TextStyle(
                         color: _files.isNotEmpty
                             ? AppTheme.accentCyan
@@ -1114,7 +1147,16 @@ class _UploadTabState extends State<_UploadTab> {
                 _submitting
                     ? _files.isEmpty
                           ? s.investigationsUploading
-                          : 'Uploading $_uploadedCount/${_files.length}${_uploadingFileName == null ? '' : ' - $_uploadingFileName'}'
+                          : s.format(
+                              _uploadingFileName == null
+                                  ? 's4.dynamic.investigations.uploading_count'
+                                  : 's4.dynamic.investigations.uploading_file',
+                              {
+                                'uploaded': _uploadedCount,
+                                'total': _files.length,
+                                'file': _uploadingFileName ?? '',
+                              },
+                            )
                     : s.investigationsUploadButton,
               ),
               style: ElevatedButton.styleFrom(
@@ -1707,7 +1749,11 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        resultReady ? 'RESULT READY' : status,
+                        resultReady
+                            ? AppStrings.of(
+                                context,
+                              ).lookup('s4.lib.investigations.result_ready')
+                            : status,
                         style: TextStyle(
                           fontSize: 10,
                           color: statusColor,
@@ -1761,6 +1807,7 @@ class _InvestigationResultSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final title = investigationTestTitle(investigation);
     final status = investigationStatus(investigation);
     final resultSummary = _firstText([
@@ -1816,12 +1863,14 @@ class _InvestigationResultSheet extends StatelessWidget {
                   _ResultChip(
                     icon: Icons.person_outline,
                     label: patientName.isEmpty
-                        ? 'Selected patient'
+                        ? s.lookup('s4.lib.investigations.selected_patient')
                         : patientName,
                   ),
                   _ResultChip(
                     icon: Icons.verified_outlined,
-                    label: status.isEmpty ? 'Result ready' : status,
+                    label: status.isEmpty
+                        ? s.lookup('s4.lib.investigations.result_ready')
+                        : status,
                   ),
                   if (completedAt.isNotEmpty)
                     _ResultChip(
@@ -1832,15 +1881,21 @@ class _InvestigationResultSheet extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               if (resultSummary.isNotEmpty)
-                _ResultBlock(title: 'Result summary', body: resultSummary),
+                _ResultBlock(
+                  title: s.lookup('s4.lib.investigations.result_summary'),
+                  body: resultSummary,
+                ),
               if (interpretation.isNotEmpty)
-                _ResultBlock(title: 'Interpretation', body: interpretation),
+                _ResultBlock(
+                  title: s.lookup('s4.lib.investigations.interpretation'),
+                  body: interpretation,
+                ),
               if (resultSummary.isEmpty &&
                   interpretation.isEmpty &&
                   results != null)
                 _ResultBlock(
-                  title: 'Results',
-                  body: _stringifyResults(results),
+                  title: s.lookup('s4.lib.investigations.results'),
+                  body: _stringifyResults(s, results),
                 ),
               if (resultSummary.isEmpty &&
                   interpretation.isEmpty &&
@@ -1921,7 +1976,7 @@ class _ResultBlock extends StatelessWidget {
   }
 }
 
-String _stringifyResults(dynamic results) {
+String _stringifyResults(AppStrings s, dynamic results) {
   if (results is Map) {
     final lines = <String>[];
     for (final entry in results.entries) {
@@ -1956,7 +2011,10 @@ String _stringifyResults(dynamic results) {
             final unit = _textValue(value['unit']);
             final flag = _textValue(value['flag'] ?? value['abnormal_flag']);
             if (resultText.isEmpty) return '';
-            return '${name.isEmpty ? 'Result' : name}: $resultText${unit.isNotEmpty ? ' $unit' : ''}${flag.isNotEmpty ? ' [$flag]' : ''}';
+            final label = name.isEmpty
+                ? s.lookup('s4.lib.investigations.result')
+                : name;
+            return '$label: $resultText${unit.isNotEmpty ? ' $unit' : ''}${flag.isNotEmpty ? ' [$flag]' : ''}';
           }
           return _textValue(value);
         })

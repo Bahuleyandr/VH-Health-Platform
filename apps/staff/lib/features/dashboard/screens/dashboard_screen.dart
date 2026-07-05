@@ -1051,8 +1051,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records',
             ],
             titleOverrides: {
-              'op_nursing_dashboard': 'OP Nursing',
-              'front_office_workbench': 'OP Workbench',
+              'op_nursing_dashboard': s.lookup('s4.lib.dashboard.op_nursing'),
+              'front_office_workbench': s.lookup(
+                's4.lib.dashboard.op_workbench',
+              ),
               'nursing_notes': s.dashboardOpNursingNotes,
               'lab_bookings': s.dashboardOpLabBookings,
               'investigation_results': s.dashboardOpLabResults,
@@ -1451,7 +1453,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(height: 8),
         Semantics(
           container: true,
-          label: 'Recent patients (${_recentPatients.length})',
+          label: s.format('s4.dynamic.dashboard.recent_patients_count', {
+            'count': _recentPatients.length,
+          }),
           child: SizedBox(
             height: 44,
             child: ListView.separated(
@@ -1464,8 +1468,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final name = (p['name'] ?? 'Patient').toString();
                 return Semantics(
                   button: true,
-                  label: '${i + 1} of ${_recentPatients.length}: $name',
-                  hint: 'Opens patient chart',
+                  label: s.format(
+                    's4.dynamic.dashboard.recent_patient_position',
+                    {
+                      'index': i + 1,
+                      'total': _recentPatients.length,
+                      'name': name,
+                    },
+                  ),
+                  hint: s.lookup('s4.lib.dashboard.opens_patient_chart'),
                   child: ActionChip(
                     avatar: ExcludeSemantics(
                       child: CircleAvatar(
@@ -1822,6 +1833,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildAppointmentCard(Map<String, dynamic> apt) {
+    final s = AppStrings.of(context);
     final patient = apt['patient'];
     final patientName = _firstText([
       apt['patient_name'],
@@ -1830,7 +1842,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       apt['name'],
       apt['patient_phone'],
       apt['phone'],
-    ], fallback: 'Patient');
+    ], fallback: s.lookup('s4.lib.dashboard.patient_fallback'));
     final time = _firstText([
       apt['appointment_time'],
       apt['time'],
@@ -1906,10 +1918,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildActivityItem(dynamic notification) {
+    final s = AppStrings.of(context);
     final n = notification is Map<String, dynamic>
         ? notification
         : <String, dynamic>{};
-    final title = n['title'] ?? 'Notification';
+    final title =
+        n['title'] ?? s.lookup('s4.lib.dashboard.notification_fallback');
     final body = n['body'] ?? n['message'] ?? '';
     final ts = n['createdAt'] ?? n['timestamp'] ?? '';
     String timeStr = '';
@@ -1918,9 +1932,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final dt = DateTime.parse(ts.toString());
         final diff = DateTime.now().difference(dt);
         if (diff.inMinutes < 60) {
-          timeStr = '${diff.inMinutes}m ago';
+          timeStr = s.format('s4.dynamic.dashboard.minutes_ago', {
+            'count': diff.inMinutes,
+          });
         } else if (diff.inHours < 24) {
-          timeStr = '${diff.inHours}h ago';
+          timeStr = s.format('s4.dynamic.dashboard.hours_ago', {
+            'count': diff.inHours,
+          });
         } else {
           timeStr = DateFormat('d MMM').format(dt);
         }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../l10n/app_strings.dart';
 import '../../theme/app_theme.dart';
 
 /// Centered "something went wrong" widget with a retry button.
@@ -18,17 +19,18 @@ class ErrorState extends StatelessWidget {
   final String message;
   final IconData icon;
   final VoidCallback? onRetry;
-  final String retryLabel;
+  final String? retryLabel;
   const ErrorState({
     super.key,
     required this.message,
     this.icon = Icons.error_outline,
     this.onRetry,
-    this.retryLabel = 'Retry',
+    this.retryLabel,
   });
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -59,7 +61,7 @@ class ErrorState extends StatelessWidget {
               ElevatedButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
-                label: Text(retryLabel),
+                label: Text(retryLabel ?? strings.actionRetry),
               ),
             ],
           ],

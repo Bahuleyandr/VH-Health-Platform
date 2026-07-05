@@ -10,6 +10,30 @@ class OvertimeScreen extends StatefulWidget {
   State<OvertimeScreen> createState() => _OvertimeScreenState();
 }
 
+String _overtimeStatusLabel(AppStrings s, String status) {
+  switch (status) {
+    case 'approved':
+      return s.overtimeStatusApproved;
+    case 'rejected':
+      return s.overtimeStatusRejected;
+    case 'pending':
+      return s.overtimeStatusPending;
+    default:
+      return status;
+  }
+}
+
+String _overtimeTypeLabel(AppStrings s, String type) {
+  switch (type) {
+    case 'comp_time':
+      return s.overtimeTypeCompTime;
+    case 'payment':
+      return s.overtimeTypePayment;
+    default:
+      return type;
+  }
+}
+
 class _OvertimeScreenState extends State<OvertimeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -111,7 +135,9 @@ class _OvertimeScreenState extends State<OvertimeScreen>
           indicatorColor: Colors.white,
           tabs: [
             Tab(text: s.overtimeTabRequest),
-            Tab(text: '${s.overtimeTabMy} (${_requests.length})'),
+            Tab(
+              text: s.attendanceTabWithCount(s.overtimeTabMy, _requests.length),
+            ),
           ],
         ),
       ),
@@ -289,14 +315,14 @@ class _OvertimeScreenState extends State<OvertimeScreen>
             ? Colors.red
             : Colors.orange;
         final hours = r['extra_hours'] as num? ?? 0;
-        final type = (r['type'] as String? ?? '').replaceAll('_', ' ');
+        final type = _overtimeTypeLabel(s, r['type'] as String? ?? '');
         return Card(
           child: ListTile(
             title: Text(r['date'] as String? ?? ''),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${hours}h · $type'),
+                Text(s.overtimeHoursAndType(hours.toString(), type)),
                 if ((r['reason'] as String? ?? '').isNotEmpty)
                   Text(
                     r['reason'] as String,
@@ -304,7 +330,7 @@ class _OvertimeScreenState extends State<OvertimeScreen>
                   ),
                 if (r['rejection_reason'] != null)
                   Text(
-                    'Rejected: ${r['rejection_reason']}',
+                    s.overtimeRejectedReason(r['rejection_reason'].toString()),
                     style: const TextStyle(color: Colors.red, fontSize: 12),
                   ),
               ],
@@ -318,7 +344,7 @@ class _OvertimeScreenState extends State<OvertimeScreen>
                 border: Border.all(color: statusColor),
               ),
               child: Text(
-                status.toUpperCase(),
+                _overtimeStatusLabel(s, status).toUpperCase(),
                 style: TextStyle(
                   fontSize: 10,
                   color: statusColor,

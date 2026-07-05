@@ -40,12 +40,12 @@ class _ActiveLabor {
   final bool highRisk;
   final List<String> highRiskReasons;
 
-  String get ageHours {
-    if (admittedAt == null) return '—';
+  String? get ageHoursValue {
+    if (admittedAt == null) return null;
     final d = DateTime.tryParse(admittedAt!);
-    if (d == null) return '—';
+    if (d == null) return null;
     final h = DateTime.now().difference(d).inMinutes / 60.0;
-    return '${h.toStringAsFixed(1)}h';
+    return h.toStringAsFixed(1);
   }
 }
 
@@ -88,8 +88,9 @@ class _MaternityScreenState extends State<MaternityScreen> {
           _loading = false;
         });
       } else {
+        final s = AppStrings.of(context);
         setState(() {
-          _error = response.failureMessage('Failed to load labour board');
+          _error = response.failureMessage(s.maternityLoadFailed);
           _loading = false;
         });
       }
@@ -194,6 +195,7 @@ class _LaborCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     final theme = Theme.of(context);
+    final admittedAge = labor.ageHoursValue;
     return Card(
       shape: RoundedRectangleBorder(
         side: labor.highRisk
@@ -214,12 +216,12 @@ class _LaborCard extends StatelessWidget {
                     children: [
                       Text(
                         'G${labor.gravida}P${labor.parity}'
-                        '${labor.gestationalAge != null ? ' · ${labor.gestationalAge}w' : ''}',
+                        '${labor.gestationalAge != null ? ' · ${s.maternityGestationalWeeks(labor.gestationalAge!)}' : ''}',
                         style: theme.textTheme.titleMedium,
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${s.maternityPatientPrefix} ${labor.patientUid.substring(0, 8)} · ${s.maternityAdmittedPrefix} ${labor.ageHours} ago',
+                        '${s.maternityPatientPrefix} ${labor.patientUid.substring(0, 8)} · ${s.maternityAdmittedPrefix} ${admittedAge == null ? "—" : s.maternityAdmissionAge(admittedAge)}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.outline,
                         ),

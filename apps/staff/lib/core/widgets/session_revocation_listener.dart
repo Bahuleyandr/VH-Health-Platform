@@ -17,6 +17,7 @@ import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
 import '../providers/session_timeout_provider.dart';
 import '../services/auth_service.dart';
+import '../../l10n/app_strings.dart';
 
 class SessionRevocationListener extends StatefulWidget {
   const SessionRevocationListener({super.key, required this.child});
@@ -56,13 +57,18 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
     final reason = data['reason']?.toString();
     final messenger = ScaffoldMessenger.maybeOf(context);
     final goRouter = GoRouter.of(context);
+    final strings = AppStrings.of(context);
 
     messenger?.showSnackBar(
       SnackBar(
         content: Text(
           reason == 'new_login_elsewhere'
-              ? 'Signed out — your account just logged in on another device.'
-              : 'Your session was revoked.',
+              ? strings.lookup(
+                  's4.lib.session_revocation_listener.signed_out_new_login',
+                )
+              : strings.lookup(
+                  's4.lib.session_revocation_listener.session_revoked',
+                ),
         ),
         duration: const Duration(seconds: 4),
       ),

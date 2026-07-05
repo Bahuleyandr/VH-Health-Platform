@@ -66,7 +66,10 @@ void main() {
         },
       ]);
 
-      final groups = appointmentSlotGroups(appointments);
+      final groups = appointmentSlotGroups(
+        appointments,
+        unscheduledLabel: 'Unscheduled',
+      );
 
       expect(groups.keys.toList(), ['09:00', '10:30', 'Unscheduled']);
       expect(groups['09:00']!.map((a) => a.patientName), ['Priya Iyer']);

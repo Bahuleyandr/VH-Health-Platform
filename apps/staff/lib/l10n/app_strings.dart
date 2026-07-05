@@ -400,9 +400,16 @@ class AppStrings {
   String get attendanceLegendAbsent => _t('attendance.legend.absent');
   String get attendanceLegendLeave => _t('attendance.legend.leave');
   String get attendanceLegendLate => _t('attendance.legend.late');
+  String get attendanceStatusWeekend => _t('attendance.status.weekend');
   String get attendanceCheckInLabel => _t('attendance.check_in_label');
   String get attendanceCheckOutLabel => _t('attendance.check_out_label');
   String get attendanceHoursLabel => _t('attendance.hours_label');
+  String attendanceHoursCompact(String hours) =>
+      format('s4.dynamic.attendance.hours_compact', {'hours': hours});
+  String attendanceTabWithCount(String label, int count) => format(
+    's4.dynamic.attendance.tab_count',
+    {'label': label, 'count': count},
+  );
   String get attendanceLateArrival => _t('attendance.late_arrival');
   String get attendanceNoHistory => _t('attendance.no_history');
   String get attendanceHistoryAbsent => _t('attendance.history.absent');
@@ -1322,6 +1329,27 @@ class AppStrings {
   String get drugChartSavedToast => _t('drug_chart.saved_toast');
   String get drugChartEmpty => _t('drug_chart.empty');
   String get drugChartGiven => _t('drug_chart.given');
+  String get drugChartToolbarEditableHint =>
+      _t('drug_chart.toolbar.editable_hint');
+  String get drugChartToolbarReadOnlyHint =>
+      _t('drug_chart.toolbar.read_only_hint');
+  String drugChartActiveRows(int count) =>
+      format('s4.dynamic.drug_chart.active_rows', {'count': count});
+  String drugChartUnsavedRows(int count) =>
+      format('s4.dynamic.drug_chart.unsaved_rows', {'count': count});
+  String get drugChartPharmacyPending => _t('drug_chart.pharmacy_pending');
+  String get drugChartFreeText => _t('drug_chart.free_text');
+  String drugChartStartedOn(String date) =>
+      format('s4.dynamic.drug_chart.started_on', {'date': date});
+  String drugChartStartedBy(String name) =>
+      format('s4.dynamic.drug_chart.started_by', {'name': name});
+  String drugChartAntibioticDay(int day) =>
+      format('s4.dynamic.drug_chart.antibiotic_day', {'day': day});
+  String get drugChartSafetyClear => _t('drug_chart.safety_clear');
+  String drugChartNextDue(String time) =>
+      format('s4.dynamic.drug_chart.next_due', {'time': time});
+  String drugChartGivenCount(int count) =>
+      format('s4.dynamic.drug_chart.given_count', {'count': count});
   String get drugChartColumnDrug => _t('drug_chart.column.drug');
   String get drugChartColumnDose => _t('drug_chart.column.dose');
   String get drugChartColumnRoute => _t('drug_chart.column.route');
@@ -1607,6 +1635,31 @@ class AppStrings {
       _t('payroll.declaration.past_title');
   String get payrollDeclarationFySubmitted =>
       _t('payroll.declaration.fy_submitted');
+  String payrollFyLabel(String fy) =>
+      format('s4.dynamic.payroll.fy_label', {'fy': fy});
+  String payrollSubmittedOn(String date) =>
+      format('s4.dynamic.payroll.submitted_on', {'date': date});
+  String payrollMonthName(int month) =>
+      month < 1 || month > 12 ? '—' : _t('payroll.month.$month');
+  String payrollMonthShort(int month) =>
+      month < 1 || month > 12 ? '—' : _t('payroll.month_short.$month');
+  String payrollQueryCategory(String category) {
+    final normalized = category.trim().toLowerCase();
+    final key = 'payroll.query.category.$normalized';
+    final translated = _t(key);
+    return translated == key ? normalized.replaceAll('_', ' ') : translated;
+  }
+
+  String payrollQueryStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    final key = 'payroll.query.status.$normalized';
+    final translated = _t(key);
+    return translated == key ? normalized.replaceAll('_', ' ') : translated;
+  }
+
+  String get payrollDeclarationChip80c => _t('payroll.declaration.chip_80c');
+  String get payrollDeclarationChip80d => _t('payroll.declaration.chip_80d');
+  String get payrollDeclarationChipNps => _t('payroll.declaration.chip_nps');
 
   // ── HR ─────────────────────────────────────────────────────────────
   String get hrDashboardTitle => _t('hr.dashboard.title');
@@ -1985,6 +2038,11 @@ class AppStrings {
   String get theatreTabAvailability => _t('theatre.tab.availability');
   String get theatreNoSurgeries => _t('theatre.no_surgeries');
   String get theatreNoRoomData => _t('theatre.no_room_data');
+  String get theatreProcedureFallback => _t('theatre.procedure_fallback');
+  String theatreOtRoom(String room) =>
+      format('s4.dynamic.theatre.ot_room', {'room': room});
+  String theatreDurationMinutes(String minutes) =>
+      format('s4.dynamic.theatre.duration_minutes', {'minutes': minutes});
   String get theatreStatusScheduled => _t('theatre.status.scheduled');
   String get theatreStatusInProgress => _t('theatre.status.in_progress');
   String get theatreStatusCompleted => _t('theatre.status.completed');
@@ -2130,6 +2188,19 @@ class AppStrings {
   String get labBookingsResultUploadedToast =>
       _t('lab_bookings.result_uploaded_toast');
   String get labBookingsViewResult => _t('lab_bookings.view_result');
+  String get labBookingsStatusBooked => _t('lab_bookings.status.booked');
+  String get labBookingsStatusConfirmed => _t('lab_bookings.status.confirmed');
+  String get labBookingsStatusDispatched =>
+      _t('lab_bookings.status.dispatched');
+  String get labBookingsStatusCollected => _t('lab_bookings.status.collected');
+  String get labBookingsStatusProcessing =>
+      _t('lab_bookings.status.processing');
+  String get labBookingsStatusResultReady =>
+      _t('lab_bookings.status.result_ready');
+  String labBookingsMinutesAgo(int minutes) =>
+      format('s4.dynamic.lab_bookings.minutes_ago', {'minutes': minutes});
+  String labBookingsHoursAgo(String hours) =>
+      format('s4.dynamic.lab_bookings.hours_ago', {'hours': hours});
   String get pharmacyTitle => _t('pharmacy.title');
   String get pharmacyQueueTitle => _t('pharmacy.queue_title');
   String get pharmacyQueueSubtitle => _t('pharmacy.queue_subtitle');
@@ -2189,6 +2260,13 @@ class AppStrings {
   String get dueMedsAllWards => _t('due_meds.filter.all_wards');
   String get dueMedsAllRoutes => _t('due_meds.filter.all_routes');
   String get dueMedsRouteFilterLabel => _t('due_meds.filter.route_label');
+  String dueMedsWardFallback(String value) =>
+      format('s4.dynamic.due_meds.ward_fallback', {'value': value});
+  String get dueMedsUnscheduled => _t('due_meds.unscheduled');
+  String dueMedsDueLate(String value) =>
+      format('s4.dynamic.due_meds.due_late', {'value': value});
+  String dueMedsDueIn(String value) =>
+      format('s4.dynamic.due_meds.due_in', {'value': value});
   String get marScanTitle => _t('mar_scan.title');
   // REVIEW: clinical-action / safety wording for medication 5-rights
   String get marScanStep1Prompt => _t('mar_scan.step1_prompt');
@@ -2279,6 +2357,11 @@ class AppStrings {
   String get disputeSubmittedSuccess => _t('dispute.submitted_success');
   String get disputeEmpty => _t('dispute.empty');
   String get disputeHrCommentPrefix => _t('dispute.hr_comment_prefix');
+  String get disputeStatusPending => _t('dispute.status.pending');
+  String get disputeStatusApproved => _t('dispute.status.approved');
+  String get disputeStatusRejected => _t('dispute.status.rejected');
+  String disputeHrComment(String comment) =>
+      format('s4.dynamic.dispute.hr_comment', {'comment': comment});
   String get overtimeTitle => _t('overtime.title');
   String get overtimeTabRequest => _t('overtime.tab.request');
   String get overtimeTabMy => _t('overtime.tab.my');
@@ -2295,6 +2378,15 @@ class AppStrings {
   String get overtimeSubmittedSuccess => _t('overtime.submitted_success');
   String get overtimeEmpty => _t('overtime.empty');
   String get overtimeRejectedPrefix => _t('overtime.rejected_prefix');
+  String get overtimeStatusPending => _t('overtime.status.pending');
+  String get overtimeStatusApproved => _t('overtime.status.approved');
+  String get overtimeStatusRejected => _t('overtime.status.rejected');
+  String overtimeHoursAndType(String hours, String type) => format(
+    's4.dynamic.overtime.hours_and_type',
+    {'hours': hours, 'type': type},
+  );
+  String overtimeRejectedReason(String reason) =>
+      format('s4.dynamic.overtime.rejected_reason', {'reason': reason});
 
   // ── Clinical AI ───────────────────────────────────────────────────
   String get clinicalAiQueueTitle => _t('clinical_ai.queue.title');
@@ -2316,6 +2408,34 @@ class AppStrings {
   String get clinicalAiQueueLoadFailed => _t('clinical_ai.queue.load_failed');
   String get clinicalAiQueuePatientFallback =>
       _t('clinical_ai.queue.patient_fallback');
+  String clinicalAiModuleLabel(String moduleKey) {
+    final normalized = moduleKey.trim().toLowerCase();
+    if (normalized.isEmpty || normalized == '—') return '—';
+    final reusedKey = switch (normalized) {
+      'op_visit_prep' => 's4.lib.op_ai_assist.op_visit_prep',
+      'polypharmacy_ai_review' =>
+        's4.lib.op_ai_assist.prescription_safety_assistant',
+      'op_investigation_review' =>
+        's4.lib.op_ai_assist.investigation_review_aid',
+      'op_differential_red_flags' =>
+        's4.lib.op_ai_assist.differential_red_flag_checklist',
+      'op_follow_up_plan' => 's4.lib.op_ai_assist.follow_up_plan_draft',
+      'op_referral_draft' =>
+        's4.lib.op_ai_assist.referral_second_opinion_draft',
+      _ => null,
+    };
+    if (reusedKey != null) return _t(reusedKey);
+
+    final moduleKeyName = 'clinical_ai.module.$normalized';
+    final translated = _t(moduleKeyName);
+    if (translated != moduleKeyName) return translated;
+    return normalized
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
+  }
+
   String get clinicalAiDraftRejectTitle => _t('clinical_ai.draft.reject_title');
   String get clinicalAiDraftRejectReasonLabel =>
       _t('clinical_ai.draft.reject_reason_label');
@@ -2595,6 +2715,19 @@ class AppStrings {
 
   // ── Misc shared widgets ────────────────────────────────────────────
   String get shiftCardNoShift => _t('shift_card.no_shift');
+  String get shiftCardFallbackName => _t('shift_card.fallback_name');
+  String shiftCardDisplayName(String name) =>
+      format('s4.dynamic.shift_card.display_name', {'name': name});
+  String shiftCardTimeRangeGrace(String start, String end, int grace) => format(
+    's4.dynamic.shift_card.time_range_grace',
+    {'start': start, 'end': end, 'grace': grace},
+  );
+  String get breakTrackerEndBreak => _t('break_tracker.end_break');
+  String get breakTrackerTakeBreak => _t('break_tracker.take_break');
+  String breakTrackerTotalMinutes(int minutes) =>
+      format('s4.dynamic.break_tracker.total_minutes', {'minutes': minutes});
+  String breakTrackerDurationMinutes(int minutes) =>
+      format('s4.dynamic.break_tracker.duration_minutes', {'minutes': minutes});
   String get pharmacyNoPreview => _t('pharmacy.no_preview');
   String get printGeneratedBy => _t('print.generated_by');
   String get blockedFeatureTitle => _t('blocked_feature.title');
@@ -2656,8 +2789,13 @@ class AppStrings {
   // REVIEW: clinical — confirm 'Labour ward is quiet' phrasing with midwifery staff
   String get maternityEmptyTitle => _t('maternity.empty_title');
   String get maternityEmptyBody => _t('maternity.empty_body');
+  String get maternityLoadFailed => _t('maternity.load_failed');
   String get maternityAdmittedPrefix => _t('maternity.admitted_prefix');
   String get maternityPatientPrefix => _t('maternity.patient_prefix');
+  String maternityGestationalWeeks(String weeks) =>
+      format('s4.dynamic.maternity.gestational_weeks', {'weeks': weeks});
+  String maternityAdmissionAge(String hours) =>
+      format('s4.dynamic.maternity.admission_age', {'hours': hours});
   String get maternityHighRiskLabel => _t('maternity.high_risk_label');
   String get maternityStatCervix => _t('maternity.stat.cervix');
   String get maternityStatFhr => _t('maternity.stat.fhr');
@@ -2694,6 +2832,14 @@ class AppStrings {
   String get partographDecelLate => _t('partograph_entry.decel.late');
   String get partographDecelVariable => _t('partograph_entry.decel.variable');
   String get partographAmnioticFluid => _t('partograph_entry.amniotic_fluid');
+  String get partographAmnioticIntactMembranes =>
+      _t('partograph_entry.amniotic.intact_membranes');
+  String get partographAmnioticClear => _t('partograph_entry.amniotic.clear');
+  String get partographAmnioticMeconiumThin =>
+      _t('partograph_entry.amniotic.meconium_thin');
+  String get partographAmnioticMeconiumThick =>
+      _t('partograph_entry.amniotic.meconium_thick');
+  String get partographAmnioticBlood => _t('partograph_entry.amniotic.blood');
   String get partographMoulding => _t('partograph_entry.moulding');
   String get partographBpSystolic => _t('partograph_entry.bp_systolic');
   String get partographBpDiastolic => _t('partograph_entry.bp_diastolic');
@@ -2702,6 +2848,8 @@ class AppStrings {
   String get partographUrineOutput => _t('partograph_entry.urine_output');
   String get partographUrineProtein => _t('partograph_entry.urine_protein');
   String get partographUrineAcetone => _t('partograph_entry.urine_acetone');
+  String get partographUrineNil => _t('partograph_entry.urine.nil');
+  String get partographUrineTrace => _t('partograph_entry.urine.trace');
   String get partographOxytocin => _t('partograph_entry.oxytocin');
   String get partographOxytocinDrops => _t('partograph_entry.oxytocin_drops');
   String get partographOtherDrugs => _t('partograph_entry.other_drugs');
@@ -2709,6 +2857,7 @@ class AppStrings {
   String get partographNotes => _t('partograph_entry.notes');
   String get partographSaving => _t('partograph_entry.saving');
   String get partographSaveEntry => _t('partograph_entry.save_entry');
+  String get partographSaveFailed => _t('partograph_entry.save_failed');
   // REVIEW: critical clinical alert — escalation to obstetrician
   String get partographSavedActionLine =>
       _t('partograph_entry.saved_action_line');
@@ -2719,13 +2868,24 @@ class AppStrings {
 
   // ── Partograph view screen ─────────────────────────────────────────
   String get partographViewTitle => _t('partograph_view.title');
+  String get partographViewLoadAdmissionFailed =>
+      _t('partograph_view.load_admission_failed');
+  String get partographViewLoadFailed => _t('partograph_view.load_failed');
   // REVIEW: critical clinical alert label — escalation to obstetrician
-  String partographViewActionLineCrossed(int count) =>
-      _t('partograph_view.action_line_crossed').replaceAll('{n}', '$count');
+  String partographViewActionLineCrossed(int count) => format(
+    count == 1
+        ? 'partograph_view.action_line_crossed.one'
+        : 'partograph_view.action_line_crossed.other',
+    {'n': count},
+  );
   String get partographViewActionLineSubtitle =>
       _t('partograph_view.action_line_subtitle');
-  String partographViewAlertLineCrossed(int count) =>
-      _t('partograph_view.alert_line_crossed').replaceAll('{n}', '$count');
+  String partographViewAlertLineCrossed(int count) => format(
+    count == 1
+        ? 'partograph_view.alert_line_crossed.one'
+        : 'partograph_view.alert_line_crossed.other',
+    {'n': count},
+  );
   String get partographViewAlertLineSubtitle =>
       _t('partograph_view.alert_line_subtitle');
   String get partographViewNoAnchor => _t('partograph_view.no_anchor');
@@ -2733,6 +2893,19 @@ class AppStrings {
   String get partographViewRecentEntries =>
       _t('partograph_view.recent_entries');
   String get partographViewNoEntries => _t('partograph_view.no_entries');
+  String partographViewPointSummary(String hours, String cervix, String fhr) =>
+      format('s4.dynamic.partograph_view.point_summary', {
+        'hours': hours,
+        'cervix': cervix,
+        'fhr': fhr,
+      });
+  String get partographChartOnTrack => _t('partograph_chart.on_track');
+  String get partographChartPastAlertLine =>
+      _t('partograph_chart.past_alert_line');
+  String get partographChartPastActionLine =>
+      _t('partograph_chart.past_action_line');
+  String get partographChartAlertLine => _t('partograph_chart.alert_line');
+  String get partographChartActionLine => _t('partograph_chart.action_line');
 
   // ── Safety Center screen ───────────────────────────────────────────
   String get safetyCenterTitle => _t('safety_center.title');
@@ -3142,9 +3315,12 @@ class AppStrings {
       'attendance.legend.absent': 'Absent',
       'attendance.legend.leave': 'Leave',
       'attendance.legend.late': 'Late',
+      'attendance.status.weekend': 'Weekend',
       'attendance.check_in_label': 'Check-in',
       'attendance.check_out_label': 'Check-out',
       'attendance.hours_label': 'Hours',
+      's4.dynamic.attendance.hours_compact': '{hours}h',
+      's4.dynamic.attendance.tab_count': '{label} ({count})',
       'attendance.late_arrival': '⚠️ Late arrival',
       'attendance.no_history': 'No attendance history',
       'attendance.history.absent': 'Absent',
@@ -3214,6 +3390,24 @@ class AppStrings {
       'drug_chart.saved_toast': 'Drug order saved and pharmacy intimated',
       'drug_chart.empty': 'No inpatient drugs charted',
       'drug_chart.given': 'Given',
+      'drug_chart.toolbar.editable_hint':
+          'Add rows inline. Time ticks become nurse MAR due doses.',
+      'drug_chart.toolbar.read_only_hint':
+          'Read-only chart with nurse MAR and pharmacy indent status.',
+      's4.dynamic.drug_chart.active_rows': '{count} active rows',
+      's4.dynamic.drug_chart.unsaved_rows': '{count} unsaved',
+      'drug_chart.pharmacy_pending': 'pharmacy pending',
+      'drug_chart.free_text': 'Free text',
+      's4.lib.drug_chart.in_stock': "In stock",
+      's4.lib.drug_chart.may_be_available': "May be available",
+      's4.lib.drug_chart.out_of_stock': "Out of stock",
+      's4.dynamic.drug_chart.in_stock_count': "In stock ({count})",
+      's4.dynamic.drug_chart.started_on': 'Started {date}',
+      's4.dynamic.drug_chart.started_by': 'By {name}',
+      's4.dynamic.drug_chart.antibiotic_day': 'Antibiotic day {day}',
+      'drug_chart.safety_clear': 'Safety clear',
+      's4.dynamic.drug_chart.next_due': 'Next due {time}',
+      's4.dynamic.drug_chart.given_count': '{count} given',
       'drug_chart.column.drug': 'Drug',
       'drug_chart.column.dose': 'Dose',
       'drug_chart.column.route': 'Route',
@@ -4150,6 +4344,8 @@ class AppStrings {
           'This is indicative only, calculated under the New Tax Regime. Actual Form 16 will be issued by your employer at the end of the financial year.',
       'payroll.tax_summary.download_pdf': 'Download PDF',
       'payroll.tax_summary.download_form16': 'Download Form 16 PDF',
+      's4.dynamic.payroll.payslips_included_fy':
+          "{count} payslips included in FY {fy}",
       'payroll.declaration.title': 'Tax Declaration (80C/80D)',
       'payroll.declaration.estimated_deductions': 'Estimated Tax Deductions',
       'payroll.declaration.total_deductions': 'Total Deductions',
@@ -4178,6 +4374,51 @@ class AppStrings {
           'Declaration submitted successfully!',
       'payroll.declaration.past_title': 'Past Declarations',
       'payroll.declaration.fy_submitted': 'Submitted',
+      'payroll.declaration.chip_80c': '80C (max ₹1.5L)',
+      'payroll.declaration.chip_80d': '80D',
+      'payroll.declaration.chip_nps': 'NPS',
+      'payroll.month.1': 'January',
+      'payroll.month.2': 'February',
+      'payroll.month.3': 'March',
+      'payroll.month.4': 'April',
+      'payroll.month.5': 'May',
+      'payroll.month.6': 'June',
+      'payroll.month.7': 'July',
+      'payroll.month.8': 'August',
+      'payroll.month.9': 'September',
+      'payroll.month.10': 'October',
+      'payroll.month.11': 'November',
+      'payroll.month.12': 'December',
+      'payroll.month_short.1': 'Jan',
+      'payroll.month_short.2': 'Feb',
+      'payroll.month_short.3': 'Mar',
+      'payroll.month_short.4': 'Apr',
+      'payroll.month_short.5': 'May',
+      'payroll.month_short.6': 'Jun',
+      'payroll.month_short.7': 'Jul',
+      'payroll.month_short.8': 'Aug',
+      'payroll.month_short.9': 'Sep',
+      'payroll.month_short.10': 'Oct',
+      'payroll.month_short.11': 'Nov',
+      'payroll.month_short.12': 'Dec',
+      'payroll.query.category.general': 'General',
+      'payroll.query.category.basic_salary': 'Basic salary',
+      'payroll.query.category.hra': 'HRA',
+      'payroll.query.category.deductions': 'Deductions',
+      'payroll.query.category.overtime': 'Overtime',
+      'payroll.query.category.advance': 'Advance',
+      'payroll.query.category.tds': 'TDS',
+      'payroll.query.category.pf': 'PF',
+      'payroll.query.category.other': 'Other',
+      'payroll.query.status.open': 'Open',
+      'payroll.query.status.in_review': 'In review',
+      'payroll.query.status.resolved': 'Resolved',
+      'payroll.query.status.submitted': 'Submitted',
+      'payroll.query.status.approved': 'Approved',
+      'payroll.query.status.rejected': 'Rejected',
+      'payroll.query.status.draft': 'Draft',
+      's4.dynamic.payroll.fy_label': 'FY {fy}',
+      's4.dynamic.payroll.submitted_on': 'Submitted: {date}',
       // HR
       'hr.dashboard.title': 'HR Dashboard',
       'hr.timeframe.this_month': 'This Month',
@@ -4278,6 +4519,9 @@ class AppStrings {
       'directory.api_unavailable':
           'Check the backend connection or your staff-directory permission.',
       'directory.staff_empty_body': 'No staff found',
+      's4.dynamic.directory.employee_id': "ID: {id}",
+      's4.dynamic.directory.shift': "Shift: {shift}",
+      's4.lib.directory.other': "Other",
       // Reports & Grievances
       'reports.hub.title': 'Reports & Grievances',
       'reports.hub.confidentiality_note':
@@ -4517,6 +4761,9 @@ class AppStrings {
       'theatre.tab.availability': 'Availability',
       'theatre.no_surgeries': 'No surgeries scheduled',
       'theatre.no_room_data': 'No room data available',
+      'theatre.procedure_fallback': 'Procedure',
+      's4.dynamic.theatre.ot_room': 'OT {room}',
+      's4.dynamic.theatre.duration_minutes': '{minutes} min',
       'theatre.status.scheduled': 'Scheduled',
       'theatre.status.in_progress': 'In Progress',
       'theatre.status.completed': 'Completed',
@@ -4585,6 +4832,23 @@ class AppStrings {
       'schedule.hours_worked_suffix': 'h worked',
       'schedule.upcoming': 'Upcoming',
       'schedule.no_record': 'No record',
+      's4.lib.schedule.assigned_duty': "Assigned duty",
+      's4.lib.schedule.duty': "Duty",
+      's4.lib.schedule.no_attendance_logged_yet': "No attendance logged yet",
+      's4.lib.schedule.no_published_duty': "No published duty",
+      's4.dynamic.schedule.assignment_line': "{shift} {start}-{end}",
+      's4.dynamic.schedule.assignment_line_lead':
+          "{shift} {start}-{end} - Lead",
+      's4.dynamic.schedule.attendance_summary':
+          "{days} attendance days - {hours}h logged",
+      's4.dynamic.schedule.attendance_unavailable':
+          "Attendance unavailable: {error}",
+      's4.dynamic.schedule.hours_worked': "{hours}h worked",
+      's4.dynamic.schedule.published_roster_unavailable':
+          "Published roster unavailable: {error}",
+      's4.dynamic.schedule.rostered_shift_count.one': "{count} rostered shift",
+      's4.dynamic.schedule.rostered_shift_count.other':
+          "{count} rostered shifts",
       'schedule.load_failed_prefix': 'Could not load schedule:',
       // Lab / Pharmacy / Investigations
       'investigations.title': 'Investigations',
@@ -4646,6 +4910,14 @@ class AppStrings {
       'lab_bookings.select_file': 'Select File',
       'lab_bookings.result_uploaded_toast': 'Result uploaded',
       'lab_bookings.view_result': 'View Result',
+      'lab_bookings.status.booked': 'Booked',
+      'lab_bookings.status.confirmed': 'Confirmed',
+      'lab_bookings.status.dispatched': 'Dispatched',
+      'lab_bookings.status.collected': 'Collected',
+      'lab_bookings.status.processing': 'Processing',
+      'lab_bookings.status.result_ready': 'Result ready',
+      's4.dynamic.lab_bookings.minutes_ago': '{minutes}m ago',
+      's4.dynamic.lab_bookings.hours_ago': '{hours}h ago',
       'pharmacy.title': 'Pharmacy Orders',
       'pharmacy.queue_title': 'Pharmacy Queue',
       'pharmacy.queue_subtitle': 'orders queued',
@@ -4696,6 +4968,10 @@ class AppStrings {
       'due_meds.filter.all_wards': 'All wards',
       'due_meds.filter.all_routes': 'All routes',
       'due_meds.filter.route_label': 'Route',
+      's4.dynamic.due_meds.ward_fallback': 'Ward {value}',
+      'due_meds.unscheduled': 'unscheduled',
+      's4.dynamic.due_meds.due_late': '{value} late',
+      's4.dynamic.due_meds.due_in': 'in {value}',
       'mar_scan.title': 'Administer Medication',
       'mar_scan.step1_prompt': 'Step 1 of 3 - Scan patient wristband',
       'mar_scan.step1_subtitle':
@@ -4792,6 +5068,10 @@ class AppStrings {
           '✅ Dispute submitted. HR will review within 24 hours.',
       'dispute.empty': 'No disputes filed',
       'dispute.hr_comment_prefix': 'HR:',
+      'dispute.status.pending': 'Pending',
+      'dispute.status.approved': 'Approved',
+      'dispute.status.rejected': 'Rejected',
+      's4.dynamic.dispute.hr_comment': 'HR: {comment}',
       'overtime.title': 'Overtime Requests',
       'overtime.tab.request': 'Request',
       'overtime.tab.my': 'My Requests',
@@ -4807,6 +5087,11 @@ class AppStrings {
       'overtime.submitted_success': '✅ Overtime request submitted',
       'overtime.empty': 'No overtime requests',
       'overtime.rejected_prefix': 'Rejected:',
+      'overtime.status.pending': 'Pending',
+      'overtime.status.approved': 'Approved',
+      'overtime.status.rejected': 'Rejected',
+      's4.dynamic.overtime.hours_and_type': '{hours}h · {type}',
+      's4.dynamic.overtime.rejected_reason': 'Rejected: {reason}',
       // Clinical AI
       'clinical_ai.queue.title': 'AI Review Queue',
       'clinical_ai.queue.compose_button': 'Compose runs',
@@ -4821,6 +5106,24 @@ class AppStrings {
           'When a clinical AI draft is generated for an admission you reviewer-cover, it will appear here.',
       'clinical_ai.queue.load_failed': 'Failed to load reviews',
       'clinical_ai.queue.patient_fallback': 'Patient',
+      'clinical_ai.module.abnormal_result_triage': 'Abnormal result triage',
+      'clinical_ai.module.ai_safety_reviewer': 'AI safety reviewer',
+      'clinical_ai.module.antimicrobial_stewardship':
+          'Antimicrobial stewardship',
+      'clinical_ai.module.clinical_coding_assist': 'Clinical coding assist',
+      'clinical_ai.module.clinical_task_extractor': 'Clinical task extractor',
+      'clinical_ai.module.daily_ward_round_brief': 'Daily ward round brief',
+      'clinical_ai.module.discharge_readiness': 'Discharge readiness',
+      'clinical_ai.module.discharge_summary': 'Discharge summary',
+      'clinical_ai.module.discharge_summary_compose':
+          'Discharge package compose',
+      'clinical_ai.module.medication_reconciliation':
+          'Medication reconciliation',
+      'clinical_ai.module.patient_aftercare_instructions':
+          'Aftercare instructions',
+      'clinical_ai.module.patient_record_summary': 'Patient record summary',
+      'clinical_ai.module.referral_letter': 'Referral letter',
+      'clinical_ai.module.soap_from_dictation': 'SOAP from dictation',
       'clinical_ai.draft.reject_title': 'Reject draft',
       'clinical_ai.draft.reject_reason_label': 'Reason',
       'clinical_ai.draft.reject_reason_hint': 'Why is this draft unsuitable?',
@@ -4943,6 +5246,19 @@ class AppStrings {
       'cds.blocker_adjust_order': 'Adjust order',
       'cds.override_button': 'Override',
       'cds.override_save': 'Override & save',
+      's4.lib.cds_blocker_modal.category.alternative_unavailable':
+          "No suitable alternative",
+      's4.lib.cds_blocker_modal.category.allergy_disputed':
+          "Allergy disputed / mislabelled",
+      's4.lib.cds_blocker_modal.category.benefit_outweighs_risk':
+          "Benefit outweighs risk",
+      's4.lib.cds_blocker_modal.category.other': "Other (specify below)",
+      's4.lib.cds_blocker_modal.category.prior_tolerance_documented':
+          "Prior tolerance documented",
+      's4.lib.cds_blocker_modal.justification_not_repeated_character':
+          "Justification must not be a repeated character",
+      's4.lib.cds_blocker_modal.minimum_15_characters_required':
+          "Minimum 15 characters required",
       // Code Blue - emergency overlay
       'code_blue.title': 'CODE BLUE',
       'code_blue.respond': 'Respond immediately.',
@@ -4988,6 +5304,14 @@ class AppStrings {
       'logout.tooltip': 'Logout',
       // Misc shared
       'shift_card.no_shift': 'No shift assigned',
+      'shift_card.fallback_name': 'Shift',
+      's4.dynamic.shift_card.display_name': '{name} Shift',
+      's4.dynamic.shift_card.time_range_grace':
+          '{start} - {end}  ·  {grace}min grace',
+      'break_tracker.end_break': 'End Break',
+      'break_tracker.take_break': 'Take a Break',
+      's4.dynamic.break_tracker.total_minutes': '{minutes}min total',
+      's4.dynamic.break_tracker.duration_minutes': ' ({minutes}min)',
       'pharmacy.no_preview': 'No preview',
       'print.generated_by': 'Generated by VHHealth Staff app',
       'blocked_feature.title': 'Feature unavailable on this device',
@@ -5035,8 +5359,11 @@ class AppStrings {
       'maternity.retry': 'Retry',
       'maternity.empty_title': 'Labour ward is quiet',
       'maternity.empty_body': 'No active labour admissions right now.',
+      'maternity.load_failed': 'Failed to load labour board',
       'maternity.admitted_prefix': 'admitted',
       'maternity.patient_prefix': 'Patient',
+      's4.dynamic.maternity.gestational_weeks': '{weeks}w',
+      's4.dynamic.maternity.admission_age': '{hours}h ago',
       'maternity.high_risk_label': '⚠ HIGH RISK',
       'maternity.stat.cervix': 'Cervix',
       'maternity.stat.fhr': 'FHR',
@@ -5066,6 +5393,11 @@ class AppStrings {
       'partograph_entry.decel.late': 'late',
       'partograph_entry.decel.variable': 'variable',
       'partograph_entry.amniotic_fluid': 'Amniotic fluid',
+      'partograph_entry.amniotic.intact_membranes': 'Intact membranes',
+      'partograph_entry.amniotic.clear': 'Clear',
+      'partograph_entry.amniotic.meconium_thin': 'Meconium thin',
+      'partograph_entry.amniotic.meconium_thick': 'Meconium thick',
+      'partograph_entry.amniotic.blood': 'Blood',
       'partograph_entry.moulding': 'Moulding',
       'partograph_entry.bp_systolic': 'BP systolic',
       'partograph_entry.bp_diastolic': 'BP diastolic',
@@ -5074,6 +5406,8 @@ class AppStrings {
       'partograph_entry.urine_output': 'Urine output (mL)',
       'partograph_entry.urine_protein': 'Urine protein',
       'partograph_entry.urine_acetone': 'Urine acetone',
+      'partograph_entry.urine.nil': 'nil',
+      'partograph_entry.urine.trace': 'trace',
       'partograph_entry.oxytocin': 'Oxytocin (units/L)',
       'partograph_entry.oxytocin_drops': 'Oxytocin (drops/min)',
       'partograph_entry.other_drugs': 'Other drugs given',
@@ -5081,18 +5415,26 @@ class AppStrings {
       'partograph_entry.notes': 'Notes',
       'partograph_entry.saving': 'Saving…',
       'partograph_entry.save_entry': 'Save entry',
+      'partograph_entry.save_failed': 'Save failed',
       'partograph_entry.saved_action_line':
           'Saved · ACTION line crossed — escalate to obstetrician',
       'partograph_entry.saved_alert_line': 'Saved · alert line crossed',
       'partograph_entry.saved': 'Saved',
       // Partograph view screen (B6.5)
       'partograph_view.title': 'Partograph',
-      'partograph_view.action_line_crossed':
-          'Action line crossed in {n} entr{suffix}',
+      'partograph_view.load_admission_failed':
+          'Failed to load labour admission',
+      'partograph_view.load_failed': 'Failed to load partograph',
+      'partograph_view.action_line_crossed.one':
+          'Action line crossed in {n} entry',
+      'partograph_view.action_line_crossed.other':
+          'Action line crossed in {n} entries',
       'partograph_view.action_line_subtitle':
           'Escalate to obstetrician — labour progress is below the WHO action line.',
-      'partograph_view.alert_line_crossed':
-          'Alert line crossed in {n} entr{suffix}',
+      'partograph_view.alert_line_crossed.one':
+          'Alert line crossed in {n} entry',
+      'partograph_view.alert_line_crossed.other':
+          'Alert line crossed in {n} entries',
       'partograph_view.alert_line_subtitle':
           'Increase frequency of monitoring; consider intervention if no progress.',
       'partograph_view.no_anchor':
@@ -5101,6 +5443,13 @@ class AppStrings {
       'partograph_view.recent_entries': 'Recent entries',
       'partograph_view.no_entries':
           'No entries yet — tap "New entry" to record.',
+      's4.dynamic.partograph_view.point_summary':
+          '{hours}h · {cervix} cm cervix · FHR {fhr}',
+      'partograph_chart.on_track': 'On track',
+      'partograph_chart.past_alert_line': 'Past alert line',
+      'partograph_chart.past_action_line': 'Past action line',
+      'partograph_chart.alert_line': 'Alert line (1 cm/hr)',
+      'partograph_chart.action_line': 'Action line (alert + 4h)',
       // Safety Center screen (B6.5)
       'safety_center.title': 'Safety Center',
       'safety_center.refresh_tooltip': 'Refresh',
@@ -5268,7 +5617,18 @@ class AppStrings {
       's4.lib.appointment_queue.open_front_office': "Open Front Office",
       's4.lib.appointment_queue.opening_front_office_workbench':
           "Opening Front Office Workbench",
+      'appointments.status.all': 'All',
+      'appointments.status.scheduled': 'Scheduled',
+      'appointments.status.confirmed': 'Confirmed',
+      'appointments.status.completed': 'Completed',
+      'appointments.status.rescheduled': 'Rescheduled',
+      'appointments.status.no_show': 'No-show',
+      'appointments.status.cancelled': 'Cancelled',
+      's4.lib.appointments.all_op_queues': "All OP queues",
       's4.lib.appointments.any_available_doctor': "Any available doctor",
+      's4.lib.appointments.appointment_created_successfully':
+          "Appointment created successfully",
+      's4.lib.appointments.appointments': "Appointments",
       's4.lib.appointments.book_op': "Book OP",
       // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
@@ -5276,6 +5636,7 @@ class AppStrings {
       's4.lib.appointments.collapse_queue_panel': "Collapse queue panel",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
           "Could not check registry now; new-patient booking is available",
+      's4.lib.appointments.could_not_load_doctors': "Could not load doctors",
       's4.lib.appointments.create_appointment': "Create Appointment",
       's4.lib.appointments.creating': "Creating...",
       's4.lib.appointments.checking_patient_registry':
@@ -5292,17 +5653,26 @@ class AppStrings {
       's4.lib.appointments.filter_doctor_or_department':
           "Filter doctor or department",
       's4.lib.appointments.flex': "Flex",
+      's4.lib.appointments.calendar_day': "day",
+      's4.lib.appointments.calendar_week': "week",
       's4.lib.appointments.gmt_5_30': "GMT+5:30",
+      's4.lib.appointments.loading_doctors': "Loading doctors...",
+      's4.lib.appointments.my_op_queue': "My OP queue",
+      's4.lib.appointments.my_op_workspace_queue': "My OP workspace queue",
       's4.lib.appointments.next_month': "Next month",
       's4.lib.appointments.new_patient_enter_name_to_register':
           "New patient - enter name to register while booking",
+      's4.lib.appointments.no_appointments': "No appointments",
       's4.lib.appointments.no_doctor_or_department_matches':
           "No doctor or department matches",
+      's4.lib.appointments.op_workspace': "OP Workspace",
       's4.lib.appointments.previous_month': "Previous month",
       's4.lib.appointments.queue_filter': "Queue filter",
       's4.lib.appointments.search_patient_or_phone': "Search patient or phone",
       's4.lib.appointments.select_a_doctor_or_department':
           "Select a doctor or department",
+      's4.lib.appointments.show_queue_panel': "Show queue panel",
+      's4.lib.appointments.type_doctor_name': "Type doctor name",
       's4.lib.appointments.week': "Week",
       's4.lib.audit_logs.action': "Action",
       's4.lib.audit_logs.action_resource_ip_user': "Action, resource, IP, user",
@@ -5570,6 +5940,10 @@ class AppStrings {
       's4.lib.coded_diagnosis_picker.search_icd_11': "Search ICD-11",
       's4.lib.composition_alternatives_panel.composition_alternatives':
           "Composition alternatives",
+      's4.lib.composition_alternatives_panel.daw_info_only':
+          "DAW set - information only",
+      's4.lib.composition_alternatives_panel.daw_locked': "DAW locked",
+      's4.lib.composition_alternatives_panel.info_only': "Info only",
       's4.lib.composition_alternatives_panel.swap': "Swap",
       's4.lib.desktop_scroll_controls.scroll_back': "Scroll back",
       's4.lib.desktop_scroll_controls.scroll_down': "Scroll down",
@@ -5579,26 +5953,49 @@ class AppStrings {
           "Advice given, handover completed, bill cleared...",
       's4.lib.discharge_hub.ai_discharge_package_started':
           "AI discharge package started",
+      's4.lib.discharge_hub.checklist_pending': "Checklist pending",
       's4.lib.discharge_hub.completion_note': "Completion note",
       's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
           "Creates the reviewed discharge package from medication reconciliation, aftercare, readiness, and coding modules. It is draft-only until a doctor reviews and signs.",
+      's4.lib.discharge_hub.discharge_initiated': "Discharge initiated",
+      's4.lib.discharge_hub.doctor_review_needed': "Doctor review needed",
+      's4.lib.discharge_hub.doctor_summary': "Doctor summary",
+      's4.lib.discharge_hub.final_discharge_gate': "Final discharge gate",
+      's4.lib.discharge_hub.final_gate_blocked':
+          "Final discharge stays blocked until every item below is clear.",
+      's4.lib.discharge_hub.final_gate_ready':
+          "All required work is complete. Final discharge can proceed from the signed summary screen.",
       's4.lib.discharge_hub.finish': "Finish",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "Finishing this also requires discharge drugs dispensed.",
+      's4.lib.discharge_hub.hospital_team': "Hospital team",
+      's4.lib.discharge_hub.no_safety_flags': "No safety flags",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "work item",
       's4.lib.discharge_hub.generate_ai_package': "Generate AI package",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "No safety flags are attached to this summary.",
+      's4.lib.discharge_hub.no_summary_draft': "No discharge summary draft yet",
+      's4.lib.discharge_hub.not_initiated': "Not initiated",
+      's4.lib.discharge_hub.open_summary_editor': "Open summary editor",
+      's4.lib.discharge_hub.pending_item': "Pending item",
+      's4.lib.discharge_hub.ready_for_final_discharge':
+          "Ready for final discharge",
+      's4.lib.discharge_hub.role_work_items': "Role work items",
       's4.lib.discharge_hub.signature_details': "Signature details",
       's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
           "Start discharge to open dietary, counselling, pharmacy, physiotherapy, and billing tasks.",
       's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
           "This discharge summary still needs doctor sign-off.",
+      's4.lib.discharge_hub.view_signed_summary': "View signed summary",
+      's4.lib.discharge_hub_list.blocked': "Blocked",
+      's4.lib.discharge_hub_list.doctor_sign_pending': "Doctor sign pending",
       's4.lib.discharge_hub_list.no_active_discharge_work':
           "No active discharge work",
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "Patients appear here after discharge is initiated and stay until final discharge is complete.",
+      's4.lib.discharge_hub_list.ready': "Ready",
+      's4.lib.discharge_hub_list.summary_signed': "Summary signed",
       's4.lib.discharge_summary.correct_summary': "Correct summary",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
       's4.dynamic.discharge_summary.load_error':
@@ -6006,8 +6403,21 @@ class AppStrings {
       's4.lib.investigations.continue_to_prescription':
           "Continue to prescription",
       's4.lib.investigations.investigation_ordered': "Investigation ordered",
+      's4.lib.investigations.interpretation': "Interpretation",
+      's4.lib.investigations.order_investigation': "Order Investigation",
+      's4.lib.investigations.ordering': "Ordering...",
+      's4.lib.investigations.prescription': "Prescription",
+      's4.lib.investigations.priority.high': "High",
+      's4.lib.investigations.priority.low': "Low",
+      's4.lib.investigations.priority.normal': "Normal",
+      's4.lib.investigations.priority.urgent': "Urgent",
+      's4.lib.investigations.result': "Result",
       's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
           "Result has been marked ready, but no structured summary is attached yet.",
+      's4.lib.investigations.result_ready': "Result ready",
+      's4.lib.investigations.result_summary': "Result summary",
+      's4.lib.investigations.results': "Results",
+      's4.lib.investigations.selected_patient': "Selected patient",
       's4.lib.investigations.test_name': "Test name",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "Book and track OP/IP lab requests",
@@ -6104,11 +6514,24 @@ class AppStrings {
       's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
           "Send a first message before attaching a file.",
       's4.lib.messaging_thread.urgent_alerts_only': "Urgent alerts only",
+      's4.lib.notifications.filter.admissions': "Admissions",
+      's4.lib.notifications.filter.all': "All",
+      's4.lib.notifications.filter.appointments': "Appointments",
+      's4.lib.notifications.filter.beds': "Beds",
+      's4.lib.notifications.filter.critical': "Critical",
+      's4.lib.notifications.filter.housekeeping': "Housekeeping",
+      's4.lib.notifications.filter.investigations': "Investigations",
+      's4.lib.notifications.filter.unread': "Unread",
+      's4.lib.notifications.high_priority': "High priority",
+      's4.lib.notifications.live': "Live",
       's4.lib.notifications.refresh_alerts': "Refresh alerts",
       's4.lib.nursing_notes.all_notes': "All Notes",
+      's4.lib.nursing_notes.discard_draft': "Discard draft",
       's4.lib.nursing_notes.draft_discarded': "Draft discarded",
       's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
           "Open this screen from the bed board to see all notes for a patient.",
+      's4.lib.nursing_notes.restored_draft': "Restored unsaved draft",
+      's4.lib.nursing_notes.signed': "Signed",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "Completed transcripts can be converted into SOAP drafts for clinician review.",
       // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
@@ -6455,6 +6878,7 @@ class AppStrings {
       's4.lib.patient_command_board.no_active_patients': "No active patients",
       's4.lib.patient_command_board.no_matching_patients':
           "No matching patients",
+      's4.lib.patient_notes_list.addendum': "Addendum",
       's4.lib.patient_context_chip.clear_patient_context':
           "Clear patient context",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
@@ -6535,6 +6959,81 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "Note updated",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "Overwrites the original prose. The note's author, role, and creation time are preserved.",
+      // REVIEW: AI first-pass S4 i18n legacy sweep leftovers - confirm wording before production.
+      's4.lib.ward_list_filter_bar.ward': "Ward",
+      's4.lib.ward_list_filter_bar.clear_filters': "Clear filters",
+      's4.lib.vital_text_field.enter_valid_number': "Enter a valid number",
+      's4.lib.theme_toggle_action.switch_to_light_mode': "Switch to light mode",
+      's4.lib.theme_toggle_action.switch_to_dark_mode': "Switch to dark mode",
+      's4.lib.session_revocation_listener.signed_out_new_login':
+          "Signed out - your account just logged in on another device.",
+      's4.lib.session_revocation_listener.session_revoked':
+          "Your session was revoked.",
+      's4.lib.patient_search_sheet.type_to_find_patient':
+          "Type a Hospital ID, name, phone, or ABHA address to find a patient.",
+      's4.lib.patient_search_sheet.enter_10_digits_for_phone':
+          "Enter at least 10 digits to search by phone.",
+      's4.lib.patient_search_sheet.type_2_characters':
+          "Type at least 2 characters to search.",
+      's4.lib.patient_search_sheet.unnamed': "Unnamed",
+      's4.dynamic.patient_search_sheet.no_matches_for':
+          "No matches for \"{query}\"",
+      's4.lib.message_unread_badge.unread_messages': "unread messages",
+      's4.dynamic.message_unread_badge.count_label': "{count} {label}",
+      's4.dynamic.success_toast.success_label': "Success: {message}",
+      's4.dynamic.error_toast.error_label': "Error: {message}",
+      's4.lib.patient_notes_list.filter.all': "All",
+      's4.lib.patient_notes_list.filter.doctor': "Doctor",
+      's4.lib.patient_notes_list.filter.nursing': "Nursing",
+      's4.lib.patient_notes_list.unknown_role': "UNKNOWN",
+      's4.lib.patient_notes_list.type.progress': "Progress",
+      's4.lib.patient_notes_list.type.note': "Note",
+      's4.dynamic.patient_notes_list.rev_admin_edited':
+          "rev {version} (admin-edited)",
+      's4.dynamic.appointments.minutes_ago': "{count} min ago",
+      's4.dynamic.appointments.hours_ago': "{count}h ago",
+      's4.lib.dashboard.op_nursing': "OP Nursing",
+      's4.lib.dashboard.op_workbench': "OP Workbench",
+      's4.lib.dashboard.patient_fallback': "Patient",
+      's4.lib.dashboard.notification_fallback': "Notification",
+      's4.dynamic.dashboard.minutes_ago': "{count}m ago",
+      's4.dynamic.dashboard.hours_ago': "{count}h ago",
+      's4.lib.prescriptions.visit_prescription_locked':
+          "This visit already has a signed prescription; create a new OP visit for changes.",
+      's4.lib.prescriptions.photo_needs_connection':
+          "Photo prescriptions need a connection. Reconnect and try again.",
+      's4.dynamic.prescriptions.offline_context': "Prescription - {name}",
+      's4.lib.prescriptions.queued_safety_checked_on_sync':
+          "Prescription queued - will be safety-checked on sync",
+      's4.lib.prescriptions.route.oral': "Oral",
+      's4.lib.prescriptions.route.iv': "IV",
+      's4.lib.prescriptions.route.im': "IM",
+      's4.lib.prescriptions.route.topical': "Topical",
+      's4.lib.prescriptions.route.inhalation': "Inhalation",
+      's4.lib.prescriptions.route.sublingual': "Sublingual",
+      's4.lib.prescriptions.pharmacy.in_house_dispensary':
+          "In House Dispensary",
+      's4.lib.prescriptions.pharmacy.patient_choice': "Patient choice",
+      's4.lib.prescriptions.pharmacy.external_pharmacy': "External pharmacy",
+      's4.lib.prescriptions.any_time': "Any time",
+      's4.lib.prescriptions.instructions_hint':
+          "PRN reason, warning, special advice",
+      's4.lib.prescriptions.auto_filled': "auto-filled",
+      's4.lib.prescriptions.prescription_locked': "Prescription locked",
+      's4.lib.prescriptions.update_prescription': "Update prescription",
+      's4.dynamic.investigations.file_selected_one': "{count} file selected",
+      's4.dynamic.investigations.file_selected_other': "{count} files selected",
+      's4.dynamic.investigations.uploading_count':
+          "Uploading {uploaded}/{total}",
+      's4.dynamic.investigations.uploading_file':
+          "Uploading {uploaded}/{total} - {file}",
+      's4.dynamic.drug_chart.medication_order': "Medication order - {drug}",
+      's4.lib.drug_chart.not_timed': "not timed",
+      's4.dynamic.nursing_notes.offline_context': "Nursing note for {patient}",
+      's4.lib.nursing_notes.load_more': "Load more",
+      's4.lib.nursing_notes.nursing_note': "Nursing note",
+      's4.dynamic.vitals.offline_context': "Vitals for patient {patient}",
+      's4.dynamic.payroll.max_amount_suffix': "(max ₹{amount})",
       // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "AI-assisted record review",
@@ -6683,6 +7182,7 @@ class AppStrings {
           "OP prescriptions, IP drug charts, and pharmacy use this same backend catalog.",
       's4.lib.pharmacy.catalog_shared_limited_copy':
           "OP prescriptions, IP drug charts, and pharmacy use this same backend catalog. Changes are limited to Pharmacy Incharge/Admin.",
+      's4.lib.pharmacy.category_other': "Other",
       's4.lib.pharmacy.cold_chain_item': "Cold-chain item",
       's4.lib.pharmacy.controlled_narcotic_item': "Controlled / narcotic item",
       's4.lib.pharmacy.could_not_identify_formulary_item':
@@ -6770,6 +7270,7 @@ class AppStrings {
       's4.lib.pharmacy.strength': "Strength",
       's4.lib.pharmacy.tablet_hint': "tablet",
       's4.lib.pharmacy.this_drug': "this drug",
+      's4.lib.pharmacy.unit_each': "Each",
       's4.lib.pharmacy.unit_label': "Unit label",
       's4.lib.pharmacy.unit_price': "Unit price",
       's4.lib.pharmacy.unavailable': "Unavailable",
@@ -6789,24 +7290,58 @@ class AppStrings {
           "Clear prescription draft?",
       's4.lib.prescriptions.continue': "Continue",
       's4.lib.prescriptions.days': "Days",
+      's4.lib.prescriptions.days_must_be_at_least_1': "Days must be at least 1",
       's4.lib.prescriptions.delete_row': "Delete row",
+      's4.lib.prescriptions.dose_slot_afternoon_short': "A",
+      's4.lib.prescriptions.dose_slot_evening_short': "E",
+      's4.lib.prescriptions.dose_slot_morning_short': "M",
+      's4.lib.prescriptions.dose_slot_night_short': "N",
+      's4.lib.prescriptions.draft': "Draft",
       's4.lib.prescriptions.drug_form': "Drug / form*",
+      's4.lib.prescriptions.height': "Height",
+      's4.lib.prescriptions.in_stock': "In stock",
+      's4.lib.prescriptions.may_be_available': "May be available",
       's4.lib.prescriptions.notes_safety': "Notes / safety",
       's4.lib.prescriptions.op_consultation_context': "OP consultation context",
+      's4.lib.prescriptions.open_last_pdf': "Open last PDF",
       's4.lib.prescriptions.open_pdf': "Open PDF",
+      's4.lib.prescriptions.out_of_stock': "Out of stock",
+      's4.lib.prescriptions.pdf_not_available': "PDF is not available",
+      's4.lib.prescriptions.pdf_not_available_yet':
+          "Prescription PDF is not available yet",
+      's4.lib.prescriptions.pdf_open_failed': "Could not open prescription PDF",
+      's4.lib.prescriptions.pharmacy_order_sent': "Pharmacy order sent",
       's4.lib.prescriptions.prescription_pdf_is_ready':
           "Prescription PDF is ready",
+      's4.lib.prescriptions.resp_rate': "Resp. rate",
       's4.lib.prescriptions.review_draft': "Review draft",
       's4.lib.prescriptions.review_prescription_warnings':
           "Review prescription warnings",
+      's4.lib.prescriptions.rx_signed': "Rx signed",
       's4.lib.prescriptions.save_favorite': "Save favorite",
+      's4.lib.prescriptions.saved_as_favorite': "Saved as favorite",
+      's4.lib.prescriptions.sign_lock': "Sign & lock",
+      's4.lib.prescriptions.sign_lock_rx': "Sign & lock Rx",
       's4.lib.prescriptions.signed': "Signed",
+      's4.lib.prescriptions.signed_locked': "Signed and locked",
       's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
           "The server returned non-blocking CDS warnings for this prescription.",
       's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
           "This removes the medicines, notes, vitals and follow-up currently on this draft. Created prescriptions are not deleted.",
       's4.lib.prescriptions.type_drug_name': "Type drug name",
       's4.lib.prescriptions.use_favorite': "Use favorite",
+      's4.dynamic.prescriptions.follow_up_date': "Follow-up: {date}",
+      's4.dynamic.prescriptions.in_stock_count': "{count} in stock",
+      's4.dynamic.prescriptions.open_rx_pdf': "Open Rx #{id} PDF",
+      's4.dynamic.prescriptions.patient_doctor':
+          "Patient: {patient} · Dr. {doctor}",
+      's4.dynamic.prescriptions.pdf_open_failed_detail':
+          "Could not open prescription PDF: {error}",
+      's4.dynamic.prescriptions.pharmacy_handoff_needs_formulary_match':
+          "Prescription saved; pharmacy handoff needs formulary match: {error}",
+      's4.dynamic.prescriptions.pharmacy_order_sent_number':
+          "Pharmacy order {number} sent",
+      's4.dynamic.prescriptions.pharmacy_status': "Pharmacy: {status}",
       's4.lib.referrals.ai_assisted_clinical_summary':
           "AI assisted clinical summary",
       's4.lib.referrals.audit': "Audit",
@@ -6826,15 +7361,96 @@ class AppStrings {
           "Referral audit is available to Admin/SuperAdmin roles.",
       's4.lib.referrals.referral_clinical_summary': "Referral clinical summary",
       's4.lib.referrals.use_summary': "Use summary",
+      's4.dynamic.referrals.admission_id': "Admission #{id}",
+      's4.dynamic.referrals.bed': "Bed {bed}",
+      's4.dynamic.referrals.min_to_first_seen': "{minutes} min to first seen",
+      's4.dynamic.referrals.reason_line': "Reason: {reason}",
+      's4.lib.referrals.active_diagnoses': "Active diagnoses",
+      's4.lib.referrals.ai_assist_clinical_summary':
+          "AI assist clinical summary",
+      's4.lib.referrals.ai_draft_added':
+          "AI draft added. Review it before requesting referral.",
+      's4.lib.referrals.consultant': "Consultant",
+      's4.lib.referrals.current_treatment': "Current treatment",
+      's4.lib.referrals.decline': "Decline",
+      's4.lib.referrals.decline_request': "Decline request",
+      's4.lib.referrals.department': "Department",
+      's4.lib.referrals.drafting_clinical_summary': "Drafting clinical summary",
+      's4.lib.referrals.enter_reason_before_ai':
+          "Enter the reason for referral before asking AI to draft a summary",
+      's4.lib.referrals.first_seen': "First seen",
+      's4.lib.referrals.incoming_action_hint':
+          "Accept and Complete are limited to the referred specialist or matching department doctor.",
+      's4.lib.referrals.investigations': "Investigations",
+      's4.lib.referrals.no_incoming_referrals': "No incoming referrals",
+      's4.lib.referrals.no_outgoing_referrals': "No outgoing referrals",
+      's4.lib.referrals.not_seen_yet': "Not seen yet",
+      's4.lib.referrals.outgoing_action_hint':
+          "Outgoing requests can be declined by the requesting or primary doctor while pending.",
+      's4.lib.referrals.patient': "Patient",
+      's4.lib.referrals.patient_department_reason_required':
+          "Patient, department, and reason are required",
+      's4.lib.referrals.pending_items': "Pending items",
+      's4.lib.referrals.reason': "Reason",
+      's4.lib.referrals.referral': "Referral",
+      's4.lib.referrals.referrals': "Referrals",
+      's4.lib.referrals.request_referral': "Request referral",
+      's4.lib.referrals.requested': "Requested",
+      's4.lib.referrals.requested_notified':
+          "Referral requested and specialist notified",
+      's4.lib.referrals.sending_referral': "Sending referral",
+      's4.lib.referrals.status.accepted': "Accepted",
+      's4.lib.referrals.status.cancelled': "Cancelled",
+      's4.lib.referrals.status.completed': "Completed",
+      's4.lib.referrals.status.declined': "Declined",
+      's4.lib.referrals.status.in_progress': "In progress",
+      's4.lib.referrals.status.pending': "Pending",
+      's4.lib.referrals.summary': "Summary",
+      'reports.priority.high': "High",
+      'reports.priority.low': "Low",
+      'reports.priority.medium': "Medium",
+      'reports.priority.urgent': "Urgent",
+      'reports.status.acknowledged': "Acknowledged",
+      'reports.status.closed': "Closed",
+      'reports.status.escalated': "Escalated",
+      'reports.status.in_review': "In review",
+      'reports.status.investigating': "Investigating",
+      'reports.status.mediation': "Mediation",
+      'reports.status.rejected': "Rejected",
+      'reports.status.resolved': "Resolved",
+      'reports.status.submitted': "Submitted",
+      'reports.status.under_review': "Under review",
+      's4.dynamic.reports_admin_queue.anonymous_with_sender':
+          "Anonymous ({sender})",
+      's4.lib.reports_admin_queue.action': "Action",
+      's4.lib.reports_admin_queue.activity_log': "Activity log",
+      's4.lib.reports_admin_queue.against_whom': "Against whom",
+      's4.lib.reports_admin_queue.anonymous': "Anonymous",
+      's4.lib.reports_admin_queue.concern': "Concern",
+      's4.lib.reports_admin_queue.department': "Department",
+      's4.lib.reports_admin_queue.description': "Description",
+      's4.lib.reports_admin_queue.details': "Details",
+      's4.lib.reports_admin_queue.grievance_type': "Grievance type",
       's4.lib.reports_admin_queue.hr_admin_access_required':
           "HR/Admin access required",
+      's4.lib.reports_admin_queue.incident_report': "Incident report",
+      's4.lib.reports_admin_queue.incident_type': "Incident type",
+      's4.lib.reports_admin_queue.internal': "Internal",
       's4.lib.reports_admin_queue.internal_hr_admin_note':
           "Internal HR/Admin note",
+      's4.lib.reports_admin_queue.location': "Location",
+      's4.lib.reports_admin_queue.no_details_recorded': "No details recorded.",
       's4.lib.reports_admin_queue.no_activity_recorded': "No activity recorded",
       's4.lib.reports_admin_queue.public_update': "Public update",
       's4.lib.reports_admin_queue.report_update_saved': "Report update saved",
       's4.lib.reports_admin_queue.reports_review': "Reports Review",
+      's4.lib.reports_admin_queue.resolution': "Resolution",
       's4.lib.reports_admin_queue.save_update': "Save update",
+      's4.lib.reports_admin_queue.severity': "Severity",
+      's4.lib.reports_admin_queue.staff_grievance': "Staff grievance",
+      's4.lib.reports_admin_queue.untitled_grievance': "Untitled grievance",
+      's4.lib.reports_admin_queue.untitled_incident': "Untitled incident",
+      's4.lib.reports_admin_queue.update_recorded': "Update recorded",
       's4.lib.schedule.shift_actions': "Shift actions",
       // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
       's4.lib.scan_common.please_scan_again': "Please scan again.",
@@ -7103,6 +7719,7 @@ class AppStrings {
       's4.lib.dashboard.cath_lab_patient_records': "Cath Lab Patient Records",
       's4.lib.dashboard.cath_lab_lab_bookings': "Cath Lab Lab Bookings",
       's4.lib.dashboard.cath_lab_results': "Cath Lab Results",
+      's4.lib.dashboard.opens_patient_chart': "Opens patient chart",
       's4.lib.front_office_workbench.front_office_unavailable':
           "Front Office unavailable",
       's4.lib.front_office_workbench.workstation_mode_required':
@@ -7225,14 +7842,33 @@ class AppStrings {
           "Case Sheet - {patient}",
       's4.dynamic.common.user_id': "User ID: {userId}",
       's4.dynamic.common.signed_at': "Signed at: {signedAt}",
+      's4.dynamic.dashboard.recent_patient_position':
+          "{index} of {total}: {name}",
+      's4.dynamic.dashboard.recent_patients_count': "Recent patients ({count})",
       's4.dynamic.discharge_hub.ai_package_failed':
           "AI package failed: {error}",
+      's4.dynamic.discharge_hub.admission_id': "Admission #{id}",
+      's4.dynamic.discharge_hub.bed': "Bed {bed}",
       's4.dynamic.discharge_hub.finish_task_title': "Finish {label}",
+      's4.dynamic.discharge_hub.finished_by': "Finished by {name}",
       's4.dynamic.discharge_hub.task_finished': "{label} finished",
       's4.dynamic.discharge_hub.finish_task_failed':
           "Could not finish task: {error}",
+      's4.dynamic.discharge_hub.hospital_id': "Hospital ID {id}",
+      's4.dynamic.discharge_hub.pdf_open_failed':
+          "Could not open discharge PDF: {error}",
+      's4.dynamic.discharge_hub.safety_flag_count.one':
+          "Review {count} safety flag",
+      's4.dynamic.discharge_hub.safety_flag_count.other':
+          "Review {count} safety flags",
+      's4.dynamic.discharge_hub.source_count.one': "{count} source",
+      's4.dynamic.discharge_hub.source_count.other': "{count} sources",
       's4.dynamic.discharge_hub.title_for_patient': "Discharge Hub - {patient}",
+      's4.dynamic.discharge_hub_list.tasks_pending':
+          "{pending} of {total} tasks pending",
       's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.nursing_notes.restored_draft_from':
+          "Restored unsaved draft from {time}",
       's4.dynamic.patient_command_board.allergies_count': "{count} allergies",
       's4.dynamic.patient_command_board.alerts_count': "{count} alerts",
       's4.dynamic.patient_command_board.tasks_count': "{count} tasks",
@@ -7384,6 +8020,14 @@ class AppStrings {
       's4.dynamic.lab_bookings.tests_prefix': "Tests: {tests}",
       's4.dynamic.appointments.existing_patient_found_id':
           "Existing patient found: #{id}",
+      's4.dynamic.appointments.doctor_number': "Doctor #{id}",
+      's4.dynamic.appointments.load_failed_detail':
+          "Could not load appointments.\n{error}",
+      's4.dynamic.appointments.status_updated_successfully':
+          "Appointment {status} successfully",
+      's4.dynamic.appointments.time_status': "{time} - {status}",
+      's4.dynamic.appointments.visible_this_week': "{count} visible this week",
+      's4.dynamic.appointments.more_count': "+{count} more",
       's4.dynamic.lab_bookings.error_message': "Error: {error}",
       's4.dynamic.lab_bookings.specimen_queue_update_failed':
           "Specimen collected, but queue update failed: {error}",
@@ -7643,9 +8287,13 @@ class AppStrings {
       'attendance.legend.absent': 'अनुपस्थित',
       'attendance.legend.leave': 'अवकाश',
       'attendance.legend.late': 'विलंब',
+      // REVIEW: hi AI first-pass S4 attendance/timekeeping copy.
+      'attendance.status.weekend': 'सप्ताहांत',
       'attendance.check_in_label': 'चेक-इन',
       'attendance.check_out_label': 'चेक-आउट',
       'attendance.hours_label': 'घंटे',
+      's4.dynamic.attendance.hours_compact': '{hours}घं',
+      's4.dynamic.attendance.tab_count': '{label} ({count})',
       'attendance.late_arrival': '⚠️ विलंब से आगमन',
       'attendance.no_history': 'कोई उपस्थिति इतिहास नहीं',
       'attendance.history.absent': 'अनुपस्थित',
@@ -7769,6 +8417,25 @@ class AppStrings {
           'दवा आदेश सहेजा गया और फ़ार्मेसी को सूचित किया गया',
       'drug_chart.empty': 'कोई इनपेशेंट दवा चार्ट नहीं',
       'drug_chart.given': 'दिया गया',
+      // REVIEW: hi AI first-pass S4 drug-chart display copy.
+      'drug_chart.toolbar.editable_hint':
+          'पंक्तियाँ यहीं जोड़ें। समय टिक नर्स MAR देय खुराक बनते हैं।',
+      'drug_chart.toolbar.read_only_hint':
+          'नर्स MAR और फ़ार्मेसी इंडेंट स्थिति वाला केवल-पठन चार्ट।',
+      's4.dynamic.drug_chart.active_rows': '{count} सक्रिय पंक्तियाँ',
+      's4.dynamic.drug_chart.unsaved_rows': '{count} असहेजे',
+      'drug_chart.pharmacy_pending': 'फ़ार्मेसी लंबित',
+      'drug_chart.free_text': 'मुक्त पाठ',
+      's4.lib.drug_chart.in_stock': "स्टॉक में",
+      's4.lib.drug_chart.may_be_available': "उपलब्ध हो सकता है",
+      's4.lib.drug_chart.out_of_stock': "स्टॉक में नहीं",
+      's4.dynamic.drug_chart.in_stock_count': "स्टॉक में ({count})",
+      's4.dynamic.drug_chart.started_on': '{date} शुरू',
+      's4.dynamic.drug_chart.started_by': '{name} द्वारा',
+      's4.dynamic.drug_chart.antibiotic_day': 'एंटीबायोटिक दिन {day}',
+      'drug_chart.safety_clear': 'सुरक्षा स्पष्ट',
+      's4.dynamic.drug_chart.next_due': 'अगली देय {time}',
+      's4.dynamic.drug_chart.given_count': '{count} दिए गए',
       'drug_chart.column.drug': 'दवा',
       'drug_chart.column.dose': 'खुराक',
       'drug_chart.column.route': 'मार्ग',
@@ -8722,6 +9389,8 @@ class AppStrings {
       'payroll.tax_summary.download_pdf': 'PDF डाउनलोड करें',
       // REVIEW: financial - verify Form 16 wording
       'payroll.tax_summary.download_form16': 'फॉर्म 16 PDF डाउनलोड करें',
+      's4.dynamic.payroll.payslips_included_fy':
+          "{count} वेतन-पर्चियाँ FY {fy} में शामिल",
       'payroll.declaration.title': 'कर घोषणा (80C/80D)',
       // REVIEW: financial - verify deduction wording
       'payroll.declaration.estimated_deductions': 'अनुमानित कर कटौतियाँ',
@@ -8750,6 +9419,52 @@ class AppStrings {
       'payroll.declaration.submitted_success': 'घोषणा सफलतापूर्वक सबमिट की गई!',
       'payroll.declaration.past_title': 'पिछली घोषणाएँ',
       'payroll.declaration.fy_submitted': 'सबमिट किया गया',
+      // REVIEW: S4 payroll machine translations - confirm statutory/financial wording.
+      'payroll.declaration.chip_80c': '80C (अधिकतम ₹1.5L)',
+      'payroll.declaration.chip_80d': '80D',
+      'payroll.declaration.chip_nps': 'NPS',
+      'payroll.month.1': 'जनवरी',
+      'payroll.month.2': 'फ़रवरी',
+      'payroll.month.3': 'मार्च',
+      'payroll.month.4': 'अप्रैल',
+      'payroll.month.5': 'मई',
+      'payroll.month.6': 'जून',
+      'payroll.month.7': 'जुलाई',
+      'payroll.month.8': 'अगस्त',
+      'payroll.month.9': 'सितंबर',
+      'payroll.month.10': 'अक्टूबर',
+      'payroll.month.11': 'नवंबर',
+      'payroll.month.12': 'दिसंबर',
+      'payroll.month_short.1': 'जन',
+      'payroll.month_short.2': 'फ़र',
+      'payroll.month_short.3': 'मार्च',
+      'payroll.month_short.4': 'अप्रै',
+      'payroll.month_short.5': 'मई',
+      'payroll.month_short.6': 'जून',
+      'payroll.month_short.7': 'जुल',
+      'payroll.month_short.8': 'अग',
+      'payroll.month_short.9': 'सित',
+      'payroll.month_short.10': 'अक्टू',
+      'payroll.month_short.11': 'नव',
+      'payroll.month_short.12': 'दिस',
+      'payroll.query.category.general': 'सामान्य',
+      'payroll.query.category.basic_salary': 'मूल वेतन',
+      'payroll.query.category.hra': 'HRA',
+      'payroll.query.category.deductions': 'कटौतियाँ',
+      'payroll.query.category.overtime': 'ओवरटाइम',
+      'payroll.query.category.advance': 'अग्रिम',
+      'payroll.query.category.tds': 'TDS',
+      'payroll.query.category.pf': 'PF',
+      'payroll.query.category.other': 'अन्य',
+      'payroll.query.status.open': 'खुला',
+      'payroll.query.status.in_review': 'समीक्षा में',
+      'payroll.query.status.resolved': 'हल हुआ',
+      'payroll.query.status.submitted': 'सबमिट किया गया',
+      'payroll.query.status.approved': 'स्वीकृत',
+      'payroll.query.status.rejected': 'अस्वीकृत',
+      'payroll.query.status.draft': 'ड्राफ्ट',
+      's4.dynamic.payroll.fy_label': 'FY {fy}',
+      's4.dynamic.payroll.submitted_on': 'सबमिट किया गया: {date}',
       // HR
       'hr.dashboard.title': 'HR डैशबोर्ड',
       'hr.timeframe.this_month': 'इस महीने',
@@ -8856,6 +9571,10 @@ class AppStrings {
       'directory.api_unavailable':
           'स्टाफ निर्देशिका API अभी उपलब्ध नहीं हो सकता है।',
       'directory.staff_empty_body': 'कोई कर्मचारी नहीं मिला',
+      // REVIEW: AI first-pass S4 directory i18n sweep - confirm wording before production.
+      's4.dynamic.directory.employee_id': "ID: {id}",
+      's4.dynamic.directory.shift': "शिफ्ट: {shift}",
+      's4.lib.directory.other': "अन्य",
       // Reports & Grievances
       'reports.hub.title': 'रिपोर्ट और शिकायतें',
       // REVIEW: security/HR - verify policy wording
@@ -9150,6 +9869,10 @@ class AppStrings {
       'theatre.tab.availability': 'उपलब्धता',
       'theatre.no_surgeries': 'कोई सर्जरी निर्धारित नहीं',
       'theatre.no_room_data': 'कोई कमरा डेटा उपलब्ध नहीं',
+      // REVIEW: hi AI first-pass S4 theatre display copy.
+      'theatre.procedure_fallback': 'प्रक्रिया',
+      's4.dynamic.theatre.ot_room': 'OT {room}',
+      's4.dynamic.theatre.duration_minutes': '{minutes} मिनट',
       'theatre.status.scheduled': 'निर्धारित',
       // REVIEW: clinical-action status - surgery
       'theatre.status.in_progress': 'चल रहा है',
@@ -9240,6 +9963,23 @@ class AppStrings {
       'schedule.hours_worked_suffix': 'घं काम',
       'schedule.upcoming': 'आगामी',
       'schedule.no_record': 'कोई रिकॉर्ड नहीं',
+      // REVIEW: AI first-pass S4 schedule i18n sweep - confirm roster wording before production.
+      's4.lib.schedule.assigned_duty': "निर्धारित ड्यूटी",
+      's4.lib.schedule.duty': "ड्यूटी",
+      's4.lib.schedule.no_attendance_logged_yet':
+          "अभी तक उपस्थिति दर्ज नहीं हुई",
+      's4.lib.schedule.no_published_duty': "कोई प्रकाशित ड्यूटी नहीं",
+      's4.dynamic.schedule.assignment_line': "{shift} {start}-{end}",
+      's4.dynamic.schedule.assignment_line_lead': "{shift} {start}-{end} - लीड",
+      's4.dynamic.schedule.attendance_summary':
+          "{days} उपस्थिति दिन - {hours}घं दर्ज",
+      's4.dynamic.schedule.attendance_unavailable':
+          "उपस्थिति उपलब्ध नहीं: {error}",
+      's4.dynamic.schedule.hours_worked': "{hours}घं काम",
+      's4.dynamic.schedule.published_roster_unavailable':
+          "प्रकाशित रोस्टर उपलब्ध नहीं: {error}",
+      's4.dynamic.schedule.rostered_shift_count.one': "{count} रोस्टर शिफ्ट",
+      's4.dynamic.schedule.rostered_shift_count.other': "{count} रोस्टर शिफ्ट",
       // REVIEW: error message
       'schedule.load_failed_prefix': 'शेड्यूल लोड नहीं हो सका:',
       // Lab / Pharmacy / Investigations
@@ -9320,6 +10060,15 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'lab_bookings.result_uploaded_toast': 'परिणाम अपलोड किया गया',
       'lab_bookings.view_result': 'परिणाम देखें',
+      // REVIEW: hi AI first-pass S4 lab-booking display copy.
+      'lab_bookings.status.booked': 'बुक किया गया',
+      'lab_bookings.status.confirmed': 'पुष्टि',
+      'lab_bookings.status.dispatched': 'भेजा गया',
+      'lab_bookings.status.collected': 'एकत्रित',
+      'lab_bookings.status.processing': 'प्रोसेसिंग',
+      'lab_bookings.status.result_ready': 'परिणाम तैयार',
+      's4.dynamic.lab_bookings.minutes_ago': '{minutes}मि पहले',
+      's4.dynamic.lab_bookings.hours_ago': '{hours}घं पहले',
       'pharmacy.title': 'फार्मेसी आदेश',
       'pharmacy.queue_title': 'फार्मेसी कतार',
       'pharmacy.queue_subtitle': 'आदेश कतार में',
@@ -9388,6 +10137,41 @@ class AppStrings {
       'due_meds.filter.all_wards': 'सभी वार्ड',
       'due_meds.filter.all_routes': 'सभी मार्ग',
       'due_meds.filter.route_label': 'मार्ग',
+      // REVIEW: hi AI first-pass S4 due-meds display copy.
+      's4.dynamic.due_meds.ward_fallback': 'वार्ड {value}',
+      'due_meds.unscheduled': 'अनिर्धारित',
+      's4.dynamic.due_meds.due_late': '{value} देर',
+      's4.dynamic.due_meds.due_in': '{value} में',
+      // REVIEW: hi AI first-pass S4 maternity display copy.
+      'maternity.load_failed': 'लेबर बोर्ड लोड नहीं हो सका',
+      's4.dynamic.maternity.gestational_weeks': '{weeks}सप्ताह',
+      's4.dynamic.maternity.admission_age': '{hours}घं पहले',
+      // REVIEW: hi AI first-pass S4 partograph display copy.
+      'partograph_entry.amniotic.intact_membranes': 'झिल्लियाँ सही',
+      'partograph_entry.amniotic.clear': 'साफ़',
+      'partograph_entry.amniotic.meconium_thin': 'पतला मेकोनियम',
+      'partograph_entry.amniotic.meconium_thick': 'गाढ़ा मेकोनियम',
+      'partograph_entry.amniotic.blood': 'रक्त',
+      'partograph_entry.urine.nil': 'नहीं',
+      'partograph_entry.urine.trace': 'ट्रेस',
+      'partograph_entry.save_failed': 'सेव विफल',
+      'partograph_view.load_admission_failed': 'लेबर भर्ती लोड नहीं हो सकी',
+      'partograph_view.load_failed': 'पार्टोग्राफ लोड नहीं हो सका',
+      'partograph_view.action_line_crossed.one':
+          'एक्शन लाइन {n} एंट्री में पार हुई',
+      'partograph_view.action_line_crossed.other':
+          'एक्शन लाइन {n} एंट्रियों में पार हुई',
+      'partograph_view.alert_line_crossed.one':
+          'अलर्ट लाइन {n} एंट्री में पार हुई',
+      'partograph_view.alert_line_crossed.other':
+          'अलर्ट लाइन {n} एंट्रियों में पार हुई',
+      's4.dynamic.partograph_view.point_summary':
+          '{hours}घं · {cervix} सेमी सर्विक्स · FHR {fhr}',
+      'partograph_chart.on_track': 'सही मार्ग पर',
+      'partograph_chart.past_alert_line': 'अलर्ट लाइन पार',
+      'partograph_chart.past_action_line': 'एक्शन लाइन पार',
+      'partograph_chart.alert_line': 'अलर्ट लाइन (1 सेमी/घं)',
+      'partograph_chart.action_line': 'एक्शन लाइन (अलर्ट + 4घं)',
       'mar_scan.title': 'दवा प्रशासित करें',
       // REVIEW: clinical-safety - 5 rights
       'mar_scan.step1_prompt': 'चरण 1 / 3 - मरीज़ का रिस्टबैंड स्कैन करें',
@@ -9504,6 +10288,11 @@ class AppStrings {
           '✅ विवाद सबमिट किया गया। HR 24 घंटे के भीतर समीक्षा करेगा।',
       'dispute.empty': 'कोई विवाद दर्ज नहीं',
       'dispute.hr_comment_prefix': 'HR:',
+      // REVIEW: hi AI first-pass S4 attendance/timekeeping copy.
+      'dispute.status.pending': 'लंबित',
+      'dispute.status.approved': 'स्वीकृत',
+      'dispute.status.rejected': 'अस्वीकृत',
+      's4.dynamic.dispute.hr_comment': 'HR: {comment}',
       'overtime.title': 'ओवरटाइम अनुरोध',
       'overtime.tab.request': 'अनुरोध',
       'overtime.tab.my': 'मेरे अनुरोध',
@@ -9524,6 +10313,12 @@ class AppStrings {
       'overtime.empty': 'कोई ओवरटाइम अनुरोध नहीं',
       // REVIEW: HR rejection wording
       'overtime.rejected_prefix': 'अस्वीकृत:',
+      // REVIEW: hi AI first-pass S4 attendance/timekeeping copy.
+      'overtime.status.pending': 'लंबित',
+      'overtime.status.approved': 'स्वीकृत',
+      'overtime.status.rejected': 'अस्वीकृत',
+      's4.dynamic.overtime.hours_and_type': '{hours}घं · {type}',
+      's4.dynamic.overtime.rejected_reason': 'अस्वीकृत: {reason}',
       // Clinical AI
       'clinical_ai.queue.title': 'AI समीक्षा कतार',
       // REVIEW: clinical-AI - verify with reviewing clinician
@@ -9542,6 +10337,22 @@ class AppStrings {
       // REVIEW: error message
       'clinical_ai.queue.load_failed': 'समीक्षाएँ लोड करने में विफल',
       'clinical_ai.queue.patient_fallback': 'मरीज़',
+      // REVIEW: S4 machine translation - confirm clinical AI module labels.
+      'clinical_ai.module.abnormal_result_triage': 'असामान्य परिणाम ट्रायाज',
+      'clinical_ai.module.ai_safety_reviewer': 'AI सुरक्षा समीक्षक',
+      'clinical_ai.module.antimicrobial_stewardship':
+          'एंटीमाइक्रोबियल स्टेवार्डशिप',
+      'clinical_ai.module.clinical_coding_assist': 'क्लिनिकल कोडिंग सहायता',
+      'clinical_ai.module.clinical_task_extractor': 'क्लिनिकल कार्य निष्कर्षक',
+      'clinical_ai.module.daily_ward_round_brief': 'दैनिक वार्ड राउंड ब्रीफ',
+      'clinical_ai.module.discharge_readiness': 'डिस्चार्ज तैयारी',
+      'clinical_ai.module.discharge_summary': 'डिस्चार्ज सारांश',
+      'clinical_ai.module.discharge_summary_compose': 'डिस्चार्ज पैकेज संयोजन',
+      'clinical_ai.module.medication_reconciliation': 'दवा मिलान',
+      'clinical_ai.module.patient_aftercare_instructions': 'बाद-देखभाल निर्देश',
+      'clinical_ai.module.patient_record_summary': 'मरीज़ रिकॉर्ड सारांश',
+      'clinical_ai.module.referral_letter': 'रेफरल पत्र',
+      'clinical_ai.module.soap_from_dictation': 'डिक्टेशन से SOAP',
       // REVIEW: clinical-AI - verify reject wording
       'clinical_ai.draft.reject_title': 'मसौदा अस्वीकार करें',
       'clinical_ai.draft.reject_reason_label': 'कारण',
@@ -9673,6 +10484,20 @@ class AppStrings {
       'cds.blocker_adjust_order': 'आदेश बदलें',
       'cds.override_button': 'ओवरराइड',
       'cds.override_save': 'ओवरराइड और सेव करें',
+      // REVIEW: AI first-pass S4 CDS override i18n sweep - safety-critical.
+      's4.lib.cds_blocker_modal.category.alternative_unavailable':
+          "कोई उपयुक्त विकल्प नहीं",
+      's4.lib.cds_blocker_modal.category.allergy_disputed':
+          "एलर्जी विवादित / गलत लेबल",
+      's4.lib.cds_blocker_modal.category.benefit_outweighs_risk':
+          "लाभ जोखिम से अधिक है",
+      's4.lib.cds_blocker_modal.category.other': "अन्य (नीचे लिखें)",
+      's4.lib.cds_blocker_modal.category.prior_tolerance_documented':
+          "पूर्व सहनशीलता दर्ज है",
+      's4.lib.cds_blocker_modal.justification_not_repeated_character':
+          "औचित्य दोहराया हुआ अक्षर नहीं होना चाहिए",
+      's4.lib.cds_blocker_modal.minimum_15_characters_required':
+          "कम से कम 15 अक्षर आवश्यक हैं",
       // Code Blue - emergency overlay
       'code_blue.title': 'कोड ब्लू',
       'code_blue.respond': 'तुरंत प्रतिक्रिया दें।',
@@ -9719,6 +10544,15 @@ class AppStrings {
       'logout.tooltip': 'लॉगआउट',
       // Misc shared
       'shift_card.no_shift': 'कोई शिफ्ट निर्दिष्ट नहीं',
+      // REVIEW: hi AI first-pass S4 attendance/timekeeping copy.
+      'shift_card.fallback_name': 'शिफ्ट',
+      's4.dynamic.shift_card.display_name': '{name} शिफ्ट',
+      's4.dynamic.shift_card.time_range_grace':
+          '{start} - {end}  ·  {grace}मिनट ग्रेस',
+      'break_tracker.end_break': 'ब्रेक समाप्त करें',
+      'break_tracker.take_break': 'ब्रेक लें',
+      's4.dynamic.break_tracker.total_minutes': 'कुल {minutes}मिनट',
+      's4.dynamic.break_tracker.duration_minutes': ' ({minutes}मिनट)',
       'pharmacy.no_preview': 'कोई पूर्वावलोकन नहीं',
       'print.generated_by': 'VHHealth स्टाफ ऐप द्वारा जनरेट किया गया',
       'blocked_feature.title': 'यह सुविधा इस डिवाइस पर उपलब्ध नहीं है',
@@ -9793,7 +10627,19 @@ class AppStrings {
       's4.lib.appointment_queue.open_front_office': "फ्रंट ऑफिस खोलें",
       's4.lib.appointment_queue.opening_front_office_workbench':
           "फ्रंट ऑफिस कार्यक्षेत्र खोलना",
+      // REVIEW: S4 appointment queue machine translations - confirm front-desk wording.
+      'appointments.status.all': 'सभी',
+      'appointments.status.scheduled': 'निर्धारित',
+      'appointments.status.confirmed': 'पुष्ट',
+      'appointments.status.completed': 'पूर्ण',
+      'appointments.status.rescheduled': 'पुनर्निर्धारित',
+      'appointments.status.no_show': 'नहीं आया',
+      'appointments.status.cancelled': 'रद्द',
+      's4.lib.appointments.all_op_queues': "सभी OP कतारें",
       's4.lib.appointments.any_available_doctor': "कोई भी उपलब्ध डॉक्टर",
+      's4.lib.appointments.appointment_created_successfully':
+          "अपॉइंटमेंट सफलतापूर्वक बनाया गया",
+      's4.lib.appointments.appointments': "अपॉइंटमेंट",
       's4.lib.appointments.book_op': "बुक ओपी",
       // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
@@ -9801,6 +10647,7 @@ class AppStrings {
       's4.lib.appointments.collapse_queue_panel': "कतार पैनल को संक्षिप्त करें",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
           "अभी रजिस्ट्री जांच नहीं हो सकी; नए मरीज की बुकिंग उपलब्ध है",
+      's4.lib.appointments.could_not_load_doctors': "डॉक्टर लोड नहीं हो सके",
       's4.lib.appointments.create_appointment': "अपॉइंटमेंट बनाएं",
       's4.lib.appointments.creating': "बनाया जा रहा है...",
       's4.lib.appointments.checking_patient_registry':
@@ -9817,17 +10664,26 @@ class AppStrings {
       's4.lib.appointments.filter_doctor_or_department':
           "डॉक्टर या विभाग को फ़िल्टर करें",
       's4.lib.appointments.flex': "मोड़ना",
+      's4.lib.appointments.calendar_day': "दिन",
+      's4.lib.appointments.calendar_week': "सप्ताह",
       's4.lib.appointments.gmt_5_30': "जीएमटी+5:30",
+      's4.lib.appointments.loading_doctors': "डॉक्टर लोड हो रहे हैं...",
+      's4.lib.appointments.my_op_queue': "मेरी OP कतार",
+      's4.lib.appointments.my_op_workspace_queue': "मेरी OP कार्यक्षेत्र कतार",
       's4.lib.appointments.next_month': "अगले महीने",
       's4.lib.appointments.new_patient_enter_name_to_register':
           "नया मरीज - बुकिंग करते समय पंजीकरण के लिए नाम दर्ज करें",
+      's4.lib.appointments.no_appointments': "कोई अपॉइंटमेंट नहीं",
       's4.lib.appointments.no_doctor_or_department_matches':
           "कोई डॉक्टर या विभाग मेल नहीं खाता",
+      's4.lib.appointments.op_workspace': "OP कार्यक्षेत्र",
       's4.lib.appointments.previous_month': "पिछला महीना",
       's4.lib.appointments.queue_filter': "कतार फ़िल्टर",
       's4.lib.appointments.search_patient_or_phone': "मरीज़ खोजें या फ़ोन करें",
       's4.lib.appointments.select_a_doctor_or_department':
           "एक डॉक्टर या विभाग का चयन करें",
+      's4.lib.appointments.show_queue_panel': "कतार पैनल दिखाएं",
+      's4.lib.appointments.type_doctor_name': "डॉक्टर का नाम टाइप करें",
       's4.lib.appointments.week': "सप्ताह",
       's4.lib.audit_logs.action': "कार्रवाई",
       's4.lib.audit_logs.action_resource_ip_user':
@@ -10101,6 +10957,11 @@ class AppStrings {
       's4.lib.coded_diagnosis_picker.search_icd_11': "ICD-11 खोजें",
       's4.lib.composition_alternatives_panel.composition_alternatives':
           "रचना विकल्प",
+      // REVIEW: S4 machine translation - confirm DAW pharmacy copy.
+      's4.lib.composition_alternatives_panel.daw_info_only':
+          "DAW सेट - केवल जानकारी",
+      's4.lib.composition_alternatives_panel.daw_locked': "DAW लॉक है",
+      's4.lib.composition_alternatives_panel.info_only': "केवल जानकारी",
       's4.lib.composition_alternatives_panel.swap': "बदलना",
       's4.lib.desktop_scroll_controls.scroll_back': "पीछे स्क्रॉल करें",
       's4.lib.desktop_scroll_controls.scroll_down': "नीचे स्क्रॉल करें",
@@ -10110,26 +10971,51 @@ class AppStrings {
           "सलाह दी गई, हैंडओवर पूरा हुआ, बिल का भुगतान किया गया...",
       's4.lib.discharge_hub.ai_discharge_package_started':
           "एआई डिस्चार्ज पैकेज शुरू हुआ",
+      's4.lib.discharge_hub.checklist_pending': "चेकलिस्ट लंबित",
       's4.lib.discharge_hub.completion_note': "समापन नोट",
       's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
           "दवा समाधान, देखभाल, तैयारी और कोडिंग मॉड्यूल से समीक्षा किए गए डिस्चार्ज पैकेज बनाता है। यह केवल तब तक ड्राफ्ट है जब तक कोई डॉक्टर समीक्षा और हस्ताक्षर नहीं करता।",
+      // REVIEW: AI first-pass S4 discharge i18n sweep - confirm discharge workflow wording before production.
+      's4.lib.discharge_hub.discharge_initiated': "डिस्चार्ज शुरू हुआ",
+      's4.lib.discharge_hub.doctor_review_needed': "डॉक्टर समीक्षा आवश्यक",
+      's4.lib.discharge_hub.doctor_summary': "डॉक्टर सारांश",
+      's4.lib.discharge_hub.final_discharge_gate': "अंतिम डिस्चार्ज गेट",
+      's4.lib.discharge_hub.final_gate_blocked':
+          "जब तक नीचे का हर आइटम साफ़ नहीं हो जाता, अंतिम डिस्चार्ज अवरुद्ध रहेगा।",
+      's4.lib.discharge_hub.final_gate_ready':
+          "सभी आवश्यक कार्य पूरे हैं। हस्ताक्षरित सारांश स्क्रीन से अंतिम डिस्चार्ज आगे बढ़ सकता है।",
       's4.lib.discharge_hub.finish': "खत्म करना",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "इसे ख़त्म करने के लिए डिस्चार्ज दवाओं के वितरण की भी आवश्यकता होती है।",
+      's4.lib.discharge_hub.hospital_team': "अस्पताल टीम",
+      's4.lib.discharge_hub.no_safety_flags': "कोई सुरक्षा ध्वज नहीं",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "कार्य आइटम",
       's4.lib.discharge_hub.generate_ai_package': "एआई पैकेज जेनरेट करें",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "इस सारांश के साथ कोई सुरक्षा ध्वज संलग्न नहीं हैं।",
+      's4.lib.discharge_hub.no_summary_draft':
+          "अभी कोई डिस्चार्ज सारांश ड्राफ्ट नहीं",
+      's4.lib.discharge_hub.not_initiated': "शुरू नहीं हुआ",
+      's4.lib.discharge_hub.open_summary_editor': "सारांश संपादक खोलें",
+      's4.lib.discharge_hub.pending_item': "लंबित आइटम",
+      's4.lib.discharge_hub.ready_for_final_discharge':
+          "अंतिम डिस्चार्ज के लिए तैयार",
+      's4.lib.discharge_hub.role_work_items': "भूमिका कार्य आइटम",
       's4.lib.discharge_hub.signature_details': "हस्ताक्षर विवरण",
       's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
           "खुले आहार, परामर्श, फार्मेसी, फिजियोथेरेपी और बिलिंग कार्यों के लिए छुट्टी शुरू करें।",
       's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
           "इस डिस्चार्ज सारांश को अभी भी डॉक्टर के हस्ताक्षर की आवश्यकता है।",
+      's4.lib.discharge_hub.view_signed_summary': "हस्ताक्षरित सारांश देखें",
+      's4.lib.discharge_hub_list.blocked': "अवरुद्ध",
+      's4.lib.discharge_hub_list.doctor_sign_pending': "डॉक्टर हस्ताक्षर लंबित",
       's4.lib.discharge_hub_list.no_active_discharge_work':
           "कोई सक्रिय निर्वहन कार्य नहीं",
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "मरीज डिस्चार्ज शुरू होने के बाद यहां आते हैं और अंतिम डिस्चार्ज पूरा होने तक यहीं रहते हैं।",
+      's4.lib.discharge_hub_list.ready': "तैयार",
+      's4.lib.discharge_hub_list.summary_signed': "सारांश हस्ताक्षरित",
       's4.lib.discharge_summary.correct_summary': "सही सारांश",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
       's4.dynamic.discharge_summary.load_error':
@@ -10544,8 +11430,22 @@ class AppStrings {
           "क्लिनिकल नोट्स (वैकल्पिक)",
       's4.lib.investigations.continue_to_prescription': "नुस्खे जारी रखें",
       's4.lib.investigations.investigation_ordered': "जांच के आदेश दिए गए",
+      // REVIEW: AI first-pass S4 investigations i18n sweep - confirm lab wording before production.
+      's4.lib.investigations.interpretation': "व्याख्या",
+      's4.lib.investigations.order_investigation': "जाँच ऑर्डर करें",
+      's4.lib.investigations.ordering': "ऑर्डर किया जा रहा है...",
+      's4.lib.investigations.prescription': "नुस्खा",
+      's4.lib.investigations.priority.high': "उच्च",
+      's4.lib.investigations.priority.low': "कम",
+      's4.lib.investigations.priority.normal': "सामान्य",
+      's4.lib.investigations.priority.urgent': "तत्काल",
+      's4.lib.investigations.result': "परिणाम",
       's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
           "परिणाम को तैयार के रूप में चिह्नित किया गया है, लेकिन अभी तक कोई संरचित सारांश संलग्न नहीं किया गया है।",
+      's4.lib.investigations.result_ready': "परिणाम तैयार",
+      's4.lib.investigations.result_summary': "परिणाम सारांश",
+      's4.lib.investigations.results': "परिणाम",
+      's4.lib.investigations.selected_patient': "चयनित मरीज़",
       's4.lib.investigations.test_name': "परीक्षण का नाम",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "ओपी/आईपी लैब अनुरोधों को बुक करें और ट्रैक करें",
@@ -10644,11 +11544,27 @@ class AppStrings {
       's4.lib.messaging_thread.send_a_first_message_before_attaching_a_file':
           "फ़ाइल संलग्न करने से पहले पहला संदेश भेजें.",
       's4.lib.messaging_thread.urgent_alerts_only': "केवल अत्यावश्यक अलर्ट",
+      // REVIEW: AI first-pass S4 notifications i18n sweep - confirm alert filter copy before production.
+      's4.lib.notifications.filter.admissions': "भर्तियाँ",
+      's4.lib.notifications.filter.all': "सभी",
+      's4.lib.notifications.filter.appointments': "नियुक्तियाँ",
+      's4.lib.notifications.filter.beds': "बेड",
+      's4.lib.notifications.filter.critical': "गंभीर",
+      's4.lib.notifications.filter.housekeeping': "हाउसकीपिंग",
+      's4.lib.notifications.filter.investigations': "जांच",
+      's4.lib.notifications.filter.unread': "अपठित",
+      's4.lib.notifications.high_priority': "उच्च प्राथमिकता",
+      's4.lib.notifications.live': "लाइव",
       's4.lib.notifications.refresh_alerts': "अलर्ट ताज़ा करें",
       's4.lib.nursing_notes.all_notes': "सभी नोट्स",
+      // REVIEW: AI first-pass S4 nursing-notes i18n sweep - confirm draft recovery wording before production.
+      's4.lib.nursing_notes.discard_draft': "ड्राफ्ट छोड़ें",
       's4.lib.nursing_notes.draft_discarded': "ड्राफ्ट खारिज कर दिया गया",
       's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
           "किसी मरीज के सभी नोट्स देखने के लिए बेड बोर्ड से इस स्क्रीन को खोलें।",
+      's4.lib.nursing_notes.restored_draft':
+          "सहेजा न गया ड्राफ्ट बहाल किया गया",
+      's4.lib.nursing_notes.signed': "हस्ताक्षरित",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "पूर्ण प्रतिलेखों को चिकित्सक की समीक्षा के लिए SOAP ड्राफ्ट में परिवर्तित किया जा सकता है।",
       // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
@@ -10989,6 +11905,8 @@ class AppStrings {
       's4.lib.patient_command_board.no_active_patients': "कोई सक्रिय रोगी नहीं",
       's4.lib.patient_command_board.no_matching_patients':
           "कोई मेल खाता रोगी नहीं",
+      // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
+      's4.lib.patient_notes_list.addendum': "परिशिष्ट",
       's4.lib.patient_context_chip.clear_patient_context': "स्पष्ट रोगी संदर्भ",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
           "नोट्स, नुस्खों, जांचों, महत्वपूर्ण बातों और रोगी-जनित कल्याण डेटा की विहित समयरेखा।",
@@ -11069,6 +11987,83 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "नोट अपडेट किया गया",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "मूल गद्य को अधिलेखित कर देता है. नोट के लेखक, भूमिका और निर्माण का समय संरक्षित है।",
+      // REVIEW: AI first-pass S4 i18n legacy sweep leftovers - confirm wording before production.
+      's4.lib.ward_list_filter_bar.ward': "वार्ड",
+      's4.lib.ward_list_filter_bar.clear_filters': "फ़िल्टर साफ़ करें",
+      's4.lib.vital_text_field.enter_valid_number': "मान्य संख्या दर्ज करें",
+      's4.lib.theme_toggle_action.switch_to_light_mode':
+          "लाइट मोड पर स्विच करें",
+      's4.lib.theme_toggle_action.switch_to_dark_mode':
+          "डार्क मोड पर स्विच करें",
+      's4.lib.session_revocation_listener.signed_out_new_login':
+          "साइन आउट किया गया - आपका खाता अभी दूसरे डिवाइस पर लॉग इन हुआ है।",
+      's4.lib.session_revocation_listener.session_revoked':
+          "आपका सत्र रद्द कर दिया गया।",
+      's4.lib.patient_search_sheet.type_to_find_patient':
+          "रोगी खोजने के लिए अस्पताल ID, नाम, फ़ोन या ABHA पता टाइप करें।",
+      's4.lib.patient_search_sheet.enter_10_digits_for_phone':
+          "फ़ोन से खोजने के लिए कम से कम 10 अंक दर्ज करें।",
+      's4.lib.patient_search_sheet.type_2_characters':
+          "खोजने के लिए कम से कम 2 अक्षर टाइप करें।",
+      's4.lib.patient_search_sheet.unnamed': "बेनाम",
+      's4.dynamic.patient_search_sheet.no_matches_for':
+          "\"{query}\" के लिए कोई मिलान नहीं",
+      's4.lib.message_unread_badge.unread_messages': "अपठित संदेश",
+      's4.dynamic.message_unread_badge.count_label': "{count} {label}",
+      's4.dynamic.success_toast.success_label': "सफलता: {message}",
+      's4.dynamic.error_toast.error_label': "त्रुटि: {message}",
+      's4.lib.patient_notes_list.filter.all': "सभी",
+      's4.lib.patient_notes_list.filter.doctor': "डॉक्टर",
+      's4.lib.patient_notes_list.filter.nursing': "नर्सिंग",
+      's4.lib.patient_notes_list.unknown_role': "अज्ञात",
+      's4.lib.patient_notes_list.type.progress': "प्रगति",
+      's4.lib.patient_notes_list.type.note': "नोट",
+      's4.dynamic.patient_notes_list.rev_admin_edited':
+          "संशोधन {version} (व्यवस्थापक-संपादित)",
+      's4.dynamic.appointments.minutes_ago': "{count} मिनट पहले",
+      's4.dynamic.appointments.hours_ago': "{count} घंटे पहले",
+      's4.lib.dashboard.op_nursing': "OP नर्सिंग",
+      's4.lib.dashboard.op_workbench': "OP वर्कबेंच",
+      's4.lib.dashboard.patient_fallback': "रोगी",
+      's4.lib.dashboard.notification_fallback': "सूचना",
+      's4.dynamic.dashboard.minutes_ago': "{count} मिनट पहले",
+      's4.dynamic.dashboard.hours_ago': "{count} घंटे पहले",
+      's4.lib.prescriptions.visit_prescription_locked':
+          "इस विजिट में पहले से हस्ताक्षरित प्रिस्क्रिप्शन है; बदलाव के लिए नई OP विजिट बनाएं।",
+      's4.lib.prescriptions.photo_needs_connection':
+          "फ़ोटो प्रिस्क्रिप्शन के लिए कनेक्शन चाहिए। फिर से कनेक्ट करें और प्रयास करें।",
+      's4.dynamic.prescriptions.offline_context': "प्रिस्क्रिप्शन - {name}",
+      's4.lib.prescriptions.queued_safety_checked_on_sync':
+          "प्रिस्क्रिप्शन कतार में है - सिंक पर सुरक्षा जांच होगी",
+      's4.lib.prescriptions.route.oral': "मौखिक",
+      's4.lib.prescriptions.route.iv': "IV",
+      's4.lib.prescriptions.route.im': "IM",
+      's4.lib.prescriptions.route.topical': "स्थानीय",
+      's4.lib.prescriptions.route.inhalation': "इनहेलेशन",
+      's4.lib.prescriptions.route.sublingual': "जीभ के नीचे",
+      's4.lib.prescriptions.pharmacy.in_house_dispensary': "इन-हाउस डिस्पेंसरी",
+      's4.lib.prescriptions.pharmacy.patient_choice': "रोगी की पसंद",
+      's4.lib.prescriptions.pharmacy.external_pharmacy': "बाहरी फ़ार्मेसी",
+      's4.lib.prescriptions.any_time': "कभी भी",
+      's4.lib.prescriptions.instructions_hint': "PRN कारण, चेतावनी, विशेष सलाह",
+      's4.lib.prescriptions.auto_filled': "स्वतः भरा गया",
+      's4.lib.prescriptions.prescription_locked': "प्रिस्क्रिप्शन लॉक है",
+      's4.lib.prescriptions.update_prescription': "प्रिस्क्रिप्शन अपडेट करें",
+      's4.dynamic.investigations.file_selected_one': "{count} फ़ाइल चुनी गई",
+      's4.dynamic.investigations.file_selected_other':
+          "{count} फ़ाइलें चुनी गईं",
+      's4.dynamic.investigations.uploading_count':
+          "{uploaded}/{total} अपलोड हो रहा है",
+      's4.dynamic.investigations.uploading_file':
+          "{uploaded}/{total} अपलोड हो रहा है - {file}",
+      's4.dynamic.drug_chart.medication_order': "दवा आदेश - {drug}",
+      's4.lib.drug_chart.not_timed': "समय तय नहीं",
+      's4.dynamic.nursing_notes.offline_context':
+          "{patient} के लिए नर्सिंग नोट",
+      's4.lib.nursing_notes.load_more': "और लोड करें",
+      's4.lib.nursing_notes.nursing_note': "नर्सिंग नोट",
+      's4.dynamic.vitals.offline_context': "रोगी {patient} के लिए वाइटल्स",
+      's4.dynamic.payroll.max_amount_suffix': "(अधिकतम ₹{amount})",
       // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "एआई-सहायता प्राप्त रिकॉर्ड समीक्षा",
@@ -11219,6 +12214,7 @@ class AppStrings {
           "ओपी प्रिस्क्रिप्शन, आईपी ड्रग चार्ट और फार्मेसी इसी बैकएंड कैटलॉग का उपयोग करते हैं।",
       's4.lib.pharmacy.catalog_shared_limited_copy':
           "ओपी प्रिस्क्रिप्शन, आईपी ड्रग चार्ट और फार्मेसी इसी बैकएंड कैटलॉग का उपयोग करते हैं। बदलाव Pharmacy Incharge/Admin तक सीमित हैं।",
+      's4.lib.pharmacy.category_other': "अन्य",
       's4.lib.pharmacy.cold_chain_item': "कोल्ड-चेन आइटम",
       's4.lib.pharmacy.controlled_narcotic_item': "नियंत्रित/मादक वस्तु",
       's4.lib.pharmacy.could_not_identify_formulary_item':
@@ -11307,6 +12303,7 @@ class AppStrings {
       's4.lib.pharmacy.strength': "ताकत",
       's4.lib.pharmacy.tablet_hint': "टैबलेट",
       's4.lib.pharmacy.this_drug': "यह दवा",
+      's4.lib.pharmacy.unit_each': "प्रत्येक",
       's4.lib.pharmacy.unit_label': "यूनिट लेबल",
       's4.lib.pharmacy.unit_price': "यूनिट मूल्य",
       's4.lib.pharmacy.unavailable': "अनुपलब्ध",
@@ -11326,24 +12323,61 @@ class AppStrings {
           "नुस्खे का मसौदा साफ़ करें?",
       's4.lib.prescriptions.continue': "जारी रखना",
       's4.lib.prescriptions.days': "दिन",
+      's4.lib.prescriptions.days_must_be_at_least_1':
+          "दिन कम से कम 1 होना चाहिए",
       's4.lib.prescriptions.delete_row': "पंक्ति को हटाएं",
+      // REVIEW: AI first-pass S4 prescriptions i18n sweep - confirm compact dose-slot initials before production.
+      's4.lib.prescriptions.dose_slot_afternoon_short': "दो",
+      's4.lib.prescriptions.dose_slot_evening_short': "शा",
+      's4.lib.prescriptions.dose_slot_morning_short': "सु",
+      's4.lib.prescriptions.dose_slot_night_short': "रा",
+      's4.lib.prescriptions.draft': "मसौदा",
       's4.lib.prescriptions.drug_form': "औषधि/रूप*",
+      // REVIEW: AI first-pass S4 prescriptions i18n sweep - confirm clinical and pharmacy wording before production.
+      's4.lib.prescriptions.height': "ऊँचाई",
+      's4.lib.prescriptions.in_stock': "स्टॉक में",
+      's4.lib.prescriptions.may_be_available': "उपलब्ध हो सकता है",
       's4.lib.prescriptions.notes_safety': "टिप्पणियाँ/सुरक्षा",
       's4.lib.prescriptions.op_consultation_context': "ओपी परामर्श प्रसंग",
+      's4.lib.prescriptions.open_last_pdf': "अंतिम PDF खोलें",
       's4.lib.prescriptions.open_pdf': "पीडीएफ खोलें",
+      's4.lib.prescriptions.out_of_stock': "स्टॉक में नहीं",
+      's4.lib.prescriptions.pdf_not_available': "PDF उपलब्ध नहीं है",
+      's4.lib.prescriptions.pdf_not_available_yet':
+          "प्रिस्क्रिप्शन PDF अभी उपलब्ध नहीं है",
+      's4.lib.prescriptions.pdf_open_failed': "प्रिस्क्रिप्शन PDF नहीं खुल सका",
+      's4.lib.prescriptions.pharmacy_order_sent': "फ़ार्मेसी आदेश भेजा गया",
       's4.lib.prescriptions.prescription_pdf_is_ready':
           "प्रिस्क्रिप्शन पीडीएफ तैयार है",
+      's4.lib.prescriptions.resp_rate': "श्वसन दर",
       's4.lib.prescriptions.review_draft': "ड्राफ्ट की समीक्षा करें",
       's4.lib.prescriptions.review_prescription_warnings':
           "नुस्खे संबंधी चेतावनियों की समीक्षा करें",
+      's4.lib.prescriptions.rx_signed': "Rx हस्ताक्षरित",
       's4.lib.prescriptions.save_favorite': "पसंदीदा सहेजें",
+      's4.lib.prescriptions.saved_as_favorite': "पसंदीदा के रूप में सहेजा गया",
+      's4.lib.prescriptions.sign_lock': "हस्ताक्षर करें और लॉक करें",
+      's4.lib.prescriptions.sign_lock_rx': "Rx पर हस्ताक्षर करें और लॉक करें",
       's4.lib.prescriptions.signed': "पर हस्ताक्षर किए",
+      's4.lib.prescriptions.signed_locked': "हस्ताक्षरित और लॉक",
       's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
           "सर्वर ने इस नुस्खे के लिए नॉन-ब्लॉकिंग सीडीएस चेतावनियाँ लौटा दीं।",
       's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
           "यह इस मसौदे पर वर्तमान में मौजूद दवाओं, नोट्स, महत्वपूर्ण बातों और अनुवर्ती कार्रवाई को हटा देता है। बनाए गए नुस्खे हटाए नहीं जाते.",
       's4.lib.prescriptions.type_drug_name': "दवा का नाम टाइप करें",
       's4.lib.prescriptions.use_favorite': "पसंदीदा का प्रयोग करें",
+      's4.dynamic.prescriptions.follow_up_date': "फ़ॉलो-अप: {date}",
+      's4.dynamic.prescriptions.in_stock_count': "स्टॉक में {count}",
+      's4.dynamic.prescriptions.open_rx_pdf': "Rx #{id} PDF खोलें",
+      's4.dynamic.prescriptions.patient_doctor':
+          "मरीज़: {patient} · डॉ. {doctor}",
+      's4.dynamic.prescriptions.pdf_open_failed_detail':
+          "प्रिस्क्रिप्शन PDF नहीं खुल सका: {error}",
+      's4.dynamic.prescriptions.pharmacy_handoff_needs_formulary_match':
+          "प्रिस्क्रिप्शन सहेजा गया; फ़ार्मेसी हैंडऑफ़ को फॉर्मुलरी मिलान चाहिए: {error}",
+      's4.dynamic.prescriptions.pharmacy_order_sent_number':
+          "फ़ार्मेसी आदेश {number} भेजा गया",
+      's4.dynamic.prescriptions.pharmacy_status': "फ़ार्मेसी: {status}",
       's4.lib.referrals.ai_assisted_clinical_summary':
           "एआई सहायता प्राप्त नैदानिक ​​सारांश",
       's4.lib.referrals.audit': "अंकेक्षण",
@@ -11364,17 +12398,102 @@ class AppStrings {
           "रेफरल ऑडिट एडमिन/सुपरएडमिन भूमिकाओं के लिए उपलब्ध है।",
       's4.lib.referrals.referral_clinical_summary': "रेफरल क्लिनिकल सारांश",
       's4.lib.referrals.use_summary': "सारांश का प्रयोग करें",
+      // REVIEW: AI first-pass S4 referrals i18n sweep - confirm clinical handoff wording before production.
+      's4.dynamic.referrals.admission_id': "भर्ती #{id}",
+      's4.dynamic.referrals.bed': "बेड {bed}",
+      's4.dynamic.referrals.min_to_first_seen':
+          "पहली बार देखने तक {minutes} मिनट",
+      's4.dynamic.referrals.reason_line': "कारण: {reason}",
+      's4.lib.referrals.active_diagnoses': "सक्रिय निदान",
+      's4.lib.referrals.ai_assist_clinical_summary':
+          "AI सहायता क्लिनिकल सारांश",
+      's4.lib.referrals.ai_draft_added':
+          "AI ड्राफ्ट जोड़ा गया। रेफरल अनुरोध करने से पहले समीक्षा करें।",
+      's4.lib.referrals.consultant': "सलाहकार",
+      's4.lib.referrals.current_treatment': "वर्तमान उपचार",
+      's4.lib.referrals.decline': "अस्वीकार करें",
+      's4.lib.referrals.decline_request': "अनुरोध अस्वीकार करें",
+      's4.lib.referrals.department': "विभाग",
+      's4.lib.referrals.drafting_clinical_summary':
+          "क्लिनिकल सारांश ड्राफ्ट हो रहा है",
+      's4.lib.referrals.enter_reason_before_ai':
+          "AI से सारांश ड्राफ्ट कराने से पहले रेफरल का कारण दर्ज करें",
+      's4.lib.referrals.first_seen': "पहली बार देखा गया",
+      's4.lib.referrals.incoming_action_hint':
+          "Accept और Complete केवल रेफर किए गए विशेषज्ञ या मेल खाते विभाग के डॉक्टर तक सीमित हैं।",
+      's4.lib.referrals.investigations': "जाँचें",
+      's4.lib.referrals.no_incoming_referrals': "कोई आने वाला रेफरल नहीं",
+      's4.lib.referrals.no_outgoing_referrals': "कोई भेजा गया रेफरल नहीं",
+      's4.lib.referrals.not_seen_yet': "अभी नहीं देखा गया",
+      's4.lib.referrals.outgoing_action_hint':
+          "लंबित रहते हुए भेजे गए अनुरोध को अनुरोधकर्ता या प्राथमिक डॉक्टर अस्वीकार कर सकते हैं।",
+      's4.lib.referrals.patient': "मरीज़",
+      's4.lib.referrals.patient_department_reason_required':
+          "मरीज़, विभाग और कारण आवश्यक हैं",
+      's4.lib.referrals.pending_items': "लंबित आइटम",
+      's4.lib.referrals.reason': "कारण",
+      's4.lib.referrals.referral': "रेफरल",
+      's4.lib.referrals.referrals': "रेफरल",
+      's4.lib.referrals.request_referral': "रेफरल अनुरोध करें",
+      's4.lib.referrals.requested': "अनुरोधित",
+      's4.lib.referrals.requested_notified':
+          "रेफरल अनुरोध किया गया और विशेषज्ञ को सूचित किया गया",
+      's4.lib.referrals.sending_referral': "रेफरल भेजा जा रहा है",
+      's4.lib.referrals.status.accepted': "स्वीकार किया गया",
+      's4.lib.referrals.status.cancelled': "रद्द",
+      's4.lib.referrals.status.completed': "पूर्ण",
+      's4.lib.referrals.status.declined': "अस्वीकृत",
+      's4.lib.referrals.status.in_progress': "प्रगति में",
+      's4.lib.referrals.status.pending': "लंबित",
+      's4.lib.referrals.summary': "सारांश",
+      // REVIEW: AI first-pass S4 reports i18n sweep - confirm HR/legal wording before production.
+      'reports.priority.high': "उच्च",
+      'reports.priority.low': "कम",
+      'reports.priority.medium': "मध्यम",
+      'reports.priority.urgent': "तत्काल",
+      'reports.status.acknowledged': "स्वीकार किया गया",
+      'reports.status.closed': "बंद",
+      'reports.status.escalated': "एस्केलेट किया गया",
+      'reports.status.in_review': "समीक्षा में",
+      'reports.status.investigating': "जांच में",
+      'reports.status.mediation': "मध्यस्थता",
+      'reports.status.rejected': "अस्वीकृत",
+      'reports.status.resolved': "समाधान किया गया",
+      'reports.status.submitted': "जमा किया गया",
+      'reports.status.under_review': "समीक्षा में",
+      's4.dynamic.reports_admin_queue.anonymous_with_sender': "अनाम ({sender})",
+      's4.lib.reports_admin_queue.action': "कार्रवाई",
+      's4.lib.reports_admin_queue.activity_log': "गतिविधि लॉग",
+      's4.lib.reports_admin_queue.against_whom': "किसके विरुद्ध",
+      's4.lib.reports_admin_queue.anonymous': "अनाम",
+      's4.lib.reports_admin_queue.concern': "चिंता",
+      's4.lib.reports_admin_queue.department': "विभाग",
+      's4.lib.reports_admin_queue.description': "विवरण",
+      's4.lib.reports_admin_queue.details': "विवरण",
+      's4.lib.reports_admin_queue.grievance_type': "शिकायत प्रकार",
       's4.lib.reports_admin_queue.hr_admin_access_required':
           "एचआर/एडमिन एक्सेस आवश्यक है",
+      's4.lib.reports_admin_queue.incident_report': "घटना रिपोर्ट",
+      's4.lib.reports_admin_queue.incident_type': "घटना प्रकार",
+      's4.lib.reports_admin_queue.internal': "आंतरिक",
       's4.lib.reports_admin_queue.internal_hr_admin_note':
           "आंतरिक मानव संसाधन/प्रशासन नोट",
+      's4.lib.reports_admin_queue.location': "स्थान",
+      's4.lib.reports_admin_queue.no_details_recorded':
+          "कोई विवरण दर्ज नहीं किया गया.",
       's4.lib.reports_admin_queue.no_activity_recorded':
           "कोई गतिविधि दर्ज नहीं की गई",
       's4.lib.reports_admin_queue.public_update': "सार्वजनिक अद्यतन",
       's4.lib.reports_admin_queue.report_update_saved':
           "रिपोर्ट अद्यतन सहेजा गया",
       's4.lib.reports_admin_queue.reports_review': "रिपोर्ट की समीक्षा",
+      's4.lib.reports_admin_queue.resolution': "समाधान",
       's4.lib.reports_admin_queue.save_update': "अद्यतन सहेजें",
+      's4.lib.reports_admin_queue.severity': "गंभीरता",
+      's4.lib.reports_admin_queue.staff_grievance': "कर्मचारी शिकायत",
+      's4.lib.reports_admin_queue.untitled_grievance': "बेनाम शिकायत",
+      's4.lib.reports_admin_queue.untitled_incident': "बेनाम घटना",
+      's4.lib.reports_admin_queue.update_recorded': "अद्यतन दर्ज किया गया",
       's4.lib.schedule.shift_actions': "क्रियाएं बदलें",
       // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
       's4.lib.scan_common.please_scan_again': "कृपया फिर से स्कैन करें.",
@@ -11645,6 +12764,8 @@ class AppStrings {
       's4.lib.dashboard.cath_lab_patient_records': "कैथ लैब रोगी अभिलेख",
       's4.lib.dashboard.cath_lab_lab_bookings': "कैथ लैब लैब बुकिंग",
       's4.lib.dashboard.cath_lab_results': "कैथ लैब परिणाम",
+      // REVIEW: AI first-pass S4 dashboard i18n sweep - confirm accessibility hint copy before production.
+      's4.lib.dashboard.opens_patient_chart': "रोगी चार्ट खोलता है",
       's4.lib.front_office_workbench.front_office_unavailable':
           "फ्रंट ऑफिस उपलब्ध नहीं है",
       's4.lib.front_office_workbench.workstation_mode_required':
@@ -11766,13 +12887,32 @@ class AppStrings {
           "केस शीट - {patient}",
       's4.dynamic.common.user_id': "उपयोगकर्ता आईडी: {userId}",
       's4.dynamic.common.signed_at': "यहां हस्ताक्षरित: {signedAt}",
+      's4.dynamic.dashboard.recent_patient_position':
+          "{total} में से {index}: {name}",
+      's4.dynamic.dashboard.recent_patients_count': "हाल के रोगी ({count})",
       's4.dynamic.discharge_hub.ai_package_failed': "AI पैकेज विफल: {error}",
+      's4.dynamic.discharge_hub.admission_id': "भर्ती #{id}",
+      's4.dynamic.discharge_hub.bed': "बेड {bed}",
       's4.dynamic.discharge_hub.finish_task_title': "{label} समाप्त करें",
+      's4.dynamic.discharge_hub.finished_by': "{name} द्वारा समाप्त",
       's4.dynamic.discharge_hub.task_finished': "{label} समाप्त हुआ",
       's4.dynamic.discharge_hub.finish_task_failed':
           "कार्य पूरा नहीं हो सका: {error}",
+      's4.dynamic.discharge_hub.hospital_id': "अस्पताल ID {id}",
+      's4.dynamic.discharge_hub.pdf_open_failed':
+          "डिस्चार्ज PDF नहीं खुल सका: {error}",
+      's4.dynamic.discharge_hub.safety_flag_count.one':
+          "{count} सुरक्षा ध्वज की समीक्षा करें",
+      's4.dynamic.discharge_hub.safety_flag_count.other':
+          "{count} सुरक्षा ध्वजों की समीक्षा करें",
+      's4.dynamic.discharge_hub.source_count.one': "{count} स्रोत",
+      's4.dynamic.discharge_hub.source_count.other': "{count} स्रोत",
       's4.dynamic.discharge_hub.title_for_patient': "डिस्चार्ज हब - {patient}",
+      's4.dynamic.discharge_hub_list.tasks_pending':
+          "{pending} में से {total} कार्य लंबित",
       's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.nursing_notes.restored_draft_from':
+          "{time} से सहेजा न गया ड्राफ्ट बहाल किया गया",
       's4.dynamic.patient_command_board.allergies_count': "{count} एलर्जी",
       's4.dynamic.patient_command_board.alerts_count': "{count} अलर्ट",
       's4.dynamic.patient_command_board.tasks_count': "{count} कार्य",
@@ -11923,6 +13063,15 @@ class AppStrings {
       's4.dynamic.lab_bookings.tests_prefix': "परीक्षण: {tests}",
       's4.dynamic.appointments.existing_patient_found_id':
           "मौजूदा मरीज मिला: #{id}",
+      's4.dynamic.appointments.doctor_number': "डॉक्टर #{id}",
+      's4.dynamic.appointments.load_failed_detail':
+          "अपॉइंटमेंट लोड नहीं हो सके।\n{error}",
+      's4.dynamic.appointments.status_updated_successfully':
+          "अपॉइंटमेंट {status} सफलतापूर्वक",
+      's4.dynamic.appointments.time_status': "{time} - {status}",
+      's4.dynamic.appointments.visible_this_week':
+          "इस सप्ताह {count} दिखाई दे रहे हैं",
+      's4.dynamic.appointments.more_count': "+{count} और",
       's4.dynamic.lab_bookings.error_message': "त्रुटि: {error}",
       's4.dynamic.lab_bookings.specimen_queue_update_failed':
           "नमूना एकत्रित हुआ, लेकिन कतार अपडेट विफल रहा: {error}",
@@ -12178,9 +13327,13 @@ class AppStrings {
       'attendance.legend.absent': 'வரவில்லை',
       'attendance.legend.leave': 'விடுப்பு',
       'attendance.legend.late': 'தாமதம்',
+      // REVIEW: ta AI first-pass S4 attendance/timekeeping copy.
+      'attendance.status.weekend': 'வார இறுதி',
       'attendance.check_in_label': 'உள்நுழைவு',
       'attendance.check_out_label': 'வெளியேறுதல்',
       'attendance.hours_label': 'மணிநேரம்',
+      's4.dynamic.attendance.hours_compact': '{hours}மணி',
+      's4.dynamic.attendance.tab_count': '{label} ({count})',
       'attendance.late_arrival': '⚠️ தாமதமாக வருகை',
       'attendance.no_history': 'வருகை வரலாறு இல்லை',
       'attendance.history.absent': 'வரவில்லை',
@@ -12313,6 +13466,25 @@ class AppStrings {
           'மருந்து ஆர்டர் சேமிக்கப்பட்டு பார்மசிக்கு அறிவிக்கப்பட்டது',
       'drug_chart.empty': 'உள்நோயாளி மருந்துகள் எதுவும் பதிவில் இல்லை',
       'drug_chart.given': 'கொடுக்கப்பட்டது',
+      // REVIEW: ta AI first-pass S4 drug-chart display copy.
+      'drug_chart.toolbar.editable_hint':
+          'வரிசைகளை இங்கே சேர்க்கவும். நேர குறிகள் நர்ஸ் MAR தர வேண்டிய அளவுகளாகும்.',
+      'drug_chart.toolbar.read_only_hint':
+          'நர்ஸ் MAR மற்றும் பார்மசி இண்டெண்ட் நிலை கொண்ட படிக்க மட்டும் அட்டவணை.',
+      's4.dynamic.drug_chart.active_rows': '{count} செயலில் உள்ள வரிசைகள்',
+      's4.dynamic.drug_chart.unsaved_rows': '{count} சேமிக்கப்படாதவை',
+      'drug_chart.pharmacy_pending': 'பார்மசி நிலுவையில்',
+      'drug_chart.free_text': 'சுதந்திர உரை',
+      's4.lib.drug_chart.in_stock': "கையிருப்பில் உள்ளது",
+      's4.lib.drug_chart.may_be_available': "கிடைக்கக்கூடும்",
+      's4.lib.drug_chart.out_of_stock': "கையிருப்பில் இல்லை",
+      's4.dynamic.drug_chart.in_stock_count': "கையிருப்பில் உள்ளது ({count})",
+      's4.dynamic.drug_chart.started_on': '{date} தொடங்கியது',
+      's4.dynamic.drug_chart.started_by': '{name} மூலம்',
+      's4.dynamic.drug_chart.antibiotic_day': 'ஆண்டிபயாட்டிக் நாள் {day}',
+      'drug_chart.safety_clear': 'பாதுகாப்பு தெளிவு',
+      's4.dynamic.drug_chart.next_due': 'அடுத்தது {time}',
+      's4.dynamic.drug_chart.given_count': '{count} கொடுக்கப்பட்டது',
       'drug_chart.column.drug': 'மருந்து',
       'drug_chart.column.dose': 'அளவு',
       'drug_chart.column.route': 'வழி',
@@ -13356,6 +14528,7 @@ class AppStrings {
       'radiology.title': 'கதிரியக்கவியல்',
       'radiology.submit_report': 'அறிக்கை சமர்ப்பி',
       'schedule.title': 'பணி அட்டவணை',
+      'schedule.prev_week': 'முந்தைய வாரம்',
       // Lab / Pharmacy
       'investigations.title': 'புலனாய்வுகள்',
       'investigations.upload_button': 'புலனாய்வு பதிவேற்று',
@@ -13405,6 +14578,26 @@ class AppStrings {
           '✅ கூடுதல் நேர கோரிக்கை சமர்ப்பிக்கப்பட்டது',
       // Clinical AI
       'clinical_ai.queue.title': 'AI மதிப்பாய்வு வரிசை',
+      // REVIEW: S4 machine translation - confirm clinical AI module labels.
+      'clinical_ai.module.abnormal_result_triage': 'அசாதாரண முடிவு முன்னுரிமை',
+      'clinical_ai.module.ai_safety_reviewer': 'AI பாதுகாப்பு மதிப்பாய்வாளர்',
+      'clinical_ai.module.antimicrobial_stewardship':
+          'ஆண்டிமைக்ரோபியல் ஸ்டீவர்ட்ஷிப்',
+      'clinical_ai.module.clinical_coding_assist': 'மருத்துவ குறியீட்டு உதவி',
+      'clinical_ai.module.clinical_task_extractor':
+          'மருத்துவ பணி பிரித்தெடுப்பு',
+      'clinical_ai.module.daily_ward_round_brief':
+          'தினசரி வார்டு ரவுண்ட் சுருக்கம்',
+      'clinical_ai.module.discharge_readiness': 'வெளியேற்ற தயார் நிலை',
+      'clinical_ai.module.discharge_summary': 'வெளியேற்ற சுருக்கம்',
+      'clinical_ai.module.discharge_summary_compose':
+          'வெளியேற்ற தொகுப்பு உருவாக்கம்',
+      'clinical_ai.module.medication_reconciliation': 'மருந்து சமரசம்',
+      'clinical_ai.module.patient_aftercare_instructions':
+          'பிந்தைய பராமரிப்பு வழிமுறைகள்',
+      'clinical_ai.module.patient_record_summary': 'நோயாளி பதிவு சுருக்கம்',
+      'clinical_ai.module.referral_letter': 'பரிந்துரை கடிதம்',
+      'clinical_ai.module.soap_from_dictation': 'உரைமாற்றத்திலிருந்து SOAP',
       // REVIEW: clinical-action wording
       'clinical_ai.draft.accept': 'ஏற்றுக்கொள்',
       'clinical_ai.draft.reject_button': 'நிராகரி',
@@ -13495,6 +14688,20 @@ class AppStrings {
       'cds.override_button': 'மீறு',
       // REVIEW:
       'cds.override_save': 'மீறி சேமி',
+      // REVIEW: AI first-pass S4 CDS override i18n sweep - safety-critical.
+      's4.lib.cds_blocker_modal.category.alternative_unavailable':
+          "பொருத்தமான மாற்று இல்லை",
+      's4.lib.cds_blocker_modal.category.allergy_disputed':
+          "ஒவ்வாமை விவாதத்தில் / தவறாக குறிக்கப்பட்டது",
+      's4.lib.cds_blocker_modal.category.benefit_outweighs_risk':
+          "நன்மை ஆபத்தைக் காட்டிலும் அதிகம்",
+      's4.lib.cds_blocker_modal.category.other': "மற்றவை (கீழே குறிப்பிடவும்)",
+      's4.lib.cds_blocker_modal.category.prior_tolerance_documented':
+          "முன் சகிப்புத்தன்மை பதிவு செய்யப்பட்டது",
+      's4.lib.cds_blocker_modal.justification_not_repeated_character':
+          "நியாயம் மீண்டும் மீண்டும் வரும் எழுத்தாக இருக்கக்கூடாது",
+      's4.lib.cds_blocker_modal.minimum_15_characters_required':
+          "குறைந்தது 15 எழுத்துகள் தேவை",
       // Code Blue - REVIEW: clinical-safety, Tamil-fluent clinician must verify
       // REVIEW:
       'code_blue.title': 'கோட் ப்ளூ',
@@ -13574,6 +14781,15 @@ class AppStrings {
       // Misc
       // REVIEW:
       'shift_card.no_shift': 'பணி நேரம் ஒதுக்கப்படவில்லை',
+      // REVIEW: ta AI first-pass S4 attendance/timekeeping copy.
+      'shift_card.fallback_name': 'பணி நேரம்',
+      's4.dynamic.shift_card.display_name': '{name} பணி நேரம்',
+      's4.dynamic.shift_card.time_range_grace':
+          '{start} - {end}  ·  {grace}நிமி சலுகை',
+      'break_tracker.end_break': 'இடைவேளையை முடிக்கவும்',
+      'break_tracker.take_break': 'இடைவேளை எடுக்கவும்',
+      's4.dynamic.break_tracker.total_minutes': 'மொத்தம் {minutes}நிமி',
+      's4.dynamic.break_tracker.duration_minutes': ' ({minutes}நிமி)',
       // REVIEW:
       'pharmacy.no_preview': 'முன்னோட்டம் இல்லை',
       // REVIEW:
@@ -13722,6 +14938,8 @@ class AppStrings {
       'payroll.tax_summary.download_pdf': 'PDF ஐப் பதிவிறக்கு',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'payroll.tax_summary.download_form16': 'படிவம் 16 PDF ஐப் பதிவிறக்கவும்',
+      's4.dynamic.payroll.payslips_included_fy':
+          "{count} ஊதியச் சீட்டுகள் FY {fy} இல் சேர்க்கப்பட்டுள்ளன",
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'payroll.declaration.estimated_deductions':
           'மதிப்பிடப்பட்ட வரி விலக்குகள்',
@@ -13772,6 +14990,52 @@ class AppStrings {
       'payroll.declaration.past_title': 'கடந்த கால பிரகடனங்கள்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'payroll.declaration.fy_submitted': 'சமர்ப்பிக்கப்பட்டது',
+      // REVIEW: S4 payroll machine translations - confirm statutory/financial wording.
+      'payroll.declaration.chip_80c': '80C (அதிகபட்சம் ₹1.5L)',
+      'payroll.declaration.chip_80d': '80D',
+      'payroll.declaration.chip_nps': 'NPS',
+      'payroll.month.1': 'ஜனவரி',
+      'payroll.month.2': 'பிப்ரவரி',
+      'payroll.month.3': 'மார்ச்',
+      'payroll.month.4': 'ஏப்ரல்',
+      'payroll.month.5': 'மே',
+      'payroll.month.6': 'ஜூன்',
+      'payroll.month.7': 'ஜூலை',
+      'payroll.month.8': 'ஆகஸ்ட்',
+      'payroll.month.9': 'செப்டம்பர்',
+      'payroll.month.10': 'அக்டோபர்',
+      'payroll.month.11': 'நவம்பர்',
+      'payroll.month.12': 'டிசம்பர்',
+      'payroll.month_short.1': 'ஜன',
+      'payroll.month_short.2': 'பிப்',
+      'payroll.month_short.3': 'மார்',
+      'payroll.month_short.4': 'ஏப்',
+      'payroll.month_short.5': 'மே',
+      'payroll.month_short.6': 'ஜூன்',
+      'payroll.month_short.7': 'ஜூலை',
+      'payroll.month_short.8': 'ஆக',
+      'payroll.month_short.9': 'செப்',
+      'payroll.month_short.10': 'அக்',
+      'payroll.month_short.11': 'நவ',
+      'payroll.month_short.12': 'டிச',
+      'payroll.query.category.general': 'பொது',
+      'payroll.query.category.basic_salary': 'அடிப்படை சம்பளம்',
+      'payroll.query.category.hra': 'HRA',
+      'payroll.query.category.deductions': 'கழிப்புகள்',
+      'payroll.query.category.overtime': 'கூடுதல் நேரம்',
+      'payroll.query.category.advance': 'முன்பணம்',
+      'payroll.query.category.tds': 'TDS',
+      'payroll.query.category.pf': 'PF',
+      'payroll.query.category.other': 'மற்றவை',
+      'payroll.query.status.open': 'திறந்தது',
+      'payroll.query.status.in_review': 'மதிப்பாய்வில்',
+      'payroll.query.status.resolved': 'தீர்க்கப்பட்டது',
+      'payroll.query.status.submitted': 'சமர்ப்பிக்கப்பட்டது',
+      'payroll.query.status.approved': 'அங்கீகரிக்கப்பட்டது',
+      'payroll.query.status.rejected': 'நிராகரிக்கப்பட்டது',
+      'payroll.query.status.draft': 'வரைவு',
+      's4.dynamic.payroll.fy_label': 'FY {fy}',
+      's4.dynamic.payroll.submitted_on': 'சமர்ப்பிக்கப்பட்டது: {date}',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'hr.timeframe.this_month': 'இந்த மாதம்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -13890,6 +15154,9 @@ class AppStrings {
       'directory.api_pending':
           'API இணைக்கப்பட்டவுடன் ஊழியர்கள் இங்கு தோன்றுவார்கள்',
       'directory.staff_empty_body': 'ஊழியர்கள் இல்லை',
+      's4.dynamic.directory.employee_id': "ID: {id}",
+      's4.dynamic.directory.shift': "பணி நேரம்: {shift}",
+      's4.lib.directory.other': "மற்றவை",
       'reports.hub.confidentiality_note':
           'அனைத்து அறிக்கைகளும் ரகசியமாக கையாளப்படுகின்றன. செய்தியாளர்களை பழிவாங்குவது கண்டிப்பாக தடைசெய்யப்பட்டுள்ளது.',
       'reports.hub.prompt': 'நீங்கள் என்ன புகாரளிக்க விரும்புகிறீர்கள்?',
@@ -14196,6 +15463,10 @@ class AppStrings {
       'theatre.no_surgeries': 'அறுவை சிகிச்சைகள் எதுவும் திட்டமிடப்படவில்லை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.no_room_data': 'அறை தரவு இல்லை',
+      // REVIEW: ta AI first-pass S4 theatre display copy.
+      'theatre.procedure_fallback': 'செயல்முறை',
+      's4.dynamic.theatre.ot_room': 'OT {room}',
+      's4.dynamic.theatre.duration_minutes': '{minutes} நிமி',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.status.scheduled': 'திட்டமிடப்பட்டது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -14300,7 +15571,6 @@ class AppStrings {
       'radiology.report_submitted': 'அறிக்கை சமர்ப்பிக்கப்பட்டது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'radiology.order_cancelled': 'ஆர்டர் ரத்து செய்யப்பட்டது',
-      'schedule.prev_week': 'முந்தைய வாரம்',
       'schedule.next_week': 'அடுத்த வாரம்',
       'schedule.week_this': 'இந்த வாரம்',
       'schedule.week_next': 'அடுத்த வாரம்',
@@ -14310,6 +15580,25 @@ class AppStrings {
       'schedule.hours_worked_suffix': 'h வேலை செய்தார்',
       'schedule.upcoming': 'வரவிருக்கிறது',
       'schedule.no_record': 'பதிவு இல்லை',
+      // REVIEW: AI first-pass S4 schedule i18n sweep - confirm roster wording before production.
+      's4.lib.schedule.assigned_duty': "ஒதுக்கப்பட்ட பணி",
+      's4.lib.schedule.duty': "பணி",
+      's4.lib.schedule.no_attendance_logged_yet':
+          "இன்னும் வருகை பதிவு செய்யப்படவில்லை",
+      's4.lib.schedule.no_published_duty': "வெளியிடப்பட்ட பணி இல்லை",
+      's4.dynamic.schedule.assignment_line': "{shift} {start}-{end}",
+      's4.dynamic.schedule.assignment_line_lead':
+          "{shift} {start}-{end} - லீடு",
+      's4.dynamic.schedule.attendance_summary':
+          "{days} வருகை நாட்கள் - {hours}மணி பதிவு",
+      's4.dynamic.schedule.attendance_unavailable':
+          "வருகை கிடைக்கவில்லை: {error}",
+      's4.dynamic.schedule.hours_worked': "{hours}மணி வேலை செய்தார்",
+      's4.dynamic.schedule.published_roster_unavailable':
+          "வெளியிடப்பட்ட ரோஸ்டர் கிடைக்கவில்லை: {error}",
+      's4.dynamic.schedule.rostered_shift_count.one': "{count} ரோஸ்டர் பணி",
+      's4.dynamic.schedule.rostered_shift_count.other':
+          "{count} ரோஸ்டர் பணிகள்",
       'schedule.load_failed_prefix': 'அட்டவணையை ஏற்ற முடியவில்லை:',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'investigations.tab.upload': 'முடிவைப் பதிவேற்றவும்',
@@ -14422,6 +15711,15 @@ class AppStrings {
       'lab_bookings.result_uploaded_toast': 'முடிவு பதிவேற்றப்பட்டது',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'lab_bookings.view_result': 'முடிவைப் பார்க்கவும்',
+      // REVIEW: ta AI first-pass S4 lab-booking display copy.
+      'lab_bookings.status.booked': 'முன்பதிவு செய்யப்பட்டது',
+      'lab_bookings.status.confirmed': 'உறுதிப்படுத்தப்பட்டது',
+      'lab_bookings.status.dispatched': 'அனுப்பப்பட்டது',
+      'lab_bookings.status.collected': 'சேகரிக்கப்பட்டது',
+      'lab_bookings.status.processing': 'செயலாக்கம்',
+      'lab_bookings.status.result_ready': 'முடிவு தயார்',
+      's4.dynamic.lab_bookings.minutes_ago': '{minutes}நிமி முன்',
+      's4.dynamic.lab_bookings.hours_ago': '{hours}மணி முன்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'pharmacy.queue_title': 'மருந்தக வரிசை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -14512,6 +15810,43 @@ class AppStrings {
       'due_meds.filter.all_routes': 'அனைத்து வழிகளும்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'due_meds.filter.route_label': 'வழி',
+      // REVIEW: ta AI first-pass S4 due-meds display copy.
+      's4.dynamic.due_meds.ward_fallback': 'வார்டு {value}',
+      'due_meds.unscheduled': 'அட்டவணையிடப்படாதது',
+      's4.dynamic.due_meds.due_late': '{value} தாமதம்',
+      's4.dynamic.due_meds.due_in': '{value} இல்',
+      // REVIEW: ta AI first-pass S4 maternity display copy.
+      'maternity.load_failed': 'பிரசவ பலகையை ஏற்ற முடியவில்லை',
+      's4.dynamic.maternity.gestational_weeks': '{weeks}வா',
+      's4.dynamic.maternity.admission_age': '{hours}மணி முன்',
+      // REVIEW: ta AI first-pass S4 partograph display copy.
+      'partograph_entry.amniotic.intact_membranes':
+          'சவ்வுகள் பாதிக்கப்படவில்லை',
+      'partograph_entry.amniotic.clear': 'தெளிவு',
+      'partograph_entry.amniotic.meconium_thin': 'மெல்லிய மேகோனியம்',
+      'partograph_entry.amniotic.meconium_thick': 'தடிமனான மேகோனியம்',
+      'partograph_entry.amniotic.blood': 'இரத்தம்',
+      'partograph_entry.urine.nil': 'இல்லை',
+      'partograph_entry.urine.trace': 'சுவடு',
+      'partograph_entry.save_failed': 'சேமிக்க முடியவில்லை',
+      'partograph_view.load_admission_failed':
+          'பிரசவ அனுமதியை ஏற்ற முடியவில்லை',
+      'partograph_view.load_failed': 'பார்டோகிராபை ஏற்ற முடியவில்லை',
+      'partograph_view.action_line_crossed.one':
+          'செயல் கோடு {n} பதிவில் கடந்தது',
+      'partograph_view.action_line_crossed.other':
+          'செயல் கோடு {n} பதிவுகளில் கடந்தது',
+      'partograph_view.alert_line_crossed.one':
+          'எச்சரிக்கை கோடு {n} பதிவில் கடந்தது',
+      'partograph_view.alert_line_crossed.other':
+          'எச்சரிக்கை கோடு {n} பதிவுகளில் கடந்தது',
+      's4.dynamic.partograph_view.point_summary':
+          '{hours}மணி · {cervix} செ.மீ. சர்விக்ஸ் · FHR {fhr}',
+      'partograph_chart.on_track': 'சரியான பாதையில்',
+      'partograph_chart.past_alert_line': 'எச்சரிக்கை கோட்டை கடந்தது',
+      'partograph_chart.past_action_line': 'செயல் கோட்டை கடந்தது',
+      'partograph_chart.alert_line': 'எச்சரிக்கை கோடு (1 செ.மீ/மணி)',
+      'partograph_chart.action_line': 'செயல் கோடு (எச்சரிக்கை + 4மணி)',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'mar_scan.step1_prompt':
           'படி 1 இல் 3 - நோயாளியின் மணிக்கட்டை ஸ்கேன் செய்யவும்',
@@ -14639,6 +15974,11 @@ class AppStrings {
       'dispute.empty': 'சர்ச்சைகள் எதுவும் தாக்கல் செய்யப்படவில்லை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'dispute.hr_comment_prefix': 'HR:',
+      // REVIEW: ta AI first-pass S4 attendance/timekeeping copy.
+      'dispute.status.pending': 'நிலுவையில்',
+      'dispute.status.approved': 'அங்கீகரிக்கப்பட்டது',
+      'dispute.status.rejected': 'நிராகரிக்கப்பட்டது',
+      's4.dynamic.dispute.hr_comment': 'HR: {comment}',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'overtime.tab.request': 'கோரிக்கை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -14663,6 +16003,12 @@ class AppStrings {
       'overtime.empty': 'கூடுதல் நேர கோரிக்கைகள் இல்லை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'overtime.rejected_prefix': 'நிராகரிக்கப்பட்டது:',
+      // REVIEW: ta AI first-pass S4 attendance/timekeeping copy.
+      'overtime.status.pending': 'நிலுவையில்',
+      'overtime.status.approved': 'அங்கீகரிக்கப்பட்டது',
+      'overtime.status.rejected': 'நிராகரிக்கப்பட்டது',
+      's4.dynamic.overtime.hours_and_type': '{hours}மணி · {type}',
+      's4.dynamic.overtime.rejected_reason': 'நிராகரிக்கப்பட்டது: {reason}',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'clinical_ai.queue.compose_button': 'ரன்களை எழுதுங்கள்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -14854,8 +16200,20 @@ class AppStrings {
           "முன் அலுவலகத்தைத் திறக்கவும்",
       's4.lib.appointment_queue.opening_front_office_workbench':
           "முன் அலுவலக பணிப்பெட்டியைத் திறக்கிறது",
+      // REVIEW: S4 appointment queue machine translations - confirm front-desk wording.
+      'appointments.status.all': 'அனைத்தும்',
+      'appointments.status.scheduled': 'திட்டமிடப்பட்டது',
+      'appointments.status.confirmed': 'உறுதிப்படுத்தப்பட்டது',
+      'appointments.status.completed': 'முடிந்தது',
+      'appointments.status.rescheduled': 'மறுதிட்டமிடப்பட்டது',
+      'appointments.status.no_show': 'வரவில்லை',
+      'appointments.status.cancelled': 'ரத்து செய்யப்பட்டது',
+      's4.lib.appointments.all_op_queues': "அனைத்து OP வரிசைகள்",
       's4.lib.appointments.any_available_doctor':
           "கிடைக்கக்கூடிய எந்த மருத்துவர்",
+      's4.lib.appointments.appointment_created_successfully':
+          "நியமனம் வெற்றிகரமாக உருவாக்கப்பட்டது",
+      's4.lib.appointments.appointments': "நியமனங்கள்",
       's4.lib.appointments.book_op': "புக் OP",
       // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
@@ -14863,6 +16221,8 @@ class AppStrings {
       's4.lib.appointments.collapse_queue_panel': "வரிசை பேனலைச் சுருக்கு",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
           "இப்போது பதிவேட்டைச் சரிபார்க்க முடியவில்லை; புதிய நோயாளி முன்பதிவு கிடைக்கிறது",
+      's4.lib.appointments.could_not_load_doctors':
+          "மருத்துவர்களை ஏற்ற முடியவில்லை",
       's4.lib.appointments.create_appointment': "நியமனத்தை உருவாக்கவும்",
       's4.lib.appointments.creating': "உருவாக்கப்படுகிறது...",
       's4.lib.appointments.checking_patient_registry':
@@ -14880,18 +16240,29 @@ class AppStrings {
       's4.lib.appointments.filter_doctor_or_department':
           "வடிகட்டி மருத்துவர் அல்லது துறை",
       's4.lib.appointments.flex': "நெகிழ்வு",
+      's4.lib.appointments.calendar_day': "நாள்",
+      's4.lib.appointments.calendar_week': "வாரம்",
       's4.lib.appointments.gmt_5_30': "GMT+5:30",
+      's4.lib.appointments.loading_doctors':
+          "மருத்துவர்கள் ஏற்றப்படுகின்றனர்...",
+      's4.lib.appointments.my_op_queue': "என் OP வரிசை",
+      's4.lib.appointments.my_op_workspace_queue': "என் OP பணியிடம் வரிசை",
       's4.lib.appointments.next_month': "அடுத்த மாதம்",
       's4.lib.appointments.new_patient_enter_name_to_register':
           "புதிய நோயாளி - முன்பதிவு செய்யும்போது பதிவு செய்ய பெயரை உள்ளிடவும்",
+      's4.lib.appointments.no_appointments': "நியமனங்கள் இல்லை",
       's4.lib.appointments.no_doctor_or_department_matches':
           "மருத்துவர் அல்லது துறை பொருத்தம் இல்லை",
+      's4.lib.appointments.op_workspace': "OP பணியிடம்",
       's4.lib.appointments.previous_month': "முந்தைய மாதம்",
       's4.lib.appointments.queue_filter': "வரிசை வடிகட்டி",
       's4.lib.appointments.search_patient_or_phone':
           "நோயாளி அல்லது தொலைபேசியைத் தேடுங்கள்",
       's4.lib.appointments.select_a_doctor_or_department':
           "ஒரு மருத்துவர் அல்லது துறையைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.appointments.show_queue_panel': "வரிசை பேனலைக் காட்டு",
+      's4.lib.appointments.type_doctor_name':
+          "மருத்துவர் பெயரைத் தட்டச்சிடவும்",
       's4.lib.appointments.week': "வாரம்",
       's4.lib.audit_logs.action': "செயல்",
       's4.lib.audit_logs.action_resource_ip_user': "செயல், ஆதாரம், ஐபி, பயனர்",
@@ -15168,6 +16539,12 @@ class AppStrings {
       's4.lib.coded_diagnosis_picker.search_icd_11': "ICD-11ஐத் தேடுங்கள்",
       's4.lib.composition_alternatives_panel.composition_alternatives':
           "கலவை மாற்று",
+      // REVIEW: S4 machine translation - confirm DAW pharmacy copy.
+      's4.lib.composition_alternatives_panel.daw_info_only':
+          "DAW அமைக்கப்பட்டது - தகவலுக்கு மட்டும்",
+      's4.lib.composition_alternatives_panel.daw_locked':
+          "DAW பூட்டப்பட்டுள்ளது",
+      's4.lib.composition_alternatives_panel.info_only': "தகவலுக்கு மட்டும்",
       's4.lib.composition_alternatives_panel.swap': "இடமாற்று",
       's4.lib.desktop_scroll_controls.scroll_back': "மீண்டும் உருட்டவும்",
       's4.lib.desktop_scroll_controls.scroll_down': "கீழே உருட்டவும்",
@@ -15177,26 +16554,57 @@ class AppStrings {
           "ஆலோசனை வழங்கப்பட்டது, ஒப்படைப்பு முடிந்தது, பில் அழிக்கப்பட்டது...",
       's4.lib.discharge_hub.ai_discharge_package_started':
           "AI டிஸ்சார்ஜ் தொகுப்பு தொடங்கப்பட்டது",
+      's4.lib.discharge_hub.checklist_pending':
+          "சரிபார்ப்பு பட்டியல் நிலுவையில் உள்ளது",
       's4.lib.discharge_hub.completion_note': "நிறைவு குறிப்பு",
       's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
           "மருந்து சமரசம், பின் பராமரிப்பு, தயார்நிலை மற்றும் குறியீட்டு தொகுதிகள் ஆகியவற்றிலிருந்து மதிப்பாய்வு செய்யப்பட்ட வெளியேற்ற தொகுப்பை உருவாக்குகிறது. மருத்துவர் பரிசீலனை செய்து கையொப்பமிடும் வரை இது வரைவு மட்டுமே.",
+      // REVIEW: AI first-pass S4 discharge i18n sweep - confirm discharge workflow wording before production.
+      's4.lib.discharge_hub.discharge_initiated': "டிஸ்சார்ஜ் தொடங்கப்பட்டது",
+      's4.lib.discharge_hub.doctor_review_needed':
+          "மருத்துவர் மதிப்பாய்வு தேவை",
+      's4.lib.discharge_hub.doctor_summary': "மருத்துவர் சுருக்கம்",
+      's4.lib.discharge_hub.final_discharge_gate': "இறுதி டிஸ்சார்ஜ் வாயில்",
+      's4.lib.discharge_hub.final_gate_blocked':
+          "கீழே உள்ள ஒவ்வொரு உருப்படியும் தெளிவாகும் வரை இறுதி டிஸ்சார்ஜ் தடைசெய்யப்படும்.",
+      's4.lib.discharge_hub.final_gate_ready':
+          "அனைத்து தேவையான பணிகளும் முடிந்துள்ளன. கையொப்பமிடப்பட்ட சுருக்கத் திரையிலிருந்து இறுதி டிஸ்சார்ஜ் தொடரலாம்.",
       's4.lib.discharge_hub.finish': "முடிக்கவும்",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "இதை முடிப்பதற்கும் டிஸ்சார்ஜ் மருந்துகளை விநியோகிக்க வேண்டும்.",
+      's4.lib.discharge_hub.hospital_team': "மருத்துவமனை குழு",
+      's4.lib.discharge_hub.no_safety_flags': "பாதுகாப்புக் கொடிகள் இல்லை",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "வேலை உருப்படி",
       's4.lib.discharge_hub.generate_ai_package': "AI தொகுப்பை உருவாக்கவும்",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "இந்தச் சுருக்கத்தில் பாதுகாப்புக் கொடிகள் எதுவும் இணைக்கப்படவில்லை.",
+      's4.lib.discharge_hub.no_summary_draft':
+          "இன்னும் டிஸ்சார்ஜ் சுருக்க வரைவு இல்லை",
+      's4.lib.discharge_hub.not_initiated': "தொடங்கப்படவில்லை",
+      's4.lib.discharge_hub.open_summary_editor':
+          "சுருக்கத் திருத்தியைத் திறக்கவும்",
+      's4.lib.discharge_hub.pending_item': "நிலுவையிலுள்ள உருப்படி",
+      's4.lib.discharge_hub.ready_for_final_discharge':
+          "இறுதி டிஸ்சார்ஜுக்கு தயாராக உள்ளது",
+      's4.lib.discharge_hub.role_work_items': "பங்கு வேலை உருப்படிகள்",
       's4.lib.discharge_hub.signature_details': "கையொப்ப விவரங்கள்",
       's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
           "உணவு, ஆலோசனை, மருந்தகம், பிசியோதெரபி மற்றும் பில்லிங் பணிகளைத் திறக்க டிஸ்சார்ஜ் செய்யத் தொடங்குங்கள்.",
       's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
           "இந்த வெளியேற்றச் சுருக்கத்திற்கு இன்னும் மருத்துவர் கையொப்பமிட வேண்டும்.",
+      's4.lib.discharge_hub.view_signed_summary':
+          "கையொப்பமிடப்பட்ட சுருக்கத்தைப் பார்க்கவும்",
+      's4.lib.discharge_hub_list.blocked': "தடுக்கப்பட்டது",
+      's4.lib.discharge_hub_list.doctor_sign_pending':
+          "மருத்துவர் கையொப்பம் நிலுவையில் உள்ளது",
       's4.lib.discharge_hub_list.no_active_discharge_work':
           "செயலில் வெளியேற்ற வேலை இல்லை",
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "வெளியேற்றம் தொடங்கப்பட்ட பிறகு நோயாளிகள் இங்கு தோன்றி, இறுதி வெளியேற்றம் முடியும் வரை அங்கேயே இருப்பார்கள்.",
+      's4.lib.discharge_hub_list.ready': "தயார்",
+      's4.lib.discharge_hub_list.summary_signed':
+          "சுருக்கம் கையொப்பமிடப்பட்டது",
       's4.lib.discharge_summary.correct_summary': "சரியான சுருக்கம்",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
       's4.dynamic.discharge_summary.load_error':
@@ -15630,8 +17038,22 @@ class AppStrings {
       's4.lib.investigations.continue_to_prescription': "மருந்துக்கு தொடரவும்",
       's4.lib.investigations.investigation_ordered':
           "விசாரணைக்கு உத்தரவிடப்பட்டுள்ளது",
+      // REVIEW: AI first-pass S4 investigations i18n sweep - confirm lab wording before production.
+      's4.lib.investigations.interpretation': "விளக்கம்",
+      's4.lib.investigations.order_investigation': "பரிசோதனை ஆர்டர் செய்",
+      's4.lib.investigations.ordering': "ஆர்டர் செய்கிறது...",
+      's4.lib.investigations.prescription': "மருந்துச் சீட்டு",
+      's4.lib.investigations.priority.high': "உயர்",
+      's4.lib.investigations.priority.low': "குறைவு",
+      's4.lib.investigations.priority.normal': "சாதாரணம்",
+      's4.lib.investigations.priority.urgent': "அவசரம்",
+      's4.lib.investigations.result': "முடிவு",
       's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
           "முடிவு தயார் எனக் குறிக்கப்பட்டுள்ளது, ஆனால் கட்டமைக்கப்பட்ட சுருக்கம் எதுவும் இதுவரை இணைக்கப்படவில்லை.",
+      's4.lib.investigations.result_ready': "முடிவு தயாராக உள்ளது",
+      's4.lib.investigations.result_summary': "முடிவு சுருக்கம்",
+      's4.lib.investigations.results': "முடிவுகள்",
+      's4.lib.investigations.selected_patient': "தேர்ந்தெடுக்கப்பட்ட நோயாளி",
       's4.lib.investigations.test_name': "சோதனை பெயர்",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "OP/IP ஆய்வகக் கோரிக்கைகளை முன்பதிவு செய்து கண்காணிக்கவும்",
@@ -15736,12 +17158,28 @@ class AppStrings {
           "கோப்பை இணைக்கும் முன் முதல் செய்தியை அனுப்பவும்.",
       's4.lib.messaging_thread.urgent_alerts_only':
           "அவசர எச்சரிக்கைகள் மட்டும்",
+      // REVIEW: AI first-pass S4 notifications i18n sweep - confirm alert filter copy before production.
+      's4.lib.notifications.filter.admissions': "அனுமதிகள்",
+      's4.lib.notifications.filter.all': "அனைத்தும்",
+      's4.lib.notifications.filter.appointments': "நியமனங்கள்",
+      's4.lib.notifications.filter.beds': "படுக்கைகள்",
+      's4.lib.notifications.filter.critical': "முக்கியமானவை",
+      's4.lib.notifications.filter.housekeeping': "வீட்டு பராமரிப்பு",
+      's4.lib.notifications.filter.investigations': "விசாரணைகள்",
+      's4.lib.notifications.filter.unread': "படிக்காதவை",
+      's4.lib.notifications.high_priority': "அதிக முன்னுரிமை",
+      's4.lib.notifications.live': "நேரலை",
       's4.lib.notifications.refresh_alerts':
           "விழிப்பூட்டல்களைப் புதுப்பிக்கவும்",
       's4.lib.nursing_notes.all_notes': "அனைத்து குறிப்புகள்",
+      // REVIEW: AI first-pass S4 nursing-notes i18n sweep - confirm draft recovery wording before production.
+      's4.lib.nursing_notes.discard_draft': "வரைவை கைவிடவும்",
       's4.lib.nursing_notes.draft_discarded': "வரைவு நிராகரிக்கப்பட்டது",
       's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
           "நோயாளியின் அனைத்து குறிப்புகளையும் பார்க்க படுக்கை பலகையில் இருந்து இந்தத் திரையைத் திறக்கவும்.",
+      's4.lib.nursing_notes.restored_draft':
+          "சேமிக்கப்படாத வரைவு மீட்டமைக்கப்பட்டது",
+      's4.lib.nursing_notes.signed': "கையொப்பமிடப்பட்டது",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "முடிக்கப்பட்ட டிரான்ஸ்கிரிப்ட்களை மருத்துவரின் மதிப்பாய்வுக்காக SOAP வரைவுகளாக மாற்றலாம்.",
       // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
@@ -16103,6 +17541,8 @@ class AppStrings {
           "செயலில் உள்ள நோயாளிகள் இல்லை",
       's4.lib.patient_command_board.no_matching_patients':
           "பொருந்தும் நோயாளிகள் இல்லை",
+      // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
+      's4.lib.patient_notes_list.addendum': "சேர்க்கை",
       's4.lib.patient_context_chip.clear_patient_context':
           "தெளிவான நோயாளி சூழல்",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
@@ -16186,6 +17626,88 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "குறிப்பு புதுப்பிக்கப்பட்டது",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "அசல் உரைநடையை மேலெழுதுகிறது. குறிப்பின் ஆசிரியர், பங்கு மற்றும் உருவாக்கும் நேரம் ஆகியவை பாதுகாக்கப்படுகின்றன.",
+      // REVIEW: AI first-pass S4 i18n legacy sweep leftovers - confirm wording before production.
+      's4.lib.ward_list_filter_bar.ward': "வார்டு",
+      's4.lib.ward_list_filter_bar.clear_filters': "வடிப்பான்களை அழிக்கவும்",
+      's4.lib.vital_text_field.enter_valid_number': "சரியான எண்ணை உள்ளிடவும்",
+      's4.lib.theme_toggle_action.switch_to_light_mode':
+          "லைட் முறைக்கு மாற்றவும்",
+      's4.lib.theme_toggle_action.switch_to_dark_mode':
+          "டார்க் முறைக்கு மாற்றவும்",
+      's4.lib.session_revocation_listener.signed_out_new_login':
+          "வெளியேற்றப்பட்டது - உங்கள் கணக்கு மற்றொரு சாதனத்தில் இப்போது உள்நுழைந்தது.",
+      's4.lib.session_revocation_listener.session_revoked':
+          "உங்கள் அமர்வு ரத்து செய்யப்பட்டது.",
+      's4.lib.patient_search_sheet.type_to_find_patient':
+          "நோயாளியை கண்டுபிடிக்க மருத்துவமனை ID, பெயர், தொலைபேசி அல்லது ABHA முகவரியை உள்ளிடவும்.",
+      's4.lib.patient_search_sheet.enter_10_digits_for_phone':
+          "தொலைபேசி மூலம் தேட குறைந்தது 10 இலக்கங்களை உள்ளிடவும்.",
+      's4.lib.patient_search_sheet.type_2_characters':
+          "தேட குறைந்தது 2 எழுத்துகளை உள்ளிடவும்.",
+      's4.lib.patient_search_sheet.unnamed': "பெயரிடப்படாதது",
+      's4.dynamic.patient_search_sheet.no_matches_for':
+          "\"{query}\" க்கு பொருத்தங்கள் இல்லை",
+      's4.lib.message_unread_badge.unread_messages': "படிக்காத செய்திகள்",
+      's4.dynamic.message_unread_badge.count_label': "{count} {label}",
+      's4.dynamic.success_toast.success_label': "வெற்றி: {message}",
+      's4.dynamic.error_toast.error_label': "பிழை: {message}",
+      's4.lib.patient_notes_list.filter.all': "அனைத்தும்",
+      's4.lib.patient_notes_list.filter.doctor': "மருத்துவர்",
+      's4.lib.patient_notes_list.filter.nursing': "நர்சிங்",
+      's4.lib.patient_notes_list.unknown_role': "தெரியாதது",
+      's4.lib.patient_notes_list.type.progress': "முன்னேற்றம்",
+      's4.lib.patient_notes_list.type.note': "குறிப்பு",
+      's4.dynamic.patient_notes_list.rev_admin_edited':
+          "திருத்தம் {version} (நிர்வாகம் திருத்தியது)",
+      's4.dynamic.appointments.minutes_ago': "{count} நிமிடங்களுக்கு முன்",
+      's4.dynamic.appointments.hours_ago': "{count} மணி நேரத்திற்கு முன்",
+      's4.lib.dashboard.op_nursing': "OP நர்சிங்",
+      's4.lib.dashboard.op_workbench': "OP பணிப்பலகை",
+      's4.lib.dashboard.patient_fallback': "நோயாளி",
+      's4.lib.dashboard.notification_fallback': "அறிவிப்பு",
+      's4.dynamic.dashboard.minutes_ago': "{count} நிமிடங்களுக்கு முன்",
+      's4.dynamic.dashboard.hours_ago': "{count} மணி நேரத்திற்கு முன்",
+      's4.lib.prescriptions.visit_prescription_locked':
+          "இந்த வருகைக்கு ஏற்கனவே கையொப்பமிடப்பட்ட மருந்துச்சீட்டு உள்ளது; மாற்றங்களுக்கு புதிய OP வருகையை உருவாக்கவும்.",
+      's4.lib.prescriptions.photo_needs_connection':
+          "புகைப்பட மருந்துச்சீட்டுக்கு இணைப்பு தேவை. மீண்டும் இணைத்து முயற்சிக்கவும்.",
+      's4.dynamic.prescriptions.offline_context': "மருந்துச்சீட்டு - {name}",
+      's4.lib.prescriptions.queued_safety_checked_on_sync':
+          "மருந்துச்சீட்டு வரிசையில் உள்ளது - ஒத்திசைக்கும் போது பாதுகாப்பு சரிபார்க்கப்படும்",
+      's4.lib.prescriptions.route.oral': "வாய்வழி",
+      's4.lib.prescriptions.route.iv': "IV",
+      's4.lib.prescriptions.route.im': "IM",
+      's4.lib.prescriptions.route.topical': "மேற்பரப்பு",
+      's4.lib.prescriptions.route.inhalation': "உள்ளிழுத்தல்",
+      's4.lib.prescriptions.route.sublingual': "நாக்குக்கீழ்",
+      's4.lib.prescriptions.pharmacy.in_house_dispensary': "உள்ளக மருந்தகம்",
+      's4.lib.prescriptions.pharmacy.patient_choice': "நோயாளி தேர்வு",
+      's4.lib.prescriptions.pharmacy.external_pharmacy': "வெளி மருந்தகம்",
+      's4.lib.prescriptions.any_time': "எப்போது வேண்டுமானாலும்",
+      's4.lib.prescriptions.instructions_hint':
+          "PRN காரணம், எச்சரிக்கை, சிறப்பு ஆலோசனை",
+      's4.lib.prescriptions.auto_filled': "தானாக நிரப்பப்பட்டது",
+      's4.lib.prescriptions.prescription_locked':
+          "மருந்துச்சீட்டு பூட்டப்பட்டுள்ளது",
+      's4.lib.prescriptions.update_prescription':
+          "மருந்துச்சீட்டை புதுப்பிக்கவும்",
+      's4.dynamic.investigations.file_selected_one':
+          "{count} கோப்பு தேர்ந்தெடுக்கப்பட்டது",
+      's4.dynamic.investigations.file_selected_other':
+          "{count} கோப்புகள் தேர்ந்தெடுக்கப்பட்டன",
+      's4.dynamic.investigations.uploading_count':
+          "{uploaded}/{total} பதிவேற்றுகிறது",
+      's4.dynamic.investigations.uploading_file':
+          "{uploaded}/{total} பதிவேற்றுகிறது - {file}",
+      's4.dynamic.drug_chart.medication_order': "மருந்து ஆர்டர் - {drug}",
+      's4.lib.drug_chart.not_timed': "நேரம் அமைக்கப்படவில்லை",
+      's4.dynamic.nursing_notes.offline_context':
+          "{patient} க்கான நர்சிங் குறிப்பு",
+      's4.lib.nursing_notes.load_more': "மேலும் ஏற்றவும்",
+      's4.lib.nursing_notes.nursing_note': "நர்சிங் குறிப்பு",
+      's4.dynamic.vitals.offline_context':
+          "நோயாளி {patient} க்கான உயிர்விளைவுகள்",
+      's4.dynamic.payroll.max_amount_suffix': "(அதிகபட்சம் ₹{amount})",
       // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "AI-உதவி பதிவு மதிப்பாய்வு",
@@ -16344,6 +17866,7 @@ class AppStrings {
           "OP மருந்துச் சீட்டுகள், IP மருந்து அட்டைகள், மற்றும் மருந்தகம் இதே பின்புற பட்டியலைப் பயன்படுத்துகின்றன.",
       's4.lib.pharmacy.catalog_shared_limited_copy':
           "OP மருந்துச் சீட்டுகள், IP மருந்து அட்டைகள், மற்றும் மருந்தகம் இதே பின்புற பட்டியலைப் பயன்படுத்துகின்றன. மாற்றங்கள் Pharmacy Incharge/Admin க்கு மட்டுமே.",
+      's4.lib.pharmacy.category_other': "மற்றவை",
       's4.lib.pharmacy.cold_chain_item': "குளிர் சங்கிலி பொருள்",
       's4.lib.pharmacy.controlled_narcotic_item':
           "கட்டுப்படுத்தப்பட்ட / போதை பொருள்",
@@ -16441,6 +17964,7 @@ class AppStrings {
       's4.lib.pharmacy.strength': "வலிமை",
       's4.lib.pharmacy.tablet_hint': "மாத்திரை",
       's4.lib.pharmacy.this_drug': "இந்த மருந்து",
+      's4.lib.pharmacy.unit_each': "ஒவ்வொன்றும்",
       's4.lib.pharmacy.unit_label': "அலகு லேபிள்",
       's4.lib.pharmacy.unit_price': "அலகு விலை",
       's4.lib.pharmacy.unavailable': "கிடைக்கவில்லை",
@@ -16460,24 +17984,63 @@ class AppStrings {
           "மருந்துச் சீட்டு வரைவை அழிக்கவா?",
       's4.lib.prescriptions.continue': "தொடரவும்",
       's4.lib.prescriptions.days': "நாட்கள்",
+      's4.lib.prescriptions.days_must_be_at_least_1':
+          "நாட்கள் குறைந்தது 1 ஆக இருக்க வேண்டும்",
       's4.lib.prescriptions.delete_row': "வரிசையை நீக்கு",
+      // REVIEW: AI first-pass S4 prescriptions i18n sweep - confirm compact dose-slot initials before production.
+      's4.lib.prescriptions.dose_slot_afternoon_short': "ம",
+      's4.lib.prescriptions.dose_slot_evening_short': "மா",
+      's4.lib.prescriptions.dose_slot_morning_short': "கா",
+      's4.lib.prescriptions.dose_slot_night_short': "இ",
+      's4.lib.prescriptions.draft': "வரைவு",
       's4.lib.prescriptions.drug_form': "மருந்து / வடிவம்*",
+      // REVIEW: AI first-pass S4 prescriptions i18n sweep - confirm clinical and pharmacy wording before production.
+      's4.lib.prescriptions.height': "உயரம்",
+      's4.lib.prescriptions.in_stock': "கையிருப்பில் உள்ளது",
+      's4.lib.prescriptions.may_be_available': "கிடைக்கக்கூடும்",
       's4.lib.prescriptions.notes_safety': "குறிப்புகள் / பாதுகாப்பு",
       's4.lib.prescriptions.op_consultation_context': "OP ஆலோசனை சூழல்",
+      's4.lib.prescriptions.open_last_pdf': "கடைசி PDF ஐத் திறக்கவும்",
       's4.lib.prescriptions.open_pdf': "PDF ஐத் திறக்கவும்",
+      's4.lib.prescriptions.out_of_stock': "கையிருப்பில் இல்லை",
+      's4.lib.prescriptions.pdf_not_available': "PDF கிடைக்கவில்லை",
+      's4.lib.prescriptions.pdf_not_available_yet':
+          "மருந்து PDF இன்னும் கிடைக்கவில்லை",
+      's4.lib.prescriptions.pdf_open_failed':
+          "மருந்து PDF ஐத் திறக்க முடியவில்லை",
+      's4.lib.prescriptions.pharmacy_order_sent':
+          "மருந்தக ஆர்டர் அனுப்பப்பட்டது",
       's4.lib.prescriptions.prescription_pdf_is_ready':
           "மருந்து PDF தயாராக உள்ளது",
+      's4.lib.prescriptions.resp_rate': "சுவாச விகிதம்",
       's4.lib.prescriptions.review_draft': "மதிப்பாய்வு வரைவு",
       's4.lib.prescriptions.review_prescription_warnings':
           "மருந்து எச்சரிக்கைகளை மதிப்பாய்வு செய்யவும்",
+      's4.lib.prescriptions.rx_signed': "Rx கையொப்பமிடப்பட்டது",
       's4.lib.prescriptions.save_favorite': "பிடித்ததை சேமிக்கவும்",
+      's4.lib.prescriptions.saved_as_favorite': "பிடித்ததாக சேமிக்கப்பட்டது",
+      's4.lib.prescriptions.sign_lock': "கையொப்பமிட்டு பூட்டவும்",
+      's4.lib.prescriptions.sign_lock_rx': "Rx ஐ கையொப்பமிட்டு பூட்டவும்",
       's4.lib.prescriptions.signed': "கையெழுத்திட்டது",
+      's4.lib.prescriptions.signed_locked': "கையொப்பமிடப்பட்டு பூட்டப்பட்டது",
       's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
           "இந்த மருந்துக்கான தடையற்ற CDS எச்சரிக்கைகளை சேவையகம் திருப்பி அனுப்பியது.",
       's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
           "இது தற்போது இந்த வரைவில் உள்ள மருந்துகள், குறிப்புகள், உயிர்கள் மற்றும் பின்தொடர்தல் ஆகியவற்றை நீக்குகிறது. உருவாக்கப்பட்ட மருந்துச்சீட்டுகள் நீக்கப்படாது.",
       's4.lib.prescriptions.type_drug_name': "மருந்தின் பெயர் வகை",
       's4.lib.prescriptions.use_favorite': "பிடித்ததைப் பயன்படுத்தவும்",
+      's4.dynamic.prescriptions.follow_up_date': "பின்தொடர்வு: {date}",
+      's4.dynamic.prescriptions.in_stock_count': "{count} கையிருப்பில்",
+      's4.dynamic.prescriptions.open_rx_pdf': "Rx #{id} PDF ஐத் திறக்கவும்",
+      's4.dynamic.prescriptions.patient_doctor':
+          "நோயாளி: {patient} · டாக்டர் {doctor}",
+      's4.dynamic.prescriptions.pdf_open_failed_detail':
+          "மருந்து PDF ஐத் திறக்க முடியவில்லை: {error}",
+      's4.dynamic.prescriptions.pharmacy_handoff_needs_formulary_match':
+          "மருந்துச் சீட்டு சேமிக்கப்பட்டது; மருந்தக ஒப்படைப்பிற்கு ஃபார்முலரி பொருத்தம் தேவை: {error}",
+      's4.dynamic.prescriptions.pharmacy_order_sent_number':
+          "மருந்தக ஆர்டர் {number} அனுப்பப்பட்டது",
+      's4.dynamic.prescriptions.pharmacy_status': "மருந்தகம்: {status}",
       's4.lib.referrals.ai_assisted_clinical_summary':
           "AI உதவி மருத்துவ சுருக்கம்",
       's4.lib.referrals.audit': "தணிக்கை",
@@ -16499,17 +18062,105 @@ class AppStrings {
       's4.lib.referrals.referral_clinical_summary':
           "பரிந்துரை மருத்துவ சுருக்கம்",
       's4.lib.referrals.use_summary': "சுருக்கத்தைப் பயன்படுத்தவும்",
+      // REVIEW: AI first-pass S4 referrals i18n sweep - confirm clinical handoff wording before production.
+      's4.dynamic.referrals.admission_id': "அனுமதி #{id}",
+      's4.dynamic.referrals.bed': "படுக்கை {bed}",
+      's4.dynamic.referrals.min_to_first_seen':
+          "முதல் பார்வைக்கு {minutes} நிமிடங்கள்",
+      's4.dynamic.referrals.reason_line': "காரணம்: {reason}",
+      's4.lib.referrals.active_diagnoses': "செயலில் உள்ள நோயறிதல்கள்",
+      's4.lib.referrals.ai_assist_clinical_summary':
+          "AI உதவி மருத்துவ சுருக்கம்",
+      's4.lib.referrals.ai_draft_added':
+          "AI வரைவு சேர்க்கப்பட்டது. பரிந்துரை கோருவதற்கு முன் மதிப்பாய்வு செய்யவும்.",
+      's4.lib.referrals.consultant': "ஆலோசகர்",
+      's4.lib.referrals.current_treatment': "தற்போதைய சிகிச்சை",
+      's4.lib.referrals.decline': "நிராகரி",
+      's4.lib.referrals.decline_request': "கோரிக்கையை நிராகரி",
+      's4.lib.referrals.department': "துறை",
+      's4.lib.referrals.drafting_clinical_summary':
+          "மருத்துவ சுருக்கம் வரைவு செய்யப்படுகிறது",
+      's4.lib.referrals.enter_reason_before_ai':
+          "AI சுருக்கம் தயாரிக்க முன் பரிந்துரைக்கான காரணத்தை உள்ளிடவும்",
+      's4.lib.referrals.first_seen': "முதல் பார்வை",
+      's4.lib.referrals.incoming_action_hint':
+          "ஏற்கவும் முடிக்கவும் பரிந்துரைக்கப்பட்ட நிபுணர் அல்லது பொருந்தும் துறை மருத்துவருக்கே வரையறுக்கப்பட்டது.",
+      's4.lib.referrals.investigations': "பரிசோதனைகள்",
+      's4.lib.referrals.no_incoming_referrals': "உள்வரும் பரிந்துரைகள் இல்லை",
+      's4.lib.referrals.no_outgoing_referrals':
+          "வெளிச்செல்லும் பரிந்துரைகள் இல்லை",
+      's4.lib.referrals.not_seen_yet': "இன்னும் பார்க்கப்படவில்லை",
+      's4.lib.referrals.outgoing_action_hint':
+          "நிலுவையில் இருக்கும் வெளிச்செல்லும் கோரிக்கைகளை கோரிய மருத்துவர் அல்லது முதன்மை மருத்துவர் நிராகரிக்கலாம்.",
+      's4.lib.referrals.patient': "நோயாளி",
+      's4.lib.referrals.patient_department_reason_required':
+          "நோயாளி, துறை மற்றும் காரணம் தேவை",
+      's4.lib.referrals.pending_items': "நிலுவையிலுள்ள உருப்படிகள்",
+      's4.lib.referrals.reason': "காரணம்",
+      's4.lib.referrals.referral': "பரிந்துரை",
+      's4.lib.referrals.referrals': "பரிந்துரைகள்",
+      's4.lib.referrals.request_referral': "பரிந்துரை கோரவும்",
+      's4.lib.referrals.requested': "கோரப்பட்டது",
+      's4.lib.referrals.requested_notified':
+          "பரிந்துரை கோரப்பட்டது; நிபுணருக்கு அறிவிக்கப்பட்டது",
+      's4.lib.referrals.sending_referral': "பரிந்துரை அனுப்பப்படுகிறது",
+      's4.lib.referrals.status.accepted': "ஏற்கப்பட்டது",
+      's4.lib.referrals.status.cancelled': "ரத்து செய்யப்பட்டது",
+      's4.lib.referrals.status.completed': "முடிந்தது",
+      's4.lib.referrals.status.declined': "நிராகரிக்கப்பட்டது",
+      's4.lib.referrals.status.in_progress': "நடைபெறுகிறது",
+      's4.lib.referrals.status.pending': "நிலுவையில்",
+      's4.lib.referrals.summary': "சுருக்கம்",
+      // REVIEW: AI first-pass S4 reports i18n sweep - confirm HR/legal wording before production.
+      'reports.priority.high': "உயர்",
+      'reports.priority.low': "குறைவு",
+      'reports.priority.medium': "நடுத்தரம்",
+      'reports.priority.urgent': "அவசரம்",
+      'reports.status.acknowledged': "ஏற்கப்பட்டது",
+      'reports.status.closed': "மூடப்பட்டது",
+      'reports.status.escalated': "மேல்நிலைக்கு அனுப்பப்பட்டது",
+      'reports.status.in_review': "மதிப்பாய்வில்",
+      'reports.status.investigating': "விசாரணையில்",
+      'reports.status.mediation': "மத்தியஸ்தம்",
+      'reports.status.rejected': "நிராகரிக்கப்பட்டது",
+      'reports.status.resolved': "தீர்க்கப்பட்டது",
+      'reports.status.submitted': "சமர்ப்பிக்கப்பட்டது",
+      'reports.status.under_review': "மதிப்பாய்வில்",
+      's4.dynamic.reports_admin_queue.anonymous_with_sender':
+          "பெயரில்லா ({sender})",
+      's4.lib.reports_admin_queue.action': "நடவடிக்கை",
+      's4.lib.reports_admin_queue.activity_log': "செயல்பாட்டு பதிவு",
+      's4.lib.reports_admin_queue.against_whom': "யாருக்கு எதிராக",
+      's4.lib.reports_admin_queue.anonymous': "பெயரில்லா",
+      's4.lib.reports_admin_queue.concern': "கவலை",
+      's4.lib.reports_admin_queue.department': "துறை",
+      's4.lib.reports_admin_queue.description': "விளக்கம்",
+      's4.lib.reports_admin_queue.details': "விவரங்கள்",
+      's4.lib.reports_admin_queue.grievance_type': "புகார் வகை",
       's4.lib.reports_admin_queue.hr_admin_access_required':
           "HR/Admin அணுகல் தேவை",
+      's4.lib.reports_admin_queue.incident_report': "சம்பவ அறிக்கை",
+      's4.lib.reports_admin_queue.incident_type': "சம்பவ வகை",
+      's4.lib.reports_admin_queue.internal': "உள்துறை",
       's4.lib.reports_admin_queue.internal_hr_admin_note':
           "அக HR/நிர்வாகக் குறிப்பு",
+      's4.lib.reports_admin_queue.location': "இடம்",
+      's4.lib.reports_admin_queue.no_details_recorded':
+          "விவரங்கள் எதுவும் பதிவு செய்யப்படவில்லை.",
       's4.lib.reports_admin_queue.no_activity_recorded':
           "எந்த நடவடிக்கையும் பதிவு செய்யப்படவில்லை",
       's4.lib.reports_admin_queue.public_update': "பொது மேம்படுத்தல்",
       's4.lib.reports_admin_queue.report_update_saved':
           "அறிக்கை புதுப்பிப்பு சேமிக்கப்பட்டது",
       's4.lib.reports_admin_queue.reports_review': "அறிக்கைகள் மதிப்பாய்வு",
+      's4.lib.reports_admin_queue.resolution': "தீர்வு",
       's4.lib.reports_admin_queue.save_update': "புதுப்பிப்பைச் சேமிக்கவும்",
+      's4.lib.reports_admin_queue.severity': "தீவிரம்",
+      's4.lib.reports_admin_queue.staff_grievance': "பணியாளர் புகார்",
+      's4.lib.reports_admin_queue.untitled_grievance': "தலைப்பில்லா புகார்",
+      's4.lib.reports_admin_queue.untitled_incident': "தலைப்பில்லா சம்பவம்",
+      's4.lib.reports_admin_queue.update_recorded':
+          "புதுப்பிப்பு பதிவு செய்யப்பட்டது",
       's4.lib.schedule.shift_actions': "நடவடிக்கைகளை மாற்றவும்",
       // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
       's4.lib.scan_common.please_scan_again':
@@ -16792,6 +18443,9 @@ class AppStrings {
       's4.lib.dashboard.cath_lab_patient_records': "கேத் லேப் நோயாளி பதிவுகள்",
       's4.lib.dashboard.cath_lab_lab_bookings': "கேத் லேப் ஆய்வக முன்பதிவுகள்",
       's4.lib.dashboard.cath_lab_results': "கேத் லேப் முடிவுகள்",
+      // REVIEW: AI first-pass S4 dashboard i18n sweep - confirm accessibility hint copy before production.
+      's4.lib.dashboard.opens_patient_chart':
+          "நோயாளி விளக்கப்படத்தைத் திறக்கும்",
       's4.lib.front_office_workbench.front_office_unavailable':
           "முன் அலுவலகம் கிடைக்கவில்லை",
       's4.lib.front_office_workbench.workstation_mode_required':
@@ -16917,15 +18571,35 @@ class AppStrings {
           "வழக்கு தாள் - {patient}",
       's4.dynamic.common.user_id': "பயனர் ஐடி: {userId}",
       's4.dynamic.common.signed_at': "கையொப்பமிடப்பட்டது: {signedAt}",
+      's4.dynamic.dashboard.recent_patient_position':
+          "{total} இல் {index}: {name}",
+      's4.dynamic.dashboard.recent_patients_count':
+          "சமீபத்திய நோயாளிகள் ({count})",
       's4.dynamic.discharge_hub.ai_package_failed':
           "AI தொகுப்பு தோல்வியடைந்தது: {error}",
+      's4.dynamic.discharge_hub.admission_id': "அனுமதி #{id}",
+      's4.dynamic.discharge_hub.bed': "படுக்கை {bed}",
       's4.dynamic.discharge_hub.finish_task_title': "{label} ஐ முடிக்கவும்",
+      's4.dynamic.discharge_hub.finished_by': "{name} முடித்தார்",
       's4.dynamic.discharge_hub.task_finished': "{label} முடிந்தது",
       's4.dynamic.discharge_hub.finish_task_failed':
           "பணியை முடிக்க முடியவில்லை: {error}",
+      's4.dynamic.discharge_hub.hospital_id': "மருத்துவமனை ID {id}",
+      's4.dynamic.discharge_hub.pdf_open_failed':
+          "டிஸ்சார்ஜ் PDF ஐத் திறக்க முடியவில்லை: {error}",
+      's4.dynamic.discharge_hub.safety_flag_count.one':
+          "{count} பாதுகாப்புக் கொடியை மதிப்பாய்வு செய்யவும்",
+      's4.dynamic.discharge_hub.safety_flag_count.other':
+          "{count} பாதுகாப்புக் கொடிகளை மதிப்பாய்வு செய்யவும்",
+      's4.dynamic.discharge_hub.source_count.one': "{count} மூலம்",
+      's4.dynamic.discharge_hub.source_count.other': "{count} மூலங்கள்",
       's4.dynamic.discharge_hub.title_for_patient':
           "டிஸ்சார்ஜ் ஹப் - {patient}",
+      's4.dynamic.discharge_hub_list.tasks_pending':
+          "{total} பணிகளில் {pending} நிலுவையில்",
       's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.nursing_notes.restored_draft_from':
+          "{time} இலிருந்து சேமிக்கப்படாத வரைவு மீட்டமைக்கப்பட்டது",
       's4.dynamic.patient_command_board.allergies_count': "{count} ஒவ்வாமை",
       's4.dynamic.patient_command_board.alerts_count':
           "{count} விழிப்பூட்டல்கள்",
@@ -17084,6 +18758,15 @@ class AppStrings {
       's4.dynamic.lab_bookings.tests_prefix': "சோதனைகள்: {tests}",
       's4.dynamic.appointments.existing_patient_found_id':
           "ஏற்கனவே உள்ள நோயாளி கண்டறியப்பட்டது: #{id}",
+      's4.dynamic.appointments.doctor_number': "மருத்துவர் #{id}",
+      's4.dynamic.appointments.load_failed_detail':
+          "நியமனங்களை ஏற்ற முடியவில்லை.\n{error}",
+      's4.dynamic.appointments.status_updated_successfully':
+          "நியமனம் {status} வெற்றிகரமாக",
+      's4.dynamic.appointments.time_status': "{time} - {status}",
+      's4.dynamic.appointments.visible_this_week':
+          "இந்த வாரம் {count} காண்பிக்கப்படுகிறது",
+      's4.dynamic.appointments.more_count': "+{count} மேலும்",
       's4.dynamic.lab_bookings.error_message': "பிழை: {error}",
       's4.dynamic.lab_bookings.specimen_queue_update_failed':
           "மாதிரி சேகரிக்கப்பட்டது, ஆனால் வரிசை புதுப்பிப்பு தோல்வியடைந்தது: {error}",
@@ -17341,9 +19024,13 @@ class AppStrings {
       'attendance.legend.absent': 'గైర్హాజరు',
       'attendance.legend.leave': 'సెలవు',
       'attendance.legend.late': 'ఆలస్యం',
+      // REVIEW: te AI first-pass S4 attendance/timekeeping copy.
+      'attendance.status.weekend': 'వారాంతం',
       'attendance.check_in_label': 'చెక్-ఇన్',
       'attendance.check_out_label': 'చెక్-అవుట్',
       'attendance.hours_label': 'గంటలు',
+      's4.dynamic.attendance.hours_compact': '{hours}గం',
+      's4.dynamic.attendance.tab_count': '{label} ({count})',
       'attendance.late_arrival': '⚠️ ఆలస్యంగా రాక',
       'attendance.no_history': 'హాజరు చరిత్ర లేదు',
       'attendance.history.absent': 'గైర్హాజరు',
@@ -17477,6 +19164,25 @@ class AppStrings {
           'మందు ఆర్డర్ సేవ్ చేయబడింది, ఫార్మసీకి తెలియజేయబడింది',
       'drug_chart.empty': 'ఇన్‌పేషెంట్ మందులు చార్ట్ చేయలేదు',
       'drug_chart.given': 'ఇవ్వబడింది',
+      // REVIEW: te AI first-pass S4 drug-chart display copy.
+      'drug_chart.toolbar.editable_hint':
+          'వరుసలను ఇక్కడే జోడించండి. సమయ గుర్తులు నర్స్ MAR ఇవ్వాల్సిన మోతాదులవుతాయి.',
+      'drug_chart.toolbar.read_only_hint':
+          'నర్స్ MAR మరియు ఫార్మసీ ఇండెంట్ స్థితితో చదవడానికి మాత్రమే చార్ట్.',
+      's4.dynamic.drug_chart.active_rows': '{count} సక్రియ వరుసలు',
+      's4.dynamic.drug_chart.unsaved_rows': '{count} సేవ్ కానివి',
+      'drug_chart.pharmacy_pending': 'ఫార్మసీ పెండింగ్',
+      'drug_chart.free_text': 'స్వేచ్ఛా పాఠ్యం',
+      's4.lib.drug_chart.in_stock': "స్టాక్‌లో ఉంది",
+      's4.lib.drug_chart.may_be_available': "అందుబాటులో ఉండవచ్చు",
+      's4.lib.drug_chart.out_of_stock': "స్టాక్‌లో లేదు",
+      's4.dynamic.drug_chart.in_stock_count': "స్టాక్‌లో ఉంది ({count})",
+      's4.dynamic.drug_chart.started_on': '{date} ప్రారంభం',
+      's4.dynamic.drug_chart.started_by': '{name} ద్వారా',
+      's4.dynamic.drug_chart.antibiotic_day': 'యాంటీబయాటిక్ రోజు {day}',
+      'drug_chart.safety_clear': 'భద్రత క్లియర్',
+      's4.dynamic.drug_chart.next_due': 'తదుపరి గడువు {time}',
+      's4.dynamic.drug_chart.given_count': '{count} ఇవ్వబడింది',
       'drug_chart.column.drug': 'మందు',
       'drug_chart.column.dose': 'మోతాదు',
       'drug_chart.column.route': 'మార్గం',
@@ -18504,6 +20210,7 @@ class AppStrings {
       'radiology.title': 'రేడియాలజీ',
       'radiology.submit_report': 'నివేదిక సమర్పించు',
       'schedule.title': 'షిఫ్ట్ షెడ్యూల్',
+      'schedule.prev_week': 'మునుపటి వారం',
       // Lab / Pharmacy
       'investigations.title': 'పరిశోధనలు',
       'investigations.upload_button': 'పరిశోధన అప్‌లోడ్',
@@ -18551,6 +20258,26 @@ class AppStrings {
       'overtime.submitted_success': '✅ ఓవర్‌టైమ్ అభ్యర్థన సమర్పించబడింది',
       // Clinical AI
       'clinical_ai.queue.title': 'AI సమీక్ష క్యూ',
+      // REVIEW: S4 machine translation - confirm clinical AI module labels.
+      'clinical_ai.module.abnormal_result_triage': 'అసాధారణ ఫలితాల ట్రయాజ్',
+      'clinical_ai.module.ai_safety_reviewer': 'AI భద్రత సమీక్షకుడు',
+      'clinical_ai.module.antimicrobial_stewardship':
+          'యాంటీమైక్రోబియల్ స్టీవార్డ్‌షిప్',
+      'clinical_ai.module.clinical_coding_assist': 'క్లినికల్ కోడింగ్ సహాయం',
+      'clinical_ai.module.clinical_task_extractor':
+          'క్లినికల్ పనుల ఎక్స్‌ట్రాక్టర్',
+      'clinical_ai.module.daily_ward_round_brief':
+          'రోజువారీ వార్డు రౌండ్ సంక్షిప్తం',
+      'clinical_ai.module.discharge_readiness': 'డిశ్చార్జ్ సిద్ధత',
+      'clinical_ai.module.discharge_summary': 'డిశ్చార్జ్ సారాంశం',
+      'clinical_ai.module.discharge_summary_compose':
+          'డిశ్చార్జ్ ప్యాకేజ్ కంపోజ్',
+      'clinical_ai.module.medication_reconciliation': 'ఔషధ సమన్వయం',
+      'clinical_ai.module.patient_aftercare_instructions':
+          'తరువాతి సంరక్షణ సూచనలు',
+      'clinical_ai.module.patient_record_summary': 'రోగి రికార్డు సారాంశం',
+      'clinical_ai.module.referral_letter': 'రిఫరల్ లేఖ',
+      'clinical_ai.module.soap_from_dictation': 'డిక్టేషన్ నుండి SOAP',
       // REVIEW: clinical-action wording
       'clinical_ai.draft.accept': 'అంగీకరించు',
       'clinical_ai.draft.reject_button': 'తిరస్కరించు',
@@ -18641,6 +20368,20 @@ class AppStrings {
       'cds.override_button': 'అతిక్రమించు',
       // REVIEW:
       'cds.override_save': 'అతిక్రమించి సేవ్ చేయి',
+      // REVIEW: AI first-pass S4 CDS override i18n sweep - safety-critical.
+      's4.lib.cds_blocker_modal.category.alternative_unavailable':
+          "సరైన ప్రత్యామ్నాయం లేదు",
+      's4.lib.cds_blocker_modal.category.allergy_disputed':
+          "అలర్జీ వివాదంలో ఉంది / తప్పుగా లేబుల్ చేయబడింది",
+      's4.lib.cds_blocker_modal.category.benefit_outweighs_risk':
+          "లాభం ప్రమాదాన్ని మించి ఉంది",
+      's4.lib.cds_blocker_modal.category.other': "ఇతర (కింద పేర్కొనండి)",
+      's4.lib.cds_blocker_modal.category.prior_tolerance_documented':
+          "మునుపటి సహనశక్తి నమోదు చేయబడింది",
+      's4.lib.cds_blocker_modal.justification_not_repeated_character':
+          "సమర్థన ఒకే అక్షరం పునరావృతం కాకూడదు",
+      's4.lib.cds_blocker_modal.minimum_15_characters_required':
+          "కనీసం 15 అక్షరాలు అవసరం",
       // Code Blue - REVIEW: clinical-safety, Telugu-fluent clinician must verify
       // REVIEW:
       'code_blue.title': 'కోడ్ బ్లూ',
@@ -18718,6 +20459,15 @@ class AppStrings {
       // Misc
       // REVIEW:
       'shift_card.no_shift': 'షిఫ్ట్ కేటాయించబడలేదు',
+      // REVIEW: te AI first-pass S4 attendance/timekeeping copy.
+      'shift_card.fallback_name': 'షిఫ్ట్',
+      's4.dynamic.shift_card.display_name': '{name} షిఫ్ట్',
+      's4.dynamic.shift_card.time_range_grace':
+          '{start} - {end}  ·  {grace}నిమి గ్రేస్',
+      'break_tracker.end_break': 'బ్రేక్ ముగించండి',
+      'break_tracker.take_break': 'బ్రేక్ తీసుకోండి',
+      's4.dynamic.break_tracker.total_minutes': 'మొత్తం {minutes}నిమి',
+      's4.dynamic.break_tracker.duration_minutes': ' ({minutes}నిమి)',
       // REVIEW:
       'pharmacy.no_preview': 'ప్రివ్యూ లేదు',
       // REVIEW:
@@ -18866,6 +20616,8 @@ class AppStrings {
       'payroll.tax_summary.download_pdf': 'PDFని డౌన్‌లోడ్ చేయండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'payroll.tax_summary.download_form16': 'ఫారమ్ 16 PDFని డౌన్‌లోడ్ చేయండి',
+      's4.dynamic.payroll.payslips_included_fy':
+          "{count} పేస్లిప్‌లు FY {fy}లో చేర్చబడ్డాయి",
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'payroll.declaration.estimated_deductions':
           'అంచనా వేసిన పన్ను మినహాయింపులు',
@@ -18914,6 +20666,52 @@ class AppStrings {
       'payroll.declaration.past_title': 'గత ప్రకటనలు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'payroll.declaration.fy_submitted': 'సమర్పించారు',
+      // REVIEW: S4 payroll machine translations - confirm statutory/financial wording.
+      'payroll.declaration.chip_80c': '80C (గరిష్ఠం ₹1.5L)',
+      'payroll.declaration.chip_80d': '80D',
+      'payroll.declaration.chip_nps': 'NPS',
+      'payroll.month.1': 'జనవరి',
+      'payroll.month.2': 'ఫిబ్రవరి',
+      'payroll.month.3': 'మార్చి',
+      'payroll.month.4': 'ఏప్రిల్',
+      'payroll.month.5': 'మే',
+      'payroll.month.6': 'జూన్',
+      'payroll.month.7': 'జూలై',
+      'payroll.month.8': 'ఆగస్టు',
+      'payroll.month.9': 'సెప్టెంబర్',
+      'payroll.month.10': 'అక్టోబర్',
+      'payroll.month.11': 'నవంబర్',
+      'payroll.month.12': 'డిసెంబర్',
+      'payroll.month_short.1': 'జన',
+      'payroll.month_short.2': 'ఫిబ్ర',
+      'payroll.month_short.3': 'మార్చి',
+      'payroll.month_short.4': 'ఏప్రి',
+      'payroll.month_short.5': 'మే',
+      'payroll.month_short.6': 'జూన్',
+      'payroll.month_short.7': 'జూలై',
+      'payroll.month_short.8': 'ఆగ',
+      'payroll.month_short.9': 'సెప్',
+      'payroll.month_short.10': 'అక్టో',
+      'payroll.month_short.11': 'నవ',
+      'payroll.month_short.12': 'డిసె',
+      'payroll.query.category.general': 'సాధారణం',
+      'payroll.query.category.basic_salary': 'ప్రాథమిక జీతం',
+      'payroll.query.category.hra': 'HRA',
+      'payroll.query.category.deductions': 'కోతలు',
+      'payroll.query.category.overtime': 'ఓవర్‌టైమ్',
+      'payroll.query.category.advance': 'అడ్వాన్స్',
+      'payroll.query.category.tds': 'TDS',
+      'payroll.query.category.pf': 'PF',
+      'payroll.query.category.other': 'ఇతర',
+      'payroll.query.status.open': 'తెరిచి ఉంది',
+      'payroll.query.status.in_review': 'సమీక్షలో ఉంది',
+      'payroll.query.status.resolved': 'పరిష్కరించబడింది',
+      'payroll.query.status.submitted': 'సమర్పించబడింది',
+      'payroll.query.status.approved': 'ఆమోదించబడింది',
+      'payroll.query.status.rejected': 'తిరస్కరించబడింది',
+      'payroll.query.status.draft': 'ముసాయిదా',
+      's4.dynamic.payroll.fy_label': 'FY {fy}',
+      's4.dynamic.payroll.submitted_on': 'సమర్పించబడింది: {date}',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'hr.timeframe.this_month': 'ఈ నెల',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -19030,6 +20828,9 @@ class AppStrings {
       'directory.api_pending':
           'API కనెక్ట్ అయిన తర్వాత సిబ్బంది సభ్యులు ఇక్కడ కనిపిస్తారు',
       'directory.staff_empty_body': 'సిబ్బంది దొరకలేదు',
+      's4.dynamic.directory.employee_id': "ID: {id}",
+      's4.dynamic.directory.shift': "షిఫ్ట్: {shift}",
+      's4.lib.directory.other': "ఇతర",
       'reports.hub.confidentiality_note':
           'అన్ని నివేదికలు గోప్యంగా నిర్వహించబడతాయి. విలేకరులపై ప్రతీకారం ఖచ్చితంగా నిషేధించబడింది.',
       'reports.hub.prompt': 'మీరు ఏమి నివేదించాలనుకుంటున్నారు?',
@@ -19329,6 +21130,10 @@ class AppStrings {
       'theatre.no_surgeries': 'శస్త్రచికిత్సలు షెడ్యూల్ చేయబడలేదు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.no_room_data': 'గది డేటా అందుబాటులో లేదు',
+      // REVIEW: te AI first-pass S4 theatre display copy.
+      'theatre.procedure_fallback': 'ప్రొసీజర్',
+      's4.dynamic.theatre.ot_room': 'OT {room}',
+      's4.dynamic.theatre.duration_minutes': '{minutes} నిమి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.status.scheduled': 'షెడ్యూల్ చేయబడింది',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -19433,7 +21238,6 @@ class AppStrings {
       'radiology.report_submitted': 'నివేదిక సమర్పించారు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'radiology.order_cancelled': 'ఆర్డర్ రద్దు చేయబడింది',
-      'schedule.prev_week': 'మునుపటి వారం',
       'schedule.next_week': 'వచ్చే వారం',
       'schedule.week_this': 'ఈ వారం',
       'schedule.week_next': 'తదుపరి వారం',
@@ -19443,6 +21247,24 @@ class AppStrings {
       'schedule.hours_worked_suffix': 'h పనిచేశారు',
       'schedule.upcoming': 'రాబోయేది',
       'schedule.no_record': 'రికార్డు లేదు',
+      // REVIEW: AI first-pass S4 schedule i18n sweep - confirm roster wording before production.
+      's4.lib.schedule.assigned_duty': "కేటాయించిన డ్యూటీ",
+      's4.lib.schedule.duty': "డ్యూటీ",
+      's4.lib.schedule.no_attendance_logged_yet': "ఇంకా హాజరు నమోదు కాలేదు",
+      's4.lib.schedule.no_published_duty': "ప్రచురించిన డ్యూటీ లేదు",
+      's4.dynamic.schedule.assignment_line': "{shift} {start}-{end}",
+      's4.dynamic.schedule.assignment_line_lead':
+          "{shift} {start}-{end} - లీడ్",
+      's4.dynamic.schedule.attendance_summary':
+          "{days} హాజరు రోజులు - {hours}గం నమోదు",
+      's4.dynamic.schedule.attendance_unavailable':
+          "హాజరు అందుబాటులో లేదు: {error}",
+      's4.dynamic.schedule.hours_worked': "{hours}గం పని చేశారు",
+      's4.dynamic.schedule.published_roster_unavailable':
+          "ప్రచురించిన రోస్టర్ అందుబాటులో లేదు: {error}",
+      's4.dynamic.schedule.rostered_shift_count.one': "{count} రోస్టర్ షిఫ్ట్",
+      's4.dynamic.schedule.rostered_shift_count.other':
+          "{count} రోస్టర్ షిఫ్ట్‌లు",
       'schedule.load_failed_prefix': 'షెడ్యూల్‌ను లోడ్ చేయడం సాధ్యపడలేదు:',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'investigations.tab.upload': 'ఫలితాన్ని అప్‌లోడ్ చేయండి',
@@ -19553,6 +21375,15 @@ class AppStrings {
       'lab_bookings.result_uploaded_toast': 'ఫలితం అప్‌లోడ్ చేయబడింది',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'lab_bookings.view_result': 'ఫలితాన్ని వీక్షించండి',
+      // REVIEW: te AI first-pass S4 lab-booking display copy.
+      'lab_bookings.status.booked': 'బుక్ చేయబడింది',
+      'lab_bookings.status.confirmed': 'నిర్ధారించబడింది',
+      'lab_bookings.status.dispatched': 'పంపబడింది',
+      'lab_bookings.status.collected': 'సేకరించబడింది',
+      'lab_bookings.status.processing': 'ప్రాసెసింగ్',
+      'lab_bookings.status.result_ready': 'ఫలితం సిద్ధం',
+      's4.dynamic.lab_bookings.minutes_ago': '{minutes}నిమి క్రితం',
+      's4.dynamic.lab_bookings.hours_ago': '{hours}గం క్రితం',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'pharmacy.queue_title': 'ఫార్మసీ క్యూ',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -19642,6 +21473,42 @@ class AppStrings {
       'due_meds.filter.all_routes': 'అన్ని మార్గాలు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'due_meds.filter.route_label': 'మార్గం',
+      // REVIEW: te AI first-pass S4 due-meds display copy.
+      's4.dynamic.due_meds.ward_fallback': 'వార్డు {value}',
+      'due_meds.unscheduled': 'షెడ్యూల్ చేయబడలేదు',
+      's4.dynamic.due_meds.due_late': '{value} ఆలస్యం',
+      's4.dynamic.due_meds.due_in': '{value}లో',
+      // REVIEW: te AI first-pass S4 maternity display copy.
+      'maternity.load_failed': 'లేబర్ బోర్డ్ లోడ్ కాలేదు',
+      's4.dynamic.maternity.gestational_weeks': '{weeks}వా',
+      's4.dynamic.maternity.admission_age': '{hours}గం క్రితం',
+      // REVIEW: te AI first-pass S4 partograph display copy.
+      'partograph_entry.amniotic.intact_membranes':
+          'మెంబ్రేన్‌లు సమగ్రంగా ఉన్నాయి',
+      'partograph_entry.amniotic.clear': 'స్పష్టంగా',
+      'partograph_entry.amniotic.meconium_thin': 'పలుచని మెకోనియం',
+      'partograph_entry.amniotic.meconium_thick': 'మందమైన మెకోనియం',
+      'partograph_entry.amniotic.blood': 'రక్తం',
+      'partograph_entry.urine.nil': 'లేదు',
+      'partograph_entry.urine.trace': 'ట్రేస్',
+      'partograph_entry.save_failed': 'సేవ్ విఫలమైంది',
+      'partograph_view.load_admission_failed': 'లేబర్ అడ్మిషన్ లోడ్ కాలేదు',
+      'partograph_view.load_failed': 'పార్టోగ్రాఫ్ లోడ్ కాలేదు',
+      'partograph_view.action_line_crossed.one':
+          'యాక్షన్ లైన్ {n} ఎంట్రీలో దాటింది',
+      'partograph_view.action_line_crossed.other':
+          'యాక్షన్ లైన్ {n} ఎంట్రీల్లో దాటింది',
+      'partograph_view.alert_line_crossed.one':
+          'అలర్ట్ లైన్ {n} ఎంట్రీలో దాటింది',
+      'partograph_view.alert_line_crossed.other':
+          'అలర్ట్ లైన్ {n} ఎంట్రీల్లో దాటింది',
+      's4.dynamic.partograph_view.point_summary':
+          '{hours}గం · {cervix} సెం.మీ సర్విక్స్ · FHR {fhr}',
+      'partograph_chart.on_track': 'సరైన మార్గంలో',
+      'partograph_chart.past_alert_line': 'అలర్ట్ లైన్ దాటింది',
+      'partograph_chart.past_action_line': 'యాక్షన్ లైన్ దాటింది',
+      'partograph_chart.alert_line': 'అలర్ట్ లైన్ (1 సెం.మీ/గం)',
+      'partograph_chart.action_line': 'యాక్షన్ లైన్ (అలర్ట్ + 4గం)',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'mar_scan.step1_prompt': '3లో 1వ దశ - రోగి చేతిపట్టీని స్కాన్ చేయండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -19768,6 +21635,11 @@ class AppStrings {
       'dispute.empty': 'ఎలాంటి వివాదాలు నమోదు కాలేదు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'dispute.hr_comment_prefix': 'HR:',
+      // REVIEW: te AI first-pass S4 attendance/timekeeping copy.
+      'dispute.status.pending': 'పెండింగ్',
+      'dispute.status.approved': 'ఆమోదించబడింది',
+      'dispute.status.rejected': 'తిరస్కరించబడింది',
+      's4.dynamic.dispute.hr_comment': 'HR: {comment}',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'overtime.tab.request': 'అభ్యర్థన',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -19792,6 +21664,12 @@ class AppStrings {
       'overtime.empty': 'ఓవర్ టైం అభ్యర్థనలు లేవు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'overtime.rejected_prefix': 'తిరస్కరించబడింది:',
+      // REVIEW: te AI first-pass S4 attendance/timekeeping copy.
+      'overtime.status.pending': 'పెండింగ్',
+      'overtime.status.approved': 'ఆమోదించబడింది',
+      'overtime.status.rejected': 'తిరస్కరించబడింది',
+      's4.dynamic.overtime.hours_and_type': '{hours}గం · {type}',
+      's4.dynamic.overtime.rejected_reason': 'తిరస్కరించబడింది: {reason}',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'clinical_ai.queue.compose_button': 'పరుగులు కంపోజ్ చేయండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -19977,8 +21855,20 @@ class AppStrings {
       's4.lib.appointment_queue.open_front_office': "ఫ్రంట్ ఆఫీస్ తెరవండి",
       's4.lib.appointment_queue.opening_front_office_workbench':
           "ఫ్రంట్ ఆఫీస్ వర్క్‌బెంచ్ తెరవడం",
+      // REVIEW: S4 appointment queue machine translations - confirm front-desk wording.
+      'appointments.status.all': 'అన్నీ',
+      'appointments.status.scheduled': 'షెడ్యూల్ చేయబడింది',
+      'appointments.status.confirmed': 'నిర్ధారించబడింది',
+      'appointments.status.completed': 'పూర్తయింది',
+      'appointments.status.rescheduled': 'మళ్లీ షెడ్యూల్ చేయబడింది',
+      'appointments.status.no_show': 'రాలేదు',
+      'appointments.status.cancelled': 'రద్దు చేయబడింది',
+      's4.lib.appointments.all_op_queues': "అన్ని OP క్యూలు",
       's4.lib.appointments.any_available_doctor':
           "అందుబాటులో ఉన్న ఏదైనా వైద్యుడు",
+      's4.lib.appointments.appointment_created_successfully':
+          "అపాయింట్‌మెంట్ విజయవంతంగా సృష్టించబడింది",
+      's4.lib.appointments.appointments': "అపాయింట్‌మెంట్‌లు",
       's4.lib.appointments.book_op': "OP బుక్ చేయండి",
       // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
@@ -19986,6 +21876,8 @@ class AppStrings {
       's4.lib.appointments.collapse_queue_panel': "క్యూ ప్యానెల్‌ను కుదించు",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
           "ఇప్పుడు రిజిస్ట్రీని తనిఖీ చేయలేకపోయాం; కొత్త రోగి బుకింగ్ అందుబాటులో ఉంది",
+      's4.lib.appointments.could_not_load_doctors':
+          "వైద్యులను లోడ్ చేయలేకపోయాం",
       's4.lib.appointments.create_appointment': "అపాయింట్‌మెంట్ సృష్టించండి",
       's4.lib.appointments.creating': "సృష్టిస్తోంది...",
       's4.lib.appointments.checking_patient_registry':
@@ -20003,18 +21895,27 @@ class AppStrings {
       's4.lib.appointments.filter_doctor_or_department':
           "ఫిల్టర్ డాక్టర్ లేదా డిపార్ట్‌మెంట్",
       's4.lib.appointments.flex': "ఫ్లెక్స్",
+      's4.lib.appointments.calendar_day': "రోజు",
+      's4.lib.appointments.calendar_week': "వారం",
       's4.lib.appointments.gmt_5_30': "GMT+5:30",
+      's4.lib.appointments.loading_doctors': "వైద్యులు లోడ్ అవుతున్నారు...",
+      's4.lib.appointments.my_op_queue': "నా OP క్యూ",
+      's4.lib.appointments.my_op_workspace_queue': "నా OP వర్క్‌స్పేస్ క్యూ",
       's4.lib.appointments.next_month': "వచ్చే నెల",
       's4.lib.appointments.new_patient_enter_name_to_register':
           "కొత్త రోగి - బుకింగ్ సమయంలో నమోదు చేయడానికి పేరు నమోదు చేయండి",
+      's4.lib.appointments.no_appointments': "అపాయింట్‌మెంట్‌లు లేవు",
       's4.lib.appointments.no_doctor_or_department_matches':
           "డాక్టర్ లేదా డిపార్ట్‌మెంట్ మ్యాచ్‌లు లేవు",
+      's4.lib.appointments.op_workspace': "OP వర్క్‌స్పేస్",
       's4.lib.appointments.previous_month': "మునుపటి నెల",
       's4.lib.appointments.queue_filter': "క్యూ ఫిల్టర్",
       's4.lib.appointments.search_patient_or_phone':
           "రోగి లేదా ఫోన్‌ని శోధించండి",
       's4.lib.appointments.select_a_doctor_or_department':
           "డాక్టర్ లేదా విభాగాన్ని ఎంచుకోండి",
+      's4.lib.appointments.show_queue_panel': "క్యూ ప్యానెల్ చూపించండి",
+      's4.lib.appointments.type_doctor_name': "డాక్టర్ పేరు టైప్ చేయండి",
       's4.lib.appointments.week': "వారం",
       's4.lib.audit_logs.action': "చర్య",
       's4.lib.audit_logs.action_resource_ip_user':
@@ -20291,6 +22192,11 @@ class AppStrings {
       's4.lib.coded_diagnosis_picker.search_icd_11': "ICD-11ని శోధించండి",
       's4.lib.composition_alternatives_panel.composition_alternatives':
           "కూర్పు ప్రత్యామ్నాయాలు",
+      // REVIEW: S4 machine translation - confirm DAW pharmacy copy.
+      's4.lib.composition_alternatives_panel.daw_info_only':
+          "DAW సెట్ చేయబడింది - సమాచారం మాత్రమే",
+      's4.lib.composition_alternatives_panel.daw_locked': "DAW లాక్ చేయబడింది",
+      's4.lib.composition_alternatives_panel.info_only': "సమాచారం మాత్రమే",
       's4.lib.composition_alternatives_panel.swap': "మార్పిడి",
       's4.lib.desktop_scroll_controls.scroll_back': "వెనుకకు స్క్రోల్ చేయండి",
       's4.lib.desktop_scroll_controls.scroll_down': "క్రిందికి స్క్రోల్ చేయండి",
@@ -20301,26 +22207,53 @@ class AppStrings {
           "సలహా ఇవ్వబడింది, అప్పగింత పూర్తయింది, బిల్లు క్లియర్ చేయబడింది...",
       's4.lib.discharge_hub.ai_discharge_package_started':
           "AI డిశ్చార్జ్ ప్యాకేజీ ప్రారంభమైంది",
+      's4.lib.discharge_hub.checklist_pending': "చెక్‌లిస్ట్ పెండింగ్‌లో ఉంది",
       's4.lib.discharge_hub.completion_note': "పూర్తి గమనిక",
       's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi':
           "మందుల సయోధ్య, అనంతర సంరక్షణ, సంసిద్ధత మరియు కోడింగ్ మాడ్యూల్స్ నుండి సమీక్షించబడిన డిశ్చార్జ్ ప్యాకేజీని సృష్టిస్తుంది. డాక్టర్ సమీక్షించి, సంకేతాలు ఇచ్చే వరకు ఇది డ్రాఫ్ట్ మాత్రమే.",
+      // REVIEW: AI first-pass S4 discharge i18n sweep - confirm discharge workflow wording before production.
+      's4.lib.discharge_hub.discharge_initiated': "డిశ్చార్జ్ ప్రారంభించబడింది",
+      's4.lib.discharge_hub.doctor_review_needed': "డాక్టర్ సమీక్ష అవసరం",
+      's4.lib.discharge_hub.doctor_summary': "డాక్టర్ సారాంశం",
+      's4.lib.discharge_hub.final_discharge_gate': "తుది డిశ్చార్జ్ గేట్",
+      's4.lib.discharge_hub.final_gate_blocked':
+          "క్రింద ఉన్న ప్రతి అంశం క్లియర్ అయ్యే వరకు తుది డిశ్చార్జ్ బ్లాక్‌లోనే ఉంటుంది.",
+      's4.lib.discharge_hub.final_gate_ready':
+          "అవసరమైన అన్ని పనులు పూర్తయ్యాయి. సంతకం చేసిన సారాంశ స్క్రీన్ నుండి తుది డిశ్చార్జ్ కొనసాగవచ్చు.",
       's4.lib.discharge_hub.finish': "ముగించు",
       's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis':
           "దీన్ని పూర్తి చేయడానికి కూడా డిశ్చార్జి మందులు పంపిణీ చేయాలి.",
+      's4.lib.discharge_hub.hospital_team': "ఆసుపత్రి బృందం",
+      's4.lib.discharge_hub.no_safety_flags': "భద్రతా జెండాలు లేవు",
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.discharge_hub.work_item': "పని అంశం",
       's4.lib.discharge_hub.generate_ai_package': "AI ప్యాకేజీని రూపొందించండి",
       's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary':
           "ఈ సారాంశానికి ఎటువంటి భద్రతా జెండాలు జోడించబడలేదు.",
+      's4.lib.discharge_hub.no_summary_draft':
+          "ఇంకా డిశ్చార్జ్ సారాంశ డ్రాఫ్ట్ లేదు",
+      's4.lib.discharge_hub.not_initiated': "ప్రారంభించబడలేదు",
+      's4.lib.discharge_hub.open_summary_editor': "సారాంశ ఎడిటర్‌ను తెరవండి",
+      's4.lib.discharge_hub.pending_item': "పెండింగ్ అంశం",
+      's4.lib.discharge_hub.ready_for_final_discharge':
+          "తుది డిశ్చార్జ్‌కు సిద్ధం",
+      's4.lib.discharge_hub.role_work_items': "పాత్ర పని అంశాలు",
       's4.lib.discharge_hub.signature_details': "సంతకం వివరాలు",
       's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar':
           "డైటరీ, కౌన్సెలింగ్, ఫార్మసీ, ఫిజియోథెరపీ మరియు బిల్లింగ్ టాస్క్‌లను తెరవడానికి డిశ్చార్జ్ ప్రారంభించండి.",
       's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o':
           "ఈ ఉత్సర్గ సారాంశానికి ఇప్పటికీ డాక్టర్ సైన్-ఆఫ్ అవసరం.",
+      's4.lib.discharge_hub.view_signed_summary':
+          "సంతకం చేసిన సారాంశాన్ని చూడండి",
+      's4.lib.discharge_hub_list.blocked': "బ్లాక్ చేయబడింది",
+      's4.lib.discharge_hub_list.doctor_sign_pending':
+          "డాక్టర్ సంతకం పెండింగ్‌లో ఉంది",
       's4.lib.discharge_hub_list.no_active_discharge_work':
           "క్రియాశీల ఉత్సర్గ పని లేదు",
       's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate':
           "డిశ్చార్జ్ ప్రారంభించిన తర్వాత రోగులు ఇక్కడ కనిపిస్తారు మరియు తుది ఉత్సర్గ పూర్తయ్యే వరకు ఉంటారు.",
+      's4.lib.discharge_hub_list.ready': "సిద్ధం",
+      's4.lib.discharge_hub_list.summary_signed': "సారాంశం సంతకం చేయబడింది",
       's4.lib.discharge_summary.correct_summary': "సరైన సారాంశం",
       // REVIEW: AI first-pass S4 EMR i18n sweep - confirm discharge-summary template copy before production.
       's4.dynamic.discharge_summary.load_error':
@@ -20744,8 +22677,22 @@ class AppStrings {
       's4.lib.investigations.continue_to_prescription':
           "ప్రిస్క్రిప్షన్‌ను కొనసాగించండి",
       's4.lib.investigations.investigation_ordered': "విచారణకు ఆదేశించింది",
+      // REVIEW: AI first-pass S4 investigations i18n sweep - confirm lab wording before production.
+      's4.lib.investigations.interpretation': "వివరణ",
+      's4.lib.investigations.order_investigation': "పరీక్షను ఆర్డర్ చేయండి",
+      's4.lib.investigations.ordering': "ఆర్డర్ చేస్తోంది...",
+      's4.lib.investigations.prescription': "ప్రిస్క్రిప్షన్",
+      's4.lib.investigations.priority.high': "అధిక",
+      's4.lib.investigations.priority.low': "తక్కువ",
+      's4.lib.investigations.priority.normal': "సాధారణం",
+      's4.lib.investigations.priority.urgent': "అత్యవసరం",
+      's4.lib.investigations.result': "ఫలితం",
       's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s':
           "ఫలితం సిద్ధంగా ఉన్నట్లు గుర్తించబడింది, కానీ నిర్మాణాత్మక సారాంశం ఇంకా జోడించబడలేదు.",
+      's4.lib.investigations.result_ready': "ఫలితం సిద్ధంగా ఉంది",
+      's4.lib.investigations.result_summary': "ఫలిత సారాంశం",
+      's4.lib.investigations.results': "ఫలితాలు",
+      's4.lib.investigations.selected_patient': "ఎంచుకున్న రోగి",
       's4.lib.investigations.test_name': "పరీక్ష పేరు",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "OP/IP ల్యాబ్ అభ్యర్థనలను బుక్ చేయండి మరియు ట్రాక్ చేయండి",
@@ -20846,11 +22793,27 @@ class AppStrings {
           "ఫైల్‌ను అటాచ్ చేయడానికి ముందు మొదటి సందేశాన్ని పంపండి.",
       's4.lib.messaging_thread.urgent_alerts_only':
           "అత్యవసర హెచ్చరికలు మాత్రమే",
+      // REVIEW: AI first-pass S4 notifications i18n sweep - confirm alert filter copy before production.
+      's4.lib.notifications.filter.admissions': "ప్రవేశాలు",
+      's4.lib.notifications.filter.all': "అన్ని",
+      's4.lib.notifications.filter.appointments': "నియామకాలు",
+      's4.lib.notifications.filter.beds': "పడకలు",
+      's4.lib.notifications.filter.critical': "క్లిష్టమైనవి",
+      's4.lib.notifications.filter.housekeeping': "హౌస్‌కీపింగ్",
+      's4.lib.notifications.filter.investigations': "పరిశోధనలు",
+      's4.lib.notifications.filter.unread': "చదవనివి",
+      's4.lib.notifications.high_priority': "అధిక ప్రాధాన్యత",
+      's4.lib.notifications.live': "లైవ్",
       's4.lib.notifications.refresh_alerts': "హెచ్చరికలను రిఫ్రెష్ చేయండి",
       's4.lib.nursing_notes.all_notes': "అన్ని గమనికలు",
+      // REVIEW: AI first-pass S4 nursing-notes i18n sweep - confirm draft recovery wording before production.
+      's4.lib.nursing_notes.discard_draft': "డ్రాఫ్ట్‌ను విస్మరించండి",
       's4.lib.nursing_notes.draft_discarded': "డ్రాఫ్ట్ విస్మరించబడింది",
       's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n':
           "రోగికి సంబంధించిన అన్ని గమనికలను చూడటానికి బెడ్ బోర్డ్ నుండి ఈ స్క్రీన్‌ని తెరవండి.",
+      's4.lib.nursing_notes.restored_draft':
+          "సేవ్ చేయని డ్రాఫ్ట్ పునరుద్ధరించబడింది",
+      's4.lib.nursing_notes.signed': "సంతకం చేయబడింది",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "పూర్తి చేసిన ట్రాన్‌స్క్రిప్ట్‌లను వైద్యుల సమీక్ష కోసం SOAP డ్రాఫ్ట్‌లుగా మార్చవచ్చు.",
       // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
@@ -21211,6 +23174,8 @@ class AppStrings {
           "క్రియాశీల రోగులు లేరు",
       's4.lib.patient_command_board.no_matching_patients':
           "సరిపోలే రోగులు లేరు",
+      // REVIEW: AI first-pass S4 patient-notes i18n sweep - confirm EMR addendum label before production.
+      's4.lib.patient_notes_list.addendum': "అనుబంధం",
       's4.lib.patient_context_chip.clear_patient_context':
           "రోగి సందర్భాన్ని క్లియర్ చేయండి",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
@@ -21294,6 +23259,86 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "గమనిక నవీకరించబడింది",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "అసలు గద్యాన్ని ఓవర్‌రైట్ చేస్తుంది. గమనిక యొక్క రచయిత, పాత్ర మరియు సృష్టి సమయం భద్రపరచబడ్డాయి.",
+      // REVIEW: AI first-pass S4 i18n legacy sweep leftovers - confirm wording before production.
+      's4.lib.ward_list_filter_bar.ward': "వార్డు",
+      's4.lib.ward_list_filter_bar.clear_filters': "ఫిల్టర్లను క్లియర్ చేయండి",
+      's4.lib.vital_text_field.enter_valid_number':
+          "చెల్లుబాటు అయ్యే సంఖ్య నమోదు చేయండి",
+      's4.lib.theme_toggle_action.switch_to_light_mode': "లైట్ మోడ్‌కు మారండి",
+      's4.lib.theme_toggle_action.switch_to_dark_mode': "డార్క్ మోడ్‌కు మారండి",
+      's4.lib.session_revocation_listener.signed_out_new_login':
+          "సైన్ అవుట్ అయ్యారు - మీ ఖాతా ఇప్పుడే మరో పరికరంలో లాగిన్ అయింది.",
+      's4.lib.session_revocation_listener.session_revoked':
+          "మీ సెషన్ రద్దు చేయబడింది.",
+      's4.lib.patient_search_sheet.type_to_find_patient':
+          "రోగిని కనుగొనడానికి హాస్పిటల్ ID, పేరు, ఫోన్ లేదా ABHA చిరునామా టైప్ చేయండి.",
+      's4.lib.patient_search_sheet.enter_10_digits_for_phone':
+          "ఫోన్ ద్వారా శోధించడానికి కనీసం 10 అంకెలను నమోదు చేయండి.",
+      's4.lib.patient_search_sheet.type_2_characters':
+          "శోధించడానికి కనీసం 2 అక్షరాలు టైప్ చేయండి.",
+      's4.lib.patient_search_sheet.unnamed': "పేరు లేనిది",
+      's4.dynamic.patient_search_sheet.no_matches_for':
+          "\"{query}\" కోసం సరిపోలికలు లేవు",
+      's4.lib.message_unread_badge.unread_messages': "చదవని సందేశాలు",
+      's4.dynamic.message_unread_badge.count_label': "{count} {label}",
+      's4.dynamic.success_toast.success_label': "విజయం: {message}",
+      's4.dynamic.error_toast.error_label': "లోపం: {message}",
+      's4.lib.patient_notes_list.filter.all': "అన్నీ",
+      's4.lib.patient_notes_list.filter.doctor': "డాక్టర్",
+      's4.lib.patient_notes_list.filter.nursing': "నర్సింగ్",
+      's4.lib.patient_notes_list.unknown_role': "తెలియదు",
+      's4.lib.patient_notes_list.type.progress': "పురోగతి",
+      's4.lib.patient_notes_list.type.note': "గమనిక",
+      's4.dynamic.patient_notes_list.rev_admin_edited':
+          "సవరణ {version} (అడ్మిన్ సవరించినది)",
+      's4.dynamic.appointments.minutes_ago': "{count} నిమిషాల క్రితం",
+      's4.dynamic.appointments.hours_ago': "{count} గంటల క్రితం",
+      's4.lib.dashboard.op_nursing': "OP నర్సింగ్",
+      's4.lib.dashboard.op_workbench': "OP వర్క్‌బెంచ్",
+      's4.lib.dashboard.patient_fallback': "రోగి",
+      's4.lib.dashboard.notification_fallback': "నోటిఫికేషన్",
+      's4.dynamic.dashboard.minutes_ago': "{count} నిమిషాల క్రితం",
+      's4.dynamic.dashboard.hours_ago': "{count} గంటల క్రితం",
+      's4.lib.prescriptions.visit_prescription_locked':
+          "ఈ సందర్శనకు ఇప్పటికే సంతకం చేసిన ప్రిస్క్రిప్షన్ ఉంది; మార్పుల కోసం కొత్త OP సందర్శన సృష్టించండి.",
+      's4.lib.prescriptions.photo_needs_connection':
+          "ఫోటో ప్రిస్క్రిప్షన్‌కు కనెక్షన్ అవసరం. మళ్లీ కనెక్ట్ చేసి ప్రయత్నించండి.",
+      's4.dynamic.prescriptions.offline_context': "ప్రిస్క్రిప్షన్ - {name}",
+      's4.lib.prescriptions.queued_safety_checked_on_sync':
+          "ప్రిస్క్రిప్షన్ క్యూలో ఉంది - సింక్‌లో భద్రతా తనిఖీ జరుగుతుంది",
+      's4.lib.prescriptions.route.oral': "మౌఖికం",
+      's4.lib.prescriptions.route.iv': "IV",
+      's4.lib.prescriptions.route.im': "IM",
+      's4.lib.prescriptions.route.topical': "పైపూత",
+      's4.lib.prescriptions.route.inhalation': "శ్వాస ద్వారా",
+      's4.lib.prescriptions.route.sublingual': "నాలుక కింద",
+      's4.lib.prescriptions.pharmacy.in_house_dispensary':
+          "ఇన్-హౌస్ డిస్పెన్సరీ",
+      's4.lib.prescriptions.pharmacy.patient_choice': "రోగి ఎంపిక",
+      's4.lib.prescriptions.pharmacy.external_pharmacy': "బాహ్య ఫార్మసీ",
+      's4.lib.prescriptions.any_time': "ఎప్పుడైనా",
+      's4.lib.prescriptions.instructions_hint':
+          "PRN కారణం, హెచ్చరిక, ప్రత్యేక సలహా",
+      's4.lib.prescriptions.auto_filled': "స్వయంచాలకంగా నింపబడింది",
+      's4.lib.prescriptions.prescription_locked': "ప్రిస్క్రిప్షన్ లాక్ అయింది",
+      's4.lib.prescriptions.update_prescription':
+          "ప్రిస్క్రిప్షన్‌ను నవీకరించండి",
+      's4.dynamic.investigations.file_selected_one':
+          "{count} ఫైల్ ఎంచుకోబడింది",
+      's4.dynamic.investigations.file_selected_other':
+          "{count} ఫైళ్లు ఎంచుకోబడ్డాయి",
+      's4.dynamic.investigations.uploading_count':
+          "{uploaded}/{total} అప్‌లోడ్ అవుతోంది",
+      's4.dynamic.investigations.uploading_file':
+          "{uploaded}/{total} అప్‌లోడ్ అవుతోంది - {file}",
+      's4.dynamic.drug_chart.medication_order': "మందు ఆర్డర్ - {drug}",
+      's4.lib.drug_chart.not_timed': "సమయం నిర్ణయించలేదు",
+      's4.dynamic.nursing_notes.offline_context':
+          "{patient} కోసం నర్సింగ్ గమనిక",
+      's4.lib.nursing_notes.load_more': "మరిన్ని లోడ్ చేయండి",
+      's4.lib.nursing_notes.nursing_note': "నర్సింగ్ గమనిక",
+      's4.dynamic.vitals.offline_context': "రోగి {patient} కోసం వైటల్స్",
+      's4.dynamic.payroll.max_amount_suffix': "(గరిష్ఠం ₹{amount})",
       // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "AI-సహాయ రికార్డు సమీక్ష",
@@ -21448,6 +23493,7 @@ class AppStrings {
           "OP ప్రిస్క్రిప్షన్లు, IP డ్రగ్ చార్టులు మరియు ఫార్మసీ ఇదే బ్యాకెండ్ కేటలాగ్‌ను ఉపయోగిస్తాయి.",
       's4.lib.pharmacy.catalog_shared_limited_copy':
           "OP ప్రిస్క్రిప్షన్లు, IP డ్రగ్ చార్టులు మరియు ఫార్మసీ ఇదే బ్యాకెండ్ కేటలాగ్‌ను ఉపయోగిస్తాయి. మార్పులు Pharmacy Incharge/Admin కే పరిమితం.",
+      's4.lib.pharmacy.category_other': "ఇతర",
       's4.lib.pharmacy.cold_chain_item': "కోల్డ్-చైన్ అంశం",
       's4.lib.pharmacy.controlled_narcotic_item':
           "నియంత్రిత / మాదక ద్రవ్యాల అంశం",
@@ -21541,6 +23587,7 @@ class AppStrings {
       's4.lib.pharmacy.strength': "బలం",
       's4.lib.pharmacy.tablet_hint': "మాత్ర",
       's4.lib.pharmacy.this_drug': "ఈ మందు",
+      's4.lib.pharmacy.unit_each': "ప్రతి ఒక్కటి",
       's4.lib.pharmacy.unit_label': "యూనిట్ లేబుల్",
       's4.lib.pharmacy.unit_price': "యూనిట్ ధర",
       's4.lib.pharmacy.unavailable': "అందుబాటులో లేదు",
@@ -21560,24 +23607,61 @@ class AppStrings {
           "ప్రిస్క్రిప్షన్ డ్రాఫ్ట్‌ను క్లియర్ చేయాలా?",
       's4.lib.prescriptions.continue': "కొనసాగించు",
       's4.lib.prescriptions.days': "రోజులు",
+      's4.lib.prescriptions.days_must_be_at_least_1': "రోజులు కనీసం 1 ఉండాలి",
       's4.lib.prescriptions.delete_row': "అడ్డు వరుసను తొలగించండి",
+      // REVIEW: AI first-pass S4 prescriptions i18n sweep - confirm compact dose-slot initials before production.
+      's4.lib.prescriptions.dose_slot_afternoon_short': "మ",
+      's4.lib.prescriptions.dose_slot_evening_short': "సా",
+      's4.lib.prescriptions.dose_slot_morning_short': "ఉ",
+      's4.lib.prescriptions.dose_slot_night_short': "రా",
+      's4.lib.prescriptions.draft': "డ్రాఫ్ట్",
       's4.lib.prescriptions.drug_form': "మందు / రూపం*",
+      // REVIEW: AI first-pass S4 prescriptions i18n sweep - confirm clinical and pharmacy wording before production.
+      's4.lib.prescriptions.height': "ఎత్తు",
+      's4.lib.prescriptions.in_stock': "స్టాక్‌లో ఉంది",
+      's4.lib.prescriptions.may_be_available': "అందుబాటులో ఉండవచ్చు",
       's4.lib.prescriptions.notes_safety': "గమనికలు / భద్రత",
       's4.lib.prescriptions.op_consultation_context': "OP సంప్రదింపు సందర్భం",
+      's4.lib.prescriptions.open_last_pdf': "చివరి PDF తెరవండి",
       's4.lib.prescriptions.open_pdf': "PDFని తెరవండి",
+      's4.lib.prescriptions.out_of_stock': "స్టాక్‌లో లేదు",
+      's4.lib.prescriptions.pdf_not_available': "PDF అందుబాటులో లేదు",
+      's4.lib.prescriptions.pdf_not_available_yet':
+          "ప్రిస్క్రిప్షన్ PDF ఇంకా అందుబాటులో లేదు",
+      's4.lib.prescriptions.pdf_open_failed':
+          "ప్రిస్క్రిప్షన్ PDF తెరవలేకపోయాం",
+      's4.lib.prescriptions.pharmacy_order_sent': "ఫార్మసీ ఆర్డర్ పంపబడింది",
       's4.lib.prescriptions.prescription_pdf_is_ready':
           "ప్రిస్క్రిప్షన్ PDF సిద్ధంగా ఉంది",
+      's4.lib.prescriptions.resp_rate': "శ్వాస రేటు",
       's4.lib.prescriptions.review_draft': "రివ్యూ డ్రాఫ్ట్",
       's4.lib.prescriptions.review_prescription_warnings':
           "ప్రిస్క్రిప్షన్ హెచ్చరికలను సమీక్షించండి",
+      's4.lib.prescriptions.rx_signed': "Rx సంతకం చేయబడింది",
       's4.lib.prescriptions.save_favorite': "ఇష్టమైన సేవ్",
+      's4.lib.prescriptions.saved_as_favorite': "ఇష్టమైనదిగా సేవ్ చేయబడింది",
+      's4.lib.prescriptions.sign_lock': "సంతకం చేసి లాక్ చేయండి",
+      's4.lib.prescriptions.sign_lock_rx': "Rx సంతకం చేసి లాక్ చేయండి",
       's4.lib.prescriptions.signed': "సంతకం చేశారు",
+      's4.lib.prescriptions.signed_locked': "సంతకం చేసి లాక్ చేయబడింది",
       's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo':
           "ఈ ప్రిస్క్రిప్షన్ కోసం సర్వర్ నాన్-బ్లాకింగ్ CDS హెచ్చరికలను అందించింది.",
       's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll':
           "ఇది ప్రస్తుతం ఈ డ్రాఫ్ట్‌లో ఉన్న మందులు, నోట్‌లు, ప్రాణాధారాలు మరియు ఫాలో-అప్‌లను తొలగిస్తుంది. సృష్టించిన ప్రిస్క్రిప్షన్‌లు తొలగించబడవు.",
       's4.lib.prescriptions.type_drug_name': "ఔషధం పేరు రకం",
       's4.lib.prescriptions.use_favorite': "ఇష్టమైన ఉపయోగించండి",
+      's4.dynamic.prescriptions.follow_up_date': "ఫాలో-అప్: {date}",
+      's4.dynamic.prescriptions.in_stock_count': "స్టాక్‌లో {count}",
+      's4.dynamic.prescriptions.open_rx_pdf': "Rx #{id} PDF తెరవండి",
+      's4.dynamic.prescriptions.patient_doctor':
+          "రోగి: {patient} · డా. {doctor}",
+      's4.dynamic.prescriptions.pdf_open_failed_detail':
+          "ప్రిస్క్రిప్షన్ PDF తెరవలేకపోయాం: {error}",
+      's4.dynamic.prescriptions.pharmacy_handoff_needs_formulary_match':
+          "ప్రిస్క్రిప్షన్ సేవ్ చేయబడింది; ఫార్మసీ హ్యాండ్‌ఆఫ్‌కు ఫార్ములరీ సరిపోలిక అవసరం: {error}",
+      's4.dynamic.prescriptions.pharmacy_order_sent_number':
+          "ఫార్మసీ ఆర్డర్ {number} పంపబడింది",
+      's4.dynamic.prescriptions.pharmacy_status': "ఫార్మసీ: {status}",
       's4.lib.referrals.ai_assisted_clinical_summary':
           "AI సహాయక క్లినికల్ సారాంశం",
       's4.lib.referrals.audit': "ఆడిట్",
@@ -21597,17 +23681,103 @@ class AppStrings {
           "అడ్మిన్/సూపర్ అడ్మిన్ పాత్రలకు రెఫరల్ ఆడిట్ అందుబాటులో ఉంది.",
       's4.lib.referrals.referral_clinical_summary': "రెఫరల్ క్లినికల్ సారాంశం",
       's4.lib.referrals.use_summary': "సారాంశాన్ని ఉపయోగించండి",
+      // REVIEW: AI first-pass S4 referrals i18n sweep - confirm clinical handoff wording before production.
+      's4.dynamic.referrals.admission_id': "అడ్మిషన్ #{id}",
+      's4.dynamic.referrals.bed': "బెడ్ {bed}",
+      's4.dynamic.referrals.min_to_first_seen':
+          "మొదట చూసే వరకు {minutes} నిమిషాలు",
+      's4.dynamic.referrals.reason_line': "కారణం: {reason}",
+      's4.lib.referrals.active_diagnoses': "సక్రియ నిర్ధారణలు",
+      's4.lib.referrals.ai_assist_clinical_summary':
+          "AI సహాయక క్లినికల్ సారాంశం",
+      's4.lib.referrals.ai_draft_added':
+          "AI డ్రాఫ్ట్ జోడించబడింది. రెఫరల్ కోరే ముందు సమీక్షించండి.",
+      's4.lib.referrals.consultant': "కన్సల్టెంట్",
+      's4.lib.referrals.current_treatment': "ప్రస్తుత చికిత్స",
+      's4.lib.referrals.decline': "నిరాకరించండి",
+      's4.lib.referrals.decline_request': "అభ్యర్థనను నిరాకరించండి",
+      's4.lib.referrals.department': "విభాగం",
+      's4.lib.referrals.drafting_clinical_summary':
+          "క్లినికల్ సారాంశం డ్రాఫ్ట్ అవుతోంది",
+      's4.lib.referrals.enter_reason_before_ai':
+          "AI సారాంశం డ్రాఫ్ట్ చేయమని అడగడానికి ముందు రెఫరల్ కారణం నమోదు చేయండి",
+      's4.lib.referrals.first_seen': "మొదట చూశారు",
+      's4.lib.referrals.incoming_action_hint':
+          "Accept మరియు Complete రెఫర్ చేసిన నిపుణుడు లేదా సరిపోలే విభాగం వైద్యుడికి మాత్రమే పరిమితం.",
+      's4.lib.referrals.investigations': "పరిశోధనలు",
+      's4.lib.referrals.no_incoming_referrals': "ఇన్‌కమింగ్ రెఫరల్‌లు లేవు",
+      's4.lib.referrals.no_outgoing_referrals': "అవుట్‌గోయింగ్ రెఫరల్‌లు లేవు",
+      's4.lib.referrals.not_seen_yet': "ఇంకా చూడలేదు",
+      's4.lib.referrals.outgoing_action_hint':
+          "పెండింగ్‌లో ఉన్న అవుట్‌గోయింగ్ అభ్యర్థనలను అభ్యర్థించిన లేదా ప్రాథమిక వైద్యుడు నిరాకరించవచ్చు.",
+      's4.lib.referrals.patient': "రోగి",
+      's4.lib.referrals.patient_department_reason_required':
+          "రోగి, విభాగం మరియు కారణం అవసరం",
+      's4.lib.referrals.pending_items': "పెండింగ్ అంశాలు",
+      's4.lib.referrals.reason': "కారణం",
+      's4.lib.referrals.referral': "రెఫరల్",
+      's4.lib.referrals.referrals': "రెఫరల్‌లు",
+      's4.lib.referrals.request_referral': "రెఫరల్ కోరండి",
+      's4.lib.referrals.requested': "కోరబడింది",
+      's4.lib.referrals.requested_notified':
+          "రెఫరల్ కోరబడింది మరియు నిపుణుడికి తెలియజేశారు",
+      's4.lib.referrals.sending_referral': "రెఫరల్ పంపుతోంది",
+      's4.lib.referrals.status.accepted': "ఆమోదించబడింది",
+      's4.lib.referrals.status.cancelled': "రద్దు చేయబడింది",
+      's4.lib.referrals.status.completed': "పూర్తయింది",
+      's4.lib.referrals.status.declined': "నిరాకరించబడింది",
+      's4.lib.referrals.status.in_progress': "ప్రగతిలో ఉంది",
+      's4.lib.referrals.status.pending': "పెండింగ్‌లో ఉంది",
+      's4.lib.referrals.summary': "సారాంశం",
+      // REVIEW: AI first-pass S4 reports i18n sweep - confirm HR/legal wording before production.
+      'reports.priority.high': "అధిక",
+      'reports.priority.low': "తక్కువ",
+      'reports.priority.medium': "మధ్యస్థ",
+      'reports.priority.urgent': "అత్యవసరం",
+      'reports.status.acknowledged': "అంగీకరించబడింది",
+      'reports.status.closed': "మూసివేయబడింది",
+      'reports.status.escalated': "ఎస్కలేట్ చేయబడింది",
+      'reports.status.in_review': "సమీక్షలో ఉంది",
+      'reports.status.investigating': "దర్యాప్తులో ఉంది",
+      'reports.status.mediation': "మధ్యవర్తిత్వం",
+      'reports.status.rejected': "తిరస్కరించబడింది",
+      'reports.status.resolved': "పరిష్కరించబడింది",
+      'reports.status.submitted': "సమర్పించబడింది",
+      'reports.status.under_review': "సమీక్షలో ఉంది",
+      's4.dynamic.reports_admin_queue.anonymous_with_sender':
+          "అజ్ఞాత ({sender})",
+      's4.lib.reports_admin_queue.action': "చర్య",
+      's4.lib.reports_admin_queue.activity_log': "కార్యాచరణ లాగ్",
+      's4.lib.reports_admin_queue.against_whom': "ఎవరిపై",
+      's4.lib.reports_admin_queue.anonymous': "అజ్ఞాత",
+      's4.lib.reports_admin_queue.concern': "ఆందోళన",
+      's4.lib.reports_admin_queue.department': "విభాగం",
+      's4.lib.reports_admin_queue.description': "వివరణ",
+      's4.lib.reports_admin_queue.details': "వివరాలు",
+      's4.lib.reports_admin_queue.grievance_type': "ఫిర్యాదు రకం",
       's4.lib.reports_admin_queue.hr_admin_access_required':
           "HR/అడ్మిన్ యాక్సెస్ అవసరం",
+      's4.lib.reports_admin_queue.incident_report': "సంఘటన నివేదిక",
+      's4.lib.reports_admin_queue.incident_type': "సంఘటన రకం",
+      's4.lib.reports_admin_queue.internal': "అంతర్గత",
       's4.lib.reports_admin_queue.internal_hr_admin_note':
           "అంతర్గత HR/అడ్మిన్ గమనిక",
+      's4.lib.reports_admin_queue.location': "స్థానం",
+      's4.lib.reports_admin_queue.no_details_recorded':
+          "వివరాలు నమోదు చేయబడలేదు.",
       's4.lib.reports_admin_queue.no_activity_recorded':
           "కార్యాచరణ ఏదీ నమోదు చేయబడలేదు",
       's4.lib.reports_admin_queue.public_update': "పబ్లిక్ అప్‌డేట్",
       's4.lib.reports_admin_queue.report_update_saved':
           "రిపోర్ట్ అప్‌డేట్ సేవ్ చేయబడింది",
       's4.lib.reports_admin_queue.reports_review': "నివేదికల సమీక్ష",
+      's4.lib.reports_admin_queue.resolution': "పరిష్కారం",
       's4.lib.reports_admin_queue.save_update': "నవీకరణను సేవ్ చేయండి",
+      's4.lib.reports_admin_queue.severity': "తీవ్రత",
+      's4.lib.reports_admin_queue.staff_grievance': "సిబ్బంది ఫిర్యాదు",
+      's4.lib.reports_admin_queue.untitled_grievance': "పేరులేని ఫిర్యాదు",
+      's4.lib.reports_admin_queue.untitled_incident': "పేరులేని సంఘటన",
+      's4.lib.reports_admin_queue.update_recorded': "నవీకరణ నమోదు చేయబడింది",
       's4.lib.schedule.shift_actions': "షిఫ్ట్ చర్యలు",
       // REVIEW: AI first-pass S4 scan-screen i18n sweep - confirm wording before production.
       's4.lib.scan_common.please_scan_again': "దయచేసి మళ్లీ స్కాన్ చేయండి.",
@@ -21883,6 +24053,8 @@ class AppStrings {
       's4.lib.dashboard.cath_lab_lab_bookings':
           "క్యాథ్ ల్యాబ్ ల్యాబ్ బుకింగ్స్",
       's4.lib.dashboard.cath_lab_results': "క్యాథ్ ల్యాబ్ ఫలితాలు",
+      // REVIEW: AI first-pass S4 dashboard i18n sweep - confirm accessibility hint copy before production.
+      's4.lib.dashboard.opens_patient_chart': "రోగి చార్ట్‌ను తెరుస్తుంది",
       's4.lib.front_office_workbench.front_office_unavailable':
           "ఫ్రంట్ ఆఫీస్ అందుబాటులో లేదు",
       's4.lib.front_office_workbench.workstation_mode_required':
@@ -22007,15 +24179,34 @@ class AppStrings {
           "కేస్ షీట్ - {patient}",
       's4.dynamic.common.user_id': "వినియోగదారు ID: {userId}",
       's4.dynamic.common.signed_at': "సంతకం చేసినది: {signedAt}",
+      's4.dynamic.dashboard.recent_patient_position':
+          "{total}లో {index}: {name}",
+      's4.dynamic.dashboard.recent_patients_count': "ఇటీవలి రోగులు ({count})",
       's4.dynamic.discharge_hub.ai_package_failed':
           "AI ప్యాకేజీ విఫలమైంది: {error}",
+      's4.dynamic.discharge_hub.admission_id': "ప్రవేశం #{id}",
+      's4.dynamic.discharge_hub.bed': "పడక {bed}",
       's4.dynamic.discharge_hub.finish_task_title': "{label} ముగించు",
+      's4.dynamic.discharge_hub.finished_by': "{name} పూర్తి చేశారు",
       's4.dynamic.discharge_hub.task_finished': "{label} పూర్తయింది",
       's4.dynamic.discharge_hub.finish_task_failed':
           "విధిని పూర్తి చేయడం సాధ్యపడలేదు: {error}",
+      's4.dynamic.discharge_hub.hospital_id': "ఆసుపత్రి ID {id}",
+      's4.dynamic.discharge_hub.pdf_open_failed':
+          "డిశ్చార్జ్ PDF తెరవలేకపోయాం: {error}",
+      's4.dynamic.discharge_hub.safety_flag_count.one':
+          "{count} భద్రతా జెండాను సమీక్షించండి",
+      's4.dynamic.discharge_hub.safety_flag_count.other':
+          "{count} భద్రతా జెండాలను సమీక్షించండి",
+      's4.dynamic.discharge_hub.source_count.one': "{count} మూలం",
+      's4.dynamic.discharge_hub.source_count.other': "{count} మూలాలు",
       's4.dynamic.discharge_hub.title_for_patient':
           "డిశ్చార్జ్ హబ్ - {patient}",
+      's4.dynamic.discharge_hub_list.tasks_pending':
+          "{total} పనుల్లో {pending} పెండింగ్",
       's4.dynamic.discharge_summary.title_for_patient': "{prefix} {patient}",
+      's4.dynamic.nursing_notes.restored_draft_from':
+          "{time} నుండి సేవ్ చేయని డ్రాఫ్ట్ పునరుద్ధరించబడింది",
       's4.dynamic.patient_command_board.allergies_count': "{count} అలెర్జీలు",
       's4.dynamic.patient_command_board.alerts_count': "{count} హెచ్చరికలు",
       's4.dynamic.patient_command_board.tasks_count': "{count} పనులు",
@@ -22170,6 +24361,15 @@ class AppStrings {
       's4.dynamic.lab_bookings.tests_prefix': "పరీక్షలు: {tests}",
       's4.dynamic.appointments.existing_patient_found_id':
           "ఇప్పటికే ఉన్న రోగి కనుగొనబడ్డారు: #{id}",
+      's4.dynamic.appointments.doctor_number': "డాక్టర్ #{id}",
+      's4.dynamic.appointments.load_failed_detail':
+          "అపాయింట్‌మెంట్‌లను లోడ్ చేయలేకపోయాం.\n{error}",
+      's4.dynamic.appointments.status_updated_successfully':
+          "అపాయింట్‌మెంట్ {status} విజయవంతంగా",
+      's4.dynamic.appointments.time_status': "{time} - {status}",
+      's4.dynamic.appointments.visible_this_week':
+          "ఈ వారం {count} కనిపిస్తున్నాయి",
+      's4.dynamic.appointments.more_count': "+{count} మరిన్ని",
       's4.dynamic.lab_bookings.error_message': "లోపం: {error}",
       's4.dynamic.lab_bookings.specimen_queue_update_failed':
           "నమూనా సేకరించబడింది, కానీ క్యూ నవీకరణ విఫలమైంది: {error}",

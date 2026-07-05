@@ -277,7 +277,7 @@ class _ReviewListTile extends StatelessWidget {
       isThreeLine: true,
       leading: _DecisionIcon(decision: decision),
       title: Text(
-        _humanizeModuleKey(moduleKey),
+        s.clinicalAiModuleLabel(moduleKey),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -428,13 +428,4 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
-}
-
-String _humanizeModuleKey(String moduleKey) {
-  // Convert 'medication_reconciliation' -> 'Medication Reconciliation'.
-  return moduleKey
-      .split('_')
-      .where((part) => part.isNotEmpty)
-      .map((part) => part[0].toUpperCase() + part.substring(1))
-      .join(' ');
 }

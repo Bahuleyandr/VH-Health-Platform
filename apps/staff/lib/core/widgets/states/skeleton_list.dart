@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Shimmer-style placeholder list shown while a list endpoint is fetching.
 ///
@@ -60,7 +61,7 @@ class _SkeletonListState extends State<SkeletonList>
     return Semantics(
       // Tell screen readers this is a loading state so they don't try
       // to announce all the placeholder rows.
-      label: 'Loading…',
+      label: AppStrings.of(context).labelLoading,
       liveRegion: true,
       child: ListView.separated(
         padding: widget.padding,
@@ -173,7 +174,7 @@ class _SkeletonGridState extends State<SkeletonGrid>
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
 
     return Semantics(
-      label: 'Loading…',
+      label: AppStrings.of(context).labelLoading,
       liveRegion: true,
       child: GridView.builder(
         padding: widget.padding,

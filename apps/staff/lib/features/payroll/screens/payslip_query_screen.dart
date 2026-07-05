@@ -136,22 +136,6 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
     }
   }
 
-  static const _months = [
-    '',
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -213,7 +197,7 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
                     ),
                   ),
                   subtitle: Text(
-                    '${_months[month]} $year · ${q['category'] ?? 'general'}',
+                    '${s.payrollMonthShort(month)} $year · ${s.payrollQueryCategory(q['category']?.toString() ?? 'general')}',
                     style: const TextStyle(fontSize: 12),
                   ),
                   trailing: Row(
@@ -221,7 +205,7 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
                     children: [
                       Chip(
                         label: Text(
-                          status,
+                          s.payrollQueryStatus(status),
                           style: const TextStyle(
                             fontSize: 11,
                             color: Colors.white,
@@ -384,22 +368,6 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
     }
   }
 
-  static const _months = [
-    '',
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
   Future<void> _submit() async {
     final s = AppStrings.of(context);
     if (_submitting) return;
@@ -494,7 +462,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                 return DropdownMenuItem(
                   value: p['id'] as int,
                   child: Text(
-                    '${_months[m]} $y — ${payrollCurrency(p['net_salary'], decimals: false)}',
+                    '${s.payrollMonthShort(m)} $y — ${payrollCurrency(p['net_salary'], decimals: false)}',
                   ),
                 );
               }).toList(),
@@ -524,7 +492,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                   .map(
                     (c) => DropdownMenuItem(
                       value: c,
-                      child: Text(c.replaceAll('_', ' ')),
+                      child: Text(s.payrollQueryCategory(c)),
                     ),
                   )
                   .toList(),

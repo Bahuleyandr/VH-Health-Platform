@@ -7,6 +7,7 @@ class ShiftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (shift == null || shift!.isEmpty) {
       return Card(
         child: Padding(
@@ -16,7 +17,7 @@ class ShiftCard extends StatelessWidget {
               const Icon(Icons.schedule_outlined, size: 18, color: Colors.grey),
               const SizedBox(width: 8),
               Text(
-                AppStrings.of(context).shiftCardNoShift,
+                s.shiftCardNoShift,
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
               ),
             ],
@@ -25,7 +26,7 @@ class ShiftCard extends StatelessWidget {
       );
     }
 
-    final name = shift!['name'] as String? ?? 'Shift';
+    final name = shift!['name'] as String? ?? s.shiftCardFallbackName;
     final start = shift!['start_time'] as String? ?? '--:--';
     final end = shift!['end_time'] as String? ?? '--:--';
     final grace = shift!['grace_period_minutes'] as int? ?? 15;
@@ -47,7 +48,7 @@ class ShiftCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '$name Shift',
+                    s.shiftCardDisplayName(name),
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
@@ -55,7 +56,7 @@ class ShiftCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '$start – $end  ·  ${grace}min grace',
+                    s.shiftCardTimeRangeGrace(start, end, grace),
                     style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ],

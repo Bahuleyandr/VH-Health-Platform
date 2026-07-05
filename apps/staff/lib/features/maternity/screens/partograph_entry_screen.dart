@@ -145,9 +145,10 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
         );
         Navigator.of(context).pop(true);
       } else {
+        final s = AppStrings.of(context);
         setState(() {
           _saving = false;
-          _error = response.failureMessage('Save failed');
+          _error = response.failureMessage(s.partographSaveFailed);
         });
       }
     } catch (e) {
@@ -199,7 +200,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
   Widget _enumField(
     String label,
     String? value,
-    List<String> opts,
+    Map<String, String> opts,
     ValueChanged<String?> onChanged,
   ) {
     return Padding(
@@ -211,8 +212,11 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
           border: const OutlineInputBorder(),
           isDense: true,
         ),
-        items: opts
-            .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+        items: opts.entries
+            .map(
+              (entry) =>
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+            )
             .toList(),
         onChanged: onChanged,
       ),
@@ -241,41 +245,41 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               _enumField(
                 s.partographCtxIntensity,
                 _ctxIntensity,
-                [
-                  s.partographCtxWeak,
-                  s.partographCtxModerate,
-                  s.partographCtxStrong,
-                ],
+                {
+                  'weak': s.partographCtxWeak,
+                  'moderate': s.partographCtxModerate,
+                  'strong': s.partographCtxStrong,
+                },
                 (v) => setState(() => _ctxIntensity = v),
               ),
             ]),
             const SizedBox(height: 8),
             _section(s.partographSectionFetalStatus, [
               _numField(_fhrCtrl, s.partographFhr),
-              _enumField(s.partographDecelerations, _decel, [
-                s.partographDecelNone,
-                s.partographDecelEarly,
-                s.partographDecelLate,
-                s.partographDecelVariable,
-              ], (v) => setState(() => _decel = v)),
+              _enumField(s.partographDecelerations, _decel, {
+                'none': s.partographDecelNone,
+                'early': s.partographDecelEarly,
+                'late': s.partographDecelLate,
+                'variable': s.partographDecelVariable,
+              }, (v) => setState(() => _decel = v)),
               _enumField(
                 s.partographAmnioticFluid,
                 _amniotic,
-                const [
-                  'intact_membranes',
-                  'clear',
-                  'meconium_thin',
-                  'meconium_thick',
-                  'blood',
-                ],
+                {
+                  'intact_membranes': s.partographAmnioticIntactMembranes,
+                  'clear': s.partographAmnioticClear,
+                  'meconium_thin': s.partographAmnioticMeconiumThin,
+                  'meconium_thick': s.partographAmnioticMeconiumThick,
+                  'blood': s.partographAmnioticBlood,
+                },
                 (v) => setState(() => _amniotic = v),
               ),
-              _enumField(s.partographMoulding, _moulding, const [
-                '0',
-                '1+',
-                '2+',
-                '3+',
-              ], (v) => setState(() => _moulding = v)),
+              _enumField(s.partographMoulding, _moulding, const {
+                '0': '0',
+                '1+': '1+',
+                '2+': '2+',
+                '3+': '3+',
+              }, (v) => setState(() => _moulding = v)),
             ]),
             const SizedBox(height: 8),
             _section(s.partographSectionMaternalVitals, [
@@ -296,13 +300,25 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               _enumField(
                 s.partographUrineProtein,
                 _urineProtein,
-                const ['nil', 'trace', '1+', '2+', '3+'],
+                {
+                  'nil': s.partographUrineNil,
+                  'trace': s.partographUrineTrace,
+                  '1+': '1+',
+                  '2+': '2+',
+                  '3+': '3+',
+                },
                 (v) => setState(() => _urineProtein = v),
               ),
               _enumField(
                 s.partographUrineAcetone,
                 _urineAcetone,
-                const ['nil', 'trace', '1+', '2+', '3+'],
+                {
+                  'nil': s.partographUrineNil,
+                  'trace': s.partographUrineTrace,
+                  '1+': '1+',
+                  '2+': '2+',
+                  '3+': '3+',
+                },
                 (v) => setState(() => _urineAcetone = v),
               ),
             ]),

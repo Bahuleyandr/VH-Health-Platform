@@ -507,7 +507,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     required String title,
     required List<Map<String, dynamic>> rows,
     required Widget Function(Map<String, dynamic>) itemBuilder,
-    String empty = 'Nothing to show.',
+    required String empty,
   }) async {
     await showModalBottomSheet<void>(
       context: context,

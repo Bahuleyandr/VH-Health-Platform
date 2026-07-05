@@ -162,6 +162,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
+    final strings = AppStrings.of(context);
     try {
       final staffId = await ApiConfig.getStaffId();
       final vitalSigns = <String, dynamic>{};
@@ -204,16 +205,20 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       };
 
       if (!ConnectivitySyncService.instance.isOnline) {
+        final contextLabel = strings.format(
+          's4.dynamic.vitals.offline_context',
+          {'patient': patientId},
+        );
         await ConnectivitySyncService.instance.enqueue(
           endpoint: '/health/records',
           method: 'POST',
           body: body,
-          contextLabel: 'Vitals for patient $patientId',
+          contextLabel: contextLabel,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(AppStrings.of(context).vitalsOfflineQueued),
+              content: Text(strings.vitalsOfflineQueued),
               backgroundColor: AppTheme.warningAmber,
             ),
           );
@@ -227,10 +232,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
           recordedBy: staffId != null ? int.tryParse(staffId) : null,
         );
         if (mounted) {
-          SuccessToast.show(
-            context,
-            AppStrings.of(context).vitalsRecordedSuccess,
-          );
+          SuccessToast.show(context, strings.vitalsRecordedSuccess);
         }
       }
 
@@ -785,27 +787,31 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                   children: [
                     if (vitals['blood_pressure'] != null)
                       _VitalChip(
-                        'BP',
+                        s.vitalsChartColBp,
                         '${vitals['blood_pressure']['systolic']}/${vitals['blood_pressure']['diastolic']}',
                         VitalUnit.bp,
                       ),
                     if (vitals['temperature'] != null)
                       _VitalChip(
-                        'Temp',
+                        s.vitalsChartColTemp,
                         '${vitals['temperature']}',
                         VitalUnit.temperature,
                       ),
                     if (vitals['pulse'] != null)
                       _VitalChip(
-                        'Pulse',
+                        s.vitalsPulseLabel,
                         '${vitals['pulse']}',
                         VitalUnit.pulse,
                       ),
                     if (vitals['spo2'] != null)
-                      _VitalChip('SpO2', '${vitals['spo2']}', VitalUnit.spo2),
+                      _VitalChip(
+                        s.vitalsSpo2Label,
+                        '${vitals['spo2']}',
+                        VitalUnit.spo2,
+                      ),
                     if (measurements['weight'] != null)
                       _VitalChip(
-                        'Weight',
+                        s.vitalsWeightHeader,
                         '${measurements['weight']}',
                         VitalUnit.weight,
                       ),

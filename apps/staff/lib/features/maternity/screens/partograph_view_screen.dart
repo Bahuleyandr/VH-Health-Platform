@@ -42,8 +42,9 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
       );
       if (!mounted) return;
       if (!adm.isSuccess) {
+        final s = AppStrings.of(context);
         setState(() {
-          _error = adm.message ?? 'Failed to load labour admission';
+          _error = adm.message ?? s.partographViewLoadAdmissionFailed;
           _loading = false;
         });
         return;
@@ -72,8 +73,9 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
           _loading = false;
         });
       } else {
+        final s = AppStrings.of(context);
         setState(() {
-          _error = entries.message ?? 'Failed to load partograph';
+          _error = entries.message ?? s.partographViewLoadFailed;
           _loading = false;
         });
       }
@@ -91,8 +93,6 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
     final s = AppStrings.of(context);
     final actionCount = _points.where((p) => p.onActionLine == true).length;
     final alertCount = _points.where((p) => p.onAlertLine == true).length;
-    final actionSuffix = actionCount == 1 ? 'y' : 'ies';
-    final alertSuffix = alertCount == 1 ? 'y' : 'ies';
 
     return Scaffold(
       appBar: AppBar(
@@ -119,10 +119,7 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.warning_amber),
                       title: Text(
-                        // pluralisation kept in Dart; key holds the base pattern
-                        s
-                            .partographViewActionLineCrossed(actionCount)
-                            .replaceAll('{suffix}', actionSuffix),
+                        s.partographViewActionLineCrossed(actionCount),
                       ),
                       subtitle: Text(s.partographViewActionLineSubtitle),
                     ),
@@ -132,11 +129,7 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                     color: Colors.amber.shade100,
                     child: ListTile(
                       leading: const Icon(Icons.info_outline),
-                      title: Text(
-                        s
-                            .partographViewAlertLineCrossed(alertCount)
-                            .replaceAll('{suffix}', alertSuffix),
-                      ),
+                      title: Text(s.partographViewAlertLineCrossed(alertCount)),
                       subtitle: Text(s.partographViewAlertLineSubtitle),
                     ),
                   ),
@@ -222,9 +215,11 @@ class _PointTimeline extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        '${hours.toStringAsFixed(1)}h · '
-                        '${p.cervixDilationCm?.toStringAsFixed(1) ?? "—"} cm cervix · '
-                        'FHR ${p.fhrBpm ?? "—"}',
+                        s.partographViewPointSummary(
+                          hours.toStringAsFixed(1),
+                          p.cervixDilationCm?.toStringAsFixed(1) ?? '—',
+                          (p.fhrBpm ?? '—').toString(),
+                        ),
                         style: theme.textTheme.bodySmall,
                       ),
                     ),
