@@ -5837,13 +5837,135 @@ class AppStrings {
           "{enabled}/{total} enabled by Admin",
       's4.dynamic.op_ai_assist.provider_status': "{provider} - {status}",
       's4.dynamic.op_ai_assist.review_number': "Review #{id}",
+      // REVIEW: AI first-pass S4 OP Doctor Workspace i18n sweep - confirm clinical wording before production.
+      's4.lib.op_doctor_workspace.appointment_completed':
+          "Appointment completed",
+      's4.lib.op_doctor_workspace.chief_complaint': "Chief complaint",
+      's4.lib.op_doctor_workspace.clinical_note': "Clinical note",
+      's4.lib.op_doctor_workspace.clinical_note_entered':
+          "Clinical note entered",
+      's4.lib.op_doctor_workspace.clinical_timeline': "Clinical timeline",
+      's4.lib.op_doctor_workspace.complete': "Complete",
+      's4.lib.op_doctor_workspace.complete_consultation':
+          "Complete consultation",
+      's4.lib.op_doctor_workspace.consultation_actions': "Consultation actions",
+      's4.lib.op_doctor_workspace.consultation_cockpit': "Consultation cockpit",
+      's4.lib.op_doctor_workspace.consultation_marked_complete':
+          "OP consultation marked complete",
+      's4.lib.op_doctor_workspace.consultation_note_saved':
+          "Consultation note saved",
+      's4.lib.op_doctor_workspace.consultation_note_signed':
+          "Consultation note signed",
+      's4.lib.op_doctor_workspace.create_eprescription_from_appointment':
+          "Create e-prescription from this appointment",
+      's4.lib.op_doctor_workspace.create_rx': "Create Rx",
+      's4.lib.op_doctor_workspace.diagnosis': "Diagnosis",
+      's4.lib.op_doctor_workspace.diagnosis_hint':
+          "Working diagnosis or differential",
+      's4.lib.op_doctor_workspace.discard_draft': "Discard draft",
+      's4.lib.op_doctor_workspace.doctor_notes': "Doctor notes",
+      's4.lib.op_doctor_workspace.draft': "Draft",
+      's4.lib.op_doctor_workspace.draft_discarded': "Draft discarded",
+      's4.lib.op_doctor_workspace.drug_chart': "Drug chart",
+      's4.lib.op_doctor_workspace.editable_until_signed':
+          "Editable until this consultation is signed",
+      's4.lib.op_doctor_workspace.enter_complaint_diagnosis_or_plan':
+          "Enter at least a complaint, diagnosis, or plan",
+      's4.lib.op_doctor_workspace.event_admission': "Admission",
+      's4.lib.op_doctor_workspace.event_discharge': "Discharge",
+      's4.lib.op_doctor_workspace.event_drug_chart': "Drug chart",
+      's4.lib.op_doctor_workspace.event_generic': "Event",
+      's4.lib.op_doctor_workspace.event_investigation': "Investigation",
+      's4.lib.op_doctor_workspace.event_medication': "Medication",
+      's4.lib.op_doctor_workspace.event_note': "Note",
+      's4.lib.op_doctor_workspace.event_order': "Order",
+      's4.lib.op_doctor_workspace.event_prescription': "Prescription",
+      's4.lib.op_doctor_workspace.event_vitals': "Vitals",
+      's4.lib.op_doctor_workspace.examination': "Examination",
+      's4.lib.op_doctor_workspace.examination_hint':
+          "Vitals, examination findings, bedside observations",
+      's4.lib.op_doctor_workspace.follow_up': "Follow-up",
+      's4.lib.op_doctor_workspace.full_timeline': "Full timeline",
+      's4.lib.op_doctor_workspace.history': "History",
+      's4.lib.op_doctor_workspace.history_hint':
+          "Relevant history, negatives, risk factors",
+      's4.lib.op_doctor_workspace.investigations': "Investigations",
+      's4.lib.op_doctor_workspace.keeps_consultation_together':
+          "Keeps the consultation from scattering across pages",
+      's4.lib.op_doctor_workspace.main_complaint_hint':
+          "Main complaint or visit reason",
+      's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
+          "Medication, nursing, or investigation orders",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "No clinical timeline entries yet",
+      's4.lib.op_doctor_workspace.note_saved': "Note saved",
+      's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
+          "Notes, drug chart, orders, vitals and reports",
+      's4.lib.op_doctor_workspace.old_records': "Old records",
+      's4.lib.op_doctor_workspace.one_patient_context':
+          "Use one patient context for OP documentation",
+      's4.lib.op_doctor_workspace.op_appointment': "OP appointment",
+      's4.lib.op_doctor_workspace.op_consultation_note': "OP consultation note",
+      's4.lib.op_doctor_workspace.op_prescription': "OP prescription",
+      's4.lib.op_doctor_workspace.op_visit_checklist': "OP visit checklist",
+      's4.lib.op_doctor_workspace.open': "Open",
       's4.lib.op_doctor_workspace.open_full': "Open full",
+      's4.lib.op_doctor_workspace.open_patient_records_selected':
+          "Open patient records with this patient selected",
+      's4.lib.op_doctor_workspace.orders': "Orders",
+      's4.lib.op_doctor_workspace.orders_investigations_reviewed':
+          "Orders or investigations reviewed",
+      's4.lib.op_doctor_workspace.patient': "Patient",
+      's4.lib.op_doctor_workspace.plan': "Plan",
+      's4.lib.op_doctor_workspace.plan_hint':
+          "Medicines, investigations, advice, follow-up",
+      's4.lib.op_doctor_workspace.prescription': "Prescription",
+      's4.lib.op_doctor_workspace.prescription_entered_for_visit':
+          "Prescription entered for this OP visit",
+      's4.lib.op_doctor_workspace.prescription_reviewed_if_needed':
+          "Prescription reviewed if needed",
+      's4.lib.op_doctor_workspace.prior_records': "Prior records",
+      's4.lib.op_doctor_workspace.recent_notes_prescriptions_reports':
+          "Recent notes, prescriptions, drug chart and reports",
+      's4.lib.op_doctor_workspace.records_prescription_follow_up':
+          "Records, prescription, investigation and follow-up",
+      's4.lib.op_doctor_workspace.restored_draft': "Restored unsaved draft",
+      's4.lib.op_doctor_workspace.review_order': "Review/order",
+      's4.lib.op_doctor_workspace.review_or_request_investigations':
+          "Review or request investigations",
       's4.lib.op_doctor_workspace.save_note': "Save note",
       's4.lib.op_doctor_workspace.save_then_investigations':
           "Save, then investigations",
+      's4.lib.op_doctor_workspace.set_in_rx_plan': "Set in Rx/plan",
       's4.lib.op_doctor_workspace.sign_note': "Sign note",
+      's4.lib.op_doctor_workspace.signed': "Signed",
+      's4.lib.op_doctor_workspace.signed_and_locked': "Signed and locked",
+      's4.lib.op_doctor_workspace.status': "Status",
+      's4.lib.op_doctor_workspace.timeline_ready': "Timeline ready",
+      's4.lib.op_doctor_workspace.visit_complete': "Visit complete",
+      's4.lib.op_doctor_workspace.visit_not_today':
+          "This OP visit is not dated today; create a new appointment for fresh documentation.",
+      's4.lib.op_doctor_workspace.write_op_consultation_notes':
+          "Write OP consultation notes",
+      's4.dynamic.op_doctor_workspace.consultation_status':
+          "Consultation {status}",
+      's4.dynamic.op_doctor_workspace.drug_chart_medication':
+          "Drug chart - {medication}",
+      's4.dynamic.op_doctor_workspace.note_type_title': "{type} note",
+      's4.dynamic.op_doctor_workspace.op_consultation_title':
+          "OP consultation - {patient}",
+      's4.dynamic.op_doctor_workspace.prescription_number':
+          "Prescription {number}",
+      's4.dynamic.op_doctor_workspace.restored_draft_from':
+          "Restored unsaved draft from {time}",
+      's4.dynamic.op_doctor_workspace.scheduled_at': "{date} at {time}",
+      's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
+      's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
+      's4.dynamic.op_doctor_workspace.summary_plan': "Plan: {text}",
+      's4.dynamic.op_doctor_workspace.visit_closed_status':
+          "This OP visit is {status}; create a new appointment for fresh documentation.",
+      's4.dynamic.op_doctor_workspace.workspace_title':
+          "OP Workspace - {patient}",
       's4.lib.order_sets.no_order_sets': "No order sets",
       's4.lib.order_sets.order_sets': "Order Sets",
       's4.lib.order_sets.search_pneumonia_sepsis':
@@ -9761,12 +9883,133 @@ class AppStrings {
       's4.lib.op_ai_assist.open_draft': "ड्राफ्ट खोलें",
       's4.lib.op_ai_assist.refresh_services': "सेवाएँ ताज़ा करें",
       's4.lib.op_ai_assist.review_queue': "समीक्षा कतार",
+      // REVIEW: AI first-pass S4 OP Doctor Workspace i18n sweep - confirm clinical wording before production.
+      's4.lib.op_doctor_workspace.appointment_completed': "अपॉइंटमेंट पूरा हुआ",
+      's4.lib.op_doctor_workspace.chief_complaint': "मुख्य शिकायत",
+      's4.lib.op_doctor_workspace.clinical_note': "क्लिनिकल नोट",
+      's4.lib.op_doctor_workspace.clinical_note_entered':
+          "क्लिनिकल नोट दर्ज किया गया",
+      's4.lib.op_doctor_workspace.clinical_timeline': "क्लिनिकल टाइमलाइन",
+      's4.lib.op_doctor_workspace.complete': "पूरा करें",
+      's4.lib.op_doctor_workspace.complete_consultation': "कंसल्टेशन पूरा करें",
+      's4.lib.op_doctor_workspace.consultation_actions':
+          "कंसल्टेशन कार्रवाइयाँ",
+      's4.lib.op_doctor_workspace.consultation_cockpit': "कंसल्टेशन कॉकपिट",
+      's4.lib.op_doctor_workspace.consultation_marked_complete':
+          "OP कंसल्टेशन पूर्ण चिन्हित किया गया",
+      's4.lib.op_doctor_workspace.consultation_note_saved':
+          "कंसल्टेशन नोट सहेजा गया",
+      's4.lib.op_doctor_workspace.consultation_note_signed':
+          "कंसल्टेशन नोट हस्ताक्षरित",
+      's4.lib.op_doctor_workspace.create_eprescription_from_appointment':
+          "इस अपॉइंटमेंट से ई-प्रिस्क्रिप्शन बनाएं",
+      's4.lib.op_doctor_workspace.create_rx': "Rx बनाएं",
+      's4.lib.op_doctor_workspace.diagnosis': "निदान",
+      's4.lib.op_doctor_workspace.diagnosis_hint': "कार्य निदान या भिन्न निदान",
+      's4.lib.op_doctor_workspace.discard_draft': "ड्राफ्ट हटाएं",
+      's4.lib.op_doctor_workspace.doctor_notes': "डॉक्टर नोट्स",
+      's4.lib.op_doctor_workspace.draft': "ड्राफ्ट",
+      's4.lib.op_doctor_workspace.draft_discarded': "ड्राफ्ट हटाया गया",
+      's4.lib.op_doctor_workspace.drug_chart': "ड्रग चार्ट",
+      's4.lib.op_doctor_workspace.editable_until_signed':
+          "यह कंसल्टेशन हस्ताक्षरित होने तक संपादन योग्य है",
+      's4.lib.op_doctor_workspace.enter_complaint_diagnosis_or_plan':
+          "कम से कम शिकायत, निदान या योजना दर्ज करें",
+      's4.lib.op_doctor_workspace.event_admission': "भर्ती",
+      's4.lib.op_doctor_workspace.event_discharge': "डिस्चार्ज",
+      's4.lib.op_doctor_workspace.event_drug_chart': "ड्रग चार्ट",
+      's4.lib.op_doctor_workspace.event_generic': "इवेंट",
+      's4.lib.op_doctor_workspace.event_investigation': "जांच",
+      's4.lib.op_doctor_workspace.event_medication': "दवा",
+      's4.lib.op_doctor_workspace.event_note': "नोट",
+      's4.lib.op_doctor_workspace.event_order': "ऑर्डर",
+      's4.lib.op_doctor_workspace.event_prescription': "प्रिस्क्रिप्शन",
+      's4.lib.op_doctor_workspace.event_vitals': "वाइटल्स",
+      's4.lib.op_doctor_workspace.examination': "परीक्षण",
+      's4.lib.op_doctor_workspace.examination_hint':
+          "वाइटल्स, परीक्षण निष्कर्ष, बेडसाइड अवलोकन",
+      's4.lib.op_doctor_workspace.follow_up': "फॉलो-अप",
+      's4.lib.op_doctor_workspace.full_timeline': "पूरी टाइमलाइन",
+      's4.lib.op_doctor_workspace.history': "इतिहास",
+      's4.lib.op_doctor_workspace.history_hint':
+          "संबंधित इतिहास, नकारात्मक निष्कर्ष, जोखिम कारक",
+      's4.lib.op_doctor_workspace.investigations': "जांचें",
+      's4.lib.op_doctor_workspace.keeps_consultation_together':
+          "कंसल्टेशन को अलग-अलग पेजों में बिखरने से रोकता है",
+      's4.lib.op_doctor_workspace.main_complaint_hint':
+          "मुख्य शिकायत या विजिट का कारण",
+      's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
+          "दवा, नर्सिंग या जांच ऑर्डर",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
-          "अभी तक कोई नैदानिक ​​समयरेखा प्रविष्टियाँ नहीं",
+          "अभी तक कोई क्लिनिकल टाइमलाइन प्रविष्टि नहीं",
+      's4.lib.op_doctor_workspace.note_saved': "नोट सहेजा गया",
+      's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
+          "नोट्स, ड्रग चार्ट, ऑर्डर, वाइटल्स और रिपोर्ट",
+      's4.lib.op_doctor_workspace.old_records': "पुराने रिकॉर्ड",
+      's4.lib.op_doctor_workspace.one_patient_context':
+          "OP दस्तावेज़ीकरण के लिए एक मरीज संदर्भ का उपयोग करें",
+      's4.lib.op_doctor_workspace.op_appointment': "OP अपॉइंटमेंट",
+      's4.lib.op_doctor_workspace.op_consultation_note': "OP कंसल्टेशन नोट",
+      's4.lib.op_doctor_workspace.op_prescription': "OP प्रिस्क्रिप्शन",
+      's4.lib.op_doctor_workspace.op_visit_checklist': "OP विजिट चेकलिस्ट",
+      's4.lib.op_doctor_workspace.open': "खोलें",
       's4.lib.op_doctor_workspace.open_full': "पूरा खोलें",
+      's4.lib.op_doctor_workspace.open_patient_records_selected':
+          "इस मरीज को चयनित रखकर मरीज रिकॉर्ड खोलें",
+      's4.lib.op_doctor_workspace.orders': "ऑर्डर",
+      's4.lib.op_doctor_workspace.orders_investigations_reviewed':
+          "ऑर्डर या जांचें समीक्षा की गईं",
+      's4.lib.op_doctor_workspace.patient': "मरीज",
+      's4.lib.op_doctor_workspace.plan': "योजना",
+      's4.lib.op_doctor_workspace.plan_hint': "दवाएँ, जांचें, सलाह, फॉलो-अप",
+      's4.lib.op_doctor_workspace.prescription': "प्रिस्क्रिप्शन",
+      's4.lib.op_doctor_workspace.prescription_entered_for_visit':
+          "इस OP विजिट के लिए प्रिस्क्रिप्शन दर्ज किया गया",
+      's4.lib.op_doctor_workspace.prescription_reviewed_if_needed':
+          "जरूरत होने पर प्रिस्क्रिप्शन समीक्षा की गई",
+      's4.lib.op_doctor_workspace.prior_records': "पूर्व रिकॉर्ड",
+      's4.lib.op_doctor_workspace.recent_notes_prescriptions_reports':
+          "हाल के नोट्स, प्रिस्क्रिप्शन, ड्रग चार्ट और रिपोर्ट",
+      's4.lib.op_doctor_workspace.records_prescription_follow_up':
+          "रिकॉर्ड, प्रिस्क्रिप्शन, जांच और फॉलो-अप",
+      's4.lib.op_doctor_workspace.restored_draft':
+          "सहेजा न गया ड्राफ्ट बहाल किया गया",
+      's4.lib.op_doctor_workspace.review_order': "समीक्षा/ऑर्डर",
+      's4.lib.op_doctor_workspace.review_or_request_investigations':
+          "जांचों की समीक्षा करें या अनुरोध करें",
       's4.lib.op_doctor_workspace.save_note': "नोट सहेजें",
-      's4.lib.op_doctor_workspace.save_then_investigations': "बचाओ, फिर जांच",
+      's4.lib.op_doctor_workspace.save_then_investigations':
+          "सहेजें, फिर जांचें",
+      's4.lib.op_doctor_workspace.set_in_rx_plan': "Rx/योजना में सेट करें",
       's4.lib.op_doctor_workspace.sign_note': "नोट पर हस्ताक्षर करें",
+      's4.lib.op_doctor_workspace.signed': "हस्ताक्षरित",
+      's4.lib.op_doctor_workspace.signed_and_locked': "हस्ताक्षरित और लॉक",
+      's4.lib.op_doctor_workspace.status': "स्थिति",
+      's4.lib.op_doctor_workspace.timeline_ready': "टाइमलाइन तैयार",
+      's4.lib.op_doctor_workspace.visit_complete': "विजिट पूर्ण",
+      's4.lib.op_doctor_workspace.visit_not_today':
+          "यह OP विजिट आज की तारीख में नहीं है; नए दस्तावेज़ीकरण के लिए नया अपॉइंटमेंट बनाएं।",
+      's4.lib.op_doctor_workspace.write_op_consultation_notes':
+          "OP कंसल्टेशन नोट्स लिखें",
+      's4.dynamic.op_doctor_workspace.consultation_status':
+          "कंसल्टेशन {status}",
+      's4.dynamic.op_doctor_workspace.drug_chart_medication':
+          "ड्रग चार्ट - {medication}",
+      's4.dynamic.op_doctor_workspace.note_type_title': "{type} नोट",
+      's4.dynamic.op_doctor_workspace.op_consultation_title':
+          "OP कंसल्टेशन - {patient}",
+      's4.dynamic.op_doctor_workspace.prescription_number':
+          "प्रिस्क्रिप्शन {number}",
+      's4.dynamic.op_doctor_workspace.restored_draft_from':
+          "{time} से सहेजा न गया ड्राफ्ट बहाल किया गया",
+      's4.dynamic.op_doctor_workspace.scheduled_at': "{date} को {time}",
+      's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
+      's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
+      's4.dynamic.op_doctor_workspace.summary_plan': "योजना: {text}",
+      's4.dynamic.op_doctor_workspace.visit_closed_status':
+          "यह OP विजिट {status} है; नए दस्तावेज़ीकरण के लिए नया अपॉइंटमेंट बनाएं।",
+      's4.dynamic.op_doctor_workspace.workspace_title':
+          "OP वर्कस्पेस - {patient}",
       's4.lib.order_sets.no_order_sets': "कोई ऑर्डर सेट नहीं",
       's4.lib.order_sets.order_sets': "ऑर्डर सेट",
       's4.lib.order_sets.search_pneumonia_sepsis':
@@ -14197,13 +14440,140 @@ class AppStrings {
       's4.lib.op_ai_assist.open_draft': "வரைவைத் திறக்கவும்",
       's4.lib.op_ai_assist.refresh_services': "சேவைகளைப் புதுப்பிக்கவும்",
       's4.lib.op_ai_assist.review_queue': "மதிப்பாய்வு வரிசை",
+      // REVIEW: AI first-pass S4 OP Doctor Workspace i18n sweep - confirm clinical wording before production.
+      's4.lib.op_doctor_workspace.appointment_completed':
+          "அப்பாயிண்ட்மெண்ட் முடிந்தது",
+      's4.lib.op_doctor_workspace.chief_complaint': "முக்கிய புகார்",
+      's4.lib.op_doctor_workspace.clinical_note': "மருத்துவ குறிப்பு",
+      's4.lib.op_doctor_workspace.clinical_note_entered':
+          "மருத்துவ குறிப்பு உள்ளிடப்பட்டது",
+      's4.lib.op_doctor_workspace.clinical_timeline': "மருத்துவ காலவரிசை",
+      's4.lib.op_doctor_workspace.complete': "முடிக்கவும்",
+      's4.lib.op_doctor_workspace.complete_consultation':
+          "கன்சல்டேஷனை முடிக்கவும்",
+      's4.lib.op_doctor_workspace.consultation_actions':
+          "கன்சல்டேஷன் நடவடிக்கைகள்",
+      's4.lib.op_doctor_workspace.consultation_cockpit': "கன்சல்டேஷன் காக்பிட்",
+      's4.lib.op_doctor_workspace.consultation_marked_complete':
+          "OP கன்சல்டேஷன் முடிந்ததாக குறிக்கப்பட்டது",
+      's4.lib.op_doctor_workspace.consultation_note_saved':
+          "கன்சல்டேஷன் குறிப்பு சேமிக்கப்பட்டது",
+      's4.lib.op_doctor_workspace.consultation_note_signed':
+          "கன்சல்டேஷன் குறிப்பு கையொப்பமிடப்பட்டது",
+      's4.lib.op_doctor_workspace.create_eprescription_from_appointment':
+          "இந்த அப்பாயிண்ட்மெண்டிலிருந்து e-பிரிஸ்கிரிப்ஷன் உருவாக்கவும்",
+      's4.lib.op_doctor_workspace.create_rx': "Rx உருவாக்கவும்",
+      's4.lib.op_doctor_workspace.diagnosis': "நோயறிதல்",
+      's4.lib.op_doctor_workspace.diagnosis_hint':
+          "செயல்பாட்டு நோயறிதல் அல்லது வேறுபாட்டு நோயறிதல்",
+      's4.lib.op_doctor_workspace.discard_draft': "வரைவை நீக்கவும்",
+      's4.lib.op_doctor_workspace.doctor_notes': "மருத்துவர் குறிப்புகள்",
+      's4.lib.op_doctor_workspace.draft': "வரைவு",
+      's4.lib.op_doctor_workspace.draft_discarded': "வரைவு நீக்கப்பட்டது",
+      's4.lib.op_doctor_workspace.drug_chart': "மருந்து சார்ட்",
+      's4.lib.op_doctor_workspace.editable_until_signed':
+          "இந்த கன்சல்டேஷன் கையொப்பமிடப்படும் வரை திருத்தலாம்",
+      's4.lib.op_doctor_workspace.enter_complaint_diagnosis_or_plan':
+          "குறைந்தது ஒரு புகார், நோயறிதல் அல்லது திட்டத்தை உள்ளிடவும்",
+      's4.lib.op_doctor_workspace.event_admission': "சேர்க்கை",
+      's4.lib.op_doctor_workspace.event_discharge': "டிஸ்சார்ஜ்",
+      's4.lib.op_doctor_workspace.event_drug_chart': "மருந்து சார்ட்",
+      's4.lib.op_doctor_workspace.event_generic': "நிகழ்வு",
+      's4.lib.op_doctor_workspace.event_investigation': "ஆய்வு",
+      's4.lib.op_doctor_workspace.event_medication': "மருந்து",
+      's4.lib.op_doctor_workspace.event_note': "குறிப்பு",
+      's4.lib.op_doctor_workspace.event_order': "ஆர்டர்",
+      's4.lib.op_doctor_workspace.event_prescription': "பிரிஸ்கிரிப்ஷன்",
+      's4.lib.op_doctor_workspace.event_vitals': "வைட்டல்கள்",
+      's4.lib.op_doctor_workspace.examination': "பரிசோதனை",
+      's4.lib.op_doctor_workspace.examination_hint':
+          "வைட்டல்கள், பரிசோதனை கண்டுபிடிப்புகள், படுக்கையருகு கவனிப்புகள்",
+      's4.lib.op_doctor_workspace.follow_up': "பின்தொடர்பு",
+      's4.lib.op_doctor_workspace.full_timeline': "முழு காலவரிசை",
+      's4.lib.op_doctor_workspace.history': "வரலாறு",
+      's4.lib.op_doctor_workspace.history_hint':
+          "தொடர்புடைய வரலாறு, எதிர்மறைகள், ஆபத்து காரணிகள்",
+      's4.lib.op_doctor_workspace.investigations': "ஆய்வுகள்",
+      's4.lib.op_doctor_workspace.keeps_consultation_together':
+          "கன்சல்டேஷன் பல பக்கங்களில் சிதறாமல் வைத்திருக்கிறது",
+      's4.lib.op_doctor_workspace.main_complaint_hint':
+          "முக்கிய புகார் அல்லது வருகை காரணம்",
+      's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
+          "மருந்து, நர்சிங் அல்லது ஆய்வு ஆர்டர்கள்",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
-          "இன்னும் மருத்துவ காலவரிசை உள்ளீடுகள் எதுவும் இல்லை",
+          "இன்னும் மருத்துவ காலவரிசை உள்ளீடுகள் இல்லை",
+      's4.lib.op_doctor_workspace.note_saved': "குறிப்பு சேமிக்கப்பட்டது",
+      's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
+          "குறிப்புகள், மருந்து சார்ட், ஆர்டர்கள், வைட்டல்கள் மற்றும் அறிக்கைகள்",
+      's4.lib.op_doctor_workspace.old_records': "பழைய பதிவுகள்",
+      's4.lib.op_doctor_workspace.one_patient_context':
+          "OP ஆவணப்படுத்தலுக்கு ஒரே நோயாளி சூழலைப் பயன்படுத்தவும்",
+      's4.lib.op_doctor_workspace.op_appointment': "OP அப்பாயிண்ட்மெண்ட்",
+      's4.lib.op_doctor_workspace.op_consultation_note':
+          "OP கன்சல்டேஷன் குறிப்பு",
+      's4.lib.op_doctor_workspace.op_prescription': "OP பிரிஸ்கிரிப்ஷன்",
+      's4.lib.op_doctor_workspace.op_visit_checklist':
+          "OP வருகை சரிபார்ப்பு பட்டியல்",
+      's4.lib.op_doctor_workspace.open': "திறக்கவும்",
       's4.lib.op_doctor_workspace.open_full': "முழுமையாக திறக்கவும்",
+      's4.lib.op_doctor_workspace.open_patient_records_selected':
+          "இந்த நோயாளி தேர்ந்தெடுக்கப்பட்டவாறு நோயாளி பதிவுகளைத் திறக்கவும்",
+      's4.lib.op_doctor_workspace.orders': "ஆர்டர்கள்",
+      's4.lib.op_doctor_workspace.orders_investigations_reviewed':
+          "ஆர்டர்கள் அல்லது ஆய்வுகள் மதிப்பாய்வு செய்யப்பட்டன",
+      's4.lib.op_doctor_workspace.patient': "நோயாளி",
+      's4.lib.op_doctor_workspace.plan': "திட்டம்",
+      's4.lib.op_doctor_workspace.plan_hint':
+          "மருந்துகள், ஆய்வுகள், ஆலோசனை, பின்தொடர்பு",
+      's4.lib.op_doctor_workspace.prescription': "பிரிஸ்கிரிப்ஷன்",
+      's4.lib.op_doctor_workspace.prescription_entered_for_visit':
+          "இந்த OP வருகைக்கு பிரிஸ்கிரிப்ஷன் உள்ளிடப்பட்டது",
+      's4.lib.op_doctor_workspace.prescription_reviewed_if_needed':
+          "தேவைப்பட்டால் பிரிஸ்கிரிப்ஷன் மதிப்பாய்வு செய்யப்பட்டது",
+      's4.lib.op_doctor_workspace.prior_records': "முந்தைய பதிவுகள்",
+      's4.lib.op_doctor_workspace.recent_notes_prescriptions_reports':
+          "சமீபத்திய குறிப்புகள், பிரிஸ்கிரிப்ஷன்கள், மருந்து சார்ட் மற்றும் அறிக்கைகள்",
+      's4.lib.op_doctor_workspace.records_prescription_follow_up':
+          "பதிவுகள், பிரிஸ்கிரிப்ஷன், ஆய்வு மற்றும் பின்தொடர்பு",
+      's4.lib.op_doctor_workspace.restored_draft':
+          "சேமிக்கப்படாத வரைவு மீட்டமைக்கப்பட்டது",
+      's4.lib.op_doctor_workspace.review_order': "மதிப்பாய்வு/ஆர்டர்",
+      's4.lib.op_doctor_workspace.review_or_request_investigations':
+          "ஆய்வுகளை மதிப்பாய்வு செய்யவும் அல்லது கோரவும்",
       's4.lib.op_doctor_workspace.save_note': "குறிப்பைச் சேமிக்கவும்",
       's4.lib.op_doctor_workspace.save_then_investigations':
-          "சேமிக்கவும், பின்னர் விசாரணை",
-      's4.lib.op_doctor_workspace.sign_note': "கையெழுத்து குறிப்பு",
+          "சேமிக்கவும், பின்னர் ஆய்வுகள்",
+      's4.lib.op_doctor_workspace.set_in_rx_plan': "Rx/திட்டத்தில் அமைக்கவும்",
+      's4.lib.op_doctor_workspace.sign_note': "குறிப்பில் கையொப்பமிடவும்",
+      's4.lib.op_doctor_workspace.signed': "கையொப்பமிடப்பட்டது",
+      's4.lib.op_doctor_workspace.signed_and_locked':
+          "கையொப்பமிடப்பட்டு பூட்டப்பட்டது",
+      's4.lib.op_doctor_workspace.status': "நிலை",
+      's4.lib.op_doctor_workspace.timeline_ready': "காலவரிசை தயார்",
+      's4.lib.op_doctor_workspace.visit_complete': "வருகை முடிந்தது",
+      's4.lib.op_doctor_workspace.visit_not_today':
+          "இந்த OP வருகை இன்றைய தேதியில் இல்லை; புதிய ஆவணங்களுக்கு புதிய அப்பாயிண்ட்மெண்ட் உருவாக்கவும்.",
+      's4.lib.op_doctor_workspace.write_op_consultation_notes':
+          "OP கன்சல்டேஷன் குறிப்புகளை எழுதவும்",
+      's4.dynamic.op_doctor_workspace.consultation_status':
+          "கன்சல்டேஷன் {status}",
+      's4.dynamic.op_doctor_workspace.drug_chart_medication':
+          "மருந்து சார்ட் - {medication}",
+      's4.dynamic.op_doctor_workspace.note_type_title': "{type} குறிப்பு",
+      's4.dynamic.op_doctor_workspace.op_consultation_title':
+          "OP கன்சல்டேஷன் - {patient}",
+      's4.dynamic.op_doctor_workspace.prescription_number':
+          "பிரிஸ்கிரிப்ஷன் {number}",
+      's4.dynamic.op_doctor_workspace.restored_draft_from':
+          "{time} இலிருந்து சேமிக்கப்படாத வரைவு மீட்டமைக்கப்பட்டது",
+      's4.dynamic.op_doctor_workspace.scheduled_at': "{date} {time} மணிக்கு",
+      's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
+      's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
+      's4.dynamic.op_doctor_workspace.summary_plan': "திட்டம்: {text}",
+      's4.dynamic.op_doctor_workspace.visit_closed_status':
+          "இந்த OP வருகை {status}; புதிய ஆவணங்களுக்கு புதிய அப்பாயிண்ட்மெண்ட் உருவாக்கவும்.",
+      's4.dynamic.op_doctor_workspace.workspace_title':
+          "OP பணிப்பகுதி - {patient}",
       's4.lib.order_sets.no_order_sets': "ஆர்டர் செட் இல்லை",
       's4.lib.order_sets.order_sets': "ஆர்டர் செட்",
       's4.lib.order_sets.search_pneumonia_sepsis':
@@ -18640,13 +19010,138 @@ class AppStrings {
       's4.lib.op_ai_assist.open_draft': "డ్రాఫ్ట్ తెరవండి",
       's4.lib.op_ai_assist.refresh_services': "సేవలను రిఫ్రెష్ చేయండి",
       's4.lib.op_ai_assist.review_queue': "రివ్యూ క్యూ",
+      // REVIEW: AI first-pass S4 OP Doctor Workspace i18n sweep - confirm clinical wording before production.
+      's4.lib.op_doctor_workspace.appointment_completed':
+          "అపాయింట్‌మెంట్ పూర్తయింది",
+      's4.lib.op_doctor_workspace.chief_complaint': "ప్రధాన ఫిర్యాదు",
+      's4.lib.op_doctor_workspace.clinical_note': "క్లినికల్ నోట్",
+      's4.lib.op_doctor_workspace.clinical_note_entered':
+          "క్లినికల్ నోట్ నమోదు చేయబడింది",
+      's4.lib.op_doctor_workspace.clinical_timeline': "క్లినికల్ టైమ్‌లైన్",
+      's4.lib.op_doctor_workspace.complete': "పూర్తి చేయండి",
+      's4.lib.op_doctor_workspace.complete_consultation':
+          "కన్సల్టేషన్ పూర్తి చేయండి",
+      's4.lib.op_doctor_workspace.consultation_actions': "కన్సల్టేషన్ చర్యలు",
+      's4.lib.op_doctor_workspace.consultation_cockpit':
+          "కన్సల్టేషన్ కాక్‌పిట్",
+      's4.lib.op_doctor_workspace.consultation_marked_complete':
+          "OP కన్సల్టేషన్ పూర్తి అయినట్లు గుర్తించబడింది",
+      's4.lib.op_doctor_workspace.consultation_note_saved':
+          "కన్సల్టేషన్ నోట్ సేవ్ చేయబడింది",
+      's4.lib.op_doctor_workspace.consultation_note_signed':
+          "కన్సల్టేషన్ నోట్ సంతకం చేయబడింది",
+      's4.lib.op_doctor_workspace.create_eprescription_from_appointment':
+          "ఈ అపాయింట్‌మెంట్ నుండి e-ప్రిస్క్రిప్షన్ సృష్టించండి",
+      's4.lib.op_doctor_workspace.create_rx': "Rx సృష్టించండి",
+      's4.lib.op_doctor_workspace.diagnosis': "నిర్ధారణ",
+      's4.lib.op_doctor_workspace.diagnosis_hint':
+          "వర్కింగ్ నిర్ధారణ లేదా డిఫరెన్షియల్",
+      's4.lib.op_doctor_workspace.discard_draft': "డ్రాఫ్ట్ తొలగించండి",
+      's4.lib.op_doctor_workspace.doctor_notes': "డాక్టర్ నోట్లు",
+      's4.lib.op_doctor_workspace.draft': "డ్రాఫ్ట్",
+      's4.lib.op_doctor_workspace.draft_discarded': "డ్రాఫ్ట్ తొలగించబడింది",
+      's4.lib.op_doctor_workspace.drug_chart': "డ్రగ్ చార్ట్",
+      's4.lib.op_doctor_workspace.editable_until_signed':
+          "ఈ కన్సల్టేషన్ సంతకం చేసే వరకు సవరించవచ్చు",
+      's4.lib.op_doctor_workspace.enter_complaint_diagnosis_or_plan':
+          "కనీసం ఫిర్యాదు, నిర్ధారణ లేదా ప్రణాళికను నమోదు చేయండి",
+      's4.lib.op_doctor_workspace.event_admission': "చేరిక",
+      's4.lib.op_doctor_workspace.event_discharge': "డిశ్చార్జ్",
+      's4.lib.op_doctor_workspace.event_drug_chart': "డ్రగ్ చార్ట్",
+      's4.lib.op_doctor_workspace.event_generic': "ఈవెంట్",
+      's4.lib.op_doctor_workspace.event_investigation': "పరిశోధన",
+      's4.lib.op_doctor_workspace.event_medication': "మందు",
+      's4.lib.op_doctor_workspace.event_note': "నోట్",
+      's4.lib.op_doctor_workspace.event_order': "ఆర్డర్",
+      's4.lib.op_doctor_workspace.event_prescription': "ప్రిస్క్రిప్షన్",
+      's4.lib.op_doctor_workspace.event_vitals': "వైటల్స్",
+      's4.lib.op_doctor_workspace.examination': "పరీక్ష",
+      's4.lib.op_doctor_workspace.examination_hint':
+          "వైటల్స్, పరీక్ష ఫలితాలు, పడక పక్క పరిశీలనలు",
+      's4.lib.op_doctor_workspace.follow_up': "ఫాలో-అప్",
+      's4.lib.op_doctor_workspace.full_timeline': "పూర్తి టైమ్‌లైన్",
+      's4.lib.op_doctor_workspace.history': "చరిత్ర",
+      's4.lib.op_doctor_workspace.history_hint':
+          "సంబంధిత చరిత్ర, నెగటివ్స్, ప్రమాద కారకాలు",
+      's4.lib.op_doctor_workspace.investigations': "పరిశోధనలు",
+      's4.lib.op_doctor_workspace.keeps_consultation_together':
+          "కన్సల్టేషన్ పేజీల మధ్య చెల్లాచెదరుకాకుండా ఉంచుతుంది",
+      's4.lib.op_doctor_workspace.main_complaint_hint':
+          "ప్రధాన ఫిర్యాదు లేదా సందర్శన కారణం",
+      's4.lib.op_doctor_workspace.medication_nursing_investigation_orders':
+          "మందు, నర్సింగ్ లేదా పరిశోధన ఆర్డర్లు",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "ఇంకా క్లినికల్ టైమ్‌లైన్ ఎంట్రీలు లేవు",
+      's4.lib.op_doctor_workspace.note_saved': "నోట్ సేవ్ చేయబడింది",
+      's4.lib.op_doctor_workspace.notes_drug_chart_orders_vitals_reports':
+          "నోట్లు, డ్రగ్ చార్ట్, ఆర్డర్లు, వైటల్స్ మరియు రిపోర్టులు",
+      's4.lib.op_doctor_workspace.old_records': "పాత రికార్డులు",
+      's4.lib.op_doctor_workspace.one_patient_context':
+          "OP డాక్యుమెంటేషన్ కోసం ఒకే రోగి సందర్భాన్ని ఉపయోగించండి",
+      's4.lib.op_doctor_workspace.op_appointment': "OP అపాయింట్‌మెంట్",
+      's4.lib.op_doctor_workspace.op_consultation_note': "OP కన్సల్టేషన్ నోట్",
+      's4.lib.op_doctor_workspace.op_prescription': "OP ప్రిస్క్రిప్షన్",
+      's4.lib.op_doctor_workspace.op_visit_checklist': "OP సందర్శన చెక్‌లిస్ట్",
+      's4.lib.op_doctor_workspace.open': "తెరవండి",
       's4.lib.op_doctor_workspace.open_full': "పూర్తిగా తెరవండి",
-      's4.lib.op_doctor_workspace.save_note': "గమనికను సేవ్ చేయండి",
+      's4.lib.op_doctor_workspace.open_patient_records_selected':
+          "ఈ రోగిని ఎంపికగా ఉంచి రోగి రికార్డులను తెరవండి",
+      's4.lib.op_doctor_workspace.orders': "ఆర్డర్లు",
+      's4.lib.op_doctor_workspace.orders_investigations_reviewed':
+          "ఆర్డర్లు లేదా పరిశోధనలు సమీక్షించబడ్డాయి",
+      's4.lib.op_doctor_workspace.patient': "రోగి",
+      's4.lib.op_doctor_workspace.plan': "ప్రణాళిక",
+      's4.lib.op_doctor_workspace.plan_hint':
+          "మందులు, పరిశోధనలు, సలహా, ఫాలో-అప్",
+      's4.lib.op_doctor_workspace.prescription': "ప్రిస్క్రిప్షన్",
+      's4.lib.op_doctor_workspace.prescription_entered_for_visit':
+          "ఈ OP సందర్శనకు ప్రిస్క్రిప్షన్ నమోదు చేయబడింది",
+      's4.lib.op_doctor_workspace.prescription_reviewed_if_needed':
+          "అవసరమైతే ప్రిస్క్రిప్షన్ సమీక్షించబడింది",
+      's4.lib.op_doctor_workspace.prior_records': "మునుపటి రికార్డులు",
+      's4.lib.op_doctor_workspace.recent_notes_prescriptions_reports':
+          "ఇటీవలి నోట్లు, ప్రిస్క్రిప్షన్లు, డ్రగ్ చార్ట్ మరియు రిపోర్టులు",
+      's4.lib.op_doctor_workspace.records_prescription_follow_up':
+          "రికార్డులు, ప్రిస్క్రిప్షన్, పరిశోధన మరియు ఫాలో-అప్",
+      's4.lib.op_doctor_workspace.restored_draft':
+          "సేవ్ చేయని డ్రాఫ్ట్ పునరుద్ధరించబడింది",
+      's4.lib.op_doctor_workspace.review_order': "సమీక్ష/ఆర్డర్",
+      's4.lib.op_doctor_workspace.review_or_request_investigations':
+          "పరిశోధనలను సమీక్షించండి లేదా అభ్యర్థించండి",
+      's4.lib.op_doctor_workspace.save_note': "నోట్ సేవ్ చేయండి",
       's4.lib.op_doctor_workspace.save_then_investigations':
-          "సేవ్, ఆపై పరిశోధనలు",
-      's4.lib.op_doctor_workspace.sign_note': "సంతకం నోట్",
+          "సేవ్ చేసి, తరువాత పరిశోధనలు",
+      's4.lib.op_doctor_workspace.set_in_rx_plan': "Rx/ప్రణాళికలో సెట్ చేయండి",
+      's4.lib.op_doctor_workspace.sign_note': "నోట్‌పై సంతకం చేయండి",
+      's4.lib.op_doctor_workspace.signed': "సంతకం చేయబడింది",
+      's4.lib.op_doctor_workspace.signed_and_locked':
+          "సంతకం చేసి లాక్ చేయబడింది",
+      's4.lib.op_doctor_workspace.status': "స్థితి",
+      's4.lib.op_doctor_workspace.timeline_ready': "టైమ్‌లైన్ సిద్ధంగా ఉంది",
+      's4.lib.op_doctor_workspace.visit_complete': "సందర్శన పూర్తయింది",
+      's4.lib.op_doctor_workspace.visit_not_today':
+          "ఈ OP సందర్శన ఈరోజు తేదీకి సంబంధించినది కాదు; కొత్త డాక్యుమెంటేషన్ కోసం కొత్త అపాయింట్‌మెంట్ సృష్టించండి.",
+      's4.lib.op_doctor_workspace.write_op_consultation_notes':
+          "OP కన్సల్టేషన్ నోట్లు రాయండి",
+      's4.dynamic.op_doctor_workspace.consultation_status':
+          "కన్సల్టేషన్ {status}",
+      's4.dynamic.op_doctor_workspace.drug_chart_medication':
+          "డ్రగ్ చార్ట్ - {medication}",
+      's4.dynamic.op_doctor_workspace.note_type_title': "{type} నోట్",
+      's4.dynamic.op_doctor_workspace.op_consultation_title':
+          "OP కన్సల్టేషన్ - {patient}",
+      's4.dynamic.op_doctor_workspace.prescription_number':
+          "ప్రిస్క్రిప్షన్ {number}",
+      's4.dynamic.op_doctor_workspace.restored_draft_from':
+          "{time} నుండి సేవ్ చేయని డ్రాఫ్ట్ పునరుద్ధరించబడింది",
+      's4.dynamic.op_doctor_workspace.scheduled_at': "{date} {time} వద్ద",
+      's4.dynamic.op_doctor_workspace.summary_cc': "CC: {text}",
+      's4.dynamic.op_doctor_workspace.summary_dx': "Dx: {text}",
+      's4.dynamic.op_doctor_workspace.summary_plan': "ప్రణాళిక: {text}",
+      's4.dynamic.op_doctor_workspace.visit_closed_status':
+          "ఈ OP సందర్శన {status}; కొత్త డాక్యుమెంటేషన్ కోసం కొత్త అపాయింట్‌మెంట్ సృష్టించండి.",
+      's4.dynamic.op_doctor_workspace.workspace_title':
+          "OP వర్క్‌స్పేస్ - {patient}",
       's4.lib.order_sets.no_order_sets': "ఆర్డర్ సెట్‌లు లేవు",
       's4.lib.order_sets.order_sets': "ఆర్డర్ సెట్లు",
       's4.lib.order_sets.search_pneumonia_sepsis':

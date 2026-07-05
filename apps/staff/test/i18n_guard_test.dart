@@ -615,6 +615,57 @@ void main() {
     );
   });
 
+  test(
+    'S4 OP Doctor Workspace copy stores keys with required locale entries',
+    () {
+      final file = File(
+        'lib/features/opd/screens/op_doctor_workspace_screen.dart',
+      );
+      final patterns = [
+        _Pattern(
+          'AppText display copy',
+          RegExp(
+            r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
+          ),
+        ),
+        _Pattern(
+          'StaffScaffold title',
+          RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+        _Pattern(
+          'subtitle',
+          RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+        ),
+        _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+        _Pattern('hint', RegExp(r'''\bhint\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      ];
+      final allowedPrefixes = [
+        's4.dynamic.op_doctor_workspace.',
+        's4.lib.op_doctor_workspace.',
+      ];
+
+      final hits = <String>[
+        ..._literalHits(file, patterns),
+        ..._interpolatedLiteralHits(file, patterns),
+      ];
+      final keys = _appStringKeysFrom(file.readAsStringSync(), allowedPrefixes);
+
+      expect(
+        hits,
+        isEmpty,
+        reason:
+            'S4 OP Doctor Workspace panel labels, field labels, hints, and '
+            'timeline copy should use AppStrings keys.',
+      );
+      expect(
+        _missingLocaleEntries(keys),
+        isEmpty,
+        reason: 'S4 OP Doctor Workspace keys must have en/hi/ta/te entries.',
+      );
+    },
+  );
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',
