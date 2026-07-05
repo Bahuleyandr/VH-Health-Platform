@@ -5739,12 +5739,104 @@ class AppStrings {
           "Open this screen from the bed board to see all notes for a patient.",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "Completed transcripts can be converted into SOAP drafts for clinician review.",
+      // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
+      's4.lib.op_ai_assist.age': "Age",
+      's4.lib.op_ai_assist.ai_used': "AI used",
+      's4.lib.op_ai_assist.appointment_id': "Appointment ID",
+      's4.lib.op_ai_assist.chief_complaint': "Chief complaint",
+      's4.lib.op_ai_assist.clinical_ai_service': "Clinical AI service",
+      's4.lib.op_ai_assist.clinical_question_optional':
+          "Clinical question (optional)",
+      's4.lib.op_ai_assist.clinical_summary': "Clinical summary",
+      's4.lib.op_ai_assist.clinician_sign_off_required':
+          "Clinician sign-off required",
+      's4.lib.op_ai_assist.current_treatment_optional':
+          "Current treatment (optional)",
       's4.lib.op_ai_assist.dashboard': "Dashboard",
+      's4.lib.op_ai_assist.diagnosis_working_diagnosis':
+          "Diagnosis / working diagnosis",
+      's4.lib.op_ai_assist.differential_red_flag_checklist':
+          "Differential / Red Flag Checklist",
+      's4.lib.op_ai_assist.differential_red_flag_purpose':
+          "Differentials to consider, red flags, and next checks.",
+      's4.lib.op_ai_assist.disabled_in_admin_label': "Disabled in Admin",
+      's4.lib.op_ai_assist.doctor_decision_support': "Doctor decision support",
+      's4.lib.op_ai_assist.draft_checklist': "Draft checklist",
+      's4.lib.op_ai_assist.draft_follow_up': "Draft follow-up",
+      's4.lib.op_ai_assist.draft_referral': "Draft referral",
+      's4.lib.op_ai_assist.draft_visit_prep': "Draft visit prep",
+      's4.lib.op_ai_assist.enter_at_least_one_medication':
+          "Enter at least one medication.",
+      's4.lib.op_ai_assist.enter_chief_complaint': "Enter the chief complaint.",
+      's4.lib.op_ai_assist.enter_diagnosis_and_treatment_plan':
+          "Enter diagnosis and treatment plan.",
+      's4.lib.op_ai_assist.enter_investigation_id_or_result':
+          "Enter an investigation ID or paste a result.",
+      's4.lib.op_ai_assist.enter_referral_reason_and_summary':
+          "Enter referral reason and clinical summary.",
+      's4.lib.op_ai_assist.enter_valid_appointment_id':
+          "Enter a valid appointment ID.",
+      's4.lib.op_ai_assist.exam_notes': "Exam notes",
+      's4.lib.op_ai_assist.follow_up_plan_draft': "Follow-Up Plan Draft",
+      's4.lib.op_ai_assist.follow_up_plan_purpose':
+          "Monitoring, repeat tests, review timing, and escalation cues.",
+      's4.lib.op_ai_assist.investigation_id_optional':
+          "Investigation ID (optional)",
+      's4.lib.op_ai_assist.investigation_review_aid':
+          "Investigation Review Aid",
+      's4.lib.op_ai_assist.investigation_review_purpose':
+          "Doctor-facing interpretation aid for OP lab/radiology results.",
+      's4.lib.op_ai_assist.known_diagnoses': "Known diagnoses",
+      's4.lib.op_ai_assist.known_diagnoses_hint':
+          "One per line or comma-separated",
+      's4.lib.op_ai_assist.medications': "Medications",
+      's4.lib.op_ai_assist.medications_hint': "name | dose | route | frequency",
+      's4.lib.op_ai_assist.monitoring_context_optional':
+          "Monitoring context (optional)",
+      's4.lib.op_ai_assist.off': "Off",
+      's4.lib.op_ai_assist.on': "On",
       's4.lib.op_ai_assist.op_doctor_assist_unavailable':
           "OP Doctor Assist unavailable",
+      's4.lib.op_ai_assist.op_visit_prep': "OP Visit Prep",
+      's4.lib.op_ai_assist.op_visit_prep_purpose':
+          "Pre-consult doctor brief from appointment and chart context.",
       's4.lib.op_ai_assist.open_draft': "Open draft",
+      's4.lib.op_ai_assist.open_voice_notes': "Open voice notes",
+      's4.lib.op_ai_assist.patient_id_optional': "Patient ID (optional)",
+      's4.lib.op_ai_assist.patient_uid_optional': "Patient UID (optional)",
+      's4.lib.op_ai_assist.prescription_safety_assistant':
+          "Prescription Safety Assistant",
+      's4.lib.op_ai_assist.prescription_safety_purpose':
+          "Rules plus AI advisory review of a medication list.",
+      's4.lib.op_ai_assist.referral_reason': "Referral reason",
+      's4.lib.op_ai_assist.referral_second_opinion_draft':
+          "Referral / Second Opinion Draft",
+      's4.lib.op_ai_assist.referral_second_opinion_purpose':
+          "Structured referral draft for clinician editing.",
       's4.lib.op_ai_assist.refresh_services': "Refresh services",
+      's4.lib.op_ai_assist.result_text': "Result text",
       's4.lib.op_ai_assist.review_queue': "Review queue",
+      's4.lib.op_ai_assist.review_result': "Review result",
+      's4.lib.op_ai_assist.review_safety': "Review safety",
+      's4.lib.op_ai_assist.sex': "Sex",
+      's4.lib.op_ai_assist.target_specialty_optional':
+          "Target specialty (optional)",
+      's4.lib.op_ai_assist.template_provider': "template",
+      's4.lib.op_ai_assist.template_rules': "Template/rules",
+      's4.lib.op_ai_assist.treatment_plan': "Treatment plan",
+      's4.lib.op_ai_assist.unknown_module': "unknown",
+      's4.lib.op_ai_assist.vitals': "Vitals",
+      's4.lib.op_ai_assist.vitals_hint': "BP: 120/80",
+      's4.lib.op_ai_assist.voice_note_to_soap_draft':
+          "Voice Note to SOAP Draft",
+      's4.lib.op_ai_assist.voice_note_to_soap_purpose':
+          "Convert clinician voice-note transcripts into reviewable SOAP drafts.",
+      's4.dynamic.op_ai_assist.disabled_in_admin':
+          "{title} is disabled in Clinical AI Admin.",
+      's4.dynamic.op_ai_assist.enabled_by_admin':
+          "{enabled}/{total} enabled by Admin",
+      's4.dynamic.op_ai_assist.provider_status': "{provider} - {status}",
+      's4.dynamic.op_ai_assist.review_number': "Review #{id}",
       's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet':
           "No clinical timeline entries yet",
       's4.lib.op_doctor_workspace.open_full': "Open full",
@@ -9574,6 +9666,95 @@ class AppStrings {
           "किसी मरीज के सभी नोट्स देखने के लिए बेड बोर्ड से इस स्क्रीन को खोलें।",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "पूर्ण प्रतिलेखों को चिकित्सक की समीक्षा के लिए SOAP ड्राफ्ट में परिवर्तित किया जा सकता है।",
+      // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
+      's4.lib.op_ai_assist.age': "आयु",
+      's4.lib.op_ai_assist.ai_used': "AI उपयोग हुआ",
+      's4.lib.op_ai_assist.appointment_id': "अपॉइंटमेंट ID",
+      's4.lib.op_ai_assist.chief_complaint': "मुख्य शिकायत",
+      's4.lib.op_ai_assist.clinical_ai_service': "क्लिनिकल AI सेवा",
+      's4.lib.op_ai_assist.clinical_question_optional':
+          "क्लिनिकल प्रश्न (वैकल्पिक)",
+      's4.lib.op_ai_assist.clinical_summary': "क्लिनिकल सारांश",
+      's4.lib.op_ai_assist.clinician_sign_off_required':
+          "चिकित्सक साइन-ऑफ आवश्यक",
+      's4.lib.op_ai_assist.current_treatment_optional':
+          "वर्तमान उपचार (वैकल्पिक)",
+      's4.lib.op_ai_assist.diagnosis_working_diagnosis': "निदान / कार्य निदान",
+      's4.lib.op_ai_assist.differential_red_flag_checklist':
+          "डिफरेंशियल / रेड फ्लैग चेकलिस्ट",
+      's4.lib.op_ai_assist.differential_red_flag_purpose':
+          "विचार करने योग्य डिफरेंशियल, रेड फ्लैग और अगली जांचें।",
+      's4.lib.op_ai_assist.disabled_in_admin_label': "एडमिन में अक्षम",
+      's4.lib.op_ai_assist.doctor_decision_support': "डॉक्टर निर्णय समर्थन",
+      's4.lib.op_ai_assist.draft_checklist': "चेकलिस्ट ड्राफ्ट करें",
+      's4.lib.op_ai_assist.draft_follow_up': "फॉलो-अप ड्राफ्ट करें",
+      's4.lib.op_ai_assist.draft_referral': "रेफरल ड्राफ्ट करें",
+      's4.lib.op_ai_assist.draft_visit_prep': "विजिट तैयारी ड्राफ्ट करें",
+      's4.lib.op_ai_assist.enter_at_least_one_medication':
+          "कम से कम एक दवा दर्ज करें।",
+      's4.lib.op_ai_assist.enter_chief_complaint': "मुख्य शिकायत दर्ज करें।",
+      's4.lib.op_ai_assist.enter_diagnosis_and_treatment_plan':
+          "निदान और उपचार योजना दर्ज करें।",
+      's4.lib.op_ai_assist.enter_investigation_id_or_result':
+          "जांच ID दर्ज करें या परिणाम पेस्ट करें।",
+      's4.lib.op_ai_assist.enter_referral_reason_and_summary':
+          "रेफरल कारण और क्लिनिकल सारांश दर्ज करें।",
+      's4.lib.op_ai_assist.enter_valid_appointment_id':
+          "मान्य अपॉइंटमेंट ID दर्ज करें।",
+      's4.lib.op_ai_assist.exam_notes': "जांच नोट्स",
+      's4.lib.op_ai_assist.follow_up_plan_draft': "फॉलो-अप योजना ड्राफ्ट",
+      's4.lib.op_ai_assist.follow_up_plan_purpose':
+          "निगरानी, दोबारा जांच, समीक्षा समय और एस्केलेशन संकेत।",
+      's4.lib.op_ai_assist.investigation_id_optional': "जांच ID (वैकल्पिक)",
+      's4.lib.op_ai_assist.investigation_review_aid': "जांच समीक्षा सहायता",
+      's4.lib.op_ai_assist.investigation_review_purpose':
+          "OP लैब/रेडियोलॉजी परिणामों के लिए डॉक्टर-फेसिंग व्याख्या सहायता।",
+      's4.lib.op_ai_assist.known_diagnoses': "ज्ञात निदान",
+      's4.lib.op_ai_assist.known_diagnoses_hint':
+          "प्रति पंक्ति एक या कॉमा से अलग",
+      's4.lib.op_ai_assist.medications': "दवाएँ",
+      's4.lib.op_ai_assist.medications_hint': "नाम | खुराक | मार्ग | आवृत्ति",
+      's4.lib.op_ai_assist.monitoring_context_optional':
+          "निगरानी संदर्भ (वैकल्पिक)",
+      's4.lib.op_ai_assist.off': "बंद",
+      's4.lib.op_ai_assist.on': "चालू",
+      's4.lib.op_ai_assist.op_visit_prep': "OP विजिट तैयारी",
+      's4.lib.op_ai_assist.op_visit_prep_purpose':
+          "अपॉइंटमेंट और चार्ट संदर्भ से प्री-कंसल्ट डॉक्टर ब्रीफ।",
+      's4.lib.op_ai_assist.open_voice_notes': "वॉइस नोट्स खोलें",
+      's4.lib.op_ai_assist.patient_id_optional': "मरीज ID (वैकल्पिक)",
+      's4.lib.op_ai_assist.patient_uid_optional': "मरीज UID (वैकल्पिक)",
+      's4.lib.op_ai_assist.prescription_safety_assistant':
+          "प्रिस्क्रिप्शन सुरक्षा सहायक",
+      's4.lib.op_ai_assist.prescription_safety_purpose':
+          "दवा सूची की नियमों और AI सलाह समीक्षा।",
+      's4.lib.op_ai_assist.referral_reason': "रेफरल कारण",
+      's4.lib.op_ai_assist.referral_second_opinion_draft':
+          "रेफरल / दूसरी राय ड्राफ्ट",
+      's4.lib.op_ai_assist.referral_second_opinion_purpose':
+          "चिकित्सक संपादन के लिए संरचित रेफरल ड्राफ्ट।",
+      's4.lib.op_ai_assist.result_text': "परिणाम पाठ",
+      's4.lib.op_ai_assist.review_result': "परिणाम समीक्षा करें",
+      's4.lib.op_ai_assist.review_safety': "सुरक्षा समीक्षा करें",
+      's4.lib.op_ai_assist.sex': "लिंग",
+      's4.lib.op_ai_assist.target_specialty_optional':
+          "लक्षित विशेषज्ञता (वैकल्पिक)",
+      's4.lib.op_ai_assist.template_provider': "टेम्पलेट",
+      's4.lib.op_ai_assist.template_rules': "टेम्पलेट/नियम",
+      's4.lib.op_ai_assist.treatment_plan': "उपचार योजना",
+      's4.lib.op_ai_assist.unknown_module': "अज्ञात",
+      's4.lib.op_ai_assist.vitals': "वाइटल्स",
+      's4.lib.op_ai_assist.vitals_hint': "BP: 120/80",
+      's4.lib.op_ai_assist.voice_note_to_soap_draft':
+          "वॉइस नोट से SOAP ड्राफ्ट",
+      's4.lib.op_ai_assist.voice_note_to_soap_purpose':
+          "चिकित्सक वॉइस-नोट प्रतिलेखों को समीक्षा योग्य SOAP ड्राफ्ट में बदलें।",
+      's4.dynamic.op_ai_assist.disabled_in_admin':
+          "{title} क्लिनिकल AI एडमिन में अक्षम है।",
+      's4.dynamic.op_ai_assist.enabled_by_admin':
+          "{enabled}/{total} एडमिन द्वारा सक्षम",
+      's4.dynamic.op_ai_assist.provider_status': "{provider} - {status}",
+      's4.dynamic.op_ai_assist.review_number': "समीक्षा #{id}",
       's4.lib.op_ai_assist.dashboard': "डैशबोर्ड",
       's4.lib.op_ai_assist.op_doctor_assist_unavailable':
           "ओपी डॉक्टर सहायता उपलब्ध नहीं है",
@@ -13919,6 +14100,97 @@ class AppStrings {
           "நோயாளியின் அனைத்து குறிப்புகளையும் பார்க்க படுக்கை பலகையில் இருந்து இந்தத் திரையைத் திறக்கவும்.",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "முடிக்கப்பட்ட டிரான்ஸ்கிரிப்ட்களை மருத்துவரின் மதிப்பாய்வுக்காக SOAP வரைவுகளாக மாற்றலாம்.",
+      // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
+      's4.lib.op_ai_assist.age': "வயது",
+      's4.lib.op_ai_assist.ai_used': "AI பயன்படுத்தப்பட்டது",
+      's4.lib.op_ai_assist.appointment_id': "அப்பாயிண்ட்மெண்ட் ID",
+      's4.lib.op_ai_assist.chief_complaint': "முக்கிய புகார்",
+      's4.lib.op_ai_assist.clinical_ai_service': "மருத்துவ AI சேவை",
+      's4.lib.op_ai_assist.clinical_question_optional':
+          "மருத்துவ கேள்வி (விருப்பம்)",
+      's4.lib.op_ai_assist.clinical_summary': "மருத்துவ சுருக்கம்",
+      's4.lib.op_ai_assist.clinician_sign_off_required':
+          "மருத்துவர் ஒப்புதல் தேவை",
+      's4.lib.op_ai_assist.current_treatment_optional':
+          "தற்போதைய சிகிச்சை (விருப்பம்)",
+      's4.lib.op_ai_assist.diagnosis_working_diagnosis':
+          "நோயறிதல் / பணிநிலை நோயறிதல்",
+      's4.lib.op_ai_assist.differential_red_flag_checklist':
+          "வேறுபாட்டு / ரெட் ஃபிளாக் சரிபார்ப்பு பட்டியல்",
+      's4.lib.op_ai_assist.differential_red_flag_purpose':
+          "கருத வேண்டிய வேறுபாடுகள், ரெட் ஃபிளாக்கள் மற்றும் அடுத்த சோதனைகள்.",
+      's4.lib.op_ai_assist.disabled_in_admin_label': "Admin-இல் முடக்கப்பட்டது",
+      's4.lib.op_ai_assist.doctor_decision_support': "மருத்துவர் முடிவு ஆதரவு",
+      's4.lib.op_ai_assist.draft_checklist':
+          "சரிபார்ப்பு பட்டியலை வரைவு செய்யவும்",
+      's4.lib.op_ai_assist.draft_follow_up': "பின்தொடர்பை வரைவு செய்யவும்",
+      's4.lib.op_ai_assist.draft_referral': "பரிந்துரையை வரைவு செய்யவும்",
+      's4.lib.op_ai_assist.draft_visit_prep': "வருகை தயாரிப்பை வரைவு செய்யவும்",
+      's4.lib.op_ai_assist.enter_at_least_one_medication':
+          "குறைந்தது ஒரு மருந்தை உள்ளிடவும்.",
+      's4.lib.op_ai_assist.enter_chief_complaint': "முக்கிய புகாரை உள்ளிடவும்.",
+      's4.lib.op_ai_assist.enter_diagnosis_and_treatment_plan':
+          "நோயறிதல் மற்றும் சிகிச்சை திட்டத்தை உள்ளிடவும்.",
+      's4.lib.op_ai_assist.enter_investigation_id_or_result':
+          "ஆய்வு ID-ஐ உள்ளிடவும் அல்லது முடிவை ஒட்டவும்.",
+      's4.lib.op_ai_assist.enter_referral_reason_and_summary':
+          "பரிந்துரை காரணம் மற்றும் மருத்துவ சுருக்கத்தை உள்ளிடவும்.",
+      's4.lib.op_ai_assist.enter_valid_appointment_id':
+          "சரியான அப்பாயிண்ட்மெண்ட் ID-ஐ உள்ளிடவும்.",
+      's4.lib.op_ai_assist.exam_notes': "பரிசோதனை குறிப்புகள்",
+      's4.lib.op_ai_assist.follow_up_plan_draft': "பின்தொடர்பு திட்ட வரைவு",
+      's4.lib.op_ai_assist.follow_up_plan_purpose':
+          "கண்காணிப்பு, மீண்டும் சோதனைகள், மதிப்பாய்வு நேரம் மற்றும் எஸ்கலேஷன் சுட்டிகள்.",
+      's4.lib.op_ai_assist.investigation_id_optional': "ஆய்வு ID (விருப்பம்)",
+      's4.lib.op_ai_assist.investigation_review_aid': "ஆய்வு மதிப்பாய்வு உதவி",
+      's4.lib.op_ai_assist.investigation_review_purpose':
+          "OP ஆய்வகம்/ரேடியாலஜி முடிவுகளுக்கான மருத்துவர் நோக்கிய விளக்க உதவி.",
+      's4.lib.op_ai_assist.known_diagnoses': "தெரிந்த நோயறிதல்கள்",
+      's4.lib.op_ai_assist.known_diagnoses_hint':
+          "ஒவ்வொரு வரியிலும் ஒன்று அல்லது கமாவால் பிரிக்கவும்",
+      's4.lib.op_ai_assist.medications': "மருந்துகள்",
+      's4.lib.op_ai_assist.medications_hint': "பெயர் | அளவு | வழி | அடிக்கடி",
+      's4.lib.op_ai_assist.monitoring_context_optional':
+          "கண்காணிப்பு சூழல் (விருப்பம்)",
+      's4.lib.op_ai_assist.off': "ஆஃப்",
+      's4.lib.op_ai_assist.on': "ஆன்",
+      's4.lib.op_ai_assist.op_visit_prep': "OP வருகை தயாரிப்பு",
+      's4.lib.op_ai_assist.op_visit_prep_purpose':
+          "அப்பாயிண்ட்மெண்ட் மற்றும் சார்ட் சூழலிலிருந்து முன்-ஆலோசனை மருத்துவர் குறிப்பு.",
+      's4.lib.op_ai_assist.open_voice_notes': "குரல் குறிப்புகளைத் திறக்கவும்",
+      's4.lib.op_ai_assist.patient_id_optional': "நோயாளி ID (விருப்பம்)",
+      's4.lib.op_ai_assist.patient_uid_optional': "நோயாளி UID (விருப்பம்)",
+      's4.lib.op_ai_assist.prescription_safety_assistant':
+          "மருந்துச் சீட்டு பாதுகாப்பு உதவியாளர்",
+      's4.lib.op_ai_assist.prescription_safety_purpose':
+          "மருந்துப் பட்டியலுக்கான விதிகள் மற்றும் AI ஆலோசனை மதிப்பாய்வு.",
+      's4.lib.op_ai_assist.referral_reason': "பரிந்துரை காரணம்",
+      's4.lib.op_ai_assist.referral_second_opinion_draft':
+          "பரிந்துரை / இரண்டாம் கருத்து வரைவு",
+      's4.lib.op_ai_assist.referral_second_opinion_purpose':
+          "மருத்துவர் திருத்தத்திற்கான கட்டமைக்கப்பட்ட பரிந்துரை வரைவு.",
+      's4.lib.op_ai_assist.result_text': "முடிவு உரை",
+      's4.lib.op_ai_assist.review_result': "முடிவை மதிப்பாய்வு செய்யவும்",
+      's4.lib.op_ai_assist.review_safety': "பாதுகாப்பை மதிப்பாய்வு செய்யவும்",
+      's4.lib.op_ai_assist.sex': "பாலினம்",
+      's4.lib.op_ai_assist.target_specialty_optional':
+          "இலக்கு சிறப்பு (விருப்பம்)",
+      's4.lib.op_ai_assist.template_provider': "டெம்ப்ளேட்",
+      's4.lib.op_ai_assist.template_rules': "டெம்ப்ளேட்/விதிகள்",
+      's4.lib.op_ai_assist.treatment_plan': "சிகிச்சை திட்டம்",
+      's4.lib.op_ai_assist.unknown_module': "தெரியாதது",
+      's4.lib.op_ai_assist.vitals': "வைட்டல்கள்",
+      's4.lib.op_ai_assist.vitals_hint': "BP: 120/80",
+      's4.lib.op_ai_assist.voice_note_to_soap_draft':
+          "குரல் குறிப்பிலிருந்து SOAP வரைவு",
+      's4.lib.op_ai_assist.voice_note_to_soap_purpose':
+          "மருத்துவர் குரல்-குறிப்பு உரைகளை மதிப்பாய்வு செய்யக்கூடிய SOAP வரைவுகளாக மாற்றவும்.",
+      's4.dynamic.op_ai_assist.disabled_in_admin':
+          "{title} Clinical AI Admin-இல் முடக்கப்பட்டுள்ளது.",
+      's4.dynamic.op_ai_assist.enabled_by_admin':
+          "{enabled}/{total} Admin மூலம் இயக்கப்பட்டது",
+      's4.dynamic.op_ai_assist.provider_status': "{provider} - {status}",
+      's4.dynamic.op_ai_assist.review_number': "மதிப்பாய்வு #{id}",
       's4.lib.op_ai_assist.dashboard': "டாஷ்போர்டு",
       's4.lib.op_ai_assist.op_doctor_assist_unavailable':
           "OP மருத்துவர் உதவி கிடைக்கவில்லை",
@@ -18267,6 +18539,101 @@ class AppStrings {
           "రోగికి సంబంధించిన అన్ని గమనికలను చూడటానికి బెడ్ బోర్డ్ నుండి ఈ స్క్రీన్‌ని తెరవండి.",
       's4.lib.op_ai_assist.completed_transcripts_can_be_converted_into_soap':
           "పూర్తి చేసిన ట్రాన్‌స్క్రిప్ట్‌లను వైద్యుల సమీక్ష కోసం SOAP డ్రాఫ్ట్‌లుగా మార్చవచ్చు.",
+      // REVIEW: AI first-pass S4 OP AI i18n sweep - confirm clinical wording before production.
+      's4.lib.op_ai_assist.age': "వయస్సు",
+      's4.lib.op_ai_assist.ai_used': "AI ఉపయోగించబడింది",
+      's4.lib.op_ai_assist.appointment_id': "అపాయింట్‌మెంట్ ID",
+      's4.lib.op_ai_assist.chief_complaint': "ప్రధాన ఫిర్యాదు",
+      's4.lib.op_ai_assist.clinical_ai_service': "క్లినికల్ AI సేవ",
+      's4.lib.op_ai_assist.clinical_question_optional':
+          "క్లినికల్ ప్రశ్న (ఐచ్చికం)",
+      's4.lib.op_ai_assist.clinical_summary': "క్లినికల్ సారాంశం",
+      's4.lib.op_ai_assist.clinician_sign_off_required':
+          "వైద్యుడు సైన్-ఆఫ్ అవసరం",
+      's4.lib.op_ai_assist.current_treatment_optional':
+          "ప్రస్తుత చికిత్స (ఐచ్చికం)",
+      's4.lib.op_ai_assist.diagnosis_working_diagnosis':
+          "నిర్ధారణ / వర్కింగ్ నిర్ధారణ",
+      's4.lib.op_ai_assist.differential_red_flag_checklist':
+          "డిఫరెన్షియల్ / రెడ్ ఫ్లాగ్ చెక్‌లిస్ట్",
+      's4.lib.op_ai_assist.differential_red_flag_purpose':
+          "పరిగణించాల్సిన డిఫరెన్షియల్స్, రెడ్ ఫ్లాగ్స్ మరియు తదుపరి తనిఖీలు.",
+      's4.lib.op_ai_assist.disabled_in_admin_label': "Adminలో నిలిపివేయబడింది",
+      's4.lib.op_ai_assist.doctor_decision_support': "డాక్టర్ నిర్ణయ మద్దతు",
+      's4.lib.op_ai_assist.draft_checklist': "చెక్‌లిస్ట్ డ్రాఫ్ట్ చేయండి",
+      's4.lib.op_ai_assist.draft_follow_up': "ఫాలో-అప్ డ్రాఫ్ట్ చేయండి",
+      's4.lib.op_ai_assist.draft_referral': "రిఫరల్ డ్రాఫ్ట్ చేయండి",
+      's4.lib.op_ai_assist.draft_visit_prep':
+          "విజిట్ ప్రిపరేషన్ డ్రాఫ్ట్ చేయండి",
+      's4.lib.op_ai_assist.enter_at_least_one_medication':
+          "కనీసం ఒక ఔషధాన్ని నమోదు చేయండి.",
+      's4.lib.op_ai_assist.enter_chief_complaint':
+          "ప్రధాన ఫిర్యాదును నమోదు చేయండి.",
+      's4.lib.op_ai_assist.enter_diagnosis_and_treatment_plan':
+          "నిర్ధారణ మరియు చికిత్స ప్రణాళికను నమోదు చేయండి.",
+      's4.lib.op_ai_assist.enter_investigation_id_or_result':
+          "ఇన్వెస్టిగేషన్ IDని నమోదు చేయండి లేదా ఫలితాన్ని అతికించండి.",
+      's4.lib.op_ai_assist.enter_referral_reason_and_summary':
+          "రిఫరల్ కారణం మరియు క్లినికల్ సారాంశాన్ని నమోదు చేయండి.",
+      's4.lib.op_ai_assist.enter_valid_appointment_id':
+          "చెల్లుబాటు అయ్యే అపాయింట్‌మెంట్ IDని నమోదు చేయండి.",
+      's4.lib.op_ai_assist.exam_notes': "పరీక్ష నోట్లు",
+      's4.lib.op_ai_assist.follow_up_plan_draft': "ఫాలో-అప్ ప్లాన్ డ్రాఫ్ట్",
+      's4.lib.op_ai_assist.follow_up_plan_purpose':
+          "మానిటరింగ్, మళ్లీ పరీక్షలు, సమీక్ష సమయం మరియు ఎస్కలేషన్ సూచనలు.",
+      's4.lib.op_ai_assist.investigation_id_optional':
+          "ఇన్వెస్టిగేషన్ ID (ఐచ్చికం)",
+      's4.lib.op_ai_assist.investigation_review_aid':
+          "ఇన్వెస్టిగేషన్ సమీక్ష సహాయం",
+      's4.lib.op_ai_assist.investigation_review_purpose':
+          "OP ల్యాబ్/రేడియాలజీ ఫలితాల కోసం డాక్టర్-ఫేసింగ్ వ్యాఖ్యాన సహాయం.",
+      's4.lib.op_ai_assist.known_diagnoses': "తెలిసిన నిర్ధారణలు",
+      's4.lib.op_ai_assist.known_diagnoses_hint':
+          "ప్రతి పంక్తిలో ఒకటి లేదా కామాతో వేరు చేయండి",
+      's4.lib.op_ai_assist.medications': "మందులు",
+      's4.lib.op_ai_assist.medications_hint':
+          "పేరు | మోతాదు | మార్గం | ఫ్రీక్వెన్సీ",
+      's4.lib.op_ai_assist.monitoring_context_optional':
+          "మానిటరింగ్ సందర్భం (ఐచ్చికం)",
+      's4.lib.op_ai_assist.off': "ఆఫ్",
+      's4.lib.op_ai_assist.on': "ఆన్",
+      's4.lib.op_ai_assist.op_visit_prep': "OP విజిట్ ప్రిపరేషన్",
+      's4.lib.op_ai_assist.op_visit_prep_purpose':
+          "అపాయింట్‌మెంట్ మరియు చార్ట్ సందర్భం నుండి ప్రీ-కన్సల్ట్ డాక్టర్ బ్రీఫ్.",
+      's4.lib.op_ai_assist.open_voice_notes': "వాయిస్ నోట్స్ తెరవండి",
+      's4.lib.op_ai_assist.patient_id_optional': "రోగి ID (ఐచ్చికం)",
+      's4.lib.op_ai_assist.patient_uid_optional': "రోగి UID (ఐచ్చికం)",
+      's4.lib.op_ai_assist.prescription_safety_assistant':
+          "ప్రిస్క్రిప్షన్ సేఫ్టీ అసిస్టెంట్",
+      's4.lib.op_ai_assist.prescription_safety_purpose':
+          "ఔషధాల జాబితాపై నియమాలు మరియు AI సలహా సమీక్ష.",
+      's4.lib.op_ai_assist.referral_reason': "రిఫరల్ కారణం",
+      's4.lib.op_ai_assist.referral_second_opinion_draft':
+          "రిఫరల్ / రెండవ అభిప్రాయం డ్రాఫ్ట్",
+      's4.lib.op_ai_assist.referral_second_opinion_purpose':
+          "వైద్యుడు సవరించడానికి నిర్మిత రిఫరల్ డ్రాఫ్ట్.",
+      's4.lib.op_ai_assist.result_text': "ఫలిత వచనం",
+      's4.lib.op_ai_assist.review_result': "ఫలితాన్ని సమీక్షించండి",
+      's4.lib.op_ai_assist.review_safety': "సురక్షతను సమీక్షించండి",
+      's4.lib.op_ai_assist.sex': "లింగం",
+      's4.lib.op_ai_assist.target_specialty_optional':
+          "లక్ష్య స్పెషాలిటీ (ఐచ్చికం)",
+      's4.lib.op_ai_assist.template_provider': "టెంప్లేట్",
+      's4.lib.op_ai_assist.template_rules': "టెంప్లేట్/నియమాలు",
+      's4.lib.op_ai_assist.treatment_plan': "చికిత్స ప్రణాళిక",
+      's4.lib.op_ai_assist.unknown_module': "తెలియదు",
+      's4.lib.op_ai_assist.vitals': "వైటల్స్",
+      's4.lib.op_ai_assist.vitals_hint': "BP: 120/80",
+      's4.lib.op_ai_assist.voice_note_to_soap_draft':
+          "వాయిస్ నోట్ నుండి SOAP డ్రాఫ్ట్",
+      's4.lib.op_ai_assist.voice_note_to_soap_purpose':
+          "వైద్యుడి వాయిస్-నోట్ ట్రాన్‌స్క్రిప్ట్‌లను సమీక్షించగల SOAP డ్రాఫ్ట్‌లుగా మార్చండి.",
+      's4.dynamic.op_ai_assist.disabled_in_admin':
+          "{title} Clinical AI Adminలో నిలిపివేయబడింది.",
+      's4.dynamic.op_ai_assist.enabled_by_admin':
+          "{enabled}/{total} Admin ద్వారా ప్రారంభించబడింది",
+      's4.dynamic.op_ai_assist.provider_status': "{provider} - {status}",
+      's4.dynamic.op_ai_assist.review_number': "సమీక్ష #{id}",
       's4.lib.op_ai_assist.dashboard': "డాష్‌బోర్డ్",
       's4.lib.op_ai_assist.op_doctor_assist_unavailable':
           "OP డాక్టర్ అసిస్ట్ అందుబాటులో లేదు",
