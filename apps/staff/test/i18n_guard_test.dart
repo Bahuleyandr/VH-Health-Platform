@@ -796,6 +796,80 @@ void main() {
     );
   });
 
+  test('S4 Pharmacy copy stores keys with required locale entries', () {
+    final file = File('lib/features/pharmacy/screens/pharmacy_screen.dart');
+    final patterns = [
+      _Pattern(
+        'AppText display copy',
+        RegExp(
+          r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
+        ),
+      ),
+      _Pattern(
+        'StaffScaffold title',
+        RegExp(r'''StaffScaffold\(\s*\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('content', RegExp(r'''\bcontent\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('hintText', RegExp(r'''\bhintText\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('snackbar', RegExp(r'''_snack\(\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'metric label',
+        RegExp(r'''_CatalogMetric\(\s*label\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'display fallback',
+        RegExp(
+          r'''\?\?\s*(?:r)?(['"])(?:Unknown|Unnamed item|Unnamed drug|this drug)\1''',
+        ),
+      ),
+    ];
+    final allowedPrefixes = [
+      'action.',
+      'lab_bookings.',
+      'patient_records.',
+      'pharmacy.',
+      'reception_counter.',
+      's4.dynamic.pharmacy.',
+      's4.lib.pharmacy.',
+      'theatre.',
+      'vitals_chart.',
+    ];
+
+    final hits = <String>[
+      ..._literalHits(file, patterns),
+      ..._interpolatedLiteralHits(file, patterns),
+    ];
+    final keys = _appStringKeysFrom(file.readAsStringSync(), allowedPrefixes);
+
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 Pharmacy dialogs, snackbars, form validation, summaries, metrics, '
+          'and fallback labels should use AppStrings keys.',
+    );
+    keys.addAll(
+      _appStringCallKeysFrom(file.readAsStringSync(), allowedPrefixes),
+    );
+    keys.addAll(
+      _appStringPrefixedTokensFrom(file.readAsStringSync(), allowedPrefixes),
+    );
+    expect(
+      keys,
+      contains('reception_counter.patient.phone'),
+      reason:
+          'The Pharmacy guard must include reused multiline lookup keys, not '
+          'only same-line labels.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 Pharmacy keys must have en/hi/ta/te entries.',
+    );
+  });
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',
@@ -985,6 +1059,34 @@ Set<String> _appStringKeysFrom(String source, List<String> prefixes) {
     if (prefixes.any(key.startsWith)) {
       keys.add(key);
     }
+  }
+  return keys;
+}
+
+Set<String> _appStringCallKeysFrom(String source, List<String> prefixes) {
+  final keys = <String>{};
+  final regex = RegExp(
+    r'''(?:AppText|format|lookup)\s*\(\s*(?:r)?(['"])([^'"]+)\1''',
+    dotAll: true,
+  );
+  for (final match in regex.allMatches(source)) {
+    final key = match.group(2)!;
+    if (key.contains(r'$')) continue;
+    if (prefixes.any(key.startsWith)) {
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
+Set<String> _appStringPrefixedTokensFrom(String source, List<String> prefixes) {
+  final keys = <String>{};
+  final prefixPattern = prefixes.map(RegExp.escape).join('|');
+  final regex = RegExp('(?:$prefixPattern)[A-Za-z0-9_.-]+');
+  for (final match in regex.allMatches(source)) {
+    final key = match.group(0)!;
+    if (key.contains(r'$')) continue;
+    keys.add(key);
   }
   return keys;
 }

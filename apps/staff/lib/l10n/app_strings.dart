@@ -6333,32 +6333,72 @@ class AppStrings {
       's4.lib.pharmacy.10_digit_mobile_number': "10-digit mobile number",
       's4.lib.pharmacy.10_tablets_strip': "10 tablets / strip",
       's4.lib.pharmacy.650_mg': "650 mg",
+      's4.lib.pharmacy.add_formulary_drug': "Add formulary drug",
       's4.lib.pharmacy.add_inventory_item': "Add Inventory Item",
       's4.lib.pharmacy.add_item': "Add Item",
+      's4.lib.pharmacy.analgesic_hint': "analgesic",
+      's4.lib.pharmacy.available': "Available",
       's4.lib.pharmacy.available_in_formulary': "Available in formulary",
       's4.lib.pharmacy.brand_name': "Brand name",
+      's4.lib.pharmacy.catalog_shared_copy':
+          "OP prescriptions, IP drug charts, and pharmacy use this same backend catalog.",
+      's4.lib.pharmacy.catalog_shared_limited_copy':
+          "OP prescriptions, IP drug charts, and pharmacy use this same backend catalog. Changes are limited to Pharmacy Incharge/Admin.",
       's4.lib.pharmacy.cold_chain_item': "Cold-chain item",
       's4.lib.pharmacy.controlled_narcotic_item': "Controlled / narcotic item",
+      's4.lib.pharmacy.could_not_identify_formulary_item':
+          "Could not identify formulary item",
+      's4.lib.pharmacy.create_order': "Create Order",
       's4.lib.pharmacy.create_pharmacy_order': "Create Pharmacy Order",
+      's4.lib.pharmacy.creating': "Creating...",
       's4.lib.pharmacy.display_name': "Display name",
+      's4.lib.pharmacy.display_name_required': "Display name is required",
+      's4.lib.pharmacy.drug_added_to_formulary': "Drug added to formulary",
       's4.lib.pharmacy.drug_generic_or_strength': "Drug, generic, or strength",
       's4.lib.pharmacy.drug_name_with_strength': "Drug name with strength",
+      's4.lib.pharmacy.drug_name_required': "Drug name is required",
+      's4.lib.pharmacy.drug_removed_from_formulary':
+          "Drug removed from formulary",
+      's4.lib.pharmacy.drug_updated': "Drug updated",
       's4.lib.pharmacy.edit_formulary_drug': "Edit formulary drug",
       's4.lib.pharmacy.expiry_alerts': "Expiry alerts",
+      's4.lib.pharmacy.expiry_scan_completed': "Expiry scan completed",
       's4.lib.pharmacy.form': "Form",
       's4.lib.pharmacy.generic_name': "Generic name",
       's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase': "Inventory & Purchase",
       's4.lib.pharmacy.inventory_and_purchase_oversight':
           "Inventory & Purchase Oversight",
+      's4.lib.pharmacy.inventory_item_added': "Inventory item added",
       's4.lib.pharmacy.inventory_items': "Inventory items",
       's4.lib.pharmacy.manufacturer': "Manufacturer",
       's4.lib.pharmacy.mark_urgent': "Mark urgent",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
           "Medicine names, dose, quantity, or Rx note",
+      's4.lib.pharmacy.metric_bucket': "Bucket",
+      's4.lib.pharmacy.metric_category': "Category",
+      's4.lib.pharmacy.metric_days': "Days",
+      's4.lib.pharmacy.metric_qty': "Qty",
+      's4.lib.pharmacy.metric_reorder': "Reorder",
+      's4.lib.pharmacy.metric_schedule': "Schedule",
+      's4.lib.pharmacy.metric_stock': "Stock",
+      's4.lib.pharmacy.metric_unit': "Unit",
+      's4.lib.pharmacy.metric_unit_price': "Unit price",
+      's4.lib.pharmacy.new_order': "New order",
       's4.lib.pharmacy.no_formulary_drugs_found': "No formulary drugs found",
       's4.lib.pharmacy.no_inventory_items_found': "No inventory items found",
       's4.lib.pharmacy.none': "None",
+      's4.lib.pharmacy.only_incharge_admin_change_formulary':
+          "Only Pharmacy Incharge or Admin can change the formulary",
+      's4.lib.pharmacy.only_incharge_admin_remove_formulary':
+          "Only Pharmacy Incharge or Admin can remove formulary drugs",
+      's4.lib.pharmacy.only_stores_incharge_admin_add_inventory':
+          "Only Stores/Purchase, Pharmacy Incharge, or Admin can add inventory items",
+      's4.lib.pharmacy.only_stores_incharge_admin_run_expiry':
+          "Only Stores/Purchase, Pharmacy Incharge, or Admin can run expiry scans",
+      's4.lib.pharmacy.order_created': "Pharmacy order created",
       's4.lib.pharmacy.order_note': "Order note",
+      's4.lib.pharmacy.order_note_required': "Order note is required",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "Pack size",
       's4.lib.pharmacy.pack_strength_note': "Pack / strength note",
@@ -6367,6 +6407,7 @@ class AppStrings {
       's4.lib.pharmacy.paracetamol_650_mg_tablet': "Paracetamol 650 mg tablet",
       's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
           "Pharmacy dispensing workflow is handled by Pharmacy staff. Use Inventory for stock, expiry, and purchase oversight.",
+      's4.lib.pharmacy.phone_required_valid': "Enter a valid phone number",
       's4.lib.pharmacy.prescription_required': "Prescription required",
       's4.lib.pharmacy.remove': "Remove",
       's4.lib.pharmacy.remove_from_formulary': "Remove from formulary?",
@@ -6374,18 +6415,28 @@ class AppStrings {
       's4.lib.pharmacy.reorder_level': "Reorder level",
       's4.lib.pharmacy.reorder_quantity': "Reorder quantity",
       's4.lib.pharmacy.run_expiry_scan': "Run Expiry Scan",
+      's4.lib.pharmacy.save_drug': "Save Drug",
+      's4.lib.pharmacy.save_inventory_item': "Save Inventory Item",
+      's4.lib.pharmacy.saving': "Saving...",
       's4.lib.pharmacy.search_formulary': "Search formulary",
       's4.lib.pharmacy.search_inventory': "Search inventory",
       's4.lib.pharmacy.shared_pharmacy_formulary': "Shared Pharmacy Formulary",
       's4.lib.pharmacy.sku_code': "SKU code",
       's4.lib.pharmacy.sku_drug_brand_or_generic':
           "SKU, drug, brand, or generic",
+      's4.lib.pharmacy.sku_required': "SKU code is required",
       's4.lib.pharmacy.stock_quantity': "Stock quantity",
       's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
           "Stores/Purchase can maintain the drug master, stock visibility, and expiry oversight without dispensing patient medications.",
       's4.lib.pharmacy.strength': "Strength",
+      's4.lib.pharmacy.tablet_hint': "tablet",
+      's4.lib.pharmacy.this_drug': "this drug",
       's4.lib.pharmacy.unit_label': "Unit label",
       's4.lib.pharmacy.unit_price': "Unit price",
+      's4.lib.pharmacy.unavailable': "Unavailable",
+      's4.lib.pharmacy.unknown_patient': "Unknown",
+      's4.lib.pharmacy.unnamed_drug': "Unnamed drug",
+      's4.lib.pharmacy.unnamed_item': "Unnamed item",
       's4.lib.pharmacy.x': "X",
       's4.lib.phone_patient_lookup.no_matching_patient_found':
           "No matching patient found.",
@@ -6999,8 +7050,20 @@ class AppStrings {
       's4.dynamic.messaging.download_failed': "Download failed: {error}",
       's4.dynamic.messaging.saved_to_path': "Saved to {path}",
       's4.dynamic.pharmacy.cancel_order_confirm': "Cancel order {orderNumber}?",
+      's4.dynamic.pharmacy.batch': "Batch {batch}",
+      's4.dynamic.pharmacy.confirm_delivered':
+          "Confirm that order {orderNumber} has been delivered.",
       's4.dynamic.pharmacy.formulary_count': "Formulary ({count})",
+      's4.dynamic.pharmacy.inventory_summary':
+          "{inventoryCount} inventory items • {expiryCount} expiry alerts • {formularyCount} formulary",
       's4.dynamic.pharmacy.inventory_count': "Inventory ({count})",
+      's4.dynamic.pharmacy.minutes_ago': "{minutes}m ago",
+      's4.dynamic.pharmacy.orders_summary':
+          "{newCount} new • {activeCount} active • {formularyCount} formulary",
+      's4.dynamic.pharmacy.remove_formulary_body':
+          "{name} will be hidden from OP/IP prescribing suggestions and the pharmacy formulary list.",
+      's4.dynamic.pharmacy.sla_breach_minutes': "SLA breach ({minutes}m)",
+      's4.dynamic.pharmacy.total_amount': "Total: ₹{amount}",
       's4.dynamic.order_sets.via_route': "via {route}",
       's4.dynamic.order_sets.duration_days': "× {days}d",
       's4.dynamic.front_office.mark_completed': "Mark {patient} as completed?",
@@ -8837,6 +8900,8 @@ class AppStrings {
       'investigations.complete_button': 'पूर्ण',
       // REVIEW: clinical-action confirmation
       'investigations.marked_as_prefix': '✅ जाँच चिह्नित की गई:',
+      // REVIEW: S4 Pharmacy reused reception key - confirm registration wording.
+      'reception_counter.patient.phone': 'मरीज़ का फ़ोन',
       'lab_bookings.title': 'लैब बुकिंग',
       'lab_bookings.tab.new': 'नई',
       'lab_bookings.tab.active': 'सक्रिय',
@@ -10507,33 +10572,73 @@ class AppStrings {
       's4.lib.pharmacy.10_digit_mobile_number': "10 अंकों का मोबाइल नंबर",
       's4.lib.pharmacy.10_tablets_strip': "10 गोलियाँ/स्ट्रिप",
       's4.lib.pharmacy.650_mg': "650 मिलीग्राम",
+      // REVIEW: S4 Pharmacy machine translations - confirm pharmacy phrasing.
+      's4.lib.pharmacy.add_formulary_drug': "फॉर्मूलरी दवा जोड़ें",
       's4.lib.pharmacy.add_inventory_item': "इन्वेंटरी आइटम जोड़ें",
       's4.lib.pharmacy.add_item': "मद जोड़ें",
+      's4.lib.pharmacy.analgesic_hint': "एनाल्जेसिक",
+      's4.lib.pharmacy.available': "उपलब्ध",
       's4.lib.pharmacy.available_in_formulary': "फॉर्मूलरी में उपलब्ध है",
       's4.lib.pharmacy.brand_name': "ब्रांड का नाम",
+      's4.lib.pharmacy.catalog_shared_copy':
+          "ओपी प्रिस्क्रिप्शन, आईपी ड्रग चार्ट और फार्मेसी इसी बैकएंड कैटलॉग का उपयोग करते हैं।",
+      's4.lib.pharmacy.catalog_shared_limited_copy':
+          "ओपी प्रिस्क्रिप्शन, आईपी ड्रग चार्ट और फार्मेसी इसी बैकएंड कैटलॉग का उपयोग करते हैं। बदलाव Pharmacy Incharge/Admin तक सीमित हैं।",
       's4.lib.pharmacy.cold_chain_item': "कोल्ड-चेन आइटम",
       's4.lib.pharmacy.controlled_narcotic_item': "नियंत्रित/मादक वस्तु",
+      's4.lib.pharmacy.could_not_identify_formulary_item':
+          "फॉर्मूलरी आइटम की पहचान नहीं हो सकी",
+      's4.lib.pharmacy.create_order': "ऑर्डर बनाएं",
       's4.lib.pharmacy.create_pharmacy_order': "फार्मेसी ऑर्डर बनाएं",
+      's4.lib.pharmacy.creating': "बनाया जा रहा है...",
       's4.lib.pharmacy.display_name': "प्रदर्शित होने वाला नाम",
+      's4.lib.pharmacy.display_name_required': "प्रदर्शित नाम आवश्यक है",
+      's4.lib.pharmacy.drug_added_to_formulary': "दवा फॉर्मूलरी में जोड़ी गई",
       's4.lib.pharmacy.drug_generic_or_strength': "दवा, जेनेरिक, या शक्ति",
       's4.lib.pharmacy.drug_name_with_strength': "ताकत के साथ दवा का नाम",
+      's4.lib.pharmacy.drug_name_required': "दवा का नाम आवश्यक है",
+      's4.lib.pharmacy.drug_removed_from_formulary': "दवा फॉर्मूलरी से हटाई गई",
+      's4.lib.pharmacy.drug_updated': "दवा अपडेट हुई",
       's4.lib.pharmacy.edit_formulary_drug': "फार्मूलरी औषधि संपादित करें",
       's4.lib.pharmacy.expiry_alerts': "समाप्ति चेतावनियाँ",
+      's4.lib.pharmacy.expiry_scan_completed': "एक्सपायरी स्कैन पूरा हुआ",
       's4.lib.pharmacy.form': "रूप",
       's4.lib.pharmacy.generic_name': "वर्ग नाम",
       's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase': "इन्वेंटरी और खरीद",
       's4.lib.pharmacy.inventory_and_purchase_oversight':
           "इन्वेंटरी एवं खरीद निरीक्षण",
+      's4.lib.pharmacy.inventory_item_added': "इन्वेंटरी आइटम जोड़ा गया",
       's4.lib.pharmacy.inventory_items': "इन्वेंटरी आइटम",
       's4.lib.pharmacy.manufacturer': "उत्पादक",
       's4.lib.pharmacy.mark_urgent': "अत्यावश्यक चिह्नित करें",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
           "दवा के नाम, खुराक, मात्रा, या आरएक्स नोट",
+      's4.lib.pharmacy.metric_bucket': "बकेट",
+      's4.lib.pharmacy.metric_category': "श्रेणी",
+      's4.lib.pharmacy.metric_days': "दिन",
+      's4.lib.pharmacy.metric_qty': "मात्रा",
+      's4.lib.pharmacy.metric_reorder': "रीऑर्डर",
+      's4.lib.pharmacy.metric_schedule': "शेड्यूल",
+      's4.lib.pharmacy.metric_stock': "स्टॉक",
+      's4.lib.pharmacy.metric_unit': "यूनिट",
+      's4.lib.pharmacy.metric_unit_price': "यूनिट मूल्य",
+      's4.lib.pharmacy.new_order': "नया ऑर्डर",
       's4.lib.pharmacy.no_formulary_drugs_found': "कोई फॉर्मूलरी दवा नहीं मिली",
       's4.lib.pharmacy.no_inventory_items_found':
           "कोई इन्वेंट्री आइटम नहीं मिला",
       's4.lib.pharmacy.none': "कोई नहीं",
+      's4.lib.pharmacy.only_incharge_admin_change_formulary':
+          "केवल Pharmacy Incharge या Admin फॉर्मूलरी बदल सकते हैं",
+      's4.lib.pharmacy.only_incharge_admin_remove_formulary':
+          "केवल Pharmacy Incharge या Admin फॉर्मूलरी दवाएं हटा सकते हैं",
+      's4.lib.pharmacy.only_stores_incharge_admin_add_inventory':
+          "केवल Stores/Purchase, Pharmacy Incharge या Admin इन्वेंटरी आइटम जोड़ सकते हैं",
+      's4.lib.pharmacy.only_stores_incharge_admin_run_expiry':
+          "केवल Stores/Purchase, Pharmacy Incharge या Admin एक्सपायरी स्कैन चला सकते हैं",
+      's4.lib.pharmacy.order_created': "फार्मेसी ऑर्डर बनाया गया",
       's4.lib.pharmacy.order_note': "आदेश नोट",
+      's4.lib.pharmacy.order_note_required': "ऑर्डर नोट आवश्यक है",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "पैक का आकार",
       's4.lib.pharmacy.pack_strength_note': "पैक/शक्ति नोट",
@@ -10543,6 +10648,7 @@ class AppStrings {
           "पेरासिटामोल 650 मिलीग्राम की गोली",
       's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
           "फ़ार्मेसी वितरण कार्यप्रवाह को फ़ार्मेसी स्टाफ द्वारा नियंत्रित किया जाता है। स्टॉक, समाप्ति और खरीद निरीक्षण के लिए इन्वेंटरी का उपयोग करें।",
+      's4.lib.pharmacy.phone_required_valid': "मान्य फोन नंबर दर्ज करें",
       's4.lib.pharmacy.prescription_required': "नुस्खे की आवश्यकता है",
       's4.lib.pharmacy.remove': "निकालना",
       's4.lib.pharmacy.remove_from_formulary': "फॉर्मूलरी से हटाएँ?",
@@ -10550,18 +10656,28 @@ class AppStrings {
       's4.lib.pharmacy.reorder_level': "स्तर पुनः क्रमित करें",
       's4.lib.pharmacy.reorder_quantity': "मात्रा पुनः व्यवस्थित करें",
       's4.lib.pharmacy.run_expiry_scan': "एक्सपायरी स्कैन चलाएँ",
+      's4.lib.pharmacy.save_drug': "दवा सहेजें",
+      's4.lib.pharmacy.save_inventory_item': "इन्वेंटरी आइटम सहेजें",
+      's4.lib.pharmacy.saving': "सहेजा जा रहा है...",
       's4.lib.pharmacy.search_formulary': "फॉर्मूलरी खोजें",
       's4.lib.pharmacy.search_inventory': "सूची खोजें",
       's4.lib.pharmacy.shared_pharmacy_formulary': "साझा फार्मेसी फॉर्मूलरी",
       's4.lib.pharmacy.sku_code': "एसकेयू कोड",
       's4.lib.pharmacy.sku_drug_brand_or_generic':
           "SKU, दवा, ब्रांड, या जेनेरिक",
+      's4.lib.pharmacy.sku_required': "SKU कोड आवश्यक है",
       's4.lib.pharmacy.stock_quantity': "स्टॉक मात्रा",
       's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
           "स्टोर/खरीद रोगी को दवाएँ वितरित किए बिना दवा मास्टर, स्टॉक दृश्यता और समाप्ति निरीक्षण को बनाए रख सकते हैं।",
       's4.lib.pharmacy.strength': "ताकत",
+      's4.lib.pharmacy.tablet_hint': "टैबलेट",
+      's4.lib.pharmacy.this_drug': "यह दवा",
       's4.lib.pharmacy.unit_label': "यूनिट लेबल",
       's4.lib.pharmacy.unit_price': "यूनिट मूल्य",
+      's4.lib.pharmacy.unavailable': "अनुपलब्ध",
+      's4.lib.pharmacy.unknown_patient': "अज्ञात",
+      's4.lib.pharmacy.unnamed_drug': "बेनाम दवा",
+      's4.lib.pharmacy.unnamed_item': "बेनाम आइटम",
       's4.lib.pharmacy.x': "X",
       's4.lib.phone_patient_lookup.no_matching_patient_found':
           "कोई मिलता-जुलता मरीज़ नहीं मिला.",
@@ -11178,8 +11294,21 @@ class AppStrings {
       's4.dynamic.messaging.saved_to_path': "{path} में सहेजा गया",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "ऑर्डर रद्द करें {orderNumber}?",
+      // REVIEW: S4 Pharmacy dynamic machine translations - preserve placeholders.
+      's4.dynamic.pharmacy.batch': "बैच {batch}",
+      's4.dynamic.pharmacy.confirm_delivered':
+          "पुष्टि करें कि ऑर्डर {orderNumber} डिलीवर हो गया है।",
       's4.dynamic.pharmacy.formulary_count': "फॉर्मूलरी ({count})",
+      's4.dynamic.pharmacy.inventory_summary':
+          "{inventoryCount} इन्वेंटरी आइटम • {expiryCount} एक्सपायरी अलर्ट • {formularyCount} फॉर्मूलरी",
       's4.dynamic.pharmacy.inventory_count': "इन्वेंटरी ({count})",
+      's4.dynamic.pharmacy.minutes_ago': "{minutes} मिनट पहले",
+      's4.dynamic.pharmacy.orders_summary':
+          "{newCount} नए • {activeCount} सक्रिय • {formularyCount} फॉर्मूलरी",
+      's4.dynamic.pharmacy.remove_formulary_body':
+          "{name} OP/IP प्रिस्क्राइबिंग सुझावों और फार्मेसी फॉर्मूलरी सूची से छिपाई जाएगी।",
+      's4.dynamic.pharmacy.sla_breach_minutes': "SLA उल्लंघन ({minutes}मि)",
+      's4.dynamic.pharmacy.total_amount': "कुल: ₹{amount}",
       's4.dynamic.order_sets.via_route': "{route} के माध्यम से",
       's4.dynamic.order_sets.duration_days': "× {days}D",
       's4.dynamic.front_office.mark_completed':
@@ -12531,6 +12660,8 @@ class AppStrings {
       // REVIEW: clinical confirmation
       'investigations.upload_success':
           '✅ புலனாய்வு முடிவு வெற்றிகரமாக பதிவேற்றப்பட்டது',
+      // REVIEW: S4 Pharmacy reused reception key - confirm registration wording.
+      'reception_counter.patient.phone': 'நோயாளி தொலைபேசி',
       'lab_bookings.title': 'ஆய்வக முன்பதிவுகள்',
       'pharmacy.title': 'மருந்தக கட்டளைகள்',
       'pharmacy.confirm_order': 'கட்டளையை உறுதி செய்',
@@ -15227,36 +15358,78 @@ class AppStrings {
       's4.lib.pharmacy.10_digit_mobile_number': "10 இலக்க மொபைல் எண்",
       's4.lib.pharmacy.10_tablets_strip': "10 மாத்திரைகள் / துண்டு",
       's4.lib.pharmacy.650_mg': "650 மி.கி",
+      // REVIEW: S4 Pharmacy machine translations - confirm pharmacy phrasing.
+      's4.lib.pharmacy.add_formulary_drug': "ஃபார்முலரி மருந்தைச் சேர்க்கவும்",
       's4.lib.pharmacy.add_inventory_item': "சரக்கு உருப்படியைச் சேர்க்கவும்",
       's4.lib.pharmacy.add_item': "பொருளைச் சேர்க்கவும்",
+      's4.lib.pharmacy.analgesic_hint': "வலி நிவாரணி",
+      's4.lib.pharmacy.available': "கிடைக்கிறது",
       's4.lib.pharmacy.available_in_formulary': "ஃபார்முலாரியில் கிடைக்கும்",
       's4.lib.pharmacy.brand_name': "பிராண்ட் பெயர்",
+      's4.lib.pharmacy.catalog_shared_copy':
+          "OP மருந்துச் சீட்டுகள், IP மருந்து அட்டைகள், மற்றும் மருந்தகம் இதே பின்புற பட்டியலைப் பயன்படுத்துகின்றன.",
+      's4.lib.pharmacy.catalog_shared_limited_copy':
+          "OP மருந்துச் சீட்டுகள், IP மருந்து அட்டைகள், மற்றும் மருந்தகம் இதே பின்புற பட்டியலைப் பயன்படுத்துகின்றன. மாற்றங்கள் Pharmacy Incharge/Admin க்கு மட்டுமே.",
       's4.lib.pharmacy.cold_chain_item': "குளிர் சங்கிலி பொருள்",
       's4.lib.pharmacy.controlled_narcotic_item':
           "கட்டுப்படுத்தப்பட்ட / போதை பொருள்",
+      's4.lib.pharmacy.could_not_identify_formulary_item':
+          "ஃபார்முலரி உருப்படியை அடையாளம் காண முடியவில்லை",
+      's4.lib.pharmacy.create_order': "ஆர்டரை உருவாக்கவும்",
       's4.lib.pharmacy.create_pharmacy_order': "பார்மசி ஆர்டரை உருவாக்கவும்",
+      's4.lib.pharmacy.creating': "உருவாக்குகிறது...",
       's4.lib.pharmacy.display_name': "காட்சி பெயர்",
+      's4.lib.pharmacy.display_name_required': "காட்சி பெயர் தேவை",
+      's4.lib.pharmacy.drug_added_to_formulary':
+          "மருந்து ஃபார்முலரியில் சேர்க்கப்பட்டது",
       's4.lib.pharmacy.drug_generic_or_strength':
           "மருந்து, பொதுவான, அல்லது வலிமை",
       's4.lib.pharmacy.drug_name_with_strength': "வலிமை கொண்ட மருந்து பெயர்",
+      's4.lib.pharmacy.drug_name_required': "மருந்து பெயர் தேவை",
+      's4.lib.pharmacy.drug_removed_from_formulary':
+          "மருந்து ஃபார்முலரியில் இருந்து அகற்றப்பட்டது",
+      's4.lib.pharmacy.drug_updated': "மருந்து புதுப்பிக்கப்பட்டது",
       's4.lib.pharmacy.edit_formulary_drug': "ஃபார்முலரி மருந்தைத் திருத்தவும்",
       's4.lib.pharmacy.expiry_alerts': "காலாவதி எச்சரிக்கைகள்",
+      's4.lib.pharmacy.expiry_scan_completed': "காலாவதி ஸ்கேன் முடிந்தது",
       's4.lib.pharmacy.form': "படிவம்",
       's4.lib.pharmacy.generic_name': "பொதுவான பெயர்",
       's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase': "சரக்கு மற்றும் கொள்முதல்",
       's4.lib.pharmacy.inventory_and_purchase_oversight':
           "சரக்கு & கொள்முதல் மேற்பார்வை",
+      's4.lib.pharmacy.inventory_item_added': "சரக்கு உருப்படி சேர்க்கப்பட்டது",
       's4.lib.pharmacy.inventory_items': "சரக்கு பொருட்கள்",
       's4.lib.pharmacy.manufacturer': "உற்பத்தியாளர்",
       's4.lib.pharmacy.mark_urgent': "அவசரமாகக் குறிக்கவும்",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
           "மருந்தின் பெயர்கள், டோஸ், அளவு அல்லது Rx குறிப்பு",
+      's4.lib.pharmacy.metric_bucket': "கூடை",
+      's4.lib.pharmacy.metric_category': "வகை",
+      's4.lib.pharmacy.metric_days': "நாட்கள்",
+      's4.lib.pharmacy.metric_qty': "அளவு",
+      's4.lib.pharmacy.metric_reorder': "மீண்டும் ஆர்டர்",
+      's4.lib.pharmacy.metric_schedule': "அட்டவணை",
+      's4.lib.pharmacy.metric_stock': "இருப்பு",
+      's4.lib.pharmacy.metric_unit': "அலகு",
+      's4.lib.pharmacy.metric_unit_price': "அலகு விலை",
+      's4.lib.pharmacy.new_order': "புதிய ஆர்டர்",
       's4.lib.pharmacy.no_formulary_drugs_found':
           "ஃபார்முலரி மருந்துகள் எதுவும் கண்டுபிடிக்கப்படவில்லை",
       's4.lib.pharmacy.no_inventory_items_found':
           "இருப்பு பொருட்கள் எதுவும் இல்லை",
       's4.lib.pharmacy.none': "இல்லை",
+      's4.lib.pharmacy.only_incharge_admin_change_formulary':
+          "Pharmacy Incharge அல்லது Admin மட்டுமே ஃபார்முலரியை மாற்ற முடியும்",
+      's4.lib.pharmacy.only_incharge_admin_remove_formulary':
+          "Pharmacy Incharge அல்லது Admin மட்டுமே ஃபார்முலரி மருந்துகளை அகற்ற முடியும்",
+      's4.lib.pharmacy.only_stores_incharge_admin_add_inventory':
+          "Stores/Purchase, Pharmacy Incharge அல்லது Admin மட்டுமே சரக்கு உருப்படிகளைச் சேர்க்க முடியும்",
+      's4.lib.pharmacy.only_stores_incharge_admin_run_expiry':
+          "Stores/Purchase, Pharmacy Incharge அல்லது Admin மட்டுமே காலாவதி ஸ்கேன் இயக்க முடியும்",
+      's4.lib.pharmacy.order_created': "மருந்தக ஆர்டர் உருவாக்கப்பட்டது",
       's4.lib.pharmacy.order_note': "ஆர்டர் குறிப்பு",
+      's4.lib.pharmacy.order_note_required': "ஆர்டர் குறிப்பு தேவை",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "பேக் அளவு",
       's4.lib.pharmacy.pack_strength_note': "பேக் / வலிமை குறிப்பு",
@@ -15266,6 +15439,8 @@ class AppStrings {
           "Paracetamol 650 mg மாத்திரை",
       's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
           "மருந்தகம் வழங்கும் பணிப்பாய்வு மருந்தக ஊழியர்களால் கையாளப்படுகிறது. இருப்பு, காலாவதி மற்றும் கொள்முதல் மேற்பார்வைக்கு சரக்குகளைப் பயன்படுத்தவும்.",
+      's4.lib.pharmacy.phone_required_valid':
+          "சரியான தொலைபேசி எண்ணை உள்ளிடவும்",
       's4.lib.pharmacy.prescription_required': "மருந்துச் சீட்டு தேவை",
       's4.lib.pharmacy.remove': "அகற்று",
       's4.lib.pharmacy.remove_from_formulary':
@@ -15275,6 +15450,9 @@ class AppStrings {
       's4.lib.pharmacy.reorder_level': "மறுவரிசைப்படுத்து நிலை",
       's4.lib.pharmacy.reorder_quantity': "அளவை மறுவரிசைப்படுத்தவும்",
       's4.lib.pharmacy.run_expiry_scan': "காலாவதி ஸ்கேன் இயக்கவும்",
+      's4.lib.pharmacy.save_drug': "மருந்தைச் சேமிக்கவும்",
+      's4.lib.pharmacy.save_inventory_item': "சரக்கு உருப்படியைச் சேமிக்கவும்",
+      's4.lib.pharmacy.saving': "சேமிக்கிறது...",
       's4.lib.pharmacy.search_formulary': "தேடல் சூத்திரம்",
       's4.lib.pharmacy.search_inventory': "சரக்குகளைத் தேடுங்கள்",
       's4.lib.pharmacy.shared_pharmacy_formulary':
@@ -15282,12 +15460,19 @@ class AppStrings {
       's4.lib.pharmacy.sku_code': "SKU குறியீடு",
       's4.lib.pharmacy.sku_drug_brand_or_generic':
           "SKU, மருந்து, பிராண்ட் அல்லது பொதுவானது",
+      's4.lib.pharmacy.sku_required': "SKU குறியீடு தேவை",
       's4.lib.pharmacy.stock_quantity': "பங்கு அளவு",
       's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
           "ஸ்டோர்கள்/கொள்முதல் நோயாளி மருந்துகளை வழங்காமல் மருந்து மாஸ்டர், இருப்புத் தெரிவுநிலை மற்றும் காலாவதியான மேற்பார்வை ஆகியவற்றைப் பராமரிக்க முடியும்.",
       's4.lib.pharmacy.strength': "வலிமை",
+      's4.lib.pharmacy.tablet_hint': "மாத்திரை",
+      's4.lib.pharmacy.this_drug': "இந்த மருந்து",
       's4.lib.pharmacy.unit_label': "அலகு லேபிள்",
       's4.lib.pharmacy.unit_price': "அலகு விலை",
+      's4.lib.pharmacy.unavailable': "கிடைக்கவில்லை",
+      's4.lib.pharmacy.unknown_patient': "தெரியாதவர்",
+      's4.lib.pharmacy.unnamed_drug': "பெயரிடப்படாத மருந்து",
+      's4.lib.pharmacy.unnamed_item': "பெயரிடப்படாத உருப்படி",
       's4.lib.pharmacy.x': "X",
       's4.lib.phone_patient_lookup.no_matching_patient_found':
           "பொருத்தமான நோயாளி இல்லை.",
@@ -15933,8 +16118,21 @@ class AppStrings {
       's4.dynamic.messaging.saved_to_path': "{path} இல் சேமிக்கப்பட்டது",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "{orderNumber} ஆர்டரை ரத்துசெய்யவா?",
+      // REVIEW: S4 Pharmacy dynamic machine translations - preserve placeholders.
+      's4.dynamic.pharmacy.batch': "தொகுதி {batch}",
+      's4.dynamic.pharmacy.confirm_delivered':
+          "{orderNumber} ஆர்டர் வழங்கப்பட்டது என்பதை உறுதிப்படுத்தவும்.",
       's4.dynamic.pharmacy.formulary_count': "ஃபார்முலரி ({count})",
+      's4.dynamic.pharmacy.inventory_summary':
+          "{inventoryCount} சரக்கு உருப்படிகள் • {expiryCount} காலாவதி எச்சரிக்கைகள் • {formularyCount} ஃபார்முலரி",
       's4.dynamic.pharmacy.inventory_count': "இருப்பு ({count})",
+      's4.dynamic.pharmacy.minutes_ago': "{minutes} நிமிடம் முன்பு",
+      's4.dynamic.pharmacy.orders_summary':
+          "{newCount} புதியவை • {activeCount} செயலில் • {formularyCount} ஃபார்முலரி",
+      's4.dynamic.pharmacy.remove_formulary_body':
+          "{name} OP/IP மருந்து பரிந்துரைச் சுட்டுரைகள் மற்றும் மருந்தக ஃபார்முலரி பட்டியலில் இருந்து மறைக்கப்படும்.",
+      's4.dynamic.pharmacy.sla_breach_minutes': "SLA மீறல் ({minutes}நி)",
+      's4.dynamic.pharmacy.total_amount': "மொத்தம்: ₹{amount}",
       's4.dynamic.order_sets.via_route': "{route} வழியாக",
       's4.dynamic.order_sets.duration_days': "× {days}D",
       's4.dynamic.front_office.mark_completed':
@@ -17270,6 +17468,8 @@ class AppStrings {
       // REVIEW: clinical confirmation
       'investigations.upload_success':
           '✅ పరిశోధన ఫలితం విజయవంతంగా అప్‌లోడ్ చేయబడింది',
+      // REVIEW: S4 Pharmacy reused reception key - confirm registration wording.
+      'reception_counter.patient.phone': 'రోగి ఫోన్',
       'lab_bookings.title': 'ల్యాబ్ బుకింగ్‌లు',
       'pharmacy.title': 'ఫార్మసీ ఆర్డర్‌లు',
       'pharmacy.confirm_order': 'ఆర్డర్ నిర్ధారించు',
@@ -19930,35 +20130,77 @@ class AppStrings {
       's4.lib.pharmacy.10_digit_mobile_number': "10-అంకెల మొబైల్ నంబర్",
       's4.lib.pharmacy.10_tablets_strip': "10 మాత్రలు / స్ట్రిప్",
       's4.lib.pharmacy.650_mg': "650 మి.గ్రా",
+      // REVIEW: S4 Pharmacy machine translations - confirm pharmacy phrasing.
+      's4.lib.pharmacy.add_formulary_drug': "ఫార్ములారీ మందును జోడించండి",
       's4.lib.pharmacy.add_inventory_item': "ఇన్వెంటరీ అంశాన్ని జోడించండి",
       's4.lib.pharmacy.add_item': "అంశాన్ని జోడించండి",
+      's4.lib.pharmacy.analgesic_hint': "నొప్పి నివారిణి",
+      's4.lib.pharmacy.available': "అందుబాటులో ఉంది",
       's4.lib.pharmacy.available_in_formulary': "ఫార్ములారీలో అందుబాటులో ఉంది",
       's4.lib.pharmacy.brand_name': "బ్రాండ్ పేరు",
+      's4.lib.pharmacy.catalog_shared_copy':
+          "OP ప్రిస్క్రిప్షన్లు, IP డ్రగ్ చార్టులు మరియు ఫార్మసీ ఇదే బ్యాకెండ్ కేటలాగ్‌ను ఉపయోగిస్తాయి.",
+      's4.lib.pharmacy.catalog_shared_limited_copy':
+          "OP ప్రిస్క్రిప్షన్లు, IP డ్రగ్ చార్టులు మరియు ఫార్మసీ ఇదే బ్యాకెండ్ కేటలాగ్‌ను ఉపయోగిస్తాయి. మార్పులు Pharmacy Incharge/Admin కే పరిమితం.",
       's4.lib.pharmacy.cold_chain_item': "కోల్డ్-చైన్ అంశం",
       's4.lib.pharmacy.controlled_narcotic_item':
           "నియంత్రిత / మాదక ద్రవ్యాల అంశం",
+      's4.lib.pharmacy.could_not_identify_formulary_item':
+          "ఫార్ములారీ అంశాన్ని గుర్తించలేకపోయాము",
+      's4.lib.pharmacy.create_order': "ఆర్డర్ సృష్టించండి",
       's4.lib.pharmacy.create_pharmacy_order': "ఫార్మసీ ఆర్డర్‌ని సృష్టించండి",
+      's4.lib.pharmacy.creating': "సృష్టిస్తోంది...",
       's4.lib.pharmacy.display_name': "ప్రదర్శన పేరు",
+      's4.lib.pharmacy.display_name_required': "ప్రదర్శన పేరు అవసరం",
+      's4.lib.pharmacy.drug_added_to_formulary':
+          "మందు ఫార్ములారీలో జోడించబడింది",
       's4.lib.pharmacy.drug_generic_or_strength': "ఔషధం, సాధారణం లేదా బలం",
       's4.lib.pharmacy.drug_name_with_strength': "బలంతో మందు పేరు",
+      's4.lib.pharmacy.drug_name_required': "మందు పేరు అవసరం",
+      's4.lib.pharmacy.drug_removed_from_formulary':
+          "మందు ఫార్ములారీ నుండి తీసివేయబడింది",
+      's4.lib.pharmacy.drug_updated': "మందు నవీకరించబడింది",
       's4.lib.pharmacy.edit_formulary_drug': "ఫార్ములారీ ఔషధాన్ని సవరించండి",
       's4.lib.pharmacy.expiry_alerts': "గడువు హెచ్చరికలు",
+      's4.lib.pharmacy.expiry_scan_completed': "ఎక్స్‌పైరీ స్కాన్ పూర్తయింది",
       's4.lib.pharmacy.form': "రూపం",
       's4.lib.pharmacy.generic_name': "సాధారణ పేరు",
       's4.lib.pharmacy.h1': "H1",
+      's4.lib.pharmacy.inventory_and_purchase': "ఇన్వెంటరీ మరియు కొనుగోలు",
       's4.lib.pharmacy.inventory_and_purchase_oversight':
           "ఇన్వెంటరీ & కొనుగోలు పర్యవేక్షణ",
+      's4.lib.pharmacy.inventory_item_added': "ఇన్వెంటరీ అంశం జోడించబడింది",
       's4.lib.pharmacy.inventory_items': "ఇన్వెంటరీ అంశాలు",
       's4.lib.pharmacy.manufacturer': "తయారీదారు",
       's4.lib.pharmacy.mark_urgent': "అత్యవసరమని గుర్తించండి",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
           "ఔషధాల పేర్లు, మోతాదు, పరిమాణం లేదా Rx గమనిక",
+      's4.lib.pharmacy.metric_bucket': "బకెట్",
+      's4.lib.pharmacy.metric_category': "వర్గం",
+      's4.lib.pharmacy.metric_days': "రోజులు",
+      's4.lib.pharmacy.metric_qty': "పరిమాణం",
+      's4.lib.pharmacy.metric_reorder': "రీఆర్డర్",
+      's4.lib.pharmacy.metric_schedule': "షెడ్యూల్",
+      's4.lib.pharmacy.metric_stock': "స్టాక్",
+      's4.lib.pharmacy.metric_unit': "యూనిట్",
+      's4.lib.pharmacy.metric_unit_price': "యూనిట్ ధర",
+      's4.lib.pharmacy.new_order': "కొత్త ఆర్డర్",
       's4.lib.pharmacy.no_formulary_drugs_found':
           "ఫార్ములారీ మందులు కనుగొనబడలేదు",
       's4.lib.pharmacy.no_inventory_items_found':
           "ఇన్వెంటరీ అంశాలు ఏవీ కనుగొనబడలేదు",
       's4.lib.pharmacy.none': "ఏదీ లేదు",
+      's4.lib.pharmacy.only_incharge_admin_change_formulary':
+          "Pharmacy Incharge లేదా Admin మాత్రమే ఫార్ములారీని మార్చగలరు",
+      's4.lib.pharmacy.only_incharge_admin_remove_formulary':
+          "Pharmacy Incharge లేదా Admin మాత్రమే ఫార్ములారీ మందులను తీసివేయగలరు",
+      's4.lib.pharmacy.only_stores_incharge_admin_add_inventory':
+          "Stores/Purchase, Pharmacy Incharge లేదా Admin మాత్రమే ఇన్వెంటరీ అంశాలను జోడించగలరు",
+      's4.lib.pharmacy.only_stores_incharge_admin_run_expiry':
+          "Stores/Purchase, Pharmacy Incharge లేదా Admin మాత్రమే ఎక్స్‌పైరీ స్కాన్ అమలు చేయగలరు",
+      's4.lib.pharmacy.order_created': "ఫార్మసీ ఆర్డర్ సృష్టించబడింది",
       's4.lib.pharmacy.order_note': "ఆర్డర్ నోట్",
+      's4.lib.pharmacy.order_note_required': "ఆర్డర్ గమనిక అవసరం",
       's4.lib.pharmacy.otc': "OTC",
       's4.lib.pharmacy.pack_size': "ప్యాక్ పరిమాణం",
       's4.lib.pharmacy.pack_strength_note': "ప్యాక్ / బలం గమనిక",
@@ -19968,6 +20210,8 @@ class AppStrings {
           "పారాసెటమాల్ 650 mg టాబ్లెట్",
       's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm':
           "ఫార్మసీ పంపిణీ వర్క్‌ఫ్లో ఫార్మసీ సిబ్బంది నిర్వహిస్తారు. స్టాక్, గడువు ముగింపు మరియు కొనుగోలు పర్యవేక్షణ కోసం ఇన్వెంటరీని ఉపయోగించండి.",
+      's4.lib.pharmacy.phone_required_valid':
+          "చెల్లుబాటు అయ్యే ఫోన్ నంబర్ నమోదు చేయండి",
       's4.lib.pharmacy.prescription_required': "ప్రిస్క్రిప్షన్ అవసరం",
       's4.lib.pharmacy.remove': "తొలగించు",
       's4.lib.pharmacy.remove_from_formulary': "ఫార్ములారీ నుండి తీసివేయాలా?",
@@ -19975,18 +20219,28 @@ class AppStrings {
       's4.lib.pharmacy.reorder_level': "స్థాయిని క్రమాన్ని మార్చండి",
       's4.lib.pharmacy.reorder_quantity': "పరిమాణాన్ని క్రమాన్ని మార్చండి",
       's4.lib.pharmacy.run_expiry_scan': "ఎక్స్‌పైరీ స్కాన్‌ని అమలు చేయండి",
+      's4.lib.pharmacy.save_drug': "మందును సేవ్ చేయండి",
+      's4.lib.pharmacy.save_inventory_item': "ఇన్వెంటరీ అంశాన్ని సేవ్ చేయండి",
+      's4.lib.pharmacy.saving': "సేవ్ చేస్తోంది...",
       's4.lib.pharmacy.search_formulary': "శోధన సూత్రం",
       's4.lib.pharmacy.search_inventory': "శోధన జాబితా",
       's4.lib.pharmacy.shared_pharmacy_formulary': "షేర్డ్ ఫార్మసీ ఫార్ములారీ",
       's4.lib.pharmacy.sku_code': "SKU కోడ్",
       's4.lib.pharmacy.sku_drug_brand_or_generic':
           "SKU, డ్రగ్, బ్రాండ్ లేదా జెనరిక్",
+      's4.lib.pharmacy.sku_required': "SKU కోడ్ అవసరం",
       's4.lib.pharmacy.stock_quantity': "స్టాక్ పరిమాణం",
       's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto':
           "దుకాణాలు/కొనుగోలు రోగి మందులను పంపిణీ చేయకుండా ఔషధ మాస్టర్, స్టాక్ విజిబిలిటీ మరియు ఎక్స్‌పైరీ పర్యవేక్షణను నిర్వహించగలవు.",
       's4.lib.pharmacy.strength': "బలం",
+      's4.lib.pharmacy.tablet_hint': "మాత్ర",
+      's4.lib.pharmacy.this_drug': "ఈ మందు",
       's4.lib.pharmacy.unit_label': "యూనిట్ లేబుల్",
       's4.lib.pharmacy.unit_price': "యూనిట్ ధర",
+      's4.lib.pharmacy.unavailable': "అందుబాటులో లేదు",
+      's4.lib.pharmacy.unknown_patient': "తెలియదు",
+      's4.lib.pharmacy.unnamed_drug': "పేరు లేని మందు",
+      's4.lib.pharmacy.unnamed_item': "పేరు లేని అంశం",
       's4.lib.pharmacy.x': "X",
       's4.lib.phone_patient_lookup.no_matching_patient_found':
           "సరిపోలే రోగి కనుగొనబడలేదు.",
@@ -20617,8 +20871,21 @@ class AppStrings {
       's4.dynamic.messaging.saved_to_path': "{path}కి సేవ్ చేయబడింది",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "ఆర్డర్ {orderNumber}ని రద్దు చేయాలా?",
+      // REVIEW: S4 Pharmacy dynamic machine translations - preserve placeholders.
+      's4.dynamic.pharmacy.batch': "బ్యాచ్ {batch}",
+      's4.dynamic.pharmacy.confirm_delivered':
+          "ఆర్డర్ {orderNumber} డెలివర్ చేయబడిందని నిర్ధారించండి.",
       's4.dynamic.pharmacy.formulary_count': "ఫార్ములారీ ({count})",
+      's4.dynamic.pharmacy.inventory_summary':
+          "{inventoryCount} ఇన్వెంటరీ అంశాలు • {expiryCount} ఎక్స్‌పైరీ హెచ్చరికలు • {formularyCount} ఫార్ములారీ",
       's4.dynamic.pharmacy.inventory_count': "ఇన్వెంటరీ ({count})",
+      's4.dynamic.pharmacy.minutes_ago': "{minutes} నిమిషాల క్రితం",
+      's4.dynamic.pharmacy.orders_summary':
+          "{newCount} కొత్తవి • {activeCount} సక్రియం • {formularyCount} ఫార్ములారీ",
+      's4.dynamic.pharmacy.remove_formulary_body':
+          "{name} OP/IP ప్రిస్క్రైబింగ్ సూచనలు మరియు ఫార్మసీ ఫార్ములారీ జాబితా నుండి దాచబడుతుంది.",
+      's4.dynamic.pharmacy.sla_breach_minutes': "SLA ఉల్లంఘన ({minutes}ని)",
+      's4.dynamic.pharmacy.total_amount': "మొత్తం: ₹{amount}",
       's4.dynamic.order_sets.via_route': "{route} ద్వారా",
       's4.dynamic.order_sets.duration_days': "× {days}Dవ",
       's4.dynamic.front_office.mark_completed':

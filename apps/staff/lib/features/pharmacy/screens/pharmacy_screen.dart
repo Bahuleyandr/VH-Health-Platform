@@ -264,6 +264,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _createOrder() async {
+    final orderCreatedMessage = AppStrings.of(
+      context,
+    ).lookup('s4.lib.pharmacy.order_created');
     final formKey = GlobalKey<FormState>();
     final phoneCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
@@ -359,7 +362,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             '',
                           );
                           return digits.length < 10
-                              ? 'Enter a valid phone number'
+                              ? AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.phone_required_valid')
                               : null;
                         },
                       ),
@@ -381,7 +386,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         minLines: 3,
                         maxLines: 5,
                         validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? 'Order note is required'
+                            ? AppStrings.of(
+                                context,
+                              ).lookup('s4.lib.pharmacy.order_note_required')
                             : null,
                       ),
                       const SizedBox(height: 8),
@@ -409,7 +416,11 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                 )
                               : const Icon(Icons.add, color: Colors.white),
                           label: Text(
-                            submitting ? 'Creating...' : 'Create Order',
+                            AppStrings.of(context).lookup(
+                              submitting
+                                  ? 's4.lib.pharmacy.creating'
+                                  : 's4.lib.pharmacy.create_order',
+                            ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFE65100),
@@ -428,7 +439,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       );
 
       if (created == true) {
-        _snack('Pharmacy order created');
+        _snack(orderCreatedMessage);
         _loadOrders();
       }
     } finally {
@@ -669,13 +680,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.pharmacyMarkDeliveredDialog),
-        content: Text(
-          'Confirm that order ${order['order_number']} has been delivered.',
+        content: AppText(
+          's4.dynamic.pharmacy.confirm_delivered',
+          values: {'orderNumber': order['order_number'] ?? ''},
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const AppText('bed_board.no_filtered_prefix'),
+            child: const AppText('action.cancel'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -724,7 +736,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const AppText('bed_board.no_filtered_prefix'),
+            child: const AppText('action.cancel'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -755,12 +767,19 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _openCatalogEditor([Map<String, dynamic>? item]) async {
     if (!_canManageFormulary) {
       _snack(
-        'Only Pharmacy Incharge or Admin can change the formulary',
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.pharmacy.only_incharge_admin_change_formulary'),
         isError: true,
       );
       return;
     }
 
+    final savedMessage = AppStrings.of(context).lookup(
+      item == null
+          ? 's4.lib.pharmacy.drug_added_to_formulary'
+          : 's4.lib.pharmacy.drug_updated',
+    );
     final formKey = GlobalKey<FormState>();
     final nameCtrl = TextEditingController(
       text: item?['name']?.toString() ?? '',
@@ -856,9 +875,11 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              item == null
-                                  ? 'Add Formulary Drug'
-                                  : 'Edit Formulary Drug',
+                              AppStrings.of(context).lookup(
+                                item == null
+                                    ? 's4.lib.pharmacy.add_formulary_drug'
+                                    : 's4.lib.pharmacy.edit_formulary_drug',
+                              ),
                               style: TextStyle(
                                 color: AppTheme.textPrimary,
                                 fontSize: 18,
@@ -892,7 +913,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           ),
                         ),
                         validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? 'Drug name is required'
+                            ? AppStrings.of(
+                                context,
+                              ).lookup('s4.lib.pharmacy.drug_name_required')
                             : null,
                       ),
                       const SizedBox(height: 12),
@@ -916,7 +939,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                 labelText: AppStrings.of(
                                   context,
                                 ).lookup('vitals_chart.category'),
-                                hintText: 'analgesic',
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.analgesic_hint'),
                               ),
                             ),
                           ),
@@ -1032,7 +1057,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                   ),
                                 )
                               : const Icon(Icons.save_outlined),
-                          label: Text(submitting ? 'Saving...' : 'Save Drug'),
+                          label: Text(
+                            AppStrings.of(context).lookup(
+                              submitting
+                                  ? 's4.lib.pharmacy.saving'
+                                  : 's4.lib.pharmacy.save_drug',
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -1045,7 +1076,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       );
 
       if (saved == true) {
-        _snack(item == null ? 'Drug added to formulary' : 'Drug updated');
+        _snack(savedMessage);
         await _loadCatalog();
       }
     } finally {
@@ -1063,7 +1094,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _removeCatalogItem(Map<String, dynamic> item) async {
     if (!_canManageFormulary) {
       _snack(
-        'Only Pharmacy Incharge or Admin can remove formulary drugs',
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.pharmacy.only_incharge_admin_remove_formulary'),
         isError: true,
       );
       return;
@@ -1072,17 +1105,28 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final rawId = item['id'];
     final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
     if (id == null) {
-      _snack('Could not identify formulary item', isError: true);
+      _snack(
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.pharmacy.could_not_identify_formulary_item'),
+        isError: true,
+      );
       return;
     }
 
-    final name = item['name']?.toString() ?? 'this drug';
+    final name =
+        item['name']?.toString() ??
+        AppStrings.of(context).lookup('s4.lib.pharmacy.this_drug');
+    final removedMessage = AppStrings.of(
+      context,
+    ).lookup('s4.lib.pharmacy.drug_removed_from_formulary');
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const AppText('s4.lib.pharmacy.remove_from_formulary'),
-        content: Text(
-          '$name will be hidden from OP/IP prescribing suggestions and the pharmacy formulary list.',
+        content: AppText(
+          's4.dynamic.pharmacy.remove_formulary_body',
+          values: {'name': name},
         ),
         actions: [
           TextButton(
@@ -1105,7 +1149,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     if (confirm != true) return;
     try {
       await PharmacyApiService.removeCatalogItem(id);
-      _snack('Drug removed from formulary');
+      _snack(removedMessage);
       await _loadCatalog();
     } catch (e) {
       _snack(e.toString().replaceFirst('Exception: ', ''), isError: true);
@@ -1115,14 +1159,19 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _runExpiryScan() async {
     if (!_canManageInventory) {
       _snack(
-        'Only Stores/Purchase, Pharmacy Incharge, or Admin can run expiry scans',
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.pharmacy.only_stores_incharge_admin_run_expiry'),
         isError: true,
       );
       return;
     }
+    final completedMessage = AppStrings.of(
+      context,
+    ).lookup('s4.lib.pharmacy.expiry_scan_completed');
     try {
       await PharmacyApiService.runExpiryScan();
-      _snack('Expiry scan completed');
+      _snack(completedMessage);
       await _loadInventory();
     } catch (e) {
       _snack(e.toString().replaceFirst('Exception: ', ''), isError: true);
@@ -1132,13 +1181,18 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Future<void> _openInventoryItemEditor() async {
     if (!_canManageInventory) {
       _snack(
-        'Only Stores/Purchase, Pharmacy Incharge, or Admin can add inventory items',
+        AppStrings.of(
+          context,
+        ).lookup('s4.lib.pharmacy.only_stores_incharge_admin_add_inventory'),
         isError: true,
       );
       return;
     }
 
     final formKey = GlobalKey<FormState>();
+    final inventoryItemAddedMessage = AppStrings.of(
+      context,
+    ).lookup('s4.lib.pharmacy.inventory_item_added');
     final skuCtrl = TextEditingController();
     final displayCtrl = TextEditingController();
     final genericCtrl = TextEditingController();
@@ -1252,7 +1306,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               ),
                               validator: (value) =>
                                   (value?.trim().isEmpty ?? true)
-                                  ? 'SKU code is required'
+                                  ? AppStrings.of(
+                                      context,
+                                    ).lookup('s4.lib.pharmacy.sku_required')
                                   : null,
                             ),
                           ),
@@ -1271,7 +1327,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               ),
                               validator: (value) =>
                                   (value?.trim().isEmpty ?? true)
-                                  ? 'Display name is required'
+                                  ? AppStrings.of(context).lookup(
+                                      's4.lib.pharmacy.display_name_required',
+                                    )
                                   : null,
                             ),
                           ),
@@ -1324,7 +1382,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                 labelText: AppStrings.of(
                                   context,
                                 ).lookup('s4.lib.pharmacy.form'),
-                                hintText: 'tablet',
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.tablet_hint'),
                               ),
                             ),
                           ),
@@ -1350,7 +1410,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                 labelText: AppStrings.of(
                                   context,
                                 ).lookup('s4.lib.pharmacy.unit_label'),
-                                hintText: 'tablet',
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.tablet_hint'),
                               ),
                             ),
                           ),
@@ -1473,7 +1535,11 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                 )
                               : const Icon(Icons.save_outlined),
                           label: Text(
-                            submitting ? 'Saving...' : 'Save Inventory Item',
+                            AppStrings.of(context).lookup(
+                              submitting
+                                  ? 's4.lib.pharmacy.saving'
+                                  : 's4.lib.pharmacy.save_inventory_item',
+                            ),
                           ),
                         ),
                       ),
@@ -1487,7 +1553,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       );
 
       if (saved == true) {
-        _snack('Inventory item added');
+        _snack(inventoryItemAddedMessage);
         await _loadInventory();
       }
     } finally {
@@ -1540,12 +1606,20 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       if (_canViewInventory) _buildInventoryTab(),
     ];
     final summaryText = _canWorkPharmacyOrders
-        ? '${_newOrders.length} new • ${_activeOrders.length} active • ${_catalog.length} formulary'
-        : '${_inventoryItems.length} inventory items • ${_expiryAlerts.length} expiry alerts • ${_catalog.length} formulary';
+        ? s.format('s4.dynamic.pharmacy.orders_summary', {
+            'newCount': _newOrders.length,
+            'activeCount': _activeOrders.length,
+            'formularyCount': _catalog.length,
+          })
+        : s.format('s4.dynamic.pharmacy.inventory_summary', {
+            'inventoryCount': _inventoryItems.length,
+            'expiryCount': _expiryAlerts.length,
+            'formularyCount': _catalog.length,
+          });
 
     return StaffScaffold(
       title: _role == StaffRole.storesPurchaseIncharge
-          ? 'Inventory & Purchase'
+          ? s.lookup('s4.lib.pharmacy.inventory_and_purchase')
           : s.pharmacyTitle,
       body: Column(
         children: [
@@ -1602,7 +1676,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                   ElevatedButton.icon(
                     onPressed: _createOrder,
                     icon: const Icon(Icons.add, color: Color(0xFFE65100)),
-                    label: const AppText('lab_bookings.tab.new'),
+                    label: const AppText('s4.lib.pharmacy.new_order'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.cardSurface,
                       foregroundColor: const Color(0xFFE65100),
@@ -1700,7 +1774,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         ElevatedButton.icon(
                           onPressed: () => _openCatalogEditor(),
                           icon: const Icon(Icons.add),
-                          label: const AppText('s4.lib.prescriptions.add_drug'),
+                          label: const AppText(
+                            's4.lib.pharmacy.add_formulary_drug',
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFE65100),
                             foregroundColor: Colors.white,
@@ -1711,10 +1787,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Text(
+                  AppText(
                     _canManageFormulary
-                        ? 'OP prescriptions, IP drug charts, and pharmacy use this same backend catalog.'
-                        : 'OP prescriptions, IP drug charts, and pharmacy use this same backend catalog. Changes are limited to Pharmacy Incharge/Admin.',
+                        ? 's4.lib.pharmacy.catalog_shared_copy'
+                        : 's4.lib.pharmacy.catalog_shared_limited_copy',
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -1995,7 +2071,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   }
 
   Widget _buildInventoryItemCard(Map<String, dynamic> item) {
-    final name = item['display_name']?.toString() ?? 'Unnamed item';
+    final s = AppStrings.of(context);
+    final name =
+        item['display_name']?.toString() ??
+        s.lookup('s4.lib.pharmacy.unnamed_item');
     final sku = item['sku_code']?.toString() ?? '';
     final generic = item['generic_name']?.toString() ?? '';
     final strength = item['strength']?.toString() ?? '';
@@ -2053,13 +2132,22 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Unit', value: unit),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_unit'),
+                value: unit,
+              ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Schedule', value: schedule),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_schedule'),
+                value: schedule,
+              ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Reorder', value: reorder),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_reorder'),
+                value: reorder,
+              ),
             ),
             _buildStatusChip(status),
           ],
@@ -2069,7 +2157,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   }
 
   Widget _buildExpiryAlertCard(Map<String, dynamic> item) {
-    final name = item['display_name']?.toString() ?? 'Unnamed item';
+    final s = AppStrings.of(context);
+    final name =
+        item['display_name']?.toString() ??
+        s.lookup('s4.lib.pharmacy.unnamed_item');
     final batch =
         item['batch_number']?.toString() ??
         item['lot_number']?.toString() ??
@@ -2102,7 +2193,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Batch $batch',
+                    s.format('s4.dynamic.pharmacy.batch', {'batch': batch}),
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -2112,13 +2203,22 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Bucket', value: bucket),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_bucket'),
+                value: bucket,
+              ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Days', value: days),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_days'),
+                value: days,
+              ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Qty', value: qty),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_qty'),
+                value: qty,
+              ),
             ),
           ],
         ),
@@ -2127,7 +2227,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   }
 
   Widget _buildCatalogCard(Map<String, dynamic> item) {
-    final name = item['name']?.toString() ?? 'Unnamed drug';
+    final s = AppStrings.of(context);
+    final name =
+        item['name']?.toString() ?? s.lookup('s4.lib.pharmacy.unnamed_drug');
     final generic = item['generic_name']?.toString() ?? '';
     final category = item['category']?.toString() ?? 'other';
     final pack = item['pack_size']?.toString() ?? '';
@@ -2184,11 +2286,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               ),
             ),
             Expanded(
-              child: _CatalogMetric(label: 'Category', value: category),
+              child: _CatalogMetric(
+                label: s.lookup('s4.lib.pharmacy.metric_category'),
+                value: category,
+              ),
             ),
             Expanded(
               child: _CatalogMetric(
-                label: 'Stock',
+                label: s.lookup('s4.lib.pharmacy.metric_stock'),
                 value: stock.toString(),
                 valueColor: available
                     ? AppTheme.successOnSurface
@@ -2197,7 +2302,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             ),
             Expanded(
               child: _CatalogMetric(
-                label: 'Unit price',
+                label: s.lookup('s4.lib.pharmacy.metric_unit_price'),
                 value: unitPrice == null ? '-' : '₹$unitPrice',
               ),
             ),
@@ -2252,7 +2357,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final s = AppStrings.of(context);
     final status = order['status'] ?? '';
     final orderNum = order['order_number'] ?? '#${order['id']}';
-    final patientName = order['patient_name'] ?? 'Unknown';
+    final patientName =
+        order['patient_name'] ?? s.lookup('s4.lib.pharmacy.unknown_patient');
     final phone = order['phone'] ?? order['delivery_phone'] ?? '';
     final deliveryType = order['delivery_type'] ?? 'delivery';
     final slaBreach = order['sla_breached'] == true;
@@ -2349,7 +2455,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      '⚠ SLA breach (${minsSincePlaced}m)',
+                      s.format('s4.dynamic.pharmacy.sla_breach_minutes', {
+                        'minutes': minsSincePlaced,
+                      }),
                       style: TextStyle(
                         color: Colors.red.shade700,
                         fontSize: 11,
@@ -2358,7 +2466,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                   )
                 else if (_isNewStatus(status))
                   Text(
-                    '${minsSincePlaced}m ago',
+                    s.format('s4.dynamic.pharmacy.minutes_ago', {
+                      'minutes': minsSincePlaced,
+                    }),
                     style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                   ),
               ],
@@ -2380,7 +2490,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             if (order['total_cost'] != null) ...[
               const SizedBox(height: 6),
               Text(
-                'Total: ₹${order['total_cost']}',
+                s.format('s4.dynamic.pharmacy.total_amount', {
+                  'amount': order['total_cost'],
+                }),
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
@@ -2484,8 +2596,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       'DISPATCHED' => (Colors.teal, s.pharmacyStatusDispatched),
       'DELIVERED' => (AppTheme.successGreen, s.pharmacyStatusDelivered),
       'CANCELLED' => (AppTheme.errorRed, s.pharmacyStatusCancelled),
-      'AVAILABLE' => (AppTheme.successGreen, 'Available'),
-      'UNAVAILABLE' => (AppTheme.warningAmber, 'Unavailable'),
+      'AVAILABLE' => (
+        AppTheme.successGreen,
+        s.lookup('s4.lib.pharmacy.available'),
+      ),
+      'UNAVAILABLE' => (
+        AppTheme.warningAmber,
+        s.lookup('s4.lib.pharmacy.unavailable'),
+      ),
       _ => (Colors.grey, status),
     };
 
