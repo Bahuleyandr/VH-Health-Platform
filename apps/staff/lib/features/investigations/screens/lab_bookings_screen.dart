@@ -26,6 +26,9 @@ String? _nonEmptyString(dynamic value) {
   return text == null || text.isEmpty ? null : text;
 }
 
+String _cleanError(Object error) =>
+    error.toString().replaceFirst('Exception: ', '');
+
 typedef LabBookingsLoader = Future<dynamic> Function();
 typedef RealtimeEventStreamFactory =
     Stream<RealtimeEvent> Function(String channel);
@@ -289,7 +292,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                         ),
                       ),
                       validator: (value) => _digitsOnly(value ?? '').length < 10
-                          ? 'Enter a valid phone number'
+                          ? s.lookup(
+                              's4.lib.lab_bookings.enter_a_valid_phone_number',
+                            )
                           : null,
                     ),
                     const SizedBox(height: 12),
@@ -414,7 +419,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                               }
                             },
                       icon: const Icon(Icons.attach_file),
-                      label: Text(pickedSlip?.name ?? 'Attach prescription'),
+                      label: Text(
+                        pickedSlip?.name ??
+                            s.lookup('s4.lib.lab_bookings.attach_prescription'),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -444,7 +452,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                                 ),
                               )
                             : const Icon(Icons.add, color: Colors.white),
-                        label: Text(submitting ? 'Booking...' : 'Book Lab'),
+                        label: Text(
+                          submitting
+                              ? s.lookup('s4.lib.lab_bookings.booking')
+                              : s.lookup('s4.lib.lab_bookings.book_lab'),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primaryBlue,
                           foregroundColor: Colors.white,
@@ -467,7 +479,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     notesCtrl.dispose();
 
     if (created == true && mounted) {
-      _showSnack('Lab booking created');
+      _showSnack(s.lookup('s4.lib.lab_bookings.lab_booking_created'));
       _fetchBookings();
     }
   }
@@ -927,7 +939,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               label: Text(
                 investigationId == null
                     ? s.labBookingsMarkCollected
-                    : 'Scan and collect',
+                    : s.lookup('s4.lib.lab_bookings.scan_and_collect'),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.purple,
@@ -1070,7 +1082,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _showSnack(s.labBookingsConfirmedToast);
       _fetchBookings();
     } catch (e) {
-      _showSnack('Error: $e', isError: true);
+      _showSnack(
+        s.format('s4.dynamic.lab_bookings.error_message', {
+          'error': _cleanError(e),
+        }),
+        isError: true,
+      );
     }
   }
 
@@ -1130,7 +1147,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _startLocationSharing(id);
       _fetchBookings();
     } catch (e) {
-      _showSnack('Error: $e', isError: true);
+      _showSnack(
+        s.format('s4.dynamic.lab_bookings.error_message', {
+          'error': _cleanError(e),
+        }),
+        isError: true,
+      );
     }
   }
 
@@ -1142,7 +1164,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _showSnack(s.labBookingsSamplesCollectedToast);
       _fetchBookings();
     } catch (e) {
-      _showSnack('Error: $e', isError: true);
+      _showSnack(
+        s.format('s4.dynamic.lab_bookings.error_message', {
+          'error': _cleanError(e),
+        }),
+        isError: true,
+      );
     }
   }
 
@@ -1173,7 +1200,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         await MedicalApiService.markSamplesCollected(bookingId);
       } catch (e) {
         _showSnack(
-          'Specimen collected, but queue update failed: $e',
+          s.format('s4.dynamic.lab_bookings.specimen_queue_update_failed', {
+            'error': _cleanError(e),
+          }),
           isError: true,
         );
         _fetchBookings();
@@ -1191,7 +1220,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _showSnack(s.labBookingsProcessingStartedToast);
       _fetchBookings();
     } catch (e) {
-      _showSnack('Error: $e', isError: true);
+      _showSnack(
+        s.format('s4.dynamic.lab_bookings.error_message', {
+          'error': _cleanError(e),
+        }),
+        isError: true,
+      );
     }
   }
 
@@ -1271,7 +1305,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _showSnack(s.labBookingsResultUploadedToast);
       _fetchBookings();
     } catch (e) {
-      _showSnack('Error: $e', isError: true);
+      _showSnack(
+        s.format('s4.dynamic.lab_bookings.error_message', {
+          'error': _cleanError(e),
+        }),
+        isError: true,
+      );
     }
   }
 

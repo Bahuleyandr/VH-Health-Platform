@@ -990,6 +990,71 @@ void main() {
     );
   });
 
+  test(
+    'S4 appointments and lab bookings copy stores keys with required locale entries',
+    () {
+      final files = [
+        File('lib/features/appointments/screens/appointments_screen.dart'),
+        File('lib/features/investigations/screens/lab_bookings_screen.dart'),
+      ];
+      final allowedPrefixes = [
+        'appt_queue.',
+        'lab_bookings.',
+        'reception_counter.',
+        's4.dynamic.appointments.',
+        's4.dynamic.lab_bookings.',
+        's4.lib.appointments.',
+        's4.lib.lab_bookings.',
+      ];
+      final rawFragments = [
+        "'Enter phone to check registered patient'",
+        "'Checking patient registry...'",
+        "'New patient - enter name to register while booking'",
+        "'Existing patient found'",
+        "'Existing patient found: #",
+        "'Could not check registry now; new-patient booking is available'",
+        "'Enter a valid phone number'",
+        "'Enter patient name for new patient'",
+        "'Select a doctor or department'",
+        "'Enter at least 3 characters'",
+        "'Creating...'",
+        "'Create Appointment'",
+        "'Attach prescription'",
+        "'Booking...'",
+        "'Book Lab'",
+        "'Lab booking created'",
+        "'Scan and collect'",
+        "'Error: \$e'",
+        "'Specimen collected, but queue update failed:",
+      ];
+
+      final keys = <String>{};
+      for (final file in files) {
+        final source = file.readAsStringSync();
+        keys
+          ..addAll(_appStringKeysFrom(source, allowedPrefixes))
+          ..addAll(_appStringCallKeysFrom(source, allowedPrefixes))
+          ..addAll(_appStringPrefixedTokensFrom(source, allowedPrefixes));
+        for (final rawCopy in rawFragments) {
+          expect(
+            source,
+            isNot(contains(rawCopy)),
+            reason:
+                'Appointments and lab bookings display copy should use '
+                'AppStrings keys: $rawCopy',
+          );
+        }
+      }
+
+      expect(
+        _missingLocaleEntries(keys),
+        isEmpty,
+        reason:
+            'S4 appointments/lab booking keys must have en/hi/ta/te entries.',
+      );
+    },
+  );
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',

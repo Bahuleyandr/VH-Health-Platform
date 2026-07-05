@@ -335,6 +335,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _createAppointment() async {
+    final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final patientPhoneCtrl = TextEditingController();
     final patientNameCtrl = TextEditingController();
@@ -351,7 +352,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       DateTime.now().add(const Duration(hours: 1)),
     );
     var submitting = false;
-    var lookupMessage = 'Enter phone to check registered patient';
+    var lookupMessage = s.lookup(
+      's4.lib.appointments.enter_phone_to_check_registered_patient',
+    );
     var patientLookupBusy = false;
     var patientNameReadOnly = false;
     int? resolvedPatientId;
@@ -370,7 +373,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           resolvedPatientId = null;
           patientLookupBusy = false;
           patientNameReadOnly = false;
-          lookupMessage = 'Enter phone to check registered patient';
+          lookupMessage = s.lookup(
+            's4.lib.appointments.enter_phone_to_check_registered_patient',
+          );
         });
         return;
       }
@@ -379,7 +384,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         patientLookupBusy = true;
         resolvedPatientId = null;
         patientNameReadOnly = false;
-        lookupMessage = 'Checking patient registry...';
+        lookupMessage = s.lookup(
+          's4.lib.appointments.checking_patient_registry',
+        );
       });
 
       try {
@@ -394,8 +401,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           setSheetState(() {
             patientLookupBusy = false;
             patientNameReadOnly = false;
-            lookupMessage =
-                'New patient - enter name to register while booking';
+            lookupMessage = s.lookup(
+              's4.lib.appointments.new_patient_enter_name_to_register',
+            );
           });
           return;
         }
@@ -407,15 +415,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           patientNameReadOnly = true;
           patientNameCtrl.text = exact['name']?.toString() ?? '';
           lookupMessage = id == null
-              ? 'Existing patient found'
-              : 'Existing patient found: #$id';
+              ? s.lookup('s4.lib.appointments.existing_patient_found')
+              : s.format('s4.dynamic.appointments.existing_patient_found_id', {
+                  'id': id,
+                });
         });
       } catch (_) {
         setSheetState(() {
           patientLookupBusy = false;
           patientNameReadOnly = false;
-          lookupMessage =
-              'Could not check registry now; new-patient booking is available';
+          lookupMessage = s.lookup(
+            's4.lib.appointments.could_not_check_registry_new_patient_available',
+          );
         });
       }
     }
@@ -554,7 +565,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         validator: (value) {
                           final digits = _digitsOnly(value?.trim() ?? '');
                           return digits.length < 10
-                              ? 'Enter a valid phone number'
+                              ? s.lookup(
+                                  's4.lib.appointments.enter_a_valid_phone_number',
+                                )
                               : null;
                         },
                       ),
@@ -574,7 +587,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                           if (resolvedPatientId != null) return null;
                           final name = value?.trim() ?? '';
                           return name.length < 2
-                              ? 'Enter patient name for new patient'
+                              ? s.lookup(
+                                  's4.lib.appointments.enter_patient_name_for_new_patient',
+                                )
                               : null;
                         },
                       ),
@@ -668,7 +683,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                                 departmentCtrl.text
                                                     .trim()
                                                     .isEmpty
-                                            ? 'Select a doctor or department'
+                                            ? s.lookup(
+                                                's4.lib.appointments.select_a_doctor_or_department',
+                                              )
                                             : null,
                                       );
                                     },
@@ -813,7 +830,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                                 textController.text
                                                     .trim()
                                                     .isEmpty
-                                            ? 'Select a doctor or department'
+                                            ? s.lookup(
+                                                's4.lib.appointments.select_a_doctor_or_department',
+                                              )
                                             : null,
                                       );
                                     },
@@ -936,7 +955,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         validator: (value) {
                           final trimmed = value?.trim() ?? '';
                           return trimmed.length < 3
-                              ? 'Enter at least 3 characters'
+                              ? s.lookup(
+                                  's4.lib.appointments.enter_at_least_3_characters',
+                                )
                               : null;
                         },
                       ),
@@ -969,7 +990,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                 )
                               : const Icon(Icons.add, color: Colors.white),
                           label: Text(
-                            submitting ? 'Creating...' : 'Create Appointment',
+                            submitting
+                                ? s.lookup('s4.lib.appointments.creating')
+                                : s.lookup(
+                                    's4.lib.appointments.create_appointment',
+                                  ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryBlue,
