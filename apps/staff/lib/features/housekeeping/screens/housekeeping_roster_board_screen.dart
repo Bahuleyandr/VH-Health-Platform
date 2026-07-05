@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class HousekeepingRosterBoardScreen extends StatefulWidget {
@@ -1189,7 +1191,9 @@ class _HousekeepingRosterBoardScreenState
         ],
       ),
       body: _loading && _targets.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList()
+          : _error != null && _targets.isEmpty
+          ? ErrorState(message: _error!, onRetry: _load)
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(

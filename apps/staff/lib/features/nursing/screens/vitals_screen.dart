@@ -5,6 +5,8 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
@@ -673,51 +675,16 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
           ),
           const SizedBox(height: 16),
           if (_error != null)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.errorRed.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    color: AppTheme.errorRed,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: AppTheme.errorRed,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            Expanded(
+              child: ErrorState(message: _error!, onRetry: _fetchTrends),
             ),
-          if (_trends != null) Expanded(child: _buildTrendsView(_trends!)),
+          if (_trends != null && _error == null)
+            Expanded(child: _buildTrendsView(_trends!)),
           if (_trends == null && !_loading && _error == null)
             Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.timeline_outlined,
-                      size: 56,
-                      color: AppTheme.textSecondary,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      s.vitalsTrendsHint,
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ],
-                ),
+              child: EmptyState(
+                icon: Icons.timeline_outlined,
+                title: s.vitalsTrendsHint,
               ),
             ),
         ],
@@ -734,11 +701,9 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
         [];
 
     if (records.isEmpty) {
-      return Center(
-        child: Text(
-          s.vitalsNoRecords,
-          style: TextStyle(color: AppTheme.textSecondary),
-        ),
+      return EmptyState(
+        icon: Icons.monitor_heart_outlined,
+        title: s.vitalsNoRecords,
       );
     }
 

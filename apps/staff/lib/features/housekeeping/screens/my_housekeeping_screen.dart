@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 
 class MyHousekeepingScreen extends StatefulWidget {
@@ -150,22 +152,20 @@ class _LogsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     if (loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (logs.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return RefreshIndicator(
+        onRefresh: () async => onRefresh(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            Icon(
-              Icons.cleaning_services_outlined,
-              size: 56,
-              color: Colors.grey.shade400,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              s.housekeepingNoLogs,
-              style: const TextStyle(fontSize: 16, color: Colors.grey),
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.55,
+              child: EmptyState(
+                icon: Icons.cleaning_services_outlined,
+                title: s.housekeepingNoLogs,
+              ),
             ),
           ],
         ),
@@ -344,7 +344,7 @@ class _RequestsTabState extends State<_RequestsTab>
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     if (widget.loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     return Column(
       children: [
@@ -407,15 +407,17 @@ class _RequestList extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     if (requests.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return RefreshIndicator(
+        onRefresh: () async => onRefresh(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            Text(
-              s.housekeepingNoRequests,
-              style: const TextStyle(fontSize: 16, color: Colors.grey),
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.5,
+              child: EmptyState(
+                icon: Icons.inbox_outlined,
+                title: s.housekeepingNoRequests,
+              ),
             ),
           ],
         ),
