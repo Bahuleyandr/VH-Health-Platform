@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_collect_button.dart';
@@ -118,7 +119,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       if (!mounted) return;
       setState(() {
         _lookupBusy = false;
-        _error = e.toString();
+        _error = localizedApiErrorFromRaw(AppStrings.of(context), e);
       });
     }
   }
@@ -153,7 +154,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       if (!mounted) return;
       setState(() {
         _invoiceBusy = false;
-        _error = e.toString();
+        _error = localizedApiErrorFromRaw(AppStrings.of(context), e);
       });
     }
   }
@@ -182,7 +183,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(
+        () => _error = localizedApiErrorFromRaw(AppStrings.of(context), e),
+      );
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }
@@ -202,7 +205,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(
+        () => _error = localizedApiErrorFromRaw(AppStrings.of(context), e),
+      );
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }

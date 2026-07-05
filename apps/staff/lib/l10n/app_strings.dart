@@ -2739,6 +2739,9 @@ class AppStrings {
   String get errorClinicalWriteDesktopOnly =>
       _t('error.clinical_write_desktop_only');
   String get errorDeviceTypeMissing => _t('error.device_type_missing');
+  String get errorOfflineQueued => _t('error.offline_queued');
+  String get errorOfflineWillRetry => _t('error.offline_will_retry');
+  String get errorPermissionDenied => _t('error.permission_denied');
   String get errorSomethingWentWrong => _t('error.something_went_wrong');
   String get errorRestartOrContact => _t('error.restart_or_contact');
   String get appointmentsNoToday => _t('appointments.no_today');
@@ -5323,6 +5326,9 @@ class AppStrings {
           'Clinical write actions must be completed from the desktop/tablet Staff app.',
       'error.device_type_missing':
           'Please sign in again so the app can confirm this device.',
+      'error.offline_queued': "You're offline — queued for sync.",
+      'error.offline_will_retry': "You're offline — will retry.",
+      'error.permission_denied': "You don't have permission for this action.",
       'error.something_went_wrong': 'Something went wrong',
       'error.restart_or_contact': 'Please restart the app or contact support.',
       'appointments.no_today': 'No appointments today',
@@ -10564,6 +10570,10 @@ class AppStrings {
           'क्लिनिकल लिखने की कार्रवाई डेस्कटॉप/टैबलेट स्टाफ ऐप से ही पूरी करें।',
       'error.device_type_missing':
           'कृपया फिर से साइन इन करें ताकि ऐप इस डिवाइस की पुष्टि कर सके।',
+      // REVIEW: AI first-pass S4 error-copy hygiene - confirm offline/permission wording before production.
+      'error.offline_queued': 'आप ऑफ़लाइन हैं — सिंक के लिए कतार में है।',
+      'error.offline_will_retry': 'आप ऑफ़लाइन हैं — फिर से प्रयास होगा।',
+      'error.permission_denied': 'आपको इस कार्रवाई की अनुमति नहीं है।',
       'error.something_went_wrong': 'कुछ गलत हुआ',
       'error.restart_or_contact':
           'कृपया ऐप को पुनरारंभ करें या समर्थन से संपर्क करें।',
@@ -14809,6 +14819,14 @@ class AppStrings {
       // REVIEW:
       'error.device_type_missing':
           'இந்த சாதனத்தை ஆப் உறுதிப்படுத்த மீண்டும் உள்நுழையவும்.',
+      // REVIEW:
+      'error.offline_queued':
+          'நீங்கள் ஆஃப்லைனில் உள்ளீர்கள் — ஒத்திசைப்புக்கு வரிசையில் வைக்கப்பட்டது.',
+      // REVIEW:
+      'error.offline_will_retry':
+          'நீங்கள் ஆஃப்லைனில் உள்ளீர்கள் — மீண்டும் முயற்சிக்கும்.',
+      // REVIEW:
+      'error.permission_denied': 'இந்த செயலுக்கான அனுமதி உங்களிடம் இல்லை.',
       // REVIEW:
       'error.something_went_wrong': 'ஏதோ தவறு நடந்தது',
       // REVIEW:
@@ -20487,6 +20505,14 @@ class AppStrings {
       // REVIEW:
       'error.device_type_missing':
           'యాప్ ఈ పరికరాన్ని నిర్ధారించేందుకు దయచేసి మళ్లీ సైన్ ఇన్ చేయండి.',
+      // REVIEW:
+      'error.offline_queued':
+          'మీరు ఆఫ్‌లైన్‌లో ఉన్నారు — సింక్ కోసం క్యూలో పెట్టబడింది.',
+      // REVIEW:
+      'error.offline_will_retry':
+          'మీరు ఆఫ్‌లైన్‌లో ఉన్నారు — మళ్లీ ప్రయత్నిస్తుంది.',
+      // REVIEW:
+      'error.permission_denied': 'ఈ చర్యకు మీకు అనుమతి లేదు.',
       // REVIEW:
       'error.something_went_wrong': 'ఏదో తప్పు జరిగింది',
       // REVIEW:

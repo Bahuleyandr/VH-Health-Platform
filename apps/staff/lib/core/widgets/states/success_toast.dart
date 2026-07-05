@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth_core/utils/request_reference.dart';
 import '../../../l10n/app_strings.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/api_error_messages.dart';
 
 /// Replaces the 4-second-auto-dismiss [SnackBar] for save actions.
 ///
@@ -82,8 +83,13 @@ class ErrorToast {
     Duration duration = const Duration(seconds: 8),
   }) {
     final strings = AppStrings.of(context);
+    final normalized = localizedApiErrorFromRaw(
+      strings,
+      message,
+      fallback: message,
+    );
     final displayMessage = formatErrorWithRequestRef(
-      message.replaceFirst('Exception: ', ''),
+      normalized,
       requestId: requestId,
     );
     ScaffoldMessenger.of(context)

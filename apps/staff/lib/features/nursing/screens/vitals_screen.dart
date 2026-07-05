@@ -3,6 +3,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -251,7 +252,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       }
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+        ErrorToast.show(context, e.toString());
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -625,7 +626,9 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
       if (mounted) setState(() => _trends = data);
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(
+          () => _error = localizedApiErrorFromRaw(AppStrings.of(context), e),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
