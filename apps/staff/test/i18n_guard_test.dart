@@ -781,77 +781,98 @@ void main() {
     );
   });
 
-  test(
-    'S4 Front Office Workbench copy stores keys with required locale entries',
-    () {
-      final file = File(
-        'lib/features/reception/screens/front_office_workbench_screen.dart',
-      );
-      final patterns = [
-        _Pattern(
-          'AppText display copy',
-          RegExp(
-            r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
-          ),
+  test('S4 Front Office Workbench copy stores keys with required locale entries', () {
+    final files = [
+      File('lib/features/reception/screens/front_office_workbench_screen.dart'),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_helpers.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_actions.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_patient_dialogs.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_walk_in_dialog.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_admission_dialogs.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_queue_dialogs.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_sections.dart',
+      ),
+      File(
+        'lib/features/reception/screens/components/front_office_workbench_widgets.dart',
+      ),
+    ];
+    final patterns = [
+      _Pattern(
+        'AppText display copy',
+        RegExp(
+          r'''(?:^|[^A-Za-z0-9_.])(?:const\s+)?AppText\(\s*(?:r)?(['"])(.*?)\1''',
         ),
-        _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
-        _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
-        _Pattern('text', RegExp(r'''\btext\s*:\s*(?:r)?(['"])(.*?)\1''')),
-        _Pattern('message', RegExp(r'''\bmessage\s*:\s*(?:r)?(['"])(.*?)\1''')),
-        _Pattern(
-          'dialogError',
-          RegExp(r'''\bdialogError\s*=\s*(?:r)?(['"])(.*?)\1'''),
-        ),
-        _Pattern(
-          'successMessage',
-          RegExp(r'''\bsuccessMessage\s*:\s*(?:r)?(['"])(.*?)\1'''),
-        ),
-      ];
-      final allowedPrefixes = [
-        'front_office.appointment_status.',
-        's4.dynamic.front_office.',
-        's4.dynamic.front_office_workbench.',
-        's4.lib.front_office_workbench.',
-      ];
+      ),
+      _Pattern('title', RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('label', RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('text', RegExp(r'''\btext\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern('message', RegExp(r'''\bmessage\s*:\s*(?:r)?(['"])(.*?)\1''')),
+      _Pattern(
+        'dialogError',
+        RegExp(r'''\bdialogError\s*=\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+      _Pattern(
+        'successMessage',
+        RegExp(r'''\bsuccessMessage\s*:\s*(?:r)?(['"])(.*?)\1'''),
+      ),
+    ];
+    final allowedPrefixes = [
+      'front_office.appointment_status.',
+      's4.dynamic.front_office.',
+      's4.dynamic.front_office_workbench.',
+      's4.lib.front_office_workbench.',
+    ];
 
-      final hits = <String>[
-        ..._literalHits(file, patterns),
-        ..._interpolatedLiteralHits(file, patterns),
-      ];
-      final source = file.readAsStringSync();
-      final keys = <String>{
-        ..._appStringKeysFrom(source, allowedPrefixes),
-        ..._appStringCallKeysFrom(source, allowedPrefixes),
-        ..._appStringPrefixedTokensFrom(source, allowedPrefixes),
-      };
+    final hits = <String>[
+      for (final file in files) ..._literalHits(file, patterns),
+      for (final file in files) ..._interpolatedLiteralHits(file, patterns),
+    ];
+    final source = files.map((file) => file.readAsStringSync()).join('\n');
+    final keys = <String>{
+      ..._appStringKeysFrom(source, allowedPrefixes),
+      ..._appStringCallKeysFrom(source, allowedPrefixes),
+      ..._appStringPrefixedTokensFrom(source, allowedPrefixes),
+    };
 
-      expect(
-        source,
-        allOf(
-          contains('_frontOfficeAdmissionPriorityLabel'),
-          contains('_frontOfficeCodeStatusLabel'),
-          contains('_frontOfficeOpAppointmentsTodayLabel'),
-          contains('_frontOfficeBillsDueLabel'),
-          isNot(contains('child: Text(value)')),
-        ),
-        reason:
-            'Front Office dropdown option values and count copy must preserve '
-            'stable domain values while rendering localized labels.',
-      );
-      expect(
-        hits,
-        isEmpty,
-        reason:
-            'S4 Front Office Workbench labels, validation errors, empty states, '
-            'snackbars, and admission handoff copy should use AppStrings keys.',
-      );
-      expect(
-        _missingLocaleEntries(keys),
-        isEmpty,
-        reason: 'S4 Front Office Workbench keys must have en/hi/ta/te entries.',
-      );
-    },
-  );
+    expect(
+      source,
+      allOf(
+        contains('_frontOfficeAdmissionPriorityLabel'),
+        contains('_frontOfficeCodeStatusLabel'),
+        contains('_frontOfficeOpAppointmentsTodayLabel'),
+        contains('_frontOfficeBillsDueLabel'),
+        isNot(contains('child: Text(value)')),
+      ),
+      reason:
+          'Front Office dropdown option values and count copy must preserve '
+          'stable domain values while rendering localized labels.',
+    );
+    expect(
+      hits,
+      isEmpty,
+      reason:
+          'S4 Front Office Workbench labels, validation errors, empty states, '
+          'snackbars, and admission handoff copy should use AppStrings keys.',
+    );
+    expect(
+      _missingLocaleEntries(keys),
+      isEmpty,
+      reason: 'S4 Front Office Workbench keys must have en/hi/ta/te entries.',
+    );
+  });
 
   test('S4 Messaging copy stores keys with required locale entries', () {
     final files = [
