@@ -744,17 +744,25 @@ final GoRouter appRouter = GoRouter(
           path: '/staff-roster/:department',
           name: 'staff-roster',
           pageBuilder: (context, state) {
+            final s = AppStrings.of(context);
             final department =
                 state.pathParameters['department'] ?? 'housekeeping';
             final title = switch (department) {
-              'nursing' => 'Nursing Roster',
-              'op_nursing' => 'OP Nursing Roster',
-              'reception' => 'Reception Roster',
-              'ambulance' || 'drivers' => 'Driver Roster',
-              'maintenance' => 'Maintenance Roster',
-              'pharmacy' => 'Pharmacy Roster',
-              'medical' => 'Doctor Roster',
-              _ => 'Shift Roster',
+              'nursing' => s.lookup('s4.lib.staff_roster_hub.nursing_roster'),
+              'op_nursing' => s.lookup(
+                's4.lib.staff_roster_hub.op_nursing_roster',
+              ),
+              'reception' => s.lookup(
+                's4.lib.staff_roster_hub.reception_roster',
+              ),
+              'ambulance' ||
+              'drivers' => s.lookup('s4.lib.staff_roster_hub.driver_roster'),
+              'maintenance' => s.lookup(
+                's4.lib.staff_roster_hub.maintenance_roster',
+              ),
+              'pharmacy' => s.lookup('s4.lib.staff_roster_hub.pharmacy_roster'),
+              'medical' => s.lookup('s4.lib.staff_roster_hub.doctor_roster'),
+              _ => s.lookup('role.feature.housekeeping_roster'),
             };
             return NoTransitionPage(
               child: HousekeepingRosterBoardScreen(

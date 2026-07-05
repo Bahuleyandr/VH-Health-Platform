@@ -12,7 +12,7 @@ class HousekeepingRosterBoardScreen extends StatefulWidget {
   const HousekeepingRosterBoardScreen({
     super.key,
     this.department = 'housekeeping',
-    this.title = 'Shift Roster',
+    this.title = '',
   });
 
   @override
@@ -29,7 +29,7 @@ class _HousekeepingRosterBoardScreenState
   int _selectedDayIndex = DateTime.now().weekday - DateTime.monday;
   int _tabIndex = 0;
   String _targetType = 'housekeeping_zone';
-  String _departmentLabel = 'Housekeeping';
+  String _departmentLabel = '';
   String _governanceNote = '';
   bool _canEditRoster = true;
   bool _canReviewRosterRequests = true;
@@ -64,6 +64,16 @@ class _HousekeepingRosterBoardScreenState
     return text == null || text.isEmpty ? fallback : text;
   }
 
+  String _copy(String key) => AppStrings.of(context).lookup(key);
+
+  String _format(String key, Map<String, Object?> values) =>
+      AppStrings.of(context).format(key, values);
+
+  String get _departmentPayloadLabel {
+    final rawDepartment = widget.department.trim();
+    return rawDepartment.isEmpty ? 'housekeeping' : rawDepartment;
+  }
+
   List<Map<String, dynamic>> _asMapList(dynamic value) {
     if (value is! List) return [];
     return value
@@ -92,14 +102,39 @@ class _HousekeepingRosterBoardScreenState
 
   String get _selectedDateText => _dateText(_selectedDate);
 
-  String get _weekRangeText =>
-      '${_dateText(_weekStart)} to ${_dateText(_weekStart.add(const Duration(days: 6)))}';
+  String get _weekRangeText => _format('s4.dynamic.housekeeping.week_range', {
+    'start': _dateText(_weekStart),
+    'end': _dateText(_weekStart.add(const Duration(days: 6))),
+  });
 
   String _dayShortLabel(DateTime date) {
-    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final labels = [
+      _copy('s4.lib.housekeeping_roster_board.day.mon'),
+      _copy('s4.lib.housekeeping_roster_board.day.tue'),
+      _copy('s4.lib.housekeeping_roster_board.day.wed'),
+      _copy('s4.lib.housekeeping_roster_board.day.thu'),
+      _copy('s4.lib.housekeeping_roster_board.day.fri'),
+      _copy('s4.lib.housekeeping_roster_board.day.sat'),
+      _copy('s4.lib.housekeeping_roster_board.day.sun'),
+    ];
     final label = labels[date.weekday - DateTime.monday];
-    return '$label ${date.day}/${date.month}';
+    return _format('s4.dynamic.housekeeping_roster_board.day_label', {
+      'day': label,
+      'date': '${date.day}/${date.month}',
+    });
   }
+
+  String _screenTitle() => widget.title.isEmpty
+      ? _copy('role.feature.housekeeping_roster')
+      : widget.title;
+
+  String _reviewDecisionLabel(String decision) => switch (decision) {
+    'accepted' => _copy('s4.lib.housekeeping_roster_board.accepted'),
+    'approved' => _copy('s4.lib.leave_approvals.status.approved'),
+    'discarded' => _copy('s4.lib.housekeeping_roster_board.discarded'),
+    'rejected' => _copy('s4.lib.leave_approvals.status.rejected'),
+    _ => decision,
+  };
 
   String _shiftKey(String value) => value.trim().toLowerCase();
 
@@ -288,7 +323,7 @@ class _HousekeepingRosterBoardScreenState
             _targetType = _asText(data['target_type'], fallback: _targetType);
             _departmentLabel = _asText(
               data['department_label'],
-              fallback: _departmentLabel,
+              fallback: _copy('role.roster_department.housekeeping'),
             );
             _governanceNote = _asText(data['governance_note'], fallback: '');
             _canEditRoster = capabilities['can_edit'] != false;
@@ -472,14 +507,33 @@ class _HousekeepingRosterBoardScreenState
     if (leave == null) return null;
     final staff = _asText(
       leave['staff_name'] ?? _staffById(staffId)?['name'],
-      fallback: 'Staff',
+      fallback: _copy('s4.lib.housekeeping_roster_board.staff_fallback'),
     );
-    final leaveType = _asText(leave['leave_type'], fallback: 'leave');
+    final leaveType = _asText(
+      leave['leave_type'],
+      fallback: _copy('s4.lib.housekeeping_roster_board.leave_fallback'),
+    );
     final start = _asText(leave['start_date'], fallback: dateText);
     final end = _asText(leave['end_date'], fallback: dateText);
     final replacement = _asText(leave['replacement_staff_name'], fallback: '');
-    final suffix = replacement.isEmpty ? '' : ' Alternate cover: $replacement.';
-    return '$staff is on approved $leaveType leave from $start to $end.$suffix';
+    if (replacement.isEmpty) {
+      return _format('s4.dynamic.housekeeping_roster_board.approved_leave', {
+        'staff': staff,
+        'leaveType': leaveType,
+        'start': start,
+        'end': end,
+      });
+    }
+    return _format(
+      's4.dynamic.housekeeping_roster_board.approved_leave_with_cover',
+      {
+        'staff': staff,
+        'leaveType': leaveType,
+        'start': start,
+        'end': end,
+        'replacement': replacement,
+      },
+    );
   }
 
   String? _approvedLeaveMessageForSelectedDate(int staffId) =>
@@ -508,16 +562,47 @@ class _HousekeepingRosterBoardScreenState
       fallback: 'blocked',
     );
     final review = _asText(_forecastOverlay['review_status'], fallback: '');
-    if (state == 'schema-unavailable') return 'schema unavailable';
-    if (state == 'blocked') return 'not generated';
-    return review.isEmpty ? state : '$state - $review';
+    final stateLabel = switch (state) {
+      'ai' => _copy('s4.lib.housekeeping_roster_board.forecast_state.ai'),
+      'schema-unavailable' => _copy(
+        's4.lib.housekeeping_roster_board.forecast_state.schema_unavailable',
+      ),
+      'blocked' => _copy(
+        's4.lib.housekeeping_roster_board.forecast_state.not_generated',
+      ),
+      _ => state,
+    };
+    return review.isEmpty
+        ? stateLabel
+        : _format('s4.dynamic.housekeeping_roster_board.state_review', {
+            'state': stateLabel,
+            'review': _reviewDecisionLabel(review),
+          });
+  }
+
+  Color _forecastStateColor() {
+    final state = _asText(
+      _forecastOverlay['governance_state'],
+      fallback: 'blocked',
+    );
+    if (state == 'ai') return AppTheme.primaryBlue;
+    if (state == 'schema-unavailable' || state == 'blocked') {
+      return AppTheme.warningOnSurface;
+    }
+    return AppTheme.primaryTeal;
   }
 
   bool _showApprovedLeaveBlock(int staffId, {String? dateText}) {
     final targetDate = dateText ?? _selectedDateText;
     final message = _approvedLeaveMessageForDate(staffId, targetDate);
     if (message == null) return false;
-    _showSnack('Cannot assign on $targetDate: $message', AppTheme.errorRed);
+    _showSnack(
+      _format('s4.dynamic.housekeeping_roster_board.cannot_assign_on_date', {
+        'date': targetDate,
+        'message': message,
+      }),
+      AppTheme.errorRed,
+    );
     return true;
   }
 
@@ -547,7 +632,20 @@ class _HousekeepingRosterBoardScreenState
       final staff = _staffById(staffId);
       final otherShift = _staffAssignedShift(staffId);
       _showSnack(
-        '${_asText(staff?['name'], fallback: 'Staff')} is already assigned to ${otherShift ?? 'another floor'} on this date.',
+        _format(
+          's4.dynamic.housekeeping_roster_board.already_assigned_on_date',
+          {
+            'staff': _asText(
+              staff?['name'],
+              fallback: _copy(
+                's4.lib.housekeeping_roster_board.staff_fallback',
+              ),
+            ),
+            'target':
+                otherShift ??
+                _copy('s4.lib.housekeeping_roster_board.another_floor'),
+          },
+        ),
         AppTheme.errorRed,
       );
       return;
@@ -617,7 +715,10 @@ class _HousekeepingRosterBoardScreenState
   void _setStaffTarget(int staffId, int? targetId) {
     final shiftLabel = _staffAssignedShift(staffId);
     if (shiftLabel == null) {
-      _showSnack('Select a shift before selecting a floor.', AppTheme.errorRed);
+      _showSnack(
+        _copy('s4.lib.housekeeping_roster_board.select_shift_before_floor'),
+        AppTheme.errorRed,
+      );
       return;
     }
     if (targetId == null) {
@@ -674,7 +775,10 @@ class _HousekeepingRosterBoardScreenState
         for (final staffId in staffIds) {
           final message = _approvedLeaveMessageForDate(staffId, dateText);
           if (message != null) {
-            return '$message Clear the ${shiftEntry.key} assignment on $dateText before saving.';
+            return _format(
+              's4.dynamic.housekeeping_roster_board.clear_assignment_before_saving',
+              {'message': message, 'shift': shiftEntry.key, 'date': dateText},
+            );
           }
         }
       }
@@ -696,7 +800,7 @@ class _HousekeepingRosterBoardScreenState
           (shift) => {
             'shift_label': shift.label,
             'shift_id': ?shift.shiftId,
-            'notes': '$_departmentLabel ${shift.label} roster',
+            'notes': '$_departmentPayloadLabel ${shift.label} roster',
             'assignments': _buildAssignmentsForShift(
               shift.label,
               dateText: dateText,
@@ -709,13 +813,16 @@ class _HousekeepingRosterBoardScreenState
   Future<Map<String, dynamic>?> _saveDraft({bool quiet = false}) async {
     if (!_canEditRoster) {
       _showSnack(
-        'Roster editing needs the department incharge or Admin role.',
+        _copy('s4.lib.housekeeping_roster_board.edit_permission_required'),
         AppTheme.errorRed,
       );
       return null;
     }
     if (_shiftColumns.isEmpty) {
-      _showSnack('No roster shifts are configured.', AppTheme.errorRed);
+      _showSnack(
+        _copy('s4.lib.housekeeping_roster_board.no_roster_shifts_configured'),
+        AppTheme.errorRed,
+      );
       return null;
     }
     final leaveConflict = _firstApprovedLeaveConflictForWeek();
@@ -732,11 +839,14 @@ class _HousekeepingRosterBoardScreenState
           department: widget.department,
           rosterDate: dateText,
           boards: _buildDayBoards(dateText: dateText),
-          reason: 'Saved from $_departmentLabel weekly roster grid',
+          reason: 'Saved from $_departmentPayloadLabel weekly roster grid',
         );
       }
       if (!quiet) {
-        _showSnack('Weekly roster draft saved', AppTheme.successGreen);
+        _showSnack(
+          _copy('s4.lib.housekeeping_roster_board.weekly_draft_saved'),
+          AppTheme.successGreen,
+        );
       }
       await _load();
       return lastSaved;
@@ -754,7 +864,7 @@ class _HousekeepingRosterBoardScreenState
   Future<void> _publish() async {
     if (!_canEditRoster) {
       _showSnack(
-        'Publishing needs the department incharge or Admin role.',
+        _copy('s4.lib.housekeeping_roster_board.publish_permission_required'),
         AppTheme.errorRed,
       );
       return;
@@ -773,7 +883,8 @@ class _HousekeepingRosterBoardScreenState
           department: widget.department,
           rosterDate: dateText,
           boards: _buildDayBoards(dateText: dateText),
-          reason: 'Saved before publishing $_departmentLabel weekly roster',
+          reason:
+              'Saved before publishing $_departmentPayloadLabel weekly roster',
         );
         final boards = _asMapList(saved['boards']);
         for (final board in boards) {
@@ -782,15 +893,21 @@ class _HousekeepingRosterBoardScreenState
           if (boardId == null || assignments.isEmpty) continue;
           await HrApiService.publishRosterBoard(
             rosterId: boardId,
-            reason: 'Published from $_departmentLabel weekly roster grid',
+            reason:
+                'Published from $_departmentPayloadLabel weekly roster grid',
           );
           publishedCount += 1;
         }
       }
       _showSnack(
         publishedCount == 0
-            ? 'Saved week draft; no assigned shifts to publish.'
-            : 'Published $publishedCount weekly shift roster${publishedCount == 1 ? '' : 's'}',
+            ? _copy(
+                's4.lib.housekeeping_roster_board.no_assigned_shifts_to_publish',
+              )
+            : _format(
+                's4.dynamic.housekeeping_roster_board.published_roster_count',
+                {'count': publishedCount},
+              ),
         AppTheme.successGreen,
       );
       await _load();
@@ -807,7 +924,7 @@ class _HousekeepingRosterBoardScreenState
   Future<void> _copyPrevious() async {
     if (!_canEditRoster) {
       _showSnack(
-        'Copying rosters needs the department incharge or Admin role.',
+        _copy('s4.lib.housekeeping_roster_board.copy_permission_required'),
         AppTheme.errorRed,
       );
       return;
@@ -831,13 +948,21 @@ class _HousekeepingRosterBoardScreenState
       await _load();
       _showSnack(
         copied > 0
-            ? 'Copied $copied previous shift roster${copied == 1 ? '' : 's'}'
-            : 'No previous roster found for these shifts.',
+            ? _format(
+                's4.dynamic.housekeeping_roster_board.copied_previous_rosters',
+                {'count': copied},
+              )
+            : _copy(
+                's4.lib.housekeeping_roster_board.no_previous_roster_found',
+              ),
         copied > 0 ? AppTheme.successGreen : AppTheme.warningOnSurface,
       );
       if (failed > 0 && copied > 0) {
         _showSnack(
-          '$failed shift${failed == 1 ? '' : 's'} had no previous roster.',
+          _format(
+            's4.dynamic.housekeeping_roster_board.previous_rosters_missing',
+            {'count': failed},
+          ),
           AppTheme.warningOnSurface,
         );
       }
@@ -849,7 +974,7 @@ class _HousekeepingRosterBoardScreenState
   void _copySelectedDayToWeek() {
     if (!_canEditRoster) {
       _showSnack(
-        'Roster editing needs the department incharge or Admin role.',
+        _copy('s4.lib.housekeeping_roster_board.edit_permission_required'),
         AppTheme.errorRed,
       );
       return;
@@ -881,8 +1006,11 @@ class _HousekeepingRosterBoardScreenState
     });
     _showSnack(
       blocked == 0
-          ? 'Selected day copied across the week'
-          : 'Selected day copied; $blocked approved-leave assignment${blocked == 1 ? '' : 's'} skipped.',
+          ? _copy('s4.lib.housekeeping_roster_board.copied_day_to_week')
+          : _format(
+              's4.dynamic.housekeeping_roster_board.copied_day_skipped_leave',
+              {'count': blocked},
+            ),
       blocked == 0 ? AppTheme.successGreen : AppTheme.warningOnSurface,
     );
   }
@@ -890,7 +1018,7 @@ class _HousekeepingRosterBoardScreenState
   Future<void> _reviewRequest(int requestId, String decision) async {
     if (!_canReviewRosterRequests) {
       _showSnack(
-        'Duty request review needs HR or department incharge access.',
+        _copy('s4.lib.housekeeping_roster_board.review_permission_required'),
         AppTheme.errorRed,
       );
       return;
@@ -900,9 +1028,14 @@ class _HousekeepingRosterBoardScreenState
       await HrApiService.reviewRosterPreferenceRequest(
         requestId: requestId,
         decision: decision,
-        reviewNotes: 'Reviewed from $_departmentLabel roster board',
+        reviewNotes: 'Reviewed from $_departmentPayloadLabel roster board',
       );
-      _showSnack('Duty request $decision', AppTheme.successGreen);
+      _showSnack(
+        _format('s4.dynamic.housekeeping_roster_board.duty_request_reviewed', {
+          'decision': _reviewDecisionLabel(decision),
+        }),
+        AppTheme.successGreen,
+      );
       await _load();
     } catch (e) {
       _showSnack(
@@ -917,7 +1050,9 @@ class _HousekeepingRosterBoardScreenState
   Future<void> _generateForecast() async {
     if (!_canForecastRoster) {
       _showSnack(
-        'Forecast generation needs HR or department incharge access.',
+        _copy(
+          's4.lib.housekeeping_roster_board.forecast_generate_permission_required',
+        ),
         AppTheme.errorRed,
       );
       return;
@@ -930,7 +1065,7 @@ class _HousekeepingRosterBoardScreenState
         endDate: _dateText(_weekStart.add(const Duration(days: 83))),
       );
       _showSnack(
-        '12-week advisory forecast generated for HR review',
+        _copy('s4.lib.housekeeping_roster_board.forecast_generated'),
         AppTheme.successGreen,
       );
       await _load();
@@ -947,14 +1082,19 @@ class _HousekeepingRosterBoardScreenState
   Future<void> _reviewForecast(String decision) async {
     if (!_canForecastRoster) {
       _showSnack(
-        'Forecast review needs HR or department incharge access.',
+        _copy(
+          's4.lib.housekeeping_roster_board.forecast_review_permission_required',
+        ),
         AppTheme.errorRed,
       );
       return;
     }
     final runId = _asInt(_forecastOverlay['run_id']);
     if (runId == null) {
-      _showSnack('Generate a forecast first.', AppTheme.errorRed);
+      _showSnack(
+        _copy('s4.lib.housekeeping_roster_board.generate_forecast_first'),
+        AppTheme.errorRed,
+      );
       return;
     }
     setState(() => _saving = true);
@@ -962,9 +1102,14 @@ class _HousekeepingRosterBoardScreenState
       await HrApiService.reviewRosterLeaveForecast(
         runId: runId,
         decision: decision,
-        reviewerNotes: 'Reviewed from $_departmentLabel roster board',
+        reviewerNotes: 'Reviewed from $_departmentPayloadLabel roster board',
       );
-      _showSnack('Forecast $decision', AppTheme.successGreen);
+      _showSnack(
+        _format('s4.dynamic.housekeeping_roster_board.forecast_reviewed', {
+          'decision': _reviewDecisionLabel(decision),
+        }),
+        AppTheme.successGreen,
+      );
       await _load();
     } catch (e) {
       _showSnack(
@@ -979,7 +1124,9 @@ class _HousekeepingRosterBoardScreenState
   Future<void> _addCustomShift() async {
     if (!_canEditRoster) {
       _showSnack(
-        'Custom shifts need the department incharge or Admin role.',
+        _copy(
+          's4.lib.housekeeping_roster_board.custom_shift_permission_required',
+        ),
         AppTheme.errorRed,
       );
       return;
@@ -999,7 +1146,10 @@ class _HousekeepingRosterBoardScreenState
         endTime: result.endTime,
         department: widget.department,
       );
-      _showSnack('Custom shift added', AppTheme.successGreen);
+      _showSnack(
+        _copy('s4.lib.housekeeping_roster_board.custom_shift_added'),
+        AppTheme.successGreen,
+      );
       await _load();
     } catch (e) {
       _showSnack(
@@ -1028,7 +1178,7 @@ class _HousekeepingRosterBoardScreenState
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: Text(widget.title),
+        title: Text(_screenTitle()),
         actions: [
           IconButton(
             tooltip: AppStrings.of(context).lookup('action.refresh'),
@@ -1054,6 +1204,7 @@ class _HousekeepingRosterBoardScreenState
                     assigned: assigned,
                     gaps: gaps,
                     forecastState: _forecastStateLabel(),
+                    forecastStateColor: _forecastStateColor(),
                     forecastRisk: _forecastForSelectedDate(),
                     saving: _saving,
                     canEdit: _canEditRoster,
@@ -1067,8 +1218,13 @@ class _HousekeepingRosterBoardScreenState
                   if (!_canEditRoster)
                     _InfoBanner(
                       text: _governanceNote.isEmpty
-                          ? 'Viewing only: roster edits need the department incharge or Admin role.'
-                          : 'Viewing only: $_governanceNote',
+                          ? _copy(
+                              's4.lib.housekeeping_roster_board.viewing_only_roster_edits',
+                            )
+                          : _format(
+                              's4.dynamic.housekeeping_roster_board.viewing_only_note',
+                              {'note': _governanceNote},
+                            ),
                     ),
                   const SizedBox(height: 12),
                   _WeekStrip(
@@ -1113,8 +1269,10 @@ class _HousekeepingRosterBoardScreenState
                   if (_targets.isEmpty)
                     _EmptyCard(
                       icon: Icons.map_outlined,
-                      text:
-                          'No active $_departmentLabel roster targets configured',
+                      text: _format(
+                        's4.dynamic.housekeeping_roster_board.no_active_roster_targets',
+                        {'department': _departmentLabel},
+                      ),
                     )
                   else if (_tabIndex == 0)
                     _FloorShiftGrid(
@@ -1226,6 +1384,7 @@ class _HeaderPanel extends StatelessWidget {
   final int assigned;
   final int gaps;
   final String forecastState;
+  final Color forecastStateColor;
   final Map<String, dynamic>? forecastRisk;
   final bool saving;
   final bool canEdit;
@@ -1244,6 +1403,7 @@ class _HeaderPanel extends StatelessWidget {
     required this.assigned,
     required this.gaps,
     required this.forecastState,
+    required this.forecastStateColor,
     required this.forecastRisk,
     required this.saving,
     required this.canEdit,
@@ -1258,6 +1418,7 @@ class _HeaderPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final published = status == 'published';
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
@@ -1271,7 +1432,10 @@ class _HeaderPanel extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '$departmentLabel duty deployment',
+                    s.format(
+                      's4.dynamic.housekeeping_roster_board.duty_deployment_title',
+                      {'department': departmentLabel},
+                    ),
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontSize: 18,
@@ -1280,7 +1444,11 @@ class _HeaderPanel extends StatelessWidget {
                   ),
                 ),
                 _StatusPill(
-                  label: published ? 'Published' : 'Draft',
+                  label: s.lookup(
+                    published
+                        ? 's4.lib.housekeeping_roster_board.status.published'
+                        : 's4.lib.housekeeping_roster_board.status.draft',
+                  ),
                   color: published
                       ? AppTheme.successOnSurface
                       : AppTheme.warningOnSurface,
@@ -1301,32 +1469,45 @@ class _HeaderPanel extends StatelessWidget {
                   onPressed: saving ? null : onPickWeek,
                 ),
                 _StatusPill(
-                  label: 'Viewing $selectedDateText',
+                  label: s.format(
+                    's4.dynamic.housekeeping_roster_board.viewing_date',
+                    {'date': selectedDateText},
+                  ),
                   color: AppTheme.primaryTeal,
                 ),
                 _StatusPill(
-                  label: '$assigned assignments',
+                  label: s.format(
+                    's4.dynamic.housekeeping_roster_board.assignment_count',
+                    {'count': assigned},
+                  ),
                   color: AppTheme.primaryBlue,
                 ),
                 _StatusPill(
-                  label: '$gaps open cells',
+                  label: s.format(
+                    's4.dynamic.housekeeping_roster_board.open_cell_count',
+                    {'count': gaps},
+                  ),
                   color: gaps == 0
                       ? AppTheme.successOnSurface
                       : AppTheme.errorOnSurface,
                 ),
                 _StatusPill(
-                  label: 'Forecast $forecastState',
-                  color: forecastState.contains('ai')
-                      ? AppTheme.primaryBlue
-                      : forecastState.contains('unavailable') ||
-                            forecastState.contains('not generated')
-                      ? AppTheme.warningOnSurface
-                      : AppTheme.primaryTeal,
+                  label: s.format(
+                    's4.dynamic.housekeeping_roster_board.forecast_state',
+                    {'state': forecastState},
+                  ),
+                  color: forecastStateColor,
                 ),
                 if (forecastRisk != null)
                   _StatusPill(
-                    label:
-                        '${forecastRisk!['risk_band'] ?? 'low'} risk - buffer ${forecastRisk!['recommended_buffer_count'] ?? 0}',
+                    label: s.format(
+                      's4.dynamic.housekeeping_roster_board.risk_buffer',
+                      {
+                        'risk': forecastRisk!['risk_band'] ?? 'low',
+                        'buffer':
+                            forecastRisk!['recommended_buffer_count'] ?? 0,
+                      },
+                    ),
                     color:
                         (forecastRisk!['risk_band']?.toString() ?? 'low') ==
                             'high'
@@ -1423,6 +1604,7 @@ class _WeekStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
@@ -1462,7 +1644,10 @@ class _WeekStrip extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '$assigned assigned - $gaps open',
+                          s.format(
+                            's4.dynamic.housekeeping_roster_board.day_assignment_summary',
+                            {'assigned': assigned, 'open': gaps},
+                          ),
                           style: TextStyle(
                             color: selected
                                 ? AppTheme.primaryBlue
@@ -1473,7 +1658,14 @@ class _WeekStrip extends StatelessWidget {
                         if (forecast != null) ...[
                           const SizedBox(height: 2),
                           Text(
-                            '$riskBand risk - buffer ${forecast['recommended_buffer_count'] ?? 0}',
+                            s.format(
+                              's4.dynamic.housekeeping_roster_board.risk_buffer',
+                              {
+                                'risk': riskBand,
+                                'buffer':
+                                    forecast['recommended_buffer_count'] ?? 0,
+                              },
+                            ),
                             style: TextStyle(
                               color: riskColor(riskBand),
                               fontSize: 12,
@@ -1508,6 +1700,7 @@ class _RosterLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Row(
       children: [
         Expanded(
@@ -1516,12 +1709,24 @@ class _RosterLegend extends StatelessWidget {
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ),
-        _StatusPill(label: '$staffCount staff', color: AppTheme.primaryTeal),
-        const SizedBox(width: 8),
-        _StatusPill(label: '$targetCount areas', color: AppTheme.primaryBlue),
+        _StatusPill(
+          label: s.format('s4.dynamic.housekeeping_roster_board.staff_count', {
+            'count': staffCount,
+          }),
+          color: AppTheme.primaryTeal,
+        ),
         const SizedBox(width: 8),
         _StatusPill(
-          label: '$shiftCount shifts',
+          label: s.format('s4.dynamic.housekeeping_roster_board.area_count', {
+            'count': targetCount,
+          }),
+          color: AppTheme.primaryBlue,
+        ),
+        const SizedBox(width: 8),
+        _StatusPill(
+          label: s.format('s4.dynamic.housekeeping_roster_board.shift_count', {
+            'count': shiftCount,
+          }),
           color: AppTheme.warningOnSurface,
         ),
       ],
@@ -1537,6 +1742,7 @@ class _RosterTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Row(
@@ -1544,7 +1750,7 @@ class _RosterTabs extends StatelessWidget {
           Expanded(
             child: _TabButton(
               icon: Icons.view_week_outlined,
-              label: 'By ward',
+              label: s.lookup('s4.lib.housekeeping_roster_board.tab.by_ward'),
               selected: selectedIndex == 0,
               onPressed: () => onChanged(0),
             ),
@@ -1552,7 +1758,7 @@ class _RosterTabs extends StatelessWidget {
           Expanded(
             child: _TabButton(
               icon: Icons.badge_outlined,
-              label: 'By staff',
+              label: s.lookup('s4.lib.housekeeping_roster_board.tab.by_staff'),
               selected: selectedIndex == 1,
               onPressed: () => onChanged(1),
             ),
@@ -1658,10 +1864,13 @@ class _FloorShiftGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (shifts.isEmpty) {
-      return const _EmptyCard(
+      return _EmptyCard(
         icon: Icons.schedule_outlined,
-        text: 'No active shifts configured',
+        text: s.lookup(
+          's4.lib.housekeeping_roster_board.no_active_shifts_configured',
+        ),
       );
     }
 
@@ -1696,15 +1905,25 @@ class _FloorShiftGrid extends StatelessWidget {
                         children: [
                           _GridHeaderCell(
                             width: floorWidth,
-                            title: 'Ward / Unit',
-                            subtitle: '${targets.length} active',
+                            title: s.lookup(
+                              's4.lib.housekeeping_roster_board.ward_unit',
+                            ),
+                            subtitle: s.format(
+                              's4.dynamic.housekeeping_roster_board.active_count',
+                              {'count': targets.length},
+                            ),
                           ),
                           ...shifts.map(
                             (shift) => _GridHeaderCell(
                               width: shiftWidth,
                               title: shift.label,
-                              subtitle:
-                                  '${shiftWindow(shift)} - ${assignedCountForShift(shift.label)} assigned',
+                              subtitle: s.format(
+                                's4.dynamic.housekeeping_roster_board.shift_assigned_summary',
+                                {
+                                  'window': shiftWindow(shift),
+                                  'count': assignedCountForShift(shift.label),
+                                },
+                              ),
                               highlighted: !shift.isCustom,
                             ),
                           ),
@@ -1845,13 +2064,14 @@ class _AddShiftColumnHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       width: width,
       height: 72,
       padding: const EdgeInsets.all(10),
       color: AppTheme.backgroundGrey,
       child: Tooltip(
-        message: 'Add custom shift',
+        message: s.lookup('s4.lib.housekeeping_roster_board.add_custom_shift'),
         child: IconButton.outlined(
           onPressed: onPressed,
           icon: const Icon(Icons.add_alarm_outlined),
@@ -1874,6 +2094,7 @@ class _TargetCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       width: width,
       height: 132,
@@ -1918,7 +2139,9 @@ class _TargetCell extends StatelessWidget {
                 Text(
                   [
                     asText(target['building'], fallback: ''),
-                    'Floor ${asText(target['floor'])}',
+                    s.format('s4.dynamic.housekeeping.floor_label', {
+                      'floor': asText(target['floor']),
+                    }),
                   ].where((part) => part.trim().isNotEmpty).join(' - '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1977,6 +2200,7 @@ class _AssignmentDropdownCell extends StatelessWidget {
   }
 
   Future<void> _pickStaff(BuildContext context) async {
+    final s = AppStrings.of(context);
     final pickedStaffId = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: AppTheme.cardSurface,
@@ -2017,9 +2241,13 @@ class _AssignmentDropdownCell extends StatelessWidget {
                       final reason = blockedByLeave
                           ? approvedLeaveMessage(staffId)
                           : assignedElsewhere
-                          ? 'Already assigned elsewhere on this date'
+                          ? s.lookup(
+                              's4.lib.housekeeping_roster_board.already_assigned_elsewhere',
+                            )
                           : alreadyInCell
-                          ? 'Already added to this floor'
+                          ? s.lookup(
+                              's4.lib.housekeeping_roster_board.already_added_to_floor',
+                            )
                           : null;
                       final disabled =
                           alreadyInCell || assignedElsewhere || blockedByLeave;
@@ -2046,8 +2274,17 @@ class _AssignmentDropdownCell extends StatelessWidget {
                         ),
                         subtitle: Text(
                           [
-                            asText(row['employee_id'], fallback: 'no ID'),
-                            if (riskBand != null) '$riskBand risk',
+                            asText(
+                              row['employee_id'],
+                              fallback: s.lookup(
+                                's4.lib.housekeeping_command.no_id',
+                              ),
+                            ),
+                            if (riskBand != null)
+                              s.format(
+                                's4.dynamic.housekeeping_roster_board.risk_label',
+                                {'risk': riskBand},
+                              ),
                             ?reason,
                           ].join(' - '),
                           style: TextStyle(
@@ -2076,6 +2313,7 @@ class _AssignmentDropdownCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       width: width,
       height: 132,
@@ -2115,7 +2353,12 @@ class _AssignmentDropdownCell extends StatelessWidget {
                                   MaterialTapTargetSize.shrinkWrap,
                               avatar: const Icon(Icons.person, size: 16),
                               label: Text(
-                                asText(row?['name'], fallback: 'Staff'),
+                                asText(
+                                  row?['name'],
+                                  fallback: s.lookup(
+                                    's4.lib.housekeeping_roster_board.staff_fallback',
+                                  ),
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                               onDeleted: saving
@@ -2135,7 +2378,9 @@ class _AssignmentDropdownCell extends StatelessWidget {
                   onPressed: saving ? null : () => _pickStaff(context),
                   icon: const Icon(Icons.add, size: 16),
                   label: Text(
-                    selectedStaffIds.isEmpty ? 'Add staff' : 'Add more',
+                    selectedStaffIds.isEmpty
+                        ? s.lookup('s4.lib.housekeeping_roster_board.add_staff')
+                        : s.lookup('s4.lib.housekeeping_roster_board.add_more'),
                   ),
                 ),
               ),
@@ -2191,10 +2436,13 @@ class _StaffWiseRoster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (staff.isEmpty) {
-      return const _EmptyCard(
+      return _EmptyCard(
         icon: Icons.badge_outlined,
-        text: 'No active staff found for this department',
+        text: s.lookup(
+          's4.lib.housekeeping_roster_board.no_active_staff_found',
+        ),
       );
     }
 
@@ -2252,9 +2500,14 @@ class _StaffWiseRoster extends StatelessWidget {
                           if (blockedByLeave)
                             Tooltip(
                               message:
-                                  leaveMessage ?? 'Approved leave on this date',
+                                  leaveMessage ??
+                                  s.lookup(
+                                    's4.lib.housekeeping_roster_board.approved_leave_on_date',
+                                  ),
                               child: _StatusPill(
-                                label: 'Approved leave',
+                                label: s.lookup(
+                                  's4.lib.housekeeping_roster_board.approved_leave',
+                                ),
                                 color: AppTheme.errorOnSurface,
                               ),
                             ),
@@ -2272,8 +2525,13 @@ class _StaffWiseRoster extends StatelessWidget {
                                   .where((item) => item.isNotEmpty)
                                   .join(' - '),
                               child: _StatusPill(
-                                label: '$riskBand ${forecast?['score'] ?? ''}'
-                                    .trim(),
+                                label: s.format(
+                                  's4.dynamic.housekeeping_roster_board.risk_score',
+                                  {
+                                    'risk': riskBand,
+                                    'score': forecast?['score'] ?? '',
+                                  },
+                                ).trim(),
                                 color: riskColor(riskBand),
                               ),
                             ),
@@ -2295,9 +2553,17 @@ class _StaffWiseRoster extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         [
-                          asText(row['employee_id'], fallback: 'No ID'),
+                          asText(
+                            row['employee_id'],
+                            fallback: s.lookup(
+                              's4.lib.housekeeping_command.no_id',
+                            ),
+                          ),
                           asText(row['role'], fallback: ''),
-                          staffAssignedTargetLabel(staffId) ?? 'Unassigned',
+                          staffAssignedTargetLabel(staffId) ??
+                              s.lookup(
+                                's4.lib.housekeeping_roster_board.unassigned',
+                              ),
                         ].where((part) => part.trim().isNotEmpty).join(' - '),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -2439,6 +2705,7 @@ class _RosterSignals extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final hasForecast = forecastOverlay.isNotEmpty;
     if (requests.isEmpty && leaveCoverage.isEmpty && !hasForecast) {
       return const SizedBox.shrink();
@@ -2486,7 +2753,12 @@ class _RosterSignals extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            asText(request['staff_name'], fallback: 'Staff'),
+                            asText(
+                              request['staff_name'],
+                              fallback: s.lookup(
+                                's4.lib.housekeeping_roster_board.staff_fallback',
+                              ),
+                            ),
                             style: TextStyle(
                               color: AppTheme.textPrimary,
                               fontWeight: FontWeight.w700,
@@ -2504,10 +2776,17 @@ class _RosterSignals extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       [
-                        asText(request['shift_label'], fallback: 'Any shift'),
+                        asText(
+                          request['shift_label'],
+                          fallback: s.lookup(
+                            's4.lib.housekeeping_roster_board.any_shift',
+                          ),
+                        ),
                         asText(
                           request['assignment_target_label'],
-                          fallback: 'Any post',
+                          fallback: s.lookup(
+                            's4.lib.housekeeping_roster_board.any_post',
+                          ),
                         ),
                         asText(request['reason'], fallback: ''),
                       ].where((part) => part.isNotEmpty).join(' - '),
@@ -2570,7 +2849,12 @@ class _RosterSignals extends StatelessWidget {
                       color: AppTheme.warningOnSurface,
                     ),
                     title: Text(
-                      asText(leave['staff_name'], fallback: 'Staff on leave'),
+                      asText(
+                        leave['staff_name'],
+                        fallback: s.lookup(
+                          's4.lib.housekeeping_roster_board.staff_on_leave',
+                        ),
+                      ),
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w700,
@@ -2578,11 +2862,18 @@ class _RosterSignals extends StatelessWidget {
                     ),
                     subtitle: Text(
                       [
-                        asText(leave['leave_type'], fallback: 'Leave'),
+                        asText(
+                          leave['leave_type'],
+                          fallback: s.lookup(
+                            's4.lib.housekeeping_roster_board.leave_fallback',
+                          ),
+                        ),
                         asText(leave['leave_status'], fallback: ''),
                         asText(
                           leave['replacement_staff_name'],
-                          fallback: 'No alternate approved',
+                          fallback: s.lookup(
+                            's4.lib.housekeeping_roster_board.no_alternate_approved',
+                          ),
                         ),
                       ].where((part) => part.isNotEmpty).join(' - '),
                       style: TextStyle(color: AppTheme.textSecondary),
@@ -2617,6 +2908,7 @@ class _ForecastSignalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final state = asText(
       forecastOverlay['governance_state'],
       fallback: 'blocked',
@@ -2631,6 +2923,23 @@ class _ForecastSignalCard extends StatelessWidget {
     final riskBand = selectedDateRisk?['risk_band'] ?? 'low';
     final runId = asInt(forecastOverlay['run_id']);
     final sources = forecastOverlay['source_count'] ?? 0;
+    final stateLabel = switch (state) {
+      'ai' => s.lookup('s4.lib.housekeeping_roster_board.forecast_state.ai'),
+      'schema-unavailable' => s.lookup(
+        's4.lib.housekeeping_roster_board.forecast_state.schema_unavailable',
+      ),
+      'blocked' => s.lookup(
+        's4.lib.housekeeping_roster_board.forecast_state.not_generated',
+      ),
+      _ => state,
+    };
+    final reviewLabel = switch (review) {
+      'accepted' => s.lookup('s4.lib.housekeeping_roster_board.accepted'),
+      'discarded' => s.lookup('s4.lib.housekeeping_roster_board.discarded'),
+      'approved' => s.lookup('s4.lib.leave_approvals.status.approved'),
+      'rejected' => s.lookup('s4.lib.leave_approvals.status.rejected'),
+      _ => review,
+    };
     final sourceBreakdown = forecastOverlay['source_breakdown'] is Map
         ? Map<String, dynamic>.from(forecastOverlay['source_breakdown'] as Map)
         : <String, dynamic>{};
@@ -2639,7 +2948,12 @@ class _ForecastSignalCard extends StatelessWidget {
           final value = entry.value is Map
               ? Map<String, dynamic>.from(entry.value as Map)
               : <String, dynamic>{};
-          return '${entry.key.replaceAll('_', ' ')}: ${value['state'] ?? 'unknown'}';
+          return s.format('s4.dynamic.housekeeping_roster_board.source_state', {
+            'source': entry.key.replaceAll('_', ' '),
+            'state':
+                value['state'] ??
+                s.lookup('s4.lib.housekeeping_roster_board.unknown'),
+          });
         })
         .take(6)
         .join(' - ');
@@ -2668,7 +2982,7 @@ class _ForecastSignalCard extends StatelessWidget {
                   ),
                 ),
                 _StatusPill(
-                  label: state,
+                  label: stateLabel,
                   color: state == 'ai'
                       ? AppTheme.primaryBlue
                       : state == 'schema-unavailable'
@@ -2681,8 +2995,9 @@ class _ForecastSignalCard extends StatelessWidget {
             Text(
               asText(
                 summary['narrative'],
-                fallback:
-                    'Generate a 12-week forecast to see staffing risk signals.',
+                fallback: s.lookup(
+                  's4.lib.housekeeping_roster_board.forecast_empty_narrative',
+                ),
               ),
               style: TextStyle(color: AppTheme.textPrimary),
             ),
@@ -2692,17 +3007,29 @@ class _ForecastSignalCard extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _StatusPill(
-                  label: 'Review $review',
+                  label: s.format(
+                    's4.dynamic.housekeeping_roster_board.forecast_review_state',
+                    {'review': reviewLabel},
+                  ),
                   color: AppTheme.primaryTeal,
                 ),
                 _StatusPill(
-                  label: '$sources sources',
+                  label: s.format(
+                    's4.dynamic.housekeeping_roster_board.forecast_source_count',
+                    {'count': sources},
+                  ),
                   color: AppTheme.primaryBlue,
                 ),
                 if (selectedDateRisk != null)
                   _StatusPill(
-                    label:
-                        '$riskBand today - buffer ${selectedDateRisk!['recommended_buffer_count'] ?? 0}',
+                    label: s.format(
+                      's4.dynamic.housekeeping_roster_board.forecast_today_buffer',
+                      {
+                        'risk': riskBand,
+                        'buffer':
+                            selectedDateRisk!['recommended_buffer_count'] ?? 0,
+                      },
+                    ),
                     color: riskColor(riskBand),
                   ),
               ],
@@ -2784,7 +3111,12 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
   void initState() {
     super.initState();
     _nameController.text =
-        'Custom ${TimeOfDay.now().hour.toString().padLeft(2, '0')}';
+        AppStrings.forLocale(
+          WidgetsBinding.instance.platformDispatcher.locale,
+        ).format(
+          's4.dynamic.housekeeping_roster_board.custom_shift_default_name',
+          {'hour': TimeOfDay.now().hour.toString().padLeft(2, '0')},
+        );
   }
 
   @override
@@ -2798,9 +3130,17 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
   String? _validateTime(String? value) {
     final text = value?.trim() ?? '';
     final valid = RegExp(r'^\d{2}:\d{2}$').hasMatch(text);
-    if (!valid) return 'Use HH:MM';
+    if (!valid) {
+      return AppStrings.of(
+        context,
+      ).lookup('s4.lib.housekeeping_roster_board.time_format_hhmm');
+    }
     final parts = text.split(':').map(int.parse).toList();
-    if (parts[0] > 23 || parts[1] > 59) return 'Use HH:MM';
+    if (parts[0] > 23 || parts[1] > 59) {
+      return AppStrings.of(
+        context,
+      ).lookup('s4.lib.housekeeping_roster_board.time_format_hhmm');
+    }
     return null;
   }
 
@@ -2839,7 +3179,11 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
               ),
               validator: (value) {
                 final text = value?.trim() ?? '';
-                if (text.isEmpty) return 'Shift name is required';
+                if (text.isEmpty) {
+                  return AppStrings.of(context).lookup(
+                    's4.lib.housekeeping_roster_board.shift_name_required',
+                  );
+                }
                 return null;
               },
             ),
@@ -2892,7 +3236,7 @@ class _CustomShiftDialogState extends State<_CustomShiftDialog> {
         FilledButton.icon(
           onPressed: _submit,
           icon: const Icon(Icons.add),
-          label: const AppText('prescriptions.add_button'),
+          label: const AppText('s4.lib.housekeeping_roster_board.add'),
         ),
       ],
     );

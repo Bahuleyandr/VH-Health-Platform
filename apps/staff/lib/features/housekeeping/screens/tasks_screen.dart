@@ -64,9 +64,14 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     }
 
     try {
+      final s = AppStrings.of(context);
       final data = await HrApiService.getMyHousekeepingRequests();
-      final assigned = _asMapList(data['assigned']).map(_Task.fromJson);
-      final completed = _asMapList(data['completed']).map(_Task.fromJson);
+      final assigned = _asMapList(
+        data['assigned'],
+      ).map((row) => _Task.fromJson(row, s));
+      final completed = _asMapList(
+        data['completed'],
+      ).map((row) => _Task.fromJson(row, s));
       if (!mounted) return;
       setState(() {
         _assignedTasks = assigned.toList(growable: false);
@@ -624,6 +629,8 @@ class _Task {
   final String category;
   final String description;
   final String slaLabel;
+  final String priorityLabel;
+  final String statusLabel;
 
   const _Task({
     required this.id,
@@ -634,50 +641,56 @@ class _Task {
     required this.category,
     required this.description,
     required this.slaLabel,
+    required this.priorityLabel,
+    required this.statusLabel,
   });
 
-  factory _Task.fromJson(Map<String, dynamic> json) {
+  factory _Task.fromJson(Map<String, dynamic> json, AppStrings s) {
     final requestType = _normalize(json['request_type'] ?? json['task_type']);
     final location = _firstText([
       json['zone_name'],
       json['location_text'],
       json['request_number'],
-    ]);
+    ], fallback: s.lookup('s4.lib.housekeeping_task.unspecified'));
     final createdLabel = _formatDate(json['created_at']);
     final slaLabel = _formatDate(json['sla_due_at']);
-    final category = _label(requestType);
+    final category = _requestTypeLabel(s, requestType);
+    final priority = _normalize(json['urgency'], fallback: 'normal');
+    final status = _normalize(json['status'], fallback: 'assigned');
 
     return _Task(
       id: json['id'].toString(),
-      title: '$category - $location',
+      title: s.format('s4.dynamic.housekeeping_task.title', {
+        'category': category,
+        'location': location,
+      }),
       location: location,
-      priority: _normalize(json['urgency'], fallback: 'normal'),
-      status: _normalize(json['status'], fallback: 'assigned'),
+      priority: priority,
+      status: status,
       category: category,
       description: _firstText([
         json['description'],
         json['notes'],
       ], fallback: ''),
-      slaLabel: slaLabel.isNotEmpty ? 'SLA $slaLabel' : createdLabel,
+      slaLabel: slaLabel.isNotEmpty
+          ? s.format('s4.dynamic.housekeeping_task.sla_label', {
+              'date': slaLabel,
+            })
+          : createdLabel,
+      priorityLabel: _priorityLabel(s, priority).toUpperCase(),
+      statusLabel: _statusLabel(s, status).toUpperCase(),
     );
   }
 
   bool get isFinished =>
       status == 'completed' || status == 'verified' || status == 'closed';
 
-  String get priorityLabel => priority.toUpperCase();
-
-  String get statusLabel => _label(status).toUpperCase();
-
   static String _normalize(dynamic value, {String fallback = 'cleaning'}) {
     final text = value?.toString().trim().toLowerCase();
     return text == null || text.isEmpty ? fallback : text;
   }
 
-  static String _firstText(
-    List<dynamic> values, {
-    String fallback = 'Unspecified',
-  }) {
+  static String _firstText(List<dynamic> values, {required String fallback}) {
     for (final value in values) {
       final text = value?.toString().trim();
       if (text != null && text.isNotEmpty) return text;
@@ -693,12 +706,28 @@ class _Task {
     return DateFormat('dd MMM, HH:mm').format(parsed.toLocal());
   }
 
-  static String _label(String value) {
-    return value
-        .replaceAll('_', ' ')
-        .split(' ')
-        .where((part) => part.isNotEmpty)
-        .map((part) => part[0].toUpperCase() + part.substring(1))
-        .join(' ');
-  }
+  static String _priorityLabel(AppStrings s, String value) => switch (value) {
+    'urgent' => s.priorityUrgent,
+    'high' => s.urgencyHigh,
+    'low' => s.urgencyLow,
+    _ => s.urgencyNormal,
+  };
+
+  static String _requestTypeLabel(AppStrings s, String value) =>
+      switch (value) {
+        'spillage' => s.housekeepingRequestTypeSpillage,
+        'waste' => s.housekeepingRequestTypeWaste,
+        'linen' => s.housekeepingRequestTypeLinen,
+        'disinfection' => s.housekeepingRequestTypeDisinfection,
+        'other' => s.housekeepingRequestTypeOther,
+        _ => s.housekeepingRequestTypeCleaning,
+      };
+
+  static String _statusLabel(AppStrings s, String value) => switch (value) {
+    'completed' => s.lookup('s4.lib.housekeeping_task.status.completed'),
+    'verified' => s.lookup('s4.lib.housekeeping_task.status.verified'),
+    'closed' => s.lookup('s4.lib.housekeeping_task.status.closed'),
+    'in_progress' => s.lookup('s4.lib.housekeeping_task.status.in_progress'),
+    _ => s.lookup('s4.lib.housekeeping_task.status.assigned'),
+  };
 }

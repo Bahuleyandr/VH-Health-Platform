@@ -134,8 +134,16 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const AppText('s4.lib.housekeeping_command.end_assignment'),
-        content: Text(
-          '${_asText(assignment['staff_name'], fallback: 'This staff member')} will stop receiving requests for this floor.',
+        content: AppText(
+          's4.dynamic.housekeeping_command.end_assignment_body',
+          values: {
+            'staff': _asText(
+              assignment['staff_name'],
+              fallback: AppStrings.of(
+                context,
+              ).lookup('s4.lib.housekeeping_command.this_staff_member'),
+            ),
+          },
         ),
         actions: [
           TextButton(
@@ -221,7 +229,9 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
                   const SizedBox(height: 16),
                   _SectionTitle(
                     icon: Icons.map_outlined,
-                    title: 'Zone workload',
+                    title: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.housekeeping_command.zone_workload'),
                     count: _zones.length,
                   ),
                   const SizedBox(height: 8),
@@ -235,14 +245,18 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
                   const SizedBox(height: 16),
                   _SectionTitle(
                     icon: Icons.assignment_ind_outlined,
-                    title: 'Active assignments',
+                    title: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.housekeeping_command.active_assignments'),
                     count: _assignments.length,
                   ),
                   const SizedBox(height: 8),
                   if (_assignments.isEmpty)
-                    const _EmptyCard(
+                    _EmptyCard(
                       icon: Icons.cleaning_services_outlined,
-                      text: 'No active floor assignments yet',
+                      text: AppStrings.of(context).lookup(
+                        's4.lib.housekeeping_command.no_active_floor_assignments_yet',
+                      ),
                     )
                   else
                     ..._assignments.map(
@@ -294,6 +308,7 @@ class _DelegationPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canSubmit = selectedStaffId != null && selectedZoneId != null;
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
@@ -332,7 +347,15 @@ class _DelegationPanel extends StatelessWidget {
                     (row) => DropdownMenuItem<int>(
                       value: asInt(row['id']),
                       child: Text(
-                        '${asText(row['name'])} - ${asText(row['employee_id'], fallback: 'no ID')}',
+                        s.format('s4.dynamic.housekeeping.staff_employee_id', {
+                          'name': asText(row['name']),
+                          'employeeId': asText(
+                            row['employee_id'],
+                            fallback: s.lookup(
+                              's4.lib.housekeeping_command.no_id',
+                            ),
+                          ),
+                        }),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -354,7 +377,10 @@ class _DelegationPanel extends StatelessWidget {
                     (row) => DropdownMenuItem<int>(
                       value: asInt(row['id']),
                       child: Text(
-                        '${asText(row['name'])} - Floor ${asText(row['floor'])}',
+                        s.format('s4.dynamic.housekeeping.zone_floor_label', {
+                          'name': asText(row['name']),
+                          'floor': asText(row['floor']),
+                        }),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -425,6 +451,7 @@ class _ZoneWorkloadCard extends StatelessWidget {
     final active = asInt(zone['active_requests']) ?? 0;
     final urgent = asInt(zone['urgent_requests']) ?? 0;
     final high = asInt(zone['high_requests']) ?? 0;
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
@@ -445,7 +472,9 @@ class _ZoneWorkloadCard extends StatelessWidget {
                   ),
                 ),
                 _MetricPill(
-                  label: '$active open',
+                  label: s.format('s4.dynamic.housekeeping.open_count', {
+                    'count': active,
+                  }),
                   color: active > 0
                       ? AppTheme.primaryBlue
                       : AppTheme.textSecondary,
@@ -454,7 +483,15 @@ class _ZoneWorkloadCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '${asText(zone['building'], fallback: 'Building not set')} - Floor ${asText(zone['floor'])}',
+              s.format('s4.dynamic.housekeeping.building_floor_label', {
+                'building': asText(
+                  zone['building'],
+                  fallback: s.lookup(
+                    's4.lib.housekeeping_command.building_not_set',
+                  ),
+                ),
+                'floor': asText(zone['floor']),
+              }),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 10),
@@ -463,11 +500,15 @@ class _ZoneWorkloadCard extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _MetricPill(
-                  label: '$urgent urgent',
+                  label: s.format('s4.dynamic.housekeeping.urgent_count', {
+                    'count': urgent,
+                  }),
                   color: AppTheme.errorOnSurface,
                 ),
                 _MetricPill(
-                  label: '$high high',
+                  label: s.format('s4.dynamic.housekeeping.high_count', {
+                    'count': high,
+                  }),
                   color: AppTheme.warningOnSurface,
                 ),
               ],
@@ -494,6 +535,7 @@ class _AssignmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
@@ -528,12 +570,25 @@ class _AssignmentCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${asText(assignment['current_zone_name'] ?? assignment['zone_name'])} - Floor ${asText(assignment['floor'])}',
+                    s.format('s4.dynamic.housekeeping.zone_floor_label', {
+                      'name': asText(
+                        assignment['current_zone_name'] ??
+                            assignment['zone_name'],
+                      ),
+                      'floor': asText(assignment['floor']),
+                    }),
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Shift ${asText(assignment['shift_label'], fallback: 'current')}',
+                    s.format('s4.dynamic.housekeeping.shift_label', {
+                      'shift': asText(
+                        assignment['shift_label'],
+                        fallback: s.lookup(
+                          's4.lib.housekeeping_command.current_shift',
+                        ),
+                      ),
+                    }),
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ],

@@ -109,6 +109,30 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
   }
 }
 
+String _cleaningTypeLabel(AppStrings s, String value) => switch (value) {
+  'deep' => s.housekeepingTypeDeep,
+  'disinfection' => s.housekeepingTypeDisinfection,
+  'spillage' => s.housekeepingTypeSpillage,
+  'post_procedure' => s.housekeepingTypePostProcedure,
+  _ => s.housekeepingTypeRoutine,
+};
+
+String _requestStatusLabel(AppStrings s, String value) => switch (value) {
+  'assigned' => s.lookup('s4.lib.housekeeping_task.status.assigned'),
+  'completed' => s.lookup('s4.lib.housekeeping_task.status.completed'),
+  'verified' => s.lookup('s4.lib.housekeeping_task.status.verified'),
+  'closed' => s.lookup('s4.lib.housekeeping_task.status.closed'),
+  'in_progress' => s.lookup('s4.lib.housekeeping_task.status.in_progress'),
+  _ => s.lookup('s4.lib.housekeeping_task.status.open'),
+};
+
+String _urgencyLabel(AppStrings s, String value) => switch (value) {
+  'urgent' => s.priorityUrgent,
+  'high' => s.urgencyHigh,
+  'low' => s.urgencyLow,
+  _ => s.urgencyNormal,
+};
+
 // ─── Logs Tab ─────────────────────────────────────────────────────────────────
 
 class _LogsTab extends StatelessWidget {
@@ -243,8 +267,10 @@ class _LogCard extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        (log['cleaning_type'] as String? ?? 'routine')
-                            .replaceAll('_', ' '),
+                        _cleaningTypeLabel(
+                          s,
+                          log['cleaning_type'] as String? ?? 'routine',
+                        ),
                         style: const TextStyle(
                           fontSize: 11,
                           color: Color(0xFF007A64),
@@ -423,6 +449,7 @@ class _RequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final urgency = req['urgency'] as String? ?? 'normal';
     final urgencyColor = switch (urgency) {
       'urgent' => Colors.red,
@@ -430,7 +457,9 @@ class _RequestCard extends StatelessWidget {
       'low' => Colors.green,
       _ => Colors.grey,
     };
+    final urgencyLabel = _urgencyLabel(s, urgency);
     final status = req['status'] as String? ?? 'open';
+    final statusLabel = _requestStatusLabel(s, status);
     final createdAt = req['created_at'] != null
         ? DateFormat(
             'dd MMM, HH:mm',
@@ -459,7 +488,7 @@ class _RequestCard extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    urgency.toUpperCase(),
+                    urgencyLabel.toUpperCase(),
                     style: TextStyle(
                       color: urgencyColor,
                       fontSize: 10,
@@ -511,7 +540,7 @@ class _RequestCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    status.replaceAll('_', ' ').toUpperCase(),
+                    statusLabel.toUpperCase(),
                     style: TextStyle(
                       color: Colors.blue.shade700,
                       fontSize: 10,
