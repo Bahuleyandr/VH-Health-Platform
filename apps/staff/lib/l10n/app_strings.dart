@@ -5165,15 +5165,32 @@ class AppStrings {
           "Opening Front Office Workbench",
       's4.lib.appointments.any_available_doctor': "Any available doctor",
       's4.lib.appointments.book_op': "Book OP",
+      // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
           "Clear doctor or department filter",
       's4.lib.appointments.collapse_queue_panel': "Collapse queue panel",
+      's4.lib.appointments.could_not_check_registry_new_patient_available':
+          "Could not check registry now; new-patient booking is available",
       's4.lib.appointments.create_appointment': "Create Appointment",
+      's4.lib.appointments.creating': "Creating...",
+      's4.lib.appointments.checking_patient_registry':
+          "Checking patient registry...",
+      's4.lib.appointments.enter_a_valid_phone_number':
+          "Enter a valid phone number",
+      's4.lib.appointments.enter_at_least_3_characters':
+          "Enter at least 3 characters",
+      's4.lib.appointments.enter_patient_name_for_new_patient':
+          "Enter patient name for new patient",
+      's4.lib.appointments.enter_phone_to_check_registered_patient':
+          "Enter phone to check registered patient",
+      's4.lib.appointments.existing_patient_found': "Existing patient found",
       's4.lib.appointments.filter_doctor_or_department':
           "Filter doctor or department",
       's4.lib.appointments.flex': "Flex",
       's4.lib.appointments.gmt_5_30': "GMT+5:30",
       's4.lib.appointments.next_month': "Next month",
+      's4.lib.appointments.new_patient_enter_name_to_register':
+          "New patient - enter name to register while booking",
       's4.lib.appointments.no_doctor_or_department_matches':
           "No doctor or department matches",
       's4.lib.appointments.previous_month': "Previous month",
@@ -5784,10 +5801,18 @@ class AppStrings {
       's4.lib.investigations.test_name': "Test name",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "Book and track OP/IP lab requests",
+      // REVIEW: AI first-pass S4 lab bookings i18n - confirm front-desk/lab workflow copy before production.
+      's4.lib.lab_bookings.attach_prescription': "Attach prescription",
+      's4.lib.lab_bookings.book_lab': "Book Lab",
+      's4.lib.lab_bookings.booking': "Booking...",
       's4.lib.lab_bookings.cbc_rft_urine_routine': "CBC, RFT, urine routine...",
+      's4.lib.lab_bookings.enter_a_valid_phone_number':
+          "Enter a valid phone number",
       's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
           "Enter test names or attach a prescription",
+      's4.lib.lab_bookings.lab_booking_created': "Lab booking created",
       's4.lib.lab_bookings.new_lab_booking': "New Lab Booking",
+      's4.lib.lab_bookings.scan_and_collect': "Scan and collect",
       's4.lib.lab_bookings.tests': "Tests",
       's4.lib.lab_bookings.upload': "Upload",
       's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
@@ -7147,6 +7172,11 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} registered staff",
       's4.dynamic.lab_bookings.tests_prefix': "Tests: {tests}",
+      's4.dynamic.appointments.existing_patient_found_id':
+          "Existing patient found: #{id}",
+      's4.dynamic.lab_bookings.error_message': "Error: {error}",
+      's4.dynamic.lab_bookings.specimen_queue_update_failed':
+          "Specimen collected, but queue update failed: {error}",
       // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
       's4.dynamic.messaging.attachment_failed': "Attachment failed: {error}",
       's4.dynamic.messaging.attachment_sent_scan_status':
@@ -9006,6 +9036,7 @@ class AppStrings {
       'investigations.marked_as_prefix': '✅ जाँच चिह्नित की गई:',
       // REVIEW: S4 Pharmacy reused reception key - confirm registration wording.
       'reception_counter.patient.phone': 'मरीज़ का फ़ोन',
+      'reception_counter.patient.name': 'मरीज़ का नाम',
       'lab_bookings.title': 'लैब बुकिंग',
       'lab_bookings.tab.new': 'नई',
       'lab_bookings.tab.active': 'सक्रिय',
@@ -9495,15 +9526,32 @@ class AppStrings {
           "फ्रंट ऑफिस कार्यक्षेत्र खोलना",
       's4.lib.appointments.any_available_doctor': "कोई भी उपलब्ध डॉक्टर",
       's4.lib.appointments.book_op': "बुक ओपी",
+      // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
           "डॉक्टर या विभाग फ़िल्टर साफ़ करें",
       's4.lib.appointments.collapse_queue_panel': "कतार पैनल को संक्षिप्त करें",
+      's4.lib.appointments.could_not_check_registry_new_patient_available':
+          "अभी रजिस्ट्री जांच नहीं हो सकी; नए मरीज की बुकिंग उपलब्ध है",
       's4.lib.appointments.create_appointment': "अपॉइंटमेंट बनाएं",
+      's4.lib.appointments.creating': "बनाया जा रहा है...",
+      's4.lib.appointments.checking_patient_registry':
+          "मरीज रजिस्ट्री जांची जा रही है...",
+      's4.lib.appointments.enter_a_valid_phone_number':
+          "मान्य फ़ोन नंबर दर्ज करें",
+      's4.lib.appointments.enter_at_least_3_characters':
+          "कम से कम 3 अक्षर दर्ज करें",
+      's4.lib.appointments.enter_patient_name_for_new_patient':
+          "नए मरीज के लिए मरीज का नाम दर्ज करें",
+      's4.lib.appointments.enter_phone_to_check_registered_patient':
+          "पंजीकृत मरीज की जांच के लिए फ़ोन दर्ज करें",
+      's4.lib.appointments.existing_patient_found': "मौजूदा मरीज मिला",
       's4.lib.appointments.filter_doctor_or_department':
           "डॉक्टर या विभाग को फ़िल्टर करें",
       's4.lib.appointments.flex': "मोड़ना",
       's4.lib.appointments.gmt_5_30': "जीएमटी+5:30",
       's4.lib.appointments.next_month': "अगले महीने",
+      's4.lib.appointments.new_patient_enter_name_to_register':
+          "नया मरीज - बुकिंग करते समय पंजीकरण के लिए नाम दर्ज करें",
       's4.lib.appointments.no_doctor_or_department_matches':
           "कोई डॉक्टर या विभाग मेल नहीं खाता",
       's4.lib.appointments.previous_month': "पिछला महीना",
@@ -10129,11 +10177,19 @@ class AppStrings {
       's4.lib.investigations.test_name': "परीक्षण का नाम",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "ओपी/आईपी लैब अनुरोधों को बुक करें और ट्रैक करें",
+      // REVIEW: AI first-pass S4 lab bookings i18n - confirm front-desk/lab workflow copy before production.
+      's4.lib.lab_bookings.attach_prescription': "प्रिस्क्रिप्शन संलग्न करें",
+      's4.lib.lab_bookings.book_lab': "लैब बुक करें",
+      's4.lib.lab_bookings.booking': "बुक हो रहा है...",
       's4.lib.lab_bookings.cbc_rft_urine_routine':
           "सीबीसी, आरएफटी, मूत्र दिनचर्या...",
+      's4.lib.lab_bookings.enter_a_valid_phone_number':
+          "मान्य फ़ोन नंबर दर्ज करें",
       's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
           "परीक्षण नाम दर्ज करें या एक नुस्खा संलग्न करें",
+      's4.lib.lab_bookings.lab_booking_created': "लैब बुकिंग बनाई गई",
       's4.lib.lab_bookings.new_lab_booking': "नई लैब बुकिंग",
+      's4.lib.lab_bookings.scan_and_collect': "स्कैन करें और संग्रह करें",
       's4.lib.lab_bookings.tests': "परीक्षण",
       's4.lib.lab_bookings.upload': "अपलोड करें",
       's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
@@ -11493,6 +11549,11 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} पंजीकृत कर्मचारी",
       's4.dynamic.lab_bookings.tests_prefix': "परीक्षण: {tests}",
+      's4.dynamic.appointments.existing_patient_found_id':
+          "मौजूदा मरीज मिला: #{id}",
+      's4.dynamic.lab_bookings.error_message': "त्रुटि: {error}",
+      's4.dynamic.lab_bookings.specimen_queue_update_failed':
+          "नमूना एकत्रित हुआ, लेकिन कतार अपडेट विफल रहा: {error}",
       // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
       's4.dynamic.messaging.attachment_failed': "अटैचमेंट विफल हुआ: {error}",
       's4.dynamic.messaging.attachment_sent_scan_status':
@@ -12893,6 +12954,7 @@ class AppStrings {
           '✅ புலனாய்வு முடிவு வெற்றிகரமாக பதிவேற்றப்பட்டது',
       // REVIEW: S4 Pharmacy reused reception key - confirm registration wording.
       'reception_counter.patient.phone': 'நோயாளி தொலைபேசி',
+      'reception_counter.patient.name': 'நோயாளி பெயர்',
       'lab_bookings.title': 'ஆய்வக முன்பதிவுகள்',
       'pharmacy.title': 'மருந்தக கட்டளைகள்',
       'pharmacy.confirm_order': 'கட்டளையை உறுதி செய்',
@@ -14357,15 +14419,33 @@ class AppStrings {
       's4.lib.appointments.any_available_doctor':
           "கிடைக்கக்கூடிய எந்த மருத்துவர்",
       's4.lib.appointments.book_op': "புக் OP",
+      // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
           "மருத்துவர் அல்லது துறை வடிகட்டியை அழிக்கவும்",
       's4.lib.appointments.collapse_queue_panel': "வரிசை பேனலைச் சுருக்கு",
+      's4.lib.appointments.could_not_check_registry_new_patient_available':
+          "இப்போது பதிவேட்டைச் சரிபார்க்க முடியவில்லை; புதிய நோயாளி முன்பதிவு கிடைக்கிறது",
       's4.lib.appointments.create_appointment': "நியமனத்தை உருவாக்கவும்",
+      's4.lib.appointments.creating': "உருவாக்கப்படுகிறது...",
+      's4.lib.appointments.checking_patient_registry':
+          "நோயாளர் பதிவேடு சரிபார்க்கப்படுகிறது...",
+      's4.lib.appointments.enter_a_valid_phone_number':
+          "சரியான தொலைபேசி எண்ணை உள்ளிடவும்",
+      's4.lib.appointments.enter_at_least_3_characters':
+          "குறைந்தது 3 எழுத்துகளை உள்ளிடவும்",
+      's4.lib.appointments.enter_patient_name_for_new_patient':
+          "புதிய நோயாளிக்கான பெயரை உள்ளிடவும்",
+      's4.lib.appointments.enter_phone_to_check_registered_patient':
+          "பதிவுசெய்யப்பட்ட நோயாளியைச் சரிபார்க்க தொலைபேசியை உள்ளிடவும்",
+      's4.lib.appointments.existing_patient_found':
+          "ஏற்கனவே உள்ள நோயாளி கண்டறியப்பட்டது",
       's4.lib.appointments.filter_doctor_or_department':
           "வடிகட்டி மருத்துவர் அல்லது துறை",
       's4.lib.appointments.flex': "நெகிழ்வு",
       's4.lib.appointments.gmt_5_30': "GMT+5:30",
       's4.lib.appointments.next_month': "அடுத்த மாதம்",
+      's4.lib.appointments.new_patient_enter_name_to_register':
+          "புதிய நோயாளி - முன்பதிவு செய்யும்போது பதிவு செய்ய பெயரை உள்ளிடவும்",
       's4.lib.appointments.no_doctor_or_department_matches':
           "மருத்துவர் அல்லது துறை பொருத்தம் இல்லை",
       's4.lib.appointments.previous_month': "முந்தைய மாதம்",
@@ -15010,11 +15090,20 @@ class AppStrings {
       's4.lib.investigations.test_name': "சோதனை பெயர்",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "OP/IP ஆய்வகக் கோரிக்கைகளை முன்பதிவு செய்து கண்காணிக்கவும்",
+      // REVIEW: AI first-pass S4 lab bookings i18n - confirm front-desk/lab workflow copy before production.
+      's4.lib.lab_bookings.attach_prescription': "மருந்துச் சீட்டை இணைக்கவும்",
+      's4.lib.lab_bookings.book_lab': "ஆய்வகத்தை முன்பதிவு செய்யவும்",
+      's4.lib.lab_bookings.booking': "முன்பதிவு செய்கிறது...",
       's4.lib.lab_bookings.cbc_rft_urine_routine':
           "சிபிசி, ஆர்எஃப்டி, சிறுநீர் வழக்கமான...",
+      's4.lib.lab_bookings.enter_a_valid_phone_number':
+          "சரியான தொலைபேசி எண்ணை உள்ளிடவும்",
       's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
           "சோதனைப் பெயர்களை உள்ளிடவும் அல்லது மருந்துச் சீட்டை இணைக்கவும்",
+      's4.lib.lab_bookings.lab_booking_created':
+          "ஆய்வக முன்பதிவு உருவாக்கப்பட்டது",
       's4.lib.lab_bookings.new_lab_booking': "புதிய ஆய்வக முன்பதிவு",
+      's4.lib.lab_bookings.scan_and_collect': "ஸ்கேன் செய்து சேகரிக்கவும்",
       's4.lib.lab_bookings.tests': "சோதனைகள்",
       's4.lib.lab_bookings.upload': "பதிவேற்றவும்",
       's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
@@ -16448,6 +16537,11 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} பதிவு செய்யப்பட்ட ஊழியர்கள்",
       's4.dynamic.lab_bookings.tests_prefix': "சோதனைகள்: {tests}",
+      's4.dynamic.appointments.existing_patient_found_id':
+          "ஏற்கனவே உள்ள நோயாளி கண்டறியப்பட்டது: #{id}",
+      's4.dynamic.lab_bookings.error_message': "பிழை: {error}",
+      's4.dynamic.lab_bookings.specimen_queue_update_failed':
+          "மாதிரி சேகரிக்கப்பட்டது, ஆனால் வரிசை புதுப்பிப்பு தோல்வியடைந்தது: {error}",
       // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
       's4.dynamic.messaging.attachment_failed':
           "இணைப்பு தோல்வியடைந்தது: {error}",
@@ -17834,6 +17928,7 @@ class AppStrings {
           '✅ పరిశోధన ఫలితం విజయవంతంగా అప్‌లోడ్ చేయబడింది',
       // REVIEW: S4 Pharmacy reused reception key - confirm registration wording.
       'reception_counter.patient.phone': 'రోగి ఫోన్',
+      'reception_counter.patient.name': 'రోగి పేరు',
       'lab_bookings.title': 'ల్యాబ్ బుకింగ్‌లు',
       'pharmacy.title': 'ఫార్మసీ ఆర్డర్‌లు',
       'pharmacy.confirm_order': 'ఆర్డర్ నిర్ధారించు',
@@ -19276,15 +19371,33 @@ class AppStrings {
       's4.lib.appointments.any_available_doctor':
           "అందుబాటులో ఉన్న ఏదైనా వైద్యుడు",
       's4.lib.appointments.book_op': "OP బుక్ చేయండి",
+      // REVIEW: AI first-pass S4 appointments i18n - confirm front-desk workflow copy before production.
       's4.lib.appointments.clear_doctor_or_department_filter':
           "డాక్టర్ లేదా డిపార్ట్‌మెంట్ ఫిల్టర్‌ను క్లియర్ చేయండి",
       's4.lib.appointments.collapse_queue_panel': "క్యూ ప్యానెల్‌ను కుదించు",
+      's4.lib.appointments.could_not_check_registry_new_patient_available':
+          "ఇప్పుడు రిజిస్ట్రీని తనిఖీ చేయలేకపోయాం; కొత్త రోగి బుకింగ్ అందుబాటులో ఉంది",
       's4.lib.appointments.create_appointment': "అపాయింట్‌మెంట్ సృష్టించండి",
+      's4.lib.appointments.creating': "సృష్టిస్తోంది...",
+      's4.lib.appointments.checking_patient_registry':
+          "రోగి రిజిస్ట్రీని తనిఖీ చేస్తున్నారు...",
+      's4.lib.appointments.enter_a_valid_phone_number':
+          "చెల్లుబాటు అయ్యే ఫోన్ నంబర్ నమోదు చేయండి",
+      's4.lib.appointments.enter_at_least_3_characters':
+          "కనీసం 3 అక్షరాలు నమోదు చేయండి",
+      's4.lib.appointments.enter_patient_name_for_new_patient':
+          "కొత్త రోగి కోసం రోగి పేరును నమోదు చేయండి",
+      's4.lib.appointments.enter_phone_to_check_registered_patient':
+          "నమోదైన రోగిని తనిఖీ చేయడానికి ఫోన్ నమోదు చేయండి",
+      's4.lib.appointments.existing_patient_found':
+          "ఇప్పటికే ఉన్న రోగి కనుగొనబడ్డారు",
       's4.lib.appointments.filter_doctor_or_department':
           "ఫిల్టర్ డాక్టర్ లేదా డిపార్ట్‌మెంట్",
       's4.lib.appointments.flex': "ఫ్లెక్స్",
       's4.lib.appointments.gmt_5_30': "GMT+5:30",
       's4.lib.appointments.next_month': "వచ్చే నెల",
+      's4.lib.appointments.new_patient_enter_name_to_register':
+          "కొత్త రోగి - బుకింగ్ సమయంలో నమోదు చేయడానికి పేరు నమోదు చేయండి",
       's4.lib.appointments.no_doctor_or_department_matches':
           "డాక్టర్ లేదా డిపార్ట్‌మెంట్ మ్యాచ్‌లు లేవు",
       's4.lib.appointments.previous_month': "మునుపటి నెల",
@@ -19920,10 +20033,19 @@ class AppStrings {
       's4.lib.investigations.test_name': "పరీక్ష పేరు",
       's4.lib.lab_bookings.book_and_track_op_ip_lab_requests':
           "OP/IP ల్యాబ్ అభ్యర్థనలను బుక్ చేయండి మరియు ట్రాక్ చేయండి",
+      // REVIEW: AI first-pass S4 lab bookings i18n - confirm front-desk/lab workflow copy before production.
+      's4.lib.lab_bookings.attach_prescription': "ప్రిస్క్రిప్షన్‌ను జత చేయండి",
+      's4.lib.lab_bookings.book_lab': "ల్యాబ్ బుక్ చేయండి",
+      's4.lib.lab_bookings.booking': "బుకింగ్ చేస్తోంది...",
       's4.lib.lab_bookings.cbc_rft_urine_routine': "CBC, RFT, మూత్ర విసర్జన...",
+      's4.lib.lab_bookings.enter_a_valid_phone_number':
+          "చెల్లుబాటు అయ్యే ఫోన్ నంబర్ నమోదు చేయండి",
       's4.lib.lab_bookings.enter_test_names_or_attach_a_prescription':
           "పరీక్ష పేర్లను నమోదు చేయండి లేదా ప్రిస్క్రిప్షన్‌ను జత చేయండి",
+      's4.lib.lab_bookings.lab_booking_created':
+          "ల్యాబ్ బుకింగ్ సృష్టించబడింది",
       's4.lib.lab_bookings.new_lab_booking': "కొత్త ల్యాబ్ బుకింగ్",
+      's4.lib.lab_bookings.scan_and_collect': "స్కాన్ చేసి సేకరించండి",
       's4.lib.lab_bookings.tests': "పరీక్షలు",
       's4.lib.lab_bookings.upload': "అప్‌లోడ్ చేయండి",
       's4.lib.lab_bookings.used_if_this_phone_is_not_registered_yet':
@@ -21330,6 +21452,11 @@ class AppStrings {
       's4.dynamic.organization_hierarchy.registered_staff_count':
           "{count} నమోదిత సిబ్బంది",
       's4.dynamic.lab_bookings.tests_prefix': "పరీక్షలు: {tests}",
+      's4.dynamic.appointments.existing_patient_found_id':
+          "ఇప్పటికే ఉన్న రోగి కనుగొనబడ్డారు: #{id}",
+      's4.dynamic.lab_bookings.error_message': "లోపం: {error}",
+      's4.dynamic.lab_bookings.specimen_queue_update_failed':
+          "నమూనా సేకరించబడింది, కానీ క్యూ నవీకరణ విఫలమైంది: {error}",
       // REVIEW: AI first-pass S4 messaging i18n sweep - keep placeholders intact.
       's4.dynamic.messaging.attachment_failed':
           "అటాచ్‌మెంట్ విఫలమైంది: {error}",
