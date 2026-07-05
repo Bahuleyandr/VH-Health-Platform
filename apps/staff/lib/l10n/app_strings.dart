@@ -6163,41 +6163,122 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "Note updated",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "Overwrites the original prose. The note's author, role, and creation time are preserved.",
+      // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "AI-assisted record review",
+      's4.lib.patient_records.ai_confirmed': "AI confirmed",
+      's4.lib.patient_records.ai_draft_pending': "AI draft pending",
+      's4.lib.patient_records.ai_rejected': "AI rejected",
+      's4.lib.patient_records.ai_unavailable': "AI unavailable",
       's4.lib.patient_records.attach_at_least_one_file_or_photo':
           "Attach at least one file or photo",
       's4.lib.patient_records.check': "Check",
+      's4.lib.patient_records.checking_patient_registry':
+          "Checking patient registry...",
+      's4.lib.patient_records.choose_files': "Choose files",
+      's4.lib.patient_records.clinical_note_fallback': "Clinical note",
+      's4.lib.patient_records.could_not_check_now_upload_can_still_continue':
+          "Could not check now; upload can still continue",
       's4.lib.patient_records.current_admission_notes':
           "Current Admission Notes",
+      's4.lib.patient_records.current_admission_notes_will_appear_here':
+          "Current admission notes will appear here.",
+      's4.lib.patient_records.diagnoses': "Diagnoses",
+      's4.lib.patient_records.document': "Document",
       's4.lib.patient_records.discharge_summary': "Discharge summary",
       's4.lib.patient_records.document_link_unavailable':
           "Document link unavailable",
       's4.lib.patient_records.document_type': "Document type",
       's4.lib.patient_records.draft_not_imported_to_chart':
           "Draft, not imported to chart",
+      's4.lib.patient_records.enter_a_title': "Enter a title",
+      's4.lib.patient_records.enter_a_valid_10_digit_phone_number':
+          "Enter a valid 10-digit phone number",
+      's4.lib.patient_records.enter_a_valid_phone_number':
+          "Enter a valid phone number",
+      's4.lib.patient_records.enter_patient_name': "Enter patient name",
+      's4.lib.patient_records.enter_phone_then_tap_check':
+          "Enter phone, then tap Check",
+      's4.lib.patient_records.existing_patient_found': "Existing patient found",
       's4.lib.patient_records.extraction_review_saved':
           "Extraction review saved",
+      's4.lib.patient_records.file_selected': "1 file selected",
+      's4.lib.patient_records.follow_up': "Follow-up",
+      's4.lib.patient_records.image_preview_failed': "Image preview failed",
+      's4.lib.patient_records.investigations': "Investigations",
+      's4.lib.patient_records.ip_patient_records': "IP Patient Records",
       's4.lib.patient_records.lab_report': "Lab report",
+      's4.lib.patient_records.medications': "Medications",
+      's4.lib.patient_records.needs_manual_review': "Needs manual review",
       's4.lib.patient_records.needs_revision': "Needs Revision",
+      's4.lib.patient_records.new_patient_name_will_be_used_during_upload':
+          "New patient - name will be used during upload",
+      's4.lib.patient_records.no_active_admissions': "No active admissions",
+      's4.lib.patient_records.no_ai_draft': "No AI draft",
       's4.lib.patient_records.no_clear_text_extracted':
           "No clear text extracted",
+      's4.lib.patient_records.no_clinical_records_or_prior_uploads':
+          "No clinical records or prior uploads",
+      's4.lib.patient_records.no_extraction_draft': "No extraction draft",
       's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
           "No notes recorded for this admission yet.",
+      's4.lib.patient_records.note_fallback': "note",
       's4.lib.patient_records.old_discharge_summary_prior_scan':
           "Old discharge summary, prior scan...",
       's4.lib.patient_records.open': "Open",
+      's4.lib.patient_records.open_document_to_inspect_it':
+          "Open the document to inspect it.",
       's4.lib.patient_records.open_notes': "Open Notes",
       's4.lib.patient_records.patient_record_uploaded':
           "Patient record uploaded",
+      's4.lib.patient_records.patient_fallback': "Patient",
+      's4.lib.patient_records.patient_found_no_clinical_records_or_prior_uploads':
+          "Patient found, no clinical records or prior uploads",
+      's4.lib.patient_records.pdf_preview_opens_externally':
+          "PDF preview opens externally",
+      's4.lib.patient_records.photos_pdfs_and_timeline_records_appear_here':
+          "Photos, PDFs, and timeline-linked clinical records appear here.",
       's4.lib.patient_records.prior_record': "Prior record",
       's4.lib.patient_records.prior_records': "Prior Records",
+      's4.lib.patient_records.raw_extracted_text': "Raw extracted text",
+      's4.lib.patient_records.record_date': "Record date",
+      's4.lib.patient_records.record_fallback': "record",
+      's4.lib.patient_records.record_id_missing': "Record id is missing",
       's4.lib.patient_records.record_title': "Record title",
       's4.lib.patient_records.remove_file': "Remove file",
+      's4.lib.patient_records.review_ai_draft': "Review AI draft",
       's4.lib.patient_records.review_note': "Review note",
+      's4.lib.patient_records.safety_flags': "Safety flags",
       's4.lib.patient_records.source_hospital': "Source hospital",
+      's4.lib.patient_records.staff_fallback': "staff",
+      's4.lib.patient_records.summary': "Summary",
+      's4.lib.patient_records.this_upload_does_not_have_reviewable_extraction_draft':
+          "This upload does not have a reviewable extraction draft.",
+      's4.lib.patient_records.timeline_admission': "Admission",
+      's4.lib.patient_records.timeline_clinical_note': "Clinical note",
+      's4.lib.patient_records.timeline_clinical_record': "Clinical record",
+      's4.lib.patient_records.timeline_discharge': "Discharge",
+      's4.lib.patient_records.timeline_investigation': "Investigation",
+      's4.lib.patient_records.timeline_op_prescription': "OP prescription",
+      's4.lib.patient_records.timeline_referral': "Referral",
+      's4.lib.patient_records.timeline_type_admission': "Admission",
+      's4.lib.patient_records.timeline_type_clinical_note': "Clinical Note",
+      's4.lib.patient_records.timeline_type_clinical_timeline':
+          "Clinical Timeline",
+      's4.lib.patient_records.timeline_type_discharge': "Discharge",
+      's4.lib.patient_records.timeline_type_investigation': "Investigation",
+      's4.lib.patient_records.timeline_type_op_prescription': "OP Prescription",
+      's4.lib.patient_records.timeline_type_referral': "Referral",
+      's4.lib.patient_records.timeline_type_vitals': "Vitals",
+      's4.lib.patient_records.timeline_vitals': "Vitals",
+      's4.lib.patient_records.unknown': "unknown",
       's4.lib.patient_records.upload_prior_record': "Upload Prior Record",
       's4.lib.patient_records.upload_prior_record_2': "Upload prior record",
+      's4.lib.patient_records.upload_record': "Upload Record",
+      's4.lib.patient_records.use_open_to_inspect_document_beside_this_draft':
+          "Use Open to inspect the document beside this draft.",
+      's4.lib.patient_records.using_selected_patient_from_patient_records':
+          "Using selected patient from Patient Records",
       's4.lib.patient_search_action.find_patient': "Find patient",
       's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
           "Find a patient by Hospital ID, name, phone, or ABHA…",
@@ -6706,6 +6787,17 @@ class AppStrings {
       's4.dynamic.patient_notes.update_failed': "Update failed: {error}",
       's4.dynamic.patient_records.notes_count': "{count} notes",
       's4.dynamic.patient_records.confidence': "Confidence {confidence}",
+      's4.dynamic.patient_records.bed_label': "Bed {bed}",
+      's4.dynamic.patient_records.doctor_prefix': "Dr. {doctor}",
+      's4.dynamic.patient_records.files_selected': "{count} files selected",
+      's4.dynamic.patient_records.ocr_status': "OCR {status}",
+      's4.dynamic.patient_records.timeline_investigation_name':
+          "Investigation - {name}",
+      's4.dynamic.patient_records.timeline_op_prescription_number':
+          "OP prescription - {number}",
+      's4.dynamic.patient_records.upload_records': "Upload {count} Records",
+      's4.dynamic.patient_records.uploading_count':
+          "Uploading {uploaded}/{total}",
       's4.dynamic.admission_case_sheet.title_for_patient':
           "Case Sheet - {patient}",
       's4.dynamic.common.user_id': "User ID: {userId}",
@@ -10206,41 +10298,123 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "नोट अपडेट किया गया",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "मूल गद्य को अधिलेखित कर देता है. नोट के लेखक, भूमिका और निर्माण का समय संरक्षित है।",
+      // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "एआई-सहायता प्राप्त रिकॉर्ड समीक्षा",
+      's4.lib.patient_records.ai_confirmed': "AI की पुष्टि हुई",
+      's4.lib.patient_records.ai_draft_pending': "AI ड्राफ्ट लंबित है",
+      's4.lib.patient_records.ai_rejected': "AI अस्वीकृत",
+      's4.lib.patient_records.ai_unavailable': "AI उपलब्ध नहीं है",
       's4.lib.patient_records.attach_at_least_one_file_or_photo':
           "कम से कम एक फ़ाइल या फ़ोटो संलग्न करें",
       's4.lib.patient_records.check': "जाँच करना",
+      's4.lib.patient_records.checking_patient_registry':
+          "मरीज़ रजिस्ट्री की जाँच हो रही है...",
+      's4.lib.patient_records.choose_files': "फ़ाइलें चुनें",
+      's4.lib.patient_records.clinical_note_fallback': "क्लिनिकल नोट",
+      's4.lib.patient_records.could_not_check_now_upload_can_still_continue':
+          "अभी जाँच नहीं हो सकी; अपलोड जारी रह सकता है",
       's4.lib.patient_records.current_admission_notes': "वर्तमान प्रवेश नोट",
+      's4.lib.patient_records.current_admission_notes_will_appear_here':
+          "वर्तमान प्रवेश नोट यहाँ दिखाई देंगे।",
+      's4.lib.patient_records.diagnoses': "निदान",
+      's4.lib.patient_records.document': "दस्तावेज़",
       's4.lib.patient_records.discharge_summary': "डिस्चार्ज सारांश",
       's4.lib.patient_records.document_link_unavailable':
           "दस्तावेज़ लिंक अनुपलब्ध है",
       's4.lib.patient_records.document_type': "दस्तावेज़ प्रकार",
       's4.lib.patient_records.draft_not_imported_to_chart':
           "ड्राफ्ट, चार्ट में आयात नहीं किया गया",
+      's4.lib.patient_records.enter_a_title': "शीर्षक दर्ज करें",
+      's4.lib.patient_records.enter_a_valid_10_digit_phone_number':
+          "मान्य 10-अंकीय फ़ोन नंबर दर्ज करें",
+      's4.lib.patient_records.enter_a_valid_phone_number':
+          "मान्य फ़ोन नंबर दर्ज करें",
+      's4.lib.patient_records.enter_patient_name': "मरीज़ का नाम दर्ज करें",
+      's4.lib.patient_records.enter_phone_then_tap_check':
+          "फ़ोन दर्ज करें, फिर जाँच करें टैप करें",
+      's4.lib.patient_records.existing_patient_found': "मौजूदा मरीज़ मिला",
       's4.lib.patient_records.extraction_review_saved':
           "निष्कर्षण समीक्षा सहेजी गई",
+      's4.lib.patient_records.file_selected': "1 फ़ाइल चुनी गई",
+      's4.lib.patient_records.follow_up': "फ़ॉलो-अप",
+      's4.lib.patient_records.image_preview_failed': "छवि पूर्वावलोकन विफल हुआ",
+      's4.lib.patient_records.investigations': "जाँचें",
+      's4.lib.patient_records.ip_patient_records': "IP मरीज़ रिकॉर्ड",
       's4.lib.patient_records.lab_report': "लैब रिपोर्ट",
+      's4.lib.patient_records.medications': "दवाएँ",
+      's4.lib.patient_records.needs_manual_review': "मैनुअल समीक्षा आवश्यक है",
       's4.lib.patient_records.needs_revision': "संशोधन की आवश्यकता है",
+      's4.lib.patient_records.new_patient_name_will_be_used_during_upload':
+          "नया मरीज़ - अपलोड के दौरान नाम उपयोग होगा",
+      's4.lib.patient_records.no_active_admissions': "कोई सक्रिय प्रवेश नहीं",
+      's4.lib.patient_records.no_ai_draft': "कोई AI ड्राफ्ट नहीं",
       's4.lib.patient_records.no_clear_text_extracted':
           "कोई स्पष्ट पाठ नहीं निकाला गया",
+      's4.lib.patient_records.no_clinical_records_or_prior_uploads':
+          "कोई क्लिनिकल रिकॉर्ड या पूर्व अपलोड नहीं",
+      's4.lib.patient_records.no_extraction_draft':
+          "कोई निष्कर्षण ड्राफ्ट नहीं",
       's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
           "इस प्रवेश के लिए अभी तक कोई नोट रिकॉर्ड नहीं किया गया है।",
+      's4.lib.patient_records.note_fallback': "नोट",
       's4.lib.patient_records.old_discharge_summary_prior_scan':
           "पुराना डिस्चार्ज सारांश, पूर्व स्कैन...",
       's4.lib.patient_records.open': "खुला",
+      's4.lib.patient_records.open_document_to_inspect_it':
+          "जाँचने के लिए दस्तावेज़ खोलें।",
       's4.lib.patient_records.open_notes': "नोट्स खोलें",
       's4.lib.patient_records.patient_record_uploaded':
           "मरीज का रिकार्ड अपलोड किया गया",
+      's4.lib.patient_records.patient_fallback': "मरीज़",
+      's4.lib.patient_records.patient_found_no_clinical_records_or_prior_uploads':
+          "मरीज़ मिला, कोई क्लिनिकल रिकॉर्ड या पूर्व अपलोड नहीं",
+      's4.lib.patient_records.pdf_preview_opens_externally':
+          "PDF पूर्वावलोकन बाहर खुलेगा",
+      's4.lib.patient_records.photos_pdfs_and_timeline_records_appear_here':
+          "फ़ोटो, PDF और टाइमलाइन से जुड़े क्लिनिकल रिकॉर्ड यहाँ दिखाई देंगे।",
       's4.lib.patient_records.prior_record': "पूर्व रिकॉर्ड",
       's4.lib.patient_records.prior_records': "पूर्व रिकार्ड",
+      's4.lib.patient_records.raw_extracted_text': "कच्चा निकाला गया पाठ",
+      's4.lib.patient_records.record_date': "रिकॉर्ड तारीख",
+      's4.lib.patient_records.record_fallback': "रिकॉर्ड",
+      's4.lib.patient_records.record_id_missing': "रिकॉर्ड ID अनुपलब्ध है",
       's4.lib.patient_records.record_title': "रिकॉर्ड शीर्षक",
       's4.lib.patient_records.remove_file': "फ़ाइल हटाएँ",
+      's4.lib.patient_records.review_ai_draft': "AI ड्राफ्ट की समीक्षा करें",
       's4.lib.patient_records.review_note': "समीक्षा नोट",
+      's4.lib.patient_records.safety_flags': "सुरक्षा चेतावनियाँ",
       's4.lib.patient_records.source_hospital': "स्रोत अस्पताल",
+      's4.lib.patient_records.staff_fallback': "स्टाफ",
+      's4.lib.patient_records.summary': "सारांश",
+      's4.lib.patient_records.this_upload_does_not_have_reviewable_extraction_draft':
+          "इस अपलोड में समीक्षा योग्य निष्कर्षण ड्राफ्ट नहीं है।",
+      's4.lib.patient_records.timeline_admission': "प्रवेश",
+      's4.lib.patient_records.timeline_clinical_note': "क्लिनिकल नोट",
+      's4.lib.patient_records.timeline_clinical_record': "क्लिनिकल रिकॉर्ड",
+      's4.lib.patient_records.timeline_discharge': "डिस्चार्ज",
+      's4.lib.patient_records.timeline_investigation': "जाँच",
+      's4.lib.patient_records.timeline_op_prescription': "OP पर्चा",
+      's4.lib.patient_records.timeline_referral': "रेफरल",
+      's4.lib.patient_records.timeline_type_admission': "प्रवेश",
+      's4.lib.patient_records.timeline_type_clinical_note': "क्लिनिकल नोट",
+      's4.lib.patient_records.timeline_type_clinical_timeline':
+          "क्लिनिकल टाइमलाइन",
+      's4.lib.patient_records.timeline_type_discharge': "डिस्चार्ज",
+      's4.lib.patient_records.timeline_type_investigation': "जाँच",
+      's4.lib.patient_records.timeline_type_op_prescription': "OP पर्चा",
+      's4.lib.patient_records.timeline_type_referral': "रेफरल",
+      's4.lib.patient_records.timeline_type_vitals': "वाइटल्स",
+      's4.lib.patient_records.timeline_vitals': "वाइटल्स",
+      's4.lib.patient_records.unknown': "अज्ञात",
       's4.lib.patient_records.upload_prior_record': "पिछला रिकॉर्ड अपलोड करें",
       's4.lib.patient_records.upload_prior_record_2':
           "पूर्व रिकार्ड अपलोड करें",
+      's4.lib.patient_records.upload_record': "रिकॉर्ड अपलोड करें",
+      's4.lib.patient_records.use_open_to_inspect_document_beside_this_draft':
+          "इस ड्राफ्ट के साथ दस्तावेज़ देखने के लिए खोलें का उपयोग करें।",
+      's4.lib.patient_records.using_selected_patient_from_patient_records':
+          "मरीज़ रिकॉर्ड से चुने गए मरीज़ का उपयोग हो रहा है",
       's4.lib.patient_search_action.find_patient': "धैर्य खोजें",
       's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
           "अस्पताल आईडी, नाम, फ़ोन या ABHA द्वारा मरीज़ ढूंढें...",
@@ -10756,6 +10930,16 @@ class AppStrings {
       's4.dynamic.patient_notes.update_failed': "अपडेट विफल: {error}",
       's4.dynamic.patient_records.notes_count': "{count} नोट",
       's4.dynamic.patient_records.confidence': "आत्मविश्वास {confidence}",
+      's4.dynamic.patient_records.bed_label': "बेड {bed}",
+      's4.dynamic.patient_records.doctor_prefix': "डॉ. {doctor}",
+      's4.dynamic.patient_records.files_selected': "{count} फ़ाइलें चुनी गईं",
+      's4.dynamic.patient_records.ocr_status': "OCR {status}",
+      's4.dynamic.patient_records.timeline_investigation_name': "जाँच - {name}",
+      's4.dynamic.patient_records.timeline_op_prescription_number':
+          "OP पर्चा - {number}",
+      's4.dynamic.patient_records.upload_records': "{count} रिकॉर्ड अपलोड करें",
+      's4.dynamic.patient_records.uploading_count':
+          "{uploaded}/{total} अपलोड हो रहा है",
       's4.dynamic.admission_case_sheet.title_for_patient':
           "केस शीट - {patient}",
       's4.dynamic.common.user_id': "उपयोगकर्ता आईडी: {userId}",
@@ -14785,43 +14969,131 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "குறிப்பு புதுப்பிக்கப்பட்டது",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "அசல் உரைநடையை மேலெழுதுகிறது. குறிப்பின் ஆசிரியர், பங்கு மற்றும் உருவாக்கும் நேரம் ஆகியவை பாதுகாக்கப்படுகின்றன.",
+      // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "AI-உதவி பதிவு மதிப்பாய்வு",
+      's4.lib.patient_records.ai_confirmed': "AI உறுதிப்படுத்தியது",
+      's4.lib.patient_records.ai_draft_pending': "AI வரைவு நிலுவையில் உள்ளது",
+      's4.lib.patient_records.ai_rejected': "AI நிராகரித்தது",
+      's4.lib.patient_records.ai_unavailable': "AI கிடைக்கவில்லை",
       's4.lib.patient_records.attach_at_least_one_file_or_photo':
           "குறைந்தது ஒரு கோப்பு அல்லது புகைப்படத்தை இணைக்கவும்",
       's4.lib.patient_records.check': "சரிபார்க்கவும்",
+      's4.lib.patient_records.checking_patient_registry':
+          "நோயாளி பதிவேட்டைச் சரிபார்க்கிறது...",
+      's4.lib.patient_records.choose_files': "கோப்புகளைத் தேர்வுசெய்க",
+      's4.lib.patient_records.clinical_note_fallback': "மருத்துவ குறிப்பு",
+      's4.lib.patient_records.could_not_check_now_upload_can_still_continue':
+          "இப்போது சரிபார்க்க முடியவில்லை; பதிவேற்றம் தொடரலாம்",
       's4.lib.patient_records.current_admission_notes':
           "தற்போதைய சேர்க்கை குறிப்புகள்",
+      's4.lib.patient_records.current_admission_notes_will_appear_here':
+          "தற்போதைய சேர்க்கை குறிப்புகள் இங்கே தோன்றும்.",
+      's4.lib.patient_records.diagnoses': "நோயறிதல்கள்",
+      's4.lib.patient_records.document': "ஆவணம்",
       's4.lib.patient_records.discharge_summary': "வெளியேற்ற சுருக்கம்",
       's4.lib.patient_records.document_link_unavailable':
           "ஆவண இணைப்பு கிடைக்கவில்லை",
       's4.lib.patient_records.document_type': "ஆவண வகை",
       's4.lib.patient_records.draft_not_imported_to_chart':
           "வரைவு, விளக்கப்படத்திற்கு இறக்குமதி செய்யப்படவில்லை",
+      's4.lib.patient_records.enter_a_title': "தலைப்பை உள்ளிடவும்",
+      's4.lib.patient_records.enter_a_valid_10_digit_phone_number':
+          "சரியான 10 இலக்க தொலைபேசி எண்ணை உள்ளிடவும்",
+      's4.lib.patient_records.enter_a_valid_phone_number':
+          "சரியான தொலைபேசி எண்ணை உள்ளிடவும்",
+      's4.lib.patient_records.enter_patient_name': "நோயாளி பெயரை உள்ளிடவும்",
+      's4.lib.patient_records.enter_phone_then_tap_check':
+          "தொலைபேசியை உள்ளிட்டு, சரிபார்க்கவும் என்பதைத் தட்டவும்",
+      's4.lib.patient_records.existing_patient_found':
+          "ஏற்கனவே உள்ள நோயாளி கண்டறியப்பட்டார்",
       's4.lib.patient_records.extraction_review_saved':
           "பிரித்தெடுத்தல் மதிப்பாய்வு சேமிக்கப்பட்டது",
+      's4.lib.patient_records.file_selected': "1 கோப்பு தேர்ந்தெடுக்கப்பட்டது",
+      's4.lib.patient_records.follow_up': "பின்தொடர்வு",
+      's4.lib.patient_records.image_preview_failed':
+          "பட முன்னோட்டம் தோல்வியடைந்தது",
+      's4.lib.patient_records.investigations': "ஆய்வுகள்",
+      's4.lib.patient_records.ip_patient_records': "IP நோயாளி பதிவுகள்",
       's4.lib.patient_records.lab_report': "ஆய்வக அறிக்கை",
+      's4.lib.patient_records.medications': "மருந்துகள்",
+      's4.lib.patient_records.needs_manual_review': "கைமுறை மதிப்பாய்வு தேவை",
       's4.lib.patient_records.needs_revision': "திருத்தம் தேவை",
+      's4.lib.patient_records.new_patient_name_will_be_used_during_upload':
+          "புதிய நோயாளி - பதிவேற்றத்தில் பெயர் பயன்படுத்தப்படும்",
+      's4.lib.patient_records.no_active_admissions':
+          "செயலில் உள்ள சேர்க்கைகள் இல்லை",
+      's4.lib.patient_records.no_ai_draft': "AI வரைவு இல்லை",
       's4.lib.patient_records.no_clear_text_extracted':
           "தெளிவான உரை பிரித்தெடுக்கப்படவில்லை",
+      's4.lib.patient_records.no_clinical_records_or_prior_uploads':
+          "மருத்துவ பதிவுகள் அல்லது முந்தைய பதிவேற்றங்கள் இல்லை",
+      's4.lib.patient_records.no_extraction_draft':
+          "பிரித்தெடுத்தல் வரைவு இல்லை",
       's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
           "இந்த சேர்க்கைக்கான குறிப்புகள் எதுவும் இதுவரை பதிவு செய்யப்படவில்லை.",
+      's4.lib.patient_records.note_fallback': "குறிப்பு",
       's4.lib.patient_records.old_discharge_summary_prior_scan':
           "பழைய டிஸ்சார்ஜ் சுருக்கம், முந்தைய ஸ்கேன்...",
       's4.lib.patient_records.open': "திற",
+      's4.lib.patient_records.open_document_to_inspect_it':
+          "சரிபார்க்க ஆவணத்தைத் திறக்கவும்.",
       's4.lib.patient_records.open_notes': "குறிப்புகளைத் திறக்கவும்",
       's4.lib.patient_records.patient_record_uploaded':
           "நோயாளியின் பதிவு பதிவேற்றப்பட்டது",
+      's4.lib.patient_records.patient_fallback': "நோயாளி",
+      's4.lib.patient_records.patient_found_no_clinical_records_or_prior_uploads':
+          "நோயாளி கண்டறியப்பட்டார், மருத்துவ பதிவுகள் அல்லது முந்தைய பதிவேற்றங்கள் இல்லை",
+      's4.lib.patient_records.pdf_preview_opens_externally':
+          "PDF முன்னோட்டம் வெளியே திறக்கும்",
+      's4.lib.patient_records.photos_pdfs_and_timeline_records_appear_here':
+          "புகைப்படங்கள், PDFகள் மற்றும் காலவரிசை இணைக்கப்பட்ட மருத்துவ பதிவுகள் இங்கே தோன்றும்.",
       's4.lib.patient_records.prior_record': "முந்தைய பதிவு",
       's4.lib.patient_records.prior_records': "முந்தைய பதிவுகள்",
+      's4.lib.patient_records.raw_extracted_text':
+          "பிரித்தெடுக்கப்பட்ட மூல உரை",
+      's4.lib.patient_records.record_date': "பதிவு தேதி",
+      's4.lib.patient_records.record_fallback': "பதிவு",
+      's4.lib.patient_records.record_id_missing': "பதிவு ID இல்லை",
       's4.lib.patient_records.record_title': "பதிவு தலைப்பு",
       's4.lib.patient_records.remove_file': "கோப்பை அகற்று",
+      's4.lib.patient_records.review_ai_draft':
+          "AI வரைவை மதிப்பாய்வு செய்யவும்",
       's4.lib.patient_records.review_note': "மதிப்பாய்வு குறிப்பு",
+      's4.lib.patient_records.safety_flags': "பாதுகாப்பு எச்சரிக்கைகள்",
       's4.lib.patient_records.source_hospital': "மூல மருத்துவமனை",
+      's4.lib.patient_records.staff_fallback': "பணியாளர்",
+      's4.lib.patient_records.summary': "சுருக்கம்",
+      's4.lib.patient_records.this_upload_does_not_have_reviewable_extraction_draft':
+          "இந்த பதிவேற்றத்தில் மதிப்பாய்வு செய்யக்கூடிய பிரித்தெடுத்தல் வரைவு இல்லை.",
+      's4.lib.patient_records.timeline_admission': "சேர்க்கை",
+      's4.lib.patient_records.timeline_clinical_note': "மருத்துவ குறிப்பு",
+      's4.lib.patient_records.timeline_clinical_record': "மருத்துவ பதிவு",
+      's4.lib.patient_records.timeline_discharge': "வெளியேற்றம்",
+      's4.lib.patient_records.timeline_investigation': "ஆய்வு",
+      's4.lib.patient_records.timeline_op_prescription': "OP மருந்துச் சீட்டு",
+      's4.lib.patient_records.timeline_referral': "பரிந்துரை",
+      's4.lib.patient_records.timeline_type_admission': "சேர்க்கை",
+      's4.lib.patient_records.timeline_type_clinical_note': "மருத்துவ குறிப்பு",
+      's4.lib.patient_records.timeline_type_clinical_timeline':
+          "மருத்துவ காலவரிசை",
+      's4.lib.patient_records.timeline_type_discharge': "வெளியேற்றம்",
+      's4.lib.patient_records.timeline_type_investigation': "ஆய்வு",
+      's4.lib.patient_records.timeline_type_op_prescription':
+          "OP மருந்துச் சீட்டு",
+      's4.lib.patient_records.timeline_type_referral': "பரிந்துரை",
+      's4.lib.patient_records.timeline_type_vitals': "வைட்டல்கள்",
+      's4.lib.patient_records.timeline_vitals': "வைட்டல்கள்",
+      's4.lib.patient_records.unknown': "தெரியாதது",
       's4.lib.patient_records.upload_prior_record':
           "முந்தைய பதிவைப் பதிவேற்றவும்",
       's4.lib.patient_records.upload_prior_record_2':
           "முந்தைய பதிவைப் பதிவேற்றவும்",
+      's4.lib.patient_records.upload_record': "பதிவைப் பதிவேற்றவும்",
+      's4.lib.patient_records.use_open_to_inspect_document_beside_this_draft':
+          "இந்த வரைவுடன் ஆவணத்தைப் பார்க்க திற என்பதைப் பயன்படுத்தவும்.",
+      's4.lib.patient_records.using_selected_patient_from_patient_records':
+          "நோயாளி பதிவுகளில் தேர்ந்தெடுக்கப்பட்ட நோயாளி பயன்படுத்தப்படுகிறது",
       's4.lib.patient_search_action.find_patient': "நோயாளியைக் கண்டுபிடி",
       's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
           "மருத்துவமனை ஐடி, பெயர், தொலைபேசி அல்லது ABHA மூலம் நோயாளியைக் கண்டறியவும்…",
@@ -15357,6 +15629,19 @@ class AppStrings {
           "புதுப்பிப்பு தோல்வியடைந்தது: {error}",
       's4.dynamic.patient_records.notes_count': "{count} குறிப்புகள்",
       's4.dynamic.patient_records.confidence': "நம்பிக்கை {confidence}",
+      's4.dynamic.patient_records.bed_label': "படுக்கை {bed}",
+      's4.dynamic.patient_records.doctor_prefix': "டாக்டர் {doctor}",
+      's4.dynamic.patient_records.files_selected':
+          "{count} கோப்புகள் தேர்ந்தெடுக்கப்பட்டன",
+      's4.dynamic.patient_records.ocr_status': "OCR {status}",
+      's4.dynamic.patient_records.timeline_investigation_name':
+          "ஆய்வு - {name}",
+      's4.dynamic.patient_records.timeline_op_prescription_number':
+          "OP மருந்துச் சீட்டு - {number}",
+      's4.dynamic.patient_records.upload_records':
+          "{count} பதிவுகளைப் பதிவேற்றவும்",
+      's4.dynamic.patient_records.uploading_count':
+          "{uploaded}/{total} பதிவேற்றுகிறது",
       's4.dynamic.admission_case_sheet.title_for_patient':
           "வழக்கு தாள் - {patient}",
       's4.dynamic.common.user_id': "பயனர் ஐடி: {userId}",
@@ -19350,43 +19635,127 @@ class AppStrings {
       's4.lib.patient_notes_list.note_updated': "గమనిక నవీకరించబడింది",
       's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author':
           "అసలు గద్యాన్ని ఓవర్‌రైట్ చేస్తుంది. గమనిక యొక్క రచయిత, పాత్ర మరియు సృష్టి సమయం భద్రపరచబడ్డాయి.",
+      // REVIEW: AI first-pass S4 Patient Records i18n - confirm clinical fallback copy before production.
       's4.lib.patient_records.ai_assisted_record_review':
           "AI-సహాయ రికార్డు సమీక్ష",
+      's4.lib.patient_records.ai_confirmed': "AI నిర్ధారించింది",
+      's4.lib.patient_records.ai_draft_pending': "AI డ్రాఫ్ట్ పెండింగ్‌లో ఉంది",
+      's4.lib.patient_records.ai_rejected': "AI తిరస్కరించింది",
+      's4.lib.patient_records.ai_unavailable': "AI అందుబాటులో లేదు",
       's4.lib.patient_records.attach_at_least_one_file_or_photo':
           "కనీసం ఒక ఫైల్ లేదా ఫోటోను అటాచ్ చేయండి",
       's4.lib.patient_records.check': "తనిఖీ చేయండి",
+      's4.lib.patient_records.checking_patient_registry':
+          "రోగి రిజిస్ట్రీని తనిఖీ చేస్తోంది...",
+      's4.lib.patient_records.choose_files': "ఫైళ్లను ఎంచుకోండి",
+      's4.lib.patient_records.clinical_note_fallback': "క్లినికల్ గమనిక",
+      's4.lib.patient_records.could_not_check_now_upload_can_still_continue':
+          "ఇప్పుడు తనిఖీ చేయలేకపోయాం; అప్‌లోడ్ కొనసాగవచ్చు",
       's4.lib.patient_records.current_admission_notes':
           "ప్రస్తుత ప్రవేశ గమనికలు",
+      's4.lib.patient_records.current_admission_notes_will_appear_here':
+          "ప్రస్తుత ప్రవేశ గమనికలు ఇక్కడ కనిపిస్తాయి.",
+      's4.lib.patient_records.diagnoses': "నిర్ధారణలు",
+      's4.lib.patient_records.document': "పత్రం",
       's4.lib.patient_records.discharge_summary': "ఉత్సర్గ సారాంశం",
       's4.lib.patient_records.document_link_unavailable':
           "పత్రం లింక్ అందుబాటులో లేదు",
       's4.lib.patient_records.document_type': "పత్రం రకం",
       's4.lib.patient_records.draft_not_imported_to_chart':
           "చిత్తుప్రతి, చార్ట్‌కు దిగుమతి చేయబడలేదు",
+      's4.lib.patient_records.enter_a_title': "శీర్షికను నమోదు చేయండి",
+      's4.lib.patient_records.enter_a_valid_10_digit_phone_number':
+          "చెల్లుబాటు అయ్యే 10 అంకెల ఫోన్ నంబర్ నమోదు చేయండి",
+      's4.lib.patient_records.enter_a_valid_phone_number':
+          "చెల్లుబాటు అయ్యే ఫోన్ నంబర్ నమోదు చేయండి",
+      's4.lib.patient_records.enter_patient_name': "రోగి పేరును నమోదు చేయండి",
+      's4.lib.patient_records.enter_phone_then_tap_check':
+          "ఫోన్ నమోదు చేసి, తనిఖీ చేయండి నొక్కండి",
+      's4.lib.patient_records.existing_patient_found':
+          "ఇప్పటికే ఉన్న రోగి కనుగొనబడ్డారు",
       's4.lib.patient_records.extraction_review_saved':
           "సంగ్రహణ సమీక్ష సేవ్ చేయబడింది",
+      's4.lib.patient_records.file_selected': "1 ఫైల్ ఎంచుకోబడింది",
+      's4.lib.patient_records.follow_up': "ఫాలో-అప్",
+      's4.lib.patient_records.image_preview_failed': "చిత్ర ప్రివ్యూ విఫలమైంది",
+      's4.lib.patient_records.investigations': "పరీక్షలు",
+      's4.lib.patient_records.ip_patient_records': "IP రోగి రికార్డులు",
       's4.lib.patient_records.lab_report': "ల్యాబ్ నివేదిక",
+      's4.lib.patient_records.medications': "మందులు",
+      's4.lib.patient_records.needs_manual_review': "మాన్యువల్ సమీక్ష అవసరం",
       's4.lib.patient_records.needs_revision': "రివిజన్ కావాలి",
+      's4.lib.patient_records.new_patient_name_will_be_used_during_upload':
+          "కొత్త రోగి - అప్‌లోడ్ సమయంలో పేరు ఉపయోగించబడుతుంది",
+      's4.lib.patient_records.no_active_admissions':
+          "క్రియాశీల అడ్మిషన్లు లేవు",
+      's4.lib.patient_records.no_ai_draft': "AI డ్రాఫ్ట్ లేదు",
       's4.lib.patient_records.no_clear_text_extracted':
           "స్పష్టమైన వచనం సంగ్రహించబడలేదు",
+      's4.lib.patient_records.no_clinical_records_or_prior_uploads':
+          "క్లినికల్ రికార్డులు లేదా మునుపటి అప్‌లోడ్‌లు లేవు",
+      's4.lib.patient_records.no_extraction_draft': "సంగ్రహణ డ్రాఫ్ట్ లేదు",
       's4.lib.patient_records.no_notes_recorded_for_this_admission_yet':
           "ఈ అడ్మిషన్ కోసం ఇంకా నోట్స్ రికార్డ్ చేయలేదు.",
+      's4.lib.patient_records.note_fallback': "గమనిక",
       's4.lib.patient_records.old_discharge_summary_prior_scan':
           "పాత ఉత్సర్గ సారాంశం, ముందస్తు స్కాన్...",
       's4.lib.patient_records.open': "తెరవండి",
+      's4.lib.patient_records.open_document_to_inspect_it':
+          "తనిఖీ చేయడానికి పత్రాన్ని తెరవండి.",
       's4.lib.patient_records.open_notes': "గమనికలను తెరవండి",
       's4.lib.patient_records.patient_record_uploaded':
           "రోగి రికార్డు అప్‌లోడ్ చేయబడింది",
+      's4.lib.patient_records.patient_fallback': "రోగి",
+      's4.lib.patient_records.patient_found_no_clinical_records_or_prior_uploads':
+          "రోగి కనుగొనబడ్డారు, క్లినికల్ రికార్డులు లేదా మునుపటి అప్‌లోడ్‌లు లేవు",
+      's4.lib.patient_records.pdf_preview_opens_externally':
+          "PDF ప్రివ్యూ బయట తెరుచుకుంటుంది",
+      's4.lib.patient_records.photos_pdfs_and_timeline_records_appear_here':
+          "ఫోటోలు, PDFలు మరియు టైమ్‌లైన్‌కు అనుసంధానమైన క్లినికల్ రికార్డులు ఇక్కడ కనిపిస్తాయి.",
       's4.lib.patient_records.prior_record': "మునుపటి రికార్డు",
       's4.lib.patient_records.prior_records': "మునుపటి రికార్డులు",
+      's4.lib.patient_records.raw_extracted_text': "సంగ్రహించిన ముడి పాఠ్యం",
+      's4.lib.patient_records.record_date': "రికార్డ్ తేదీ",
+      's4.lib.patient_records.record_fallback': "రికార్డ్",
+      's4.lib.patient_records.record_id_missing': "రికార్డ్ ID లేదు",
       's4.lib.patient_records.record_title': "రికార్డ్ టైటిల్",
       's4.lib.patient_records.remove_file': "ఫైల్‌ని తీసివేయండి",
+      's4.lib.patient_records.review_ai_draft': "AI డ్రాఫ్ట్‌ను సమీక్షించండి",
       's4.lib.patient_records.review_note': "రివ్యూ నోట్",
+      's4.lib.patient_records.safety_flags': "భద్రతా హెచ్చరికలు",
       's4.lib.patient_records.source_hospital': "మూల ఆసుపత్రి",
+      's4.lib.patient_records.staff_fallback': "సిబ్బంది",
+      's4.lib.patient_records.summary': "సారాంశం",
+      's4.lib.patient_records.this_upload_does_not_have_reviewable_extraction_draft':
+          "ఈ అప్‌లోడ్‌లో సమీక్షించగల సంగ్రహణ డ్రాఫ్ట్ లేదు.",
+      's4.lib.patient_records.timeline_admission': "ప్రవేశం",
+      's4.lib.patient_records.timeline_clinical_note': "క్లినికల్ గమనిక",
+      's4.lib.patient_records.timeline_clinical_record': "క్లినికల్ రికార్డ్",
+      's4.lib.patient_records.timeline_discharge': "డిశ్చార్జ్",
+      's4.lib.patient_records.timeline_investigation': "పరీక్ష",
+      's4.lib.patient_records.timeline_op_prescription': "OP ప్రిస్క్రిప్షన్",
+      's4.lib.patient_records.timeline_referral': "రిఫరల్",
+      's4.lib.patient_records.timeline_type_admission': "ప్రవేశం",
+      's4.lib.patient_records.timeline_type_clinical_note': "క్లినికల్ గమనిక",
+      's4.lib.patient_records.timeline_type_clinical_timeline':
+          "క్లినికల్ టైమ్‌లైన్",
+      's4.lib.patient_records.timeline_type_discharge': "డిశ్చార్జ్",
+      's4.lib.patient_records.timeline_type_investigation': "పరీక్ష",
+      's4.lib.patient_records.timeline_type_op_prescription':
+          "OP ప్రిస్క్రిప్షన్",
+      's4.lib.patient_records.timeline_type_referral': "రిఫరల్",
+      's4.lib.patient_records.timeline_type_vitals': "వైటల్స్",
+      's4.lib.patient_records.timeline_vitals': "వైటల్స్",
+      's4.lib.patient_records.unknown': "తెలియదు",
       's4.lib.patient_records.upload_prior_record':
           "ముందస్తు రికార్డును అప్‌లోడ్ చేయండి",
       's4.lib.patient_records.upload_prior_record_2':
           "మునుపటి రికార్డును అప్‌లోడ్ చేయండి",
+      's4.lib.patient_records.upload_record': "రికార్డ్‌ను అప్‌లోడ్ చేయండి",
+      's4.lib.patient_records.use_open_to_inspect_document_beside_this_draft':
+          "ఈ డ్రాఫ్ట్ పక్కన పత్రాన్ని పరిశీలించడానికి తెరవండి ఉపయోగించండి.",
+      's4.lib.patient_records.using_selected_patient_from_patient_records':
+          "రోగి రికార్డుల నుండి ఎంచుకున్న రోగి ఉపయోగించబడుతున్నారు",
       's4.lib.patient_search_action.find_patient': "రోగిని కనుగొనండి",
       's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha':
           "హాస్పిటల్ ID, పేరు, ఫోన్ లేదా ABHA ద్వారా రోగిని కనుగొనండి...",
@@ -19908,6 +20277,19 @@ class AppStrings {
       's4.dynamic.patient_notes.update_failed': "నవీకరణ విఫలమైంది: {error}",
       's4.dynamic.patient_records.notes_count': "{count} గమనికలు",
       's4.dynamic.patient_records.confidence': "విశ్వాసం {confidence}",
+      's4.dynamic.patient_records.bed_label': "బెడ్ {bed}",
+      's4.dynamic.patient_records.doctor_prefix': "డా. {doctor}",
+      's4.dynamic.patient_records.files_selected':
+          "{count} ఫైళ్లు ఎంచుకోబడ్డాయి",
+      's4.dynamic.patient_records.ocr_status': "OCR {status}",
+      's4.dynamic.patient_records.timeline_investigation_name':
+          "పరీక్ష - {name}",
+      's4.dynamic.patient_records.timeline_op_prescription_number':
+          "OP ప్రిస్క్రిప్షన్ - {number}",
+      's4.dynamic.patient_records.upload_records':
+          "{count} రికార్డులను అప్‌లోడ్ చేయండి",
+      's4.dynamic.patient_records.uploading_count':
+          "{uploaded}/{total} అప్‌లోడ్ అవుతోంది",
       's4.dynamic.admission_case_sheet.title_for_patient':
           "కేస్ షీట్ - {patient}",
       's4.dynamic.common.user_id': "వినియోగదారు ID: {userId}",

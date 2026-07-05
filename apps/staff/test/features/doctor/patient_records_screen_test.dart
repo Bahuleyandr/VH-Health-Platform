@@ -41,14 +41,14 @@ void main() {
       expect(patientRecordsHasScopedUploadPatient(phone: '123456789'), isFalse);
     });
 
-    test('uses selected-patient upload helper text when scoped', () {
+    test('uses selected-patient upload helper keys when scoped', () {
       expect(
-        patientRecordsUploadLookupMessage(hasScopedPatient: true),
-        'Using selected patient from Patient Records',
+        patientRecordsUploadLookupMessageKey(hasScopedPatient: true),
+        's4.lib.patient_records.using_selected_patient_from_patient_records',
       );
       expect(
-        patientRecordsUploadLookupMessage(hasScopedPatient: false),
-        'Enter phone, then tap Check',
+        patientRecordsUploadLookupMessageKey(hasScopedPatient: false),
+        's4.lib.patient_records.enter_phone_then_tap_check',
       );
     });
 
@@ -86,24 +86,27 @@ void main() {
         patientRecordHasReviewableAiDraft({'ai_extraction': extraction}),
         isTrue,
       );
-      expect(patientRecordAiReviewLabel(extraction), 'Review AI draft');
+      expect(
+        patientRecordAiReviewLabelKey(extraction),
+        's4.lib.patient_records.review_ai_draft',
+      );
     });
 
     test('labels reviewed and unavailable AI extraction states', () {
       expect(
-        patientRecordAiReviewLabel({
+        patientRecordAiReviewLabelKey({
           'intake_id': 1,
           'extraction_status': 'completed',
           'reviewer_decision': 'accepted',
         }),
-        'AI confirmed',
+        's4.lib.patient_records.ai_confirmed',
       );
       expect(
-        patientRecordAiReviewLabel({
+        patientRecordAiReviewLabelKey({
           'extraction_status': 'unavailable',
           'reviewer_decision': 'pending',
         }),
-        'AI unavailable',
+        's4.lib.patient_records.ai_unavailable',
       );
       expect(
         patientRecordHasReviewableAiDraft({
