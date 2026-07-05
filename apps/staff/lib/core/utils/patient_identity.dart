@@ -47,6 +47,17 @@ String patientAbhaFrom(Map<String, dynamic>? patient) {
   return _firstPatientText(patient, const ['abha_address', 'abhaAddress']);
 }
 
+String patientProfilePictureFrom(Map<String, dynamic>? patient) {
+  return _firstPatientText(patient, const [
+    'profile_picture',
+    'profilePicture',
+    'photo_url',
+    'photoUrl',
+    'image_url',
+    'imageUrl',
+  ]);
+}
+
 String patientAgeFrom(Map<String, dynamic>? patient) {
   return _firstPatientText(patient, const ['age', 'patient_age']);
 }

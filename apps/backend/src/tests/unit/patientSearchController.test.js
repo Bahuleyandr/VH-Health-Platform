@@ -145,6 +145,7 @@ describe('patientSearchController front-office mutations', () => {
   it('creates a tenant-scoped patient and normalizes phone/gender', async () => {
     queryUnsafeMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 51, uid: PATIENT_UID }])
       .mockResolvedValueOnce([{
         id: 51,
@@ -197,8 +198,16 @@ describe('patientSearchController front-office mutations', () => {
     expect(tenantParam).toBe(TENANT_ID);
     expect(phoneParam).toBe('+919876543210');
 
-    const [insertSql, insertedPhone, insertedName, insertedGender] =
+    const [dedupeSql, dedupeTenant, dedupeName, dedupePhone, dedupeBirthday] =
       queryUnsafeMock.mock.calls[1];
+    expect(dedupeSql).toContain('WITH input AS');
+    expect(dedupeTenant).toBe(TENANT_ID);
+    expect(dedupeName).toBe('codex test patient');
+    expect(dedupePhone).toBe('9876543210');
+    expect(dedupeBirthday).toBe('1990-01-02');
+
+    const [insertSql, insertedPhone, insertedName, insertedGender] =
+      queryUnsafeMock.mock.calls[2];
     expect(insertSql).toContain('tenant_id');
     expect(insertedPhone).toBe('+919876543210');
     expect(insertedName).toBe('Codex Test Patient');
@@ -211,6 +220,119 @@ describe('patientSearchController front-office mutations', () => {
         patient_uid: PATIENT_UID,
         hospital_number: 'VH-000051',
         source: 'staff_patient_search',
+        duplicate_candidate_count: 0,
+        duplicate_override_reason: null,
+        profile_photo_attached: false,
+      }),
+      { resource: 'patient', resourceId: PATIENT_UID },
+    );
+  });
+
+  it('blocks patient creation when a near-match requires duplicate review', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 52,
+        uid: '55555555-5555-4555-8555-555555555555',
+        name: 'Priya Iyer',
+        phone: '+919999999999',
+        gender: 'female',
+        birthday: '1990-04-12',
+        age: 36,
+        hospital_number: 'VH-000052',
+        abha_address: 'priya@abdm',
+        profile_picture: null,
+        confidence_score: 86,
+        match_signals: { name_exact: true, birthday_exact: true },
+      }]);
+
+    const res = makeRes();
+    await createPatient(makeReq({
+      body: {
+        name: 'Priya Iyer',
+        phone: '9812345678',
+        birthday: '1990-04-12',
+      },
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.body).toMatchObject({
+      success: false,
+      code: 'PATIENT_DUPLICATE_REVIEW_REQUIRED',
+      details: {
+        duplicate_review_required: true,
+        candidates: [{
+          uid: '55555555-5555-4555-8555-555555555555',
+          confidence_band: 'medium',
+          abha_masked: 'pr***@abdm',
+        }],
+      },
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows create-anyway only with an audited duplicate override reason', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 52,
+        uid: '55555555-5555-4555-8555-555555555555',
+        name: 'Priya Iyer',
+        phone: '+919999999999',
+        gender: 'female',
+        birthday: '1990-04-12',
+        age: 36,
+        hospital_number: 'VH-000052',
+        abha_address: null,
+        profile_picture: null,
+        confidence_score: 86,
+        match_signals: { name_exact: true, birthday_exact: true },
+      }])
+      .mockResolvedValueOnce([{ id: 53, uid: PATIENT_UID }])
+      .mockResolvedValueOnce([{
+        id: 53,
+        uid: PATIENT_UID,
+        name: 'Priya Iyer',
+        phone: '+919812345678',
+        gender: 'female',
+        birthday: '1990-04-12',
+        address: null,
+        hospital_number: 'VH-000053',
+        age: 36,
+        abha_address: null,
+      }])
+      .mockResolvedValueOnce([{ id: 7 }]);
+
+    const req = makeReq({
+      body: {
+        name: 'Priya Iyer',
+        phone: '9812345678',
+        gender: 'Female',
+        birthday: '1990-04-12',
+        duplicate_override_reason: 'Different person verified with photo ID',
+      },
+    });
+    const res = makeRes();
+    await createPatient(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    const [overrideSql, tenantParam, primaryUid, secondaryUid, score, signals, decidedBy, reason] =
+      queryUnsafeMock.mock.calls[4];
+    expect(overrideSql).toContain('INSERT INTO patient_duplicate_candidates');
+    expect(tenantParam).toBe(TENANT_ID);
+    expect(primaryUid).toBe('11111111-1111-4111-8111-111111111111');
+    expect(secondaryUid).toBe('55555555-5555-4555-8555-555555555555');
+    expect(score).toBe(86);
+    expect(JSON.parse(signals)).toEqual({ name_exact: true, birthday_exact: true });
+    expect(decidedBy).toBe(req.user.uid);
+    expect(reason).toBe('Different person verified with photo ID');
+    expect(logAuditMock).toHaveBeenCalledWith(
+      req,
+      'FRONT_OFFICE_PATIENT_DUPLICATE_OVERRIDE',
+      expect.objectContaining({
+        patient_uid: PATIENT_UID,
+        reason: 'Different person verified with photo ID',
+        candidate_count: 1,
       }),
       { resource: 'patient', resourceId: PATIENT_UID },
     );

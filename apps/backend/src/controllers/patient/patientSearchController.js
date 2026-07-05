@@ -22,17 +22,26 @@
 // PHI access is still logged via the route-level `phiAccessLogger`
 // middleware in `routes/patient/patientSearchRoutes.js`.
 
+import crypto from 'crypto';
+
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import {
+  findRegistrationDuplicateCandidates,
+  recordRegistrationDuplicateOverride,
+} from '../../services/patient/patientDedupeService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
+import { uploadFileToR2 } from '../../utils/r2Storage.js';
 import { error, success } from '../../utils/responseHelper.js';
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 20;
 const PHONE_QUERY_RE = /^[+\d\s().-]+$/;
+const DUPLICATE_OVERRIDE_MIN_REASON = 10;
+const PROFILE_PHOTO_MIMES = new Set(['image/jpeg', 'image/png']);
 
 function validPatientPhone(rawValue) {
   const raw = String(rawValue ?? '').trim();
@@ -72,7 +81,45 @@ function publicPatient(row) {
     address: row.address,
     hospital_number: row.hospital_number,
     abha_address: row.abha_address,
+    profile_picture: row.profile_picture,
   };
+}
+
+function duplicateReviewResponse(res, candidates) {
+  return error(res, 'Potential duplicate patient requires review', HTTP_STATUS.CONFLICT, {
+    topLevel: { code: 'PATIENT_DUPLICATE_REVIEW_REQUIRED' },
+    duplicate_review_required: true,
+    candidates,
+  });
+}
+
+function duplicateOverrideReason(body) {
+  return String(
+    body.duplicate_override_reason ??
+      body.create_anyway_reason ??
+      body.duplicate_review_reason ??
+      '',
+  ).trim();
+}
+
+function imageExtension(mimeType) {
+  return mimeType === 'image/png' ? 'png' : 'jpg';
+}
+
+async function uploadPatientProfilePhoto({ file, tenantId }) {
+  if (!file) return null;
+  const mimeType = String(file.mimetype || '').toLowerCase();
+  if (!PROFILE_PHOTO_MIMES.has(mimeType)) {
+    const err = new Error('Patient profile photo must be a JPEG or PNG image');
+    err.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw err;
+  }
+  const storageKey = [
+    'patient-profile-photos',
+    tenantId,
+    `${Date.now()}_${crypto.randomUUID()}.${imageExtension(mimeType)}`,
+  ].join('/');
+  return uploadFileToR2(file.buffer, storageKey, mimeType);
 }
 
 function attachPatientPhiContext(req, patient, extra = {}) {
@@ -90,7 +137,7 @@ function attachPatientPhiContext(req, patient, extra = {}) {
 async function fetchPatientByUid(uid, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.birthday, u.address,
-            u.abha_address,
+            u.abha_address, u.profile_picture,
             COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
             CASE WHEN u.birthday IS NOT NULL
                  THEN DATE_PART('year', AGE(u.birthday))::int
@@ -148,6 +195,7 @@ export const searchPatients = async (req, res) => {
     const rows = normalizedPhone
       ? await prisma.$queryRawUnsafe(
         `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
+                u.profile_picture,
                 COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
                 CASE WHEN u.birthday IS NOT NULL
                      THEN DATE_PART('year', AGE(u.birthday))::int
@@ -190,6 +238,7 @@ export const searchPatients = async (req, res) => {
       )
       : await prisma.$queryRawUnsafe(
       `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
+              u.profile_picture,
               COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
               CASE WHEN u.birthday IS NOT NULL
                    THEN DATE_PART('year', AGE(u.birthday))::int
@@ -249,7 +298,7 @@ export const createPatient = async (req, res) => {
 
     const tenantId = tenantOf(req);
     const last10 = phone.replace(/\D/g, '').slice(-10);
-    const existing = await prisma.$queryRawUnsafe(
+    const exactPhoneRows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, name, role
          FROM users
         WHERE tenant_id = $1::uuid
@@ -261,33 +310,64 @@ export const createPatient = async (req, res) => {
       `%${last10}`,
     );
 
-    if (existing.length > 0) {
-      if (existing[0].role !== 'PATIENT') {
+    if (exactPhoneRows.length > 0) {
+      if (exactPhoneRows[0].role !== 'PATIENT') {
         return error(
           res,
           'This phone number belongs to a non-patient account',
           HTTP_STATUS.CONFLICT,
         );
       }
-      return error(res, 'Patient already exists', HTTP_STATUS.CONFLICT, {
-        patient: publicPatient(existing[0]),
-      });
+      const existingPatient = await fetchPatientByUid(exactPhoneRows[0].uid, tenantId);
+      return duplicateReviewResponse(res, [
+        {
+          ...publicPatient(existingPatient ?? exactPhoneRows[0]),
+          confidence_score: 92,
+          confidence_band: 'high',
+          match_signals: { phone_last10: true },
+        },
+      ]);
     }
 
     const gender = normalizeGender(req.body.gender ?? req.body.patient_gender);
     const birthday = normalizeBirthday(req.body.birthday ?? req.body.patient_birthday);
     const address = String(req.body.address ?? req.body.patient_address ?? '').trim();
+    const abhaAddress = String(req.body.abha_address ?? req.body.abhaAddress ?? '').trim();
+    const overrideReason = duplicateOverrideReason(req.body);
+    const duplicateScan = await findRegistrationDuplicateCandidates({
+      tenantId,
+      name,
+      phone,
+      birthday,
+      abhaAddress,
+    });
+    if (duplicateScan.candidates.length > 0 &&
+        overrideReason.length < DUPLICATE_OVERRIDE_MIN_REASON) {
+      return duplicateReviewResponse(res, duplicateScan.candidates);
+    }
+
+    let profilePicture = null;
+    try {
+      profilePicture = await uploadPatientProfilePhoto({ file: req.file, tenantId });
+    } catch (photoErr) {
+      return error(
+        res,
+        photoErr.message || 'Patient profile photo upload failed',
+        photoErr.statusCode || HTTP_STATUS.BAD_REQUEST,
+      );
+    }
 
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO users
-         (phone, name, gender, birthday, address, role, is_active, tenant_id, registered_at, updated_at)
-       VALUES ($1, $2, $3, $4::date, $5, 'PATIENT', true, $6::uuid, NOW(), NOW())
+         (phone, name, gender, birthday, address, profile_picture, role, is_active, tenant_id, registered_at, updated_at)
+       VALUES ($1, $2, $3, $4::date, $5, $6, 'PATIENT', true, $7::uuid, NOW(), NOW())
        RETURNING id, uid`,
       phone,
       name,
       gender,
       birthday,
       address || null,
+      profilePicture,
       tenantId,
     );
 
@@ -301,10 +381,37 @@ export const createPatient = async (req, res) => {
       patient_uid: patient?.uid ?? rows[0].uid,
       hospital_number: patient?.hospital_number ?? null,
       source: 'staff_patient_search',
+      duplicate_override_reason: overrideReason || null,
+      duplicate_candidate_count: duplicateScan.candidates.length,
+      profile_photo_attached: Boolean(profilePicture),
     }, {
       resource: 'patient',
       resourceId: patient?.uid ?? rows[0].uid,
     });
+    if (duplicateScan.candidates.length > 0) {
+      await recordRegistrationDuplicateOverride({
+        tenantId,
+        newPatientUid: rows[0].uid,
+        candidates: duplicateScan.candidates,
+        decidedBy: req.user?.uid ?? null,
+        reason: overrideReason,
+      });
+      await logAudit(req, 'FRONT_OFFICE_PATIENT_DUPLICATE_OVERRIDE', {
+        patient_id: patient?.id ?? rows[0].id,
+        patient_uid: patient?.uid ?? rows[0].uid,
+        reason: overrideReason,
+        candidate_count: duplicateScan.candidates.length,
+        candidates: duplicateScan.candidates.map((candidate) => ({
+          uid: candidate.uid,
+          confidence_score: candidate.confidence_score,
+          confidence_band: candidate.confidence_band,
+          match_signals: candidate.match_signals,
+        })),
+      }, {
+        resource: 'patient',
+        resourceId: patient?.uid ?? rows[0].uid,
+      });
+    }
     return success(res, { patient: publicPatient(patient) }, 'Patient created', HTTP_STATUS.CREATED);
   } catch (err) {
     logger.error('Patient create error:', err);

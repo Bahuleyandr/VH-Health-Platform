@@ -5,7 +5,12 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   getTenantById,
   DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
 }));
-const { getTenantSettings, getRateLimitOverride, getBranding } = await import(
+const {
+  getTenantSettings,
+  getRateLimitOverride,
+  getBranding,
+  getFrontDeskBiometricCaptureSettings,
+} = await import(
   '../../services/tenant/tenantSettingsService.js'
 );
 
@@ -47,5 +52,33 @@ describe('tenantSettingsService', () => {
     expect(await getBranding('t1')).toEqual({ name: 'Apollo' });
     getTenantById.mockResolvedValue({ settings: {} });
     expect(await getBranding('t1')).toEqual({});
+  });
+
+  it('getFrontDeskBiometricCaptureSettings is disabled by default', async () => {
+    getTenantById.mockResolvedValue({ settings: {} });
+    expect(await getFrontDeskBiometricCaptureSettings('t1')).toEqual({
+      enabled: false,
+      modes: [],
+      provider: null,
+    });
+  });
+
+  it('getFrontDeskBiometricCaptureSettings filters the documented modes', async () => {
+    getTenantById.mockResolvedValue({
+      settings: {
+        biometricCapture: {
+          frontDeskRegistration: {
+            enabled: true,
+            modes: ['face', 'fingerprint', 'palm'],
+            provider: 'Procured SDK',
+          },
+        },
+      },
+    });
+    expect(await getFrontDeskBiometricCaptureSettings('t1')).toEqual({
+      enabled: true,
+      modes: ['face', 'fingerprint'],
+      provider: 'Procured SDK',
+    });
   });
 });

@@ -220,6 +220,9 @@ class _PatientCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = patientNameFrom(patient);
     final subtitle = patientSubtitle(patient, includeAgeGender: true);
+    final profilePicture = patientProfilePictureFrom(patient);
+    final confidence = _text(patient['confidence_band']);
+    final abhaMasked = _text(patient['abha_masked']);
     final interactive = onTap != null;
     return Semantics(
       button: interactive,
@@ -239,9 +242,14 @@ class _PatientCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
-                  child: const ExcludeSemantics(
-                    child: Icon(Icons.person_outline),
-                  ),
+                  backgroundImage: profilePicture.isEmpty
+                      ? null
+                      : NetworkImage(profilePicture),
+                  child: profilePicture.isEmpty
+                      ? const ExcludeSemantics(
+                          child: Icon(Icons.person_outline),
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -260,6 +268,28 @@ class _PatientCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      if (confidence.isNotEmpty || abhaMasked.isNotEmpty)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 2,
+                          children: [
+                            if (confidence.isNotEmpty)
+                              _StatusPill(
+                                label: confidence.toUpperCase(),
+                                color: AppTheme.warningAmber,
+                              ),
+                            if (abhaMasked.isNotEmpty)
+                              Text(
+                                abhaMasked,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
                         ),
                     ],
                   ),

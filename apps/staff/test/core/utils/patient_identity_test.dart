@@ -34,6 +34,19 @@ void main() {
       expect(patientIdFrom(patient), '18');
     });
 
+    test('reads patient profile photos from backend aliases', () {
+      expect(
+        patientProfilePictureFrom({
+          'profile_picture': 'https://cdn/patient.jpg',
+        }),
+        'https://cdn/patient.jpg',
+      );
+      expect(
+        patientProfilePictureFrom({'photo_url': 'https://cdn/fallback.png'}),
+        'https://cdn/fallback.png',
+      );
+    });
+
     test('builds route query params without losing patient context', () {
       final route = patientScopedRoute(
         '/patient-records',

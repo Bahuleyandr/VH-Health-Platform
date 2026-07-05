@@ -26,6 +26,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
+const DEFAULT_REGISTRATION_LIMIT = 5;
 
 const CANDIDATE_STATUSES = ['open', 'merged', 'rejected_not_duplicate', 'expired'];
 
@@ -75,6 +76,68 @@ function normalizeLimit(value, fallback = DEFAULT_LIST_LIMIT, max = MAX_LIST_LIM
   return Math.min(Math.max(Number.parseInt(value, 10) || fallback, 1), max);
 }
 
+function digitsOnly(value) {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function last10Phone(value) {
+  const digits = digitsOnly(value);
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+function normalizePersonName(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeDateText(value) {
+  const raw = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+function normalizeAbha(value) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  return raw.length >= 4 ? raw : null;
+}
+
+function maskAbha(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const at = raw.indexOf('@');
+  if (at > 1) {
+    return `${raw.slice(0, 2)}***${raw.slice(at)}`;
+  }
+  return raw.length <= 4 ? '****' : `${raw.slice(0, 2)}***${raw.slice(-2)}`;
+}
+
+function confidenceBand(score) {
+  const value = Number(score || 0);
+  if (value >= 90) return 'high';
+  if (value >= 75) return 'medium';
+  return 'low';
+}
+
+function publicRegistrationCandidate(row) {
+  const score = Number(row.confidence_score || 0);
+  return {
+    id: row.id,
+    uid: row.uid,
+    name: row.name,
+    phone: row.phone,
+    gender: row.gender,
+    birthday: row.birthday,
+    age: row.age,
+    hospital_number: row.hospital_number,
+    profile_picture: row.profile_picture,
+    abha_masked: row.abha_masked ?? maskAbha(row.abha_address),
+    confidence_score: score,
+    confidence_band: confidenceBand(score),
+    match_signals: row.match_signals || {},
+  };
+}
+
 /**
  * Confidence is keyed by the strongest matching identifier type. ABHA,
  * Aadhaar, and national IDs are unique by construction so collisions on
@@ -84,6 +147,172 @@ function normalizeLimit(value, fallback = DEFAULT_LIST_LIMIT, max = MAX_LIST_LIM
  */
 export function confidenceForIdentifierType(type) {
   return IDENTIFIER_CONFIDENCE_BY_TYPE[String(type || '').toLowerCase()] ?? 60;
+}
+
+export async function findRegistrationDuplicateCandidates({
+  tenantId = null,
+  name = null,
+  phone = null,
+  birthday = null,
+  abhaAddress = null,
+  limit = DEFAULT_REGISTRATION_LIMIT,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const nameKey = normalizePersonName(name) || null;
+  const phoneKey = last10Phone(phone);
+  const birthdayKey = normalizeDateText(birthday);
+  const abhaKey = normalizeAbha(abhaAddress);
+  const safeLimit = normalizeLimit(limit, DEFAULT_REGISTRATION_LIMIT, 10);
+
+  if (!nameKey && !phoneKey && !abhaKey) {
+    return { candidates: [], count: 0 };
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH input AS (
+       SELECT $2::text AS name_key,
+              $3::text AS phone_last10,
+              $4::date AS birthday,
+              $5::text AS abha_key
+     )
+     SELECT u.id, u.uid, u.name, u.phone, u.gender, u.birthday,
+            u.abha_address, u.profile_picture,
+            COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
+            CASE WHEN u.birthday IS NOT NULL
+                 THEN DATE_PART('year', AGE(u.birthday))::int
+            END AS age,
+            CASE
+              WHEN input.abha_key IS NOT NULL
+                   AND LOWER(COALESCE(u.abha_address, '')) = input.abha_key THEN 96
+              WHEN input.phone_last10 IS NOT NULL
+                   AND RIGHT(REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g'), 10) = input.phone_last10 THEN 92
+              WHEN input.name_key IS NOT NULL
+                   AND LOWER(REGEXP_REPLACE(COALESCE(u.name, ''), '\\s+', ' ', 'g')) = input.name_key
+                   AND input.birthday IS NOT NULL
+                   AND u.birthday = input.birthday THEN 86
+              WHEN input.name_key IS NOT NULL
+                   AND LOWER(REGEXP_REPLACE(COALESCE(u.name, ''), '\\s+', ' ', 'g')) = input.name_key THEN 76
+              ELSE 60
+            END AS confidence_score,
+            jsonb_strip_nulls(jsonb_build_object(
+              'abha_address', CASE
+                WHEN input.abha_key IS NOT NULL
+                 AND LOWER(COALESCE(u.abha_address, '')) = input.abha_key
+                THEN true END,
+              'phone_last10', CASE
+                WHEN input.phone_last10 IS NOT NULL
+                 AND RIGHT(REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g'), 10) = input.phone_last10
+                THEN true END,
+              'name_exact', CASE
+                WHEN input.name_key IS NOT NULL
+                 AND LOWER(REGEXP_REPLACE(COALESCE(u.name, ''), '\\s+', ' ', 'g')) = input.name_key
+                THEN true END,
+              'birthday_exact', CASE
+                WHEN input.birthday IS NOT NULL AND u.birthday = input.birthday
+                THEN true END
+            )) AS match_signals
+       FROM users u
+       CROSS JOIN input
+       LEFT JOIN LATERAL (
+         SELECT pi.identifier_value
+           FROM patient_identifiers pi
+          WHERE pi.tenant_id = u.tenant_id
+            AND pi.patient_uid = u.uid
+            AND pi.identifier_type IN ('mrn', 'uhid')
+            AND pi.status = 'active'
+          ORDER BY pi.is_primary DESC,
+                   CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                   pi.created_at ASC
+          LIMIT 1
+       ) hn ON TRUE
+      WHERE u.tenant_id = $1::uuid
+        AND u.role = 'PATIENT'
+        AND u.is_active = true
+        AND (
+          (input.abha_key IS NOT NULL AND LOWER(COALESCE(u.abha_address, '')) = input.abha_key)
+          OR (input.phone_last10 IS NOT NULL
+              AND RIGHT(REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g'), 10) = input.phone_last10)
+          OR (input.name_key IS NOT NULL
+              AND LOWER(REGEXP_REPLACE(COALESCE(u.name, ''), '\\s+', ' ', 'g')) = input.name_key
+              AND (input.birthday IS NULL OR u.birthday IS NULL OR u.birthday = input.birthday))
+        )
+      ORDER BY confidence_score DESC, u.registered_at DESC NULLS LAST, u.name ASC
+      LIMIT $6`,
+    tid,
+    nameKey,
+    phoneKey,
+    birthdayKey,
+    abhaKey,
+    safeLimit,
+  );
+
+  const candidates = rows.map(publicRegistrationCandidate);
+  return { candidates, count: candidates.length };
+}
+
+export async function recordRegistrationDuplicateOverride({
+  tenantId = null,
+  newPatientUid,
+  candidates = [],
+  decidedBy = null,
+  reason,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const newUid = maybeUuid(newPatientUid, 'newPatientUid');
+  const decisionNote = String(reason ?? '').trim();
+  if (!newUid || candidates.length === 0 || decisionNote.length < 10) {
+    return { recorded: 0 };
+  }
+
+  let recorded = 0;
+  for (const candidate of candidates) {
+    const existingUid = maybeUuid(candidate.uid, 'candidate uid');
+    if (!existingUid || existingUid === newUid) continue;
+    const [primaryUid, secondaryUid] = [existingUid, newUid].sort();
+    try {
+      const rows = await prisma.$queryRawUnsafe(
+        `INSERT INTO patient_duplicate_candidates
+           (tenant_id, primary_uid, secondary_uid, confidence_score,
+            match_signals, detected_by, status, decided_by, decided_at,
+            decision_note, metadata)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb,
+                 'front_desk_registration', 'rejected_not_duplicate',
+                 $6::uuid, NOW(), $7,
+                 jsonb_build_object(
+                   'source', 'front_desk_registration',
+                   'override_reason', $7::text,
+                   'new_patient_uid', $8::text
+                 ))
+         ON CONFLICT (tenant_id, primary_uid, secondary_uid)
+         DO UPDATE SET
+           confidence_score = GREATEST(patient_duplicate_candidates.confidence_score, EXCLUDED.confidence_score),
+           match_signals = EXCLUDED.match_signals,
+           detected_by = EXCLUDED.detected_by,
+           status = 'rejected_not_duplicate',
+           decided_by = EXCLUDED.decided_by,
+           decided_at = NOW(),
+           decision_note = EXCLUDED.decision_note,
+           metadata = COALESCE(patient_duplicate_candidates.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+           updated_at = NOW()
+         RETURNING id`,
+        tid,
+        primaryUid,
+        secondaryUid,
+        Number(candidate.confidence_score || 60),
+        JSON.stringify(candidate.match_signals || {}),
+        decidedBy || null,
+        decisionNote,
+        newUid,
+      );
+      if (rows[0]) recorded += 1;
+    } catch (err) {
+      if (isMissingSchemaError(err)) {
+        return { recorded, halted: true, reason: 'patient_duplicate_candidates_unavailable' };
+      }
+      logger.warn('patient duplicate override record failed', { error: err.message });
+    }
+  }
+  return { recorded };
 }
 
 /**
@@ -299,7 +528,9 @@ export const __testing__ = {
 export default {
   confidenceForIdentifierType,
   detectIdentifierCollisions,
+  findRegistrationDuplicateCandidates,
   getDuplicateCandidate,
   listDuplicateCandidates,
   markCandidateNotDuplicate,
+  recordRegistrationDuplicateOverride,
 };
