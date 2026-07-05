@@ -801,6 +801,8 @@ class AppStrings {
 
   // ── Voice dictation ────────────────────────────────────────────────
   String get voiceDictateTooltip => _t('voice_dictate.tooltip');
+  String get voiceDictateNotConfiguredTooltip =>
+      _t('voice_dictate.not_configured_tooltip');
   String get voiceDictateRecording => _t('voice_dictate.recording');
   String get voiceDictateStop => _t('voice_dictate.stop');
   String get voiceDictateTranscribing => _t('voice_dictate.transcribing');
@@ -813,6 +815,8 @@ class AppStrings {
       _t('voice_dictate.recording_started');
   String get voiceDictateRecordingStopped =>
       _t('voice_dictate.recording_stopped');
+  String get voiceDictateReviewInsert => _t('voice_dictate.review_insert');
+  String get voiceDictateReviewTitle => _t('voice_dictate.review_title');
 
   // ── Doctor queue screen ────────────────────────────────────────────
   String get queueTitle => _t('queue.title');
@@ -1360,8 +1364,14 @@ class AppStrings {
   String get drugChartNotesLabel => _t('drug_chart.notes_label');
   String get drugChartNotesHint => _t('drug_chart.notes_hint');
   String get drugChartDawLabel => _t('drug_chart.daw_label');
+  String drugChartDictatedField(String field) =>
+      format('drug_chart.dictated_field', {'field': field});
+  String drugChartDictatedDurationNote(int days) =>
+      format('drug_chart.dictated_duration_note', {'days': days});
   String get drugChartDoseHint => _t('drug_chart.dose_hint');
   String get drugChartDoseHelper => _t('drug_chart.dose_helper');
+  String get drugChartPickDictatedDrug => _t('drug_chart.pick_dictated_drug');
+  String get drugChartRawDictation => _t('drug_chart.raw_dictation');
   String get drugChartRouteOral => _t('drug_chart.route.oral');
   String get drugChartRouteIv => _t('drug_chart.route.iv');
   String get drugChartRouteIm => _t('drug_chart.route.im');
@@ -3420,8 +3430,12 @@ class AppStrings {
       'drug_chart.notes_label': 'Notes',
       'drug_chart.notes_hint': 'Dilution, PRN reason, hold rules',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'Dictated {field}',
+      'drug_chart.dictated_duration_note': 'Duration: {days} days',
       'drug_chart.dose_hint': 'auto-filled from drug strength',
       'drug_chart.dose_helper': 'Edit only if dose differs',
+      'drug_chart.pick_dictated_drug': 'Pick dictated drug',
+      'drug_chart.raw_dictation': 'Raw dictation',
       'drug_chart.route.oral': 'Oral',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -3760,6 +3774,7 @@ class AppStrings {
       'patient_picker.empty': 'No patient matches yet - keep typing.',
       // Voice dictation
       'voice_dictate.tooltip': 'Dictate (voice → text)',
+      'voice_dictate.not_configured_tooltip': 'Dictation not configured',
       'voice_dictate.recording': 'Dictating…',
       'voice_dictate.stop': 'Stop & Transcribe',
       'voice_dictate.transcribing': 'Transcribing…',
@@ -3768,6 +3783,8 @@ class AppStrings {
       'voice_dictate.added_toast': 'Dictation added to notes',
       'voice_dictate.recording_started': 'Recording started',
       'voice_dictate.recording_stopped': 'Recording stopped, transcribing',
+      'voice_dictate.review_insert': 'Insert',
+      'voice_dictate.review_title': 'Review dictation',
       'voice_dictate.mic_denied':
           'Microphone permission denied. Enable it in your OS / app settings.',
       // Bed Board (additions)
@@ -8451,8 +8468,12 @@ class AppStrings {
       'drug_chart.notes_label': 'नोट्स',
       'drug_chart.notes_hint': 'डायल्यूशन, PRN कारण, रोकने के नियम',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'डिक्टेटेड {field}',
+      'drug_chart.dictated_duration_note': 'अवधि: {days} दिन',
       'drug_chart.dose_hint': 'दवा की ताकत से अपने आप भरेगा',
       'drug_chart.dose_helper': 'खुराक अलग हो तो ही बदलें',
+      'drug_chart.pick_dictated_drug': 'डिक्टेटेड दवा चुनें',
+      'drug_chart.raw_dictation': 'मूल डिक्टेशन',
       'drug_chart.route.oral': 'मौखिक',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -8790,6 +8811,7 @@ class AppStrings {
       'patient_picker.empty': 'अभी कोई मेल नहीं मिला - टाइप करना जारी रखें।',
       // Voice dictation
       'voice_dictate.tooltip': 'बोलकर लिखें',
+      'voice_dictate.not_configured_tooltip': 'डिक्टेशन कॉन्फ़िगर नहीं है',
       'voice_dictate.recording': 'रिकॉर्ड हो रहा है…',
       'voice_dictate.stop': 'रोकें और लिखें',
       'voice_dictate.transcribing': 'टेक्स्ट में बदल रहा है…',
@@ -8799,6 +8821,8 @@ class AppStrings {
       'voice_dictate.recording_started': 'रिकॉर्डिंग शुरू',
       'voice_dictate.recording_stopped':
           'रिकॉर्डिंग रुकी, ट्रांसक्राइब हो रहा है',
+      'voice_dictate.review_insert': 'जोड़ें',
+      'voice_dictate.review_title': 'डिक्टेशन की समीक्षा करें',
       'voice_dictate.mic_denied':
           'माइक्रोफ़ोन की अनुमति नहीं है। OS / ऐप सेटिंग्स में अनुमति दें।',
       // Bed Board (additions)
@@ -13504,6 +13528,10 @@ class AppStrings {
       'drug_chart.notes_label': 'குறிப்புகள்',
       'drug_chart.notes_hint': 'கரைத்தல், PRN காரணம், நிறுத்த விதிகள்',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'டிக்டேட் செய்த {field}',
+      'drug_chart.dictated_duration_note': 'காலம்: {days} நாட்கள்',
+      'drug_chart.pick_dictated_drug': 'டிக்டேட் செய்த மருந்தைத் தேர்வு செய்',
+      'drug_chart.raw_dictation': 'மூல டிக்டேஷன்',
       'drug_chart.route.oral': 'வாய் வழி',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -13864,6 +13892,7 @@ class AppStrings {
       'patient_picker.empty':
           'இன்னும் நோயாளி பொருத்தங்கள் இல்லை - தொடர்ந்து தட்டச்சு செய்.',
       'voice_dictate.tooltip': 'குரல் → உரை',
+      'voice_dictate.not_configured_tooltip': 'டிக்டேஷன் அமைக்கப்படவில்லை',
       'voice_dictate.recording': 'பதிவு செய்கிறது…',
       'voice_dictate.stop': 'நிறுத்து & எழுது',
       'voice_dictate.transcribing': 'உரையாக்குகிறது…',
@@ -13877,6 +13906,8 @@ class AppStrings {
       'voice_dictate.recording_started': 'பதிவு தொடங்கியது',
       // REVIEW:
       'voice_dictate.recording_stopped': 'பதிவு நின்றது, உரையாக்குகிறது',
+      'voice_dictate.review_insert': 'சேர்',
+      'voice_dictate.review_title': 'டிக்டேஷனைச் சரிபார்',
       'voice_dictate.mic_denied':
           'மைக்ரோஃபோன் அனுமதி மறுக்கப்பட்டது. OS / பயன்பாட்டு அமைப்புகளில் இயக்கவும்.',
       // Bed Board (additions) - REVIEW
@@ -19210,6 +19241,10 @@ class AppStrings {
       'drug_chart.notes_label': 'గమనికలు',
       'drug_chart.notes_hint': 'డైల్యూషన్, PRN కారణం, నిలిపే నియమాలు',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.dictated_field': 'డిక్టేట్ చేసిన {field}',
+      'drug_chart.dictated_duration_note': 'వ్యవధి: {days} రోజులు',
+      'drug_chart.pick_dictated_drug': 'డిక్టేట్ చేసిన మందును ఎంచుకోండి',
+      'drug_chart.raw_dictation': 'మూల డిక్టేషన్',
       'drug_chart.route.oral': 'నోటి ద్వారా',
       'drug_chart.route.iv': 'IV',
       'drug_chart.route.im': 'IM',
@@ -19566,6 +19601,7 @@ class AppStrings {
       'patient_picker.empty':
           'ఇంకా రోగి సరిపోలికలు లేవు - టైప్ చేయడం కొనసాగించండి.',
       'voice_dictate.tooltip': 'వాయిస్ → టెక్స్ట్',
+      'voice_dictate.not_configured_tooltip': 'డిక్టేషన్ కాన్ఫిగర్ చేయబడలేదు',
       'voice_dictate.recording': 'రికార్డ్ అవుతోంది…',
       'voice_dictate.stop': 'ఆపండి & ట్రాన్స్క్రైబ్',
       'voice_dictate.transcribing': 'ట్రాన్స్క్రైబ్ అవుతోంది…',
@@ -19579,6 +19615,8 @@ class AppStrings {
       // REVIEW:
       'voice_dictate.recording_stopped':
           'రికార్డింగ్ ఆగింది, ట్రాన్స్‌క్రైబ్ అవుతోంది',
+      'voice_dictate.review_insert': 'చేర్చండి',
+      'voice_dictate.review_title': 'డిక్టేషన్‌ను సమీక్షించండి',
       'voice_dictate.mic_denied':
           'మైక్రోఫోన్ అనుమతి తిరస్కరించబడింది. OS / యాప్ సెట్టింగ్‌లలో ప్రారంభించండి.',
       // Bed Board (additions) - REVIEW

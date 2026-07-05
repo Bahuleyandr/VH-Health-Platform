@@ -13,6 +13,12 @@ analysis). Those source docs are now in [`archive/`](archive/) — see
 Canonical) green; the S-tier program (WS0–WS8) and the full multi-tenancy
 program are **code-complete**. **[§0](#0--engineering-remediation-backlog-2026-06-22-codebase-audit) is the front of queue** — the 2026-06-22 full-codebase audit found real engineering work (13 adversarially-confirmed High findings) that ranks **ahead** of the operator/external gates in §1–§8 (which remain the go-live-execution + external/procurement tail). Step-by-step execution runbooks remain **live at `docs/`** (linked inline).
 
+> **2026-07-05 — next chapter:** §0's engineering backlog (Tier 0/1/2) is complete.
+> The forward **build** program now lives in
+> [`NEXT_LEVEL_ROADMAP.md`](NEXT_LEVEL_ROADMAP.md) (enterprise-grade programs
+> NL-1–NL-12, waves A–D); its §2 absorbs this file's remaining T2/§5/§6 code items.
+> §§1–4 of THIS file remain the authoritative operator/go-live track.
+
 ## Legend
 
 | Tag | Meaning |

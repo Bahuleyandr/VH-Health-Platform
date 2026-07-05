@@ -13,6 +13,8 @@ class CodedDiagnosisPicker extends StatefulWidget {
   final int minLines;
   final Map<String, dynamic>? selectedCoding;
   final ValueChanged<Map<String, dynamic>?> onCodingChanged;
+  final Widget? suffixAction;
+  final FocusNode? focusNode;
 
   const CodedDiagnosisPicker({
     super.key,
@@ -23,6 +25,8 @@ class CodedDiagnosisPicker extends StatefulWidget {
     this.enabled = true,
     this.minLines = 2,
     this.selectedCoding,
+    this.suffixAction,
+    this.focusNode,
   });
 
   @override
@@ -30,23 +34,36 @@ class CodedDiagnosisPicker extends StatefulWidget {
 }
 
 class _CodedDiagnosisPickerState extends State<CodedDiagnosisPicker> {
-  final _focusNode = FocusNode();
+  late final FocusNode _ownedFocusNode;
   Timer? _debounce;
   bool _loading = false;
   List<Map<String, dynamic>> _suggestions = const [];
 
+  FocusNode get _focusNode => widget.focusNode ?? _ownedFocusNode;
+
   @override
   void initState() {
     super.initState();
+    _ownedFocusNode = FocusNode();
     widget.controller.addListener(_queueSearch);
     _focusNode.addListener(_queueSearch);
+  }
+
+  @override
+  void didUpdateWidget(covariant CodedDiagnosisPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      (oldWidget.focusNode ?? _ownedFocusNode).removeListener(_queueSearch);
+      _focusNode.addListener(_queueSearch);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_queueSearch);
     _debounce?.cancel();
-    _focusNode.dispose();
+    _focusNode.removeListener(_queueSearch);
+    _ownedFocusNode.dispose();
     super.dispose();
   }
 
@@ -151,14 +168,20 @@ class _CodedDiagnosisPickerState extends State<CodedDiagnosisPicker> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : IconButton(
-                    tooltip: AppStrings.of(
-                      context,
-                    ).lookup('s4.lib.coded_diagnosis_picker.search_icd_11'),
-                    icon: const Icon(Icons.search),
-                    onPressed: widget.enabled
-                        ? () => _search(widget.controller.text.trim())
-                        : null,
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.suffixAction != null) widget.suffixAction!,
+                      IconButton(
+                        tooltip: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.coded_diagnosis_picker.search_icd_11'),
+                        icon: const Icon(Icons.search),
+                        onPressed: widget.enabled
+                            ? () => _search(widget.controller.text.trim())
+                            : null,
+                      ),
+                    ],
                   ),
           ),
         ),

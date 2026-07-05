@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/dictation/dictation_section_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/dictation_review_sheet.dart';
 import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/vital_text_field.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
 import '../../productivity/widgets/smart_phrase_field.dart';
 
@@ -1266,6 +1269,14 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final cbg = TextEditingController();
     final weight = TextEditingController();
     final temperature = TextEditingController();
+    final chiefFocus = FocusNode();
+    final historyFocus = FocusNode();
+    final examinationFocus = FocusNode();
+    final diagnosisFocus = FocusNode();
+    final subjectiveFocus = FocusNode();
+    final objectiveFocus = FocusNode();
+    final assessmentFocus = FocusNode();
+    final planFocus = FocusNode();
 
     if (editing) {
       subjective.text = _noteText(existingNote, 'subjective') ?? '';
@@ -1280,6 +1291,153 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         cbg: cbg,
         weight: weight,
         temperature: temperature,
+      );
+    }
+
+    DictationSection focusedFallback(DictationSection invokedSection) {
+      if (isOpForm) {
+        if (chiefFocus.hasFocus) return DictationSection.chiefComplaint;
+        if (historyFocus.hasFocus) return DictationSection.history;
+        if (examinationFocus.hasFocus) return DictationSection.examination;
+        if (diagnosisFocus.hasFocus) return DictationSection.diagnosis;
+        if (planFocus.hasFocus) return DictationSection.plan;
+        return invokedSection;
+      }
+      if (subjectiveFocus.hasFocus) return DictationSection.history;
+      if (objectiveFocus.hasFocus) return DictationSection.examination;
+      if (assessmentFocus.hasFocus) return DictationSection.diagnosis;
+      if (planFocus.hasFocus) return DictationSection.plan;
+      return invokedSection;
+    }
+
+    List<DictationReviewDestination> destinationsFor(
+      Map<DictationSection, String> sections,
+    ) {
+      final labels = <String, String>{};
+      final controllers = <String, TextEditingController>{};
+      final routed = <String, String>{};
+
+      void add({
+        required String id,
+        required String label,
+        required TextEditingController controller,
+        required String text,
+      }) {
+        if (text.trim().isEmpty) return;
+        labels[id] = label;
+        controllers[id] = controller;
+        routed[id] = routed[id] == null ? text : '${routed[id]}\n$text';
+      }
+
+      for (final entry in sections.entries) {
+        if (isOpForm) {
+          switch (entry.key) {
+            case DictationSection.chiefComplaint:
+              add(
+                id: 'chief_complaint',
+                label: s.lookup('s4.lib.clinical_notes.chief_complaints'),
+                controller: chiefComplaint,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.history:
+              add(
+                id: 'history',
+                label: s.lookup('s4.lib.clinical_notes.history'),
+                controller: history,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.examination:
+              add(
+                id: 'examination',
+                label: s.lookup('s4.lib.clinical_notes.examination'),
+                controller: examination,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.diagnosis:
+              add(
+                id: 'diagnosis',
+                label: s.lookup('s4.lib.clinical_notes.diagnosis'),
+                controller: diagnosis,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.plan:
+            case DictationSection.advice:
+              add(
+                id: 'plan',
+                label: s.clinicalNotesPlan,
+                controller: plan,
+                text: entry.value,
+              );
+              break;
+          }
+        } else {
+          switch (entry.key) {
+            case DictationSection.chiefComplaint:
+            case DictationSection.history:
+              add(
+                id: 'subjective',
+                label: s.clinicalNotesSubjective,
+                controller: subjective,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.examination:
+              add(
+                id: 'objective',
+                label: s.clinicalNotesObjective,
+                controller: objective,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.diagnosis:
+              add(
+                id: 'assessment',
+                label: s.clinicalNotesAssessment,
+                controller: assessment,
+                text: entry.value,
+              );
+              break;
+            case DictationSection.plan:
+            case DictationSection.advice:
+              add(
+                id: 'plan',
+                label: s.clinicalNotesPlan,
+                controller: plan,
+                text: entry.value,
+              );
+              break;
+          }
+        }
+      }
+
+      return routed.entries
+          .map(
+            (entry) => DictationReviewDestination(
+              id: entry.key,
+              label: labels[entry.key]!,
+              controller: controllers[entry.key]!,
+              text: entry.value,
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    Future<bool> reviewDictation(
+      BuildContext sheetContext,
+      String transcript,
+      DictationSection invokedSection,
+    ) {
+      final route = const DictationSectionRouter().route(
+        transcript,
+        fallbackSection: focusedFallback(invokedSection),
+      );
+      return showDictationReviewSheet(
+        context: sheetContext,
+        destinations: destinationsFor(route.sections),
       );
     }
 
@@ -1350,44 +1508,78 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             chiefComplaint,
             s.lookup('s4.lib.clinical_notes.chief_complaints'),
             s.lookup('s4.lib.clinical_notes.chief_complaints_hint'),
+            focusNode: chiefFocus,
+            onTranscript: (ctx, transcript) => reviewDictation(
+              ctx,
+              transcript,
+              DictationSection.chiefComplaint,
+            ),
           ),
           _buildTextArea(
             history,
             s.lookup('s4.lib.clinical_notes.history'),
             s.lookup('s4.lib.clinical_notes.history_hint'),
+            focusNode: historyFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.history),
           ),
           _buildTextArea(
             examination,
             s.lookup('s4.lib.clinical_notes.examination'),
             s.lookup('s4.lib.clinical_notes.examination_hint'),
+            focusNode: examinationFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.examination),
           ),
           _buildTextArea(
             diagnosis,
             s.lookup('s4.lib.clinical_notes.diagnosis'),
             s.lookup('s4.lib.clinical_notes.diagnosis_hint'),
+            focusNode: diagnosisFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.diagnosis),
           ),
           _buildTextArea(
             plan,
             s.clinicalNotesPlan,
             s.lookup('s4.lib.clinical_notes.op_plan_hint'),
+            focusNode: planFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.plan),
           ),
         ] else ...[
           _buildTextArea(
             subjective,
             s.clinicalNotesSubjective,
             s.clinicalNotesSubjectiveHint,
+            focusNode: subjectiveFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.history),
           ),
           _buildTextArea(
             objective,
             s.clinicalNotesObjective,
             s.clinicalNotesObjectiveHint,
+            focusNode: objectiveFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.examination),
           ),
           _buildTextArea(
             assessment,
             s.clinicalNotesAssessment,
             s.clinicalNotesAssessmentHint,
+            focusNode: assessmentFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.diagnosis),
           ),
-          _buildTextArea(plan, s.clinicalNotesPlan, s.clinicalNotesPlanHint),
+          _buildTextArea(
+            plan,
+            s.clinicalNotesPlan,
+            s.clinicalNotesPlanHint,
+            focusNode: planFocus,
+            onTranscript: (ctx, transcript) =>
+                reviewDictation(ctx, transcript, DictationSection.plan),
+          ),
         ],
       ],
       showPrescriptionAction: isOpForm,
@@ -1498,7 +1690,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           },
         );
       },
-    );
+    ).whenComplete(() {
+      chiefFocus.dispose();
+      historyFocus.dispose();
+      examinationFocus.dispose();
+      diagnosisFocus.dispose();
+      subjectiveFocus.dispose();
+      objectiveFocus.dispose();
+      assessmentFocus.dispose();
+      planFocus.dispose();
+    });
   }
 
   void _showProcedureNoteForm() {
@@ -1577,12 +1778,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   Widget _buildTextArea(
     TextEditingController controller,
     String label,
-    String hint,
-  ) {
+    String hint, {
+    FocusNode? focusNode,
+    Future<bool> Function(BuildContext context, String transcript)?
+    onTranscript,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: SmartPhraseField(
         controller: controller,
+        focusNode: focusNode,
         minLines: 3,
         maxLines: 6,
         decoration: InputDecoration(
@@ -1590,6 +1795,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           hintText: hint,
           border: const OutlineInputBorder(),
           alignLabelWithHint: true,
+          suffixIcon: VoiceDictateButton(
+            controller: controller,
+            patientUid: widget.patientUid,
+            onTranscript: onTranscript,
+          ),
         ),
       ),
     );
@@ -1651,14 +1861,14 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     );
   }
 
-  void _showNoteFormSheet({
+  Future<void> _showNoteFormSheet({
     required String title,
     required GlobalKey<FormState> formKey,
     required List<Widget> fields,
     required Future<void> Function({required bool openPrescription}) onSubmit,
     bool showPrescriptionAction = false,
   }) {
-    showModalBottomSheet(
+    return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

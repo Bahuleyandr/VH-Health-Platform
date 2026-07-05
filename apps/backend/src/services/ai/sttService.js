@@ -1,8 +1,9 @@
 /**
  * Speech-to-Text provider abstraction.
  *
- * Routes transcription to the provider configured per-tenant region. Three
- * implementations today:
+ * Routes transcription to the provider configured per-tenant region.
+ * Implementations today:
+ *   - openai-compatible: OpenAI /v1/audio/transcriptions compatible endpoint
  *   - local_whisper: whisper.cpp REST server (on-prem, DPDP-safe)
  *   - azure: Azure Cognitive Services Speech (India region for DPDP tenants)
  *   - openai: OpenAI Whisper API (US — only for US-region tenants)
@@ -17,8 +18,10 @@
 
 import logger from '../../logging/logger.js';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const EXTERNAL_PROVIDERS = new Set(['openai', 'azure']);
+const DEFAULT_TIMEOUT_MS = 60_000;
+const MIN_TIMEOUT_MS = 60_000;
+const SUPPORTED_PROVIDERS = new Set(['none', 'openai-compatible', 'local_whisper', 'azure', 'openai', 'mock']);
+const EXTERNAL_PROVIDERS = new Set(['openai-compatible', 'openai', 'azure']);
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -35,8 +38,14 @@ function normalizeRegion(value) {
   return clean(value).toUpperCase();
 }
 
+function normalizeProvider(value) {
+  const provider = clean(value).toLowerCase().replace(/_/g, '-');
+  if (provider === 'local-whisper') return 'local_whisper';
+  return provider;
+}
+
 function getProvider(tenantRegion = null, env = process.env) {
-  const configured = clean(env.CLINICAL_AI_STT_PROVIDER || 'none').toLowerCase();
+  const configured = normalizeProvider(env.STT_PROVIDER || env.CLINICAL_AI_STT_PROVIDER || 'none');
   // Region safety mirror of the LLM routing: DPDP/GDPR tenants default to
   // local or tenant-approved providers. Explicit external providers still
   // pass through the region allowlist below.
@@ -47,6 +56,8 @@ function getProvider(tenantRegion = null, env = process.env) {
 
 function getModel(provider, env = process.env) {
   switch (provider) {
+    case 'openai-compatible':
+      return clean(env.STT_MODEL || env.CLINICAL_AI_STT_MODEL) || null;
     case 'local_whisper':
       return env.CLINICAL_AI_STT_MODEL || 'whisper-large-v3';
     case 'azure':
@@ -75,12 +86,44 @@ function regionAllowed(tenantRegion, allowedRegions) {
   return allowedRegions.map(normalizeRegion).includes(normalizedTenantRegion);
 }
 
+function timeoutMs(env = process.env) {
+  const configured = Number.parseInt(env.STT_TIMEOUT_MS || env.CLINICAL_AI_STT_TIMEOUT_MS || '', 10);
+  if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_TIMEOUT_MS;
+  return Math.max(configured, MIN_TIMEOUT_MS);
+}
+
+function openAiCompatibleBaseUrl(env = process.env) {
+  return clean(env.STT_BASE_URL || env.CLINICAL_AI_STT_BASE_URL).replace(/\/+$/, '');
+}
+
 function resolveSttConfig({ tenantRegion = null, env = process.env } = {}) {
   const provider = getProvider(tenantRegion, env);
   const model = getModel(provider, env);
   const allowedRegions = sttAllowedRegions(env);
   const externalCall = EXTERNAL_PROVIDERS.has(provider);
-  const apiKeyConfigured = Boolean(env.CLINICAL_AI_STT_API_KEY || env.OPENAI_API_KEY || env.AZURE_SPEECH_KEY);
+  const apiKeyConfigured = Boolean(env.STT_API_KEY || env.CLINICAL_AI_STT_API_KEY || env.OPENAI_API_KEY || env.AZURE_SPEECH_KEY);
+  const baseUrl = provider === 'openai-compatible' ? openAiCompatibleBaseUrl(env) : null;
+  const endpointConfigured = provider === 'openai-compatible'
+    ? Boolean(baseUrl)
+    : provider !== 'none';
+  const configuredTimeoutMs = timeoutMs(env);
+
+  if (!SUPPORTED_PROVIDERS.has(provider)) {
+    return {
+      provider,
+      model,
+      configured: false,
+      reason: 'stt_provider_unsupported',
+      external_call: false,
+      endpoint_configured: false,
+      api_key_configured: null,
+      tenant_region: tenantRegion || null,
+      allowed_regions: allowedRegions,
+      timeout_ms: configuredTimeoutMs,
+      default_language: clean(env.STT_LANGUAGE) || null,
+      prompt_configured: Boolean(clean(env.STT_PROMPT)),
+    };
+  }
 
   if (externalCall && !regionAllowed(tenantRegion, allowedRegions)) {
     return {
@@ -93,7 +136,43 @@ function resolveSttConfig({ tenantRegion = null, env = process.env } = {}) {
       api_key_configured: apiKeyConfigured,
       tenant_region: tenantRegion || null,
       allowed_regions: allowedRegions,
-      timeout_ms: DEFAULT_TIMEOUT_MS,
+      timeout_ms: configuredTimeoutMs,
+      default_language: clean(env.STT_LANGUAGE) || null,
+      prompt_configured: Boolean(clean(env.STT_PROMPT)),
+    };
+  }
+
+  if (provider === 'openai-compatible' && !baseUrl) {
+    return {
+      provider,
+      model,
+      configured: false,
+      reason: 'stt_endpoint_not_configured',
+      external_call: externalCall,
+      endpoint_configured: false,
+      api_key_configured: apiKeyConfigured,
+      tenant_region: tenantRegion || null,
+      allowed_regions: allowedRegions,
+      timeout_ms: configuredTimeoutMs,
+      default_language: clean(env.STT_LANGUAGE) || null,
+      prompt_configured: Boolean(clean(env.STT_PROMPT)),
+    };
+  }
+
+  if (provider === 'openai-compatible' && !model) {
+    return {
+      provider,
+      model,
+      configured: false,
+      reason: 'stt_model_not_configured',
+      external_call: externalCall,
+      endpoint_configured: true,
+      api_key_configured: apiKeyConfigured,
+      tenant_region: tenantRegion || null,
+      allowed_regions: allowedRegions,
+      timeout_ms: configuredTimeoutMs,
+      default_language: clean(env.STT_LANGUAGE) || null,
+      prompt_configured: Boolean(clean(env.STT_PROMPT)),
     };
   }
 
@@ -103,11 +182,13 @@ function resolveSttConfig({ tenantRegion = null, env = process.env } = {}) {
     configured: provider !== 'none',
     reason: provider === 'none' ? 'stt_provider_not_configured' : null,
     external_call: externalCall,
-    endpoint_configured: provider !== 'none',
+    endpoint_configured: endpointConfigured,
     api_key_configured: externalCall ? apiKeyConfigured : null,
     tenant_region: tenantRegion || null,
     allowed_regions: allowedRegions,
-    timeout_ms: DEFAULT_TIMEOUT_MS,
+    timeout_ms: configuredTimeoutMs,
+    default_language: clean(env.STT_LANGUAGE) || null,
+    prompt_configured: Boolean(clean(env.STT_PROMPT)),
   };
 }
 
@@ -120,7 +201,7 @@ async function callLocalWhisper({ audioBuffer, mimeType, language = 'en' }) {
   const response = await fetch(`${baseUrl}/inference`, {
     method: 'POST',
     body: form,
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs()),
   });
   if (!response.ok) {
     throw new Error(`local_whisper returned ${response.status}`);
@@ -128,6 +209,33 @@ async function callLocalWhisper({ audioBuffer, mimeType, language = 'en' }) {
   const payload = await response.json();
   return {
     text: String(payload.text || payload.transcription || '').trim(),
+    language: payload.language || language,
+  };
+}
+
+async function callOpenAICompatible({ audioBuffer, mimeType, language = 'en', prompt = null }) {
+  const baseUrl = openAiCompatibleBaseUrl();
+  if (!baseUrl) throw new Error('openai_compatible_stt_base_url_missing');
+  const form = new FormData();
+  form.append('file', new Blob([audioBuffer], { type: mimeType || 'audio/wav' }), 'audio.wav');
+  form.append('model', getModel('openai-compatible'));
+  if (language) form.append('language', language);
+  if (prompt) form.append('prompt', prompt);
+  form.append('response_format', 'json');
+  const apiKey = process.env.STT_API_KEY || process.env.CLINICAL_AI_STT_API_KEY || process.env.OPENAI_API_KEY;
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  const response = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
+    method: 'POST',
+    headers,
+    body: form,
+    signal: AbortSignal.timeout(timeoutMs()),
+  });
+  if (!response.ok) {
+    throw new Error(`openai_compatible_stt_status_${response.status}`);
+  }
+  const payload = await response.json();
+  return {
+    text: String(payload.text || payload.transcript || payload.transcription || '').trim(),
     language: payload.language || language,
   };
 }
@@ -143,7 +251,7 @@ async function callOpenAI({ audioBuffer, mimeType, language = 'en' }) {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs()),
   });
   if (!response.ok) {
     throw new Error(`openai_stt_status_${response.status}`);
@@ -165,7 +273,7 @@ async function callAzure({ audioBuffer, mimeType, language = 'en-IN' }) {
       Accept: 'application/json',
     },
     body: audioBuffer,
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs()),
   });
   if (!response.ok) {
     throw new Error(`azure_stt_status_${response.status}`);
@@ -213,8 +321,15 @@ export async function transcribe({
 
   try {
     let result;
-    const lang = language || (tenantRegion === 'IN' ? 'en-IN' : 'en');
-    if (provider === 'local_whisper') result = await callLocalWhisper({ audioBuffer, mimeType, language: lang });
+    const lang = language || config.default_language || (tenantRegion === 'IN' ? 'en-IN' : 'en');
+    if (provider === 'openai-compatible') {
+      result = await callOpenAICompatible({
+        audioBuffer,
+        mimeType,
+        language: lang,
+        prompt: clean(process.env.STT_PROMPT) || null,
+      });
+    } else if (provider === 'local_whisper') result = await callLocalWhisper({ audioBuffer, mimeType, language: lang });
     else if (provider === 'azure') result = await callAzure({ audioBuffer, mimeType, language: lang });
     else if (provider === 'openai') result = await callOpenAI({ audioBuffer, mimeType, language: lang });
     else if (provider === 'mock') result = mockTranscribe({ audioBuffer, language: lang });
@@ -264,6 +379,8 @@ export function describeSttConfig({ tenantRegion = null } = {}) {
     tenant_region: config.tenant_region,
     allowed_regions: config.allowed_regions,
     timeout_ms: config.timeout_ms,
+    default_language: config.default_language,
+    prompt_configured: config.prompt_configured,
   };
 }
 

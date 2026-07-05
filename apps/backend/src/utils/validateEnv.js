@@ -243,6 +243,17 @@ export const envSchema = Joi.object({
     .optional()
     .label('CLINICAL_AI_EXTERNAL_REGIONS'),
 
+  // Staff dictation V1 STT engine. Warn-tier only: missing or partial values
+  // keep the backend bootable and /clinical/voice-note/config reports
+  // configured=false so staff UI can disable dictation honestly.
+  STT_PROVIDER: Joi.string().allow('').optional().label('STT_PROVIDER'),
+  STT_BASE_URL: Joi.string().allow('').optional().label('STT_BASE_URL'),
+  STT_MODEL: Joi.string().allow('').optional().label('STT_MODEL'),
+  STT_TIMEOUT_MS: Joi.string().allow('').optional().label('STT_TIMEOUT_MS'),
+  STT_LANGUAGE: Joi.string().allow('').optional().label('STT_LANGUAGE'),
+  STT_PROMPT: Joi.string().allow('').optional().label('STT_PROMPT'),
+  STT_API_KEY: Joi.string().allow('').optional().label('STT_API_KEY'),
+
   REVENUE_CYCLE_TRACKER_ENABLED: Joi.string()
     .valid('true', 'false')
     .allow('')
@@ -326,6 +337,19 @@ if (!envVars.SENTRY_DSN) {
 }
 if (!envVars.DOWNTIME_MIRROR_DIR) {
   optionalWarnings.push('DOWNTIME_MIRROR_DIR is not set — static downtime ward-pack mirror falls back to an OS-temp directory; packs will not survive a pod restart/outage or be LAN-synced (point it at a shared hostPath/Longhorn volume — see docs/DOWNTIME_PROCEDURE.md)');
+}
+const sttProvider = String(envVars.STT_PROVIDER || '').trim().toLowerCase().replace(/_/g, '-');
+if (sttProvider && !['none', 'openai-compatible'].includes(sttProvider)) {
+  optionalWarnings.push(`STT_PROVIDER=${envVars.STT_PROVIDER} is unsupported for staff dictation V1 — expected none or openai-compatible; dictation will report unconfigured`);
+}
+if (sttProvider === 'openai-compatible') {
+  if (!envVars.STT_BASE_URL || !envVars.STT_MODEL) {
+    optionalWarnings.push('STT_PROVIDER=openai-compatible is set but STT_BASE_URL/STT_MODEL are incomplete — /clinical/voice-note/config will report dictation as unconfigured');
+  }
+  const sttTimeout = Number.parseInt(envVars.STT_TIMEOUT_MS || '', 10);
+  if (envVars.STT_TIMEOUT_MS && (!Number.isFinite(sttTimeout) || sttTimeout < 60000)) {
+    optionalWarnings.push('STT_TIMEOUT_MS should be a number >= 60000 for local STT engines; runtime will clamp to a safe minimum');
+  }
 }
 if (optionalWarnings.length > 0) {
   optionalWarnings.forEach(w => logger.warn(`⚠️  ${w}`));
