@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/emr/note_draft_autosave.dart';
 import 'package:vhhealth_staff/features/emr/widgets/note_draft_status_indicator.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
   Future<void> pump(
@@ -27,9 +28,18 @@ void main() {
     );
   }
 
-  testWidgets('dirty state renders "Unsaved changes…"', (tester) async {
+  testWidgets('dirty state renders localized unsaved-changes copy', (
+    tester,
+  ) async {
     await pump(tester, const NoteDraftStatus.dirty());
-    expect(find.text('Unsaved changes…'), findsOneWidget);
+    expect(
+      find.text(
+        AppStrings.forLocale(
+          const Locale('en'),
+        ).lookup('s4.lib.note_draft_status.unsaved_changes'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('idle state renders nothing', (tester) async {

@@ -73,6 +73,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
 
   Widget _summaryHeader(_HealthJourneyModel model) {
     final colors = _JourneyColors.of(context);
+    final s = AppStrings.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -124,18 +125,21 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
               children: [
                 _metricPill(
                   icon: Icons.timeline_outlined,
-                  label: '${model.timelineEvents.length} events',
+                  label: s.format(
+                    's4.dynamic.patient_health_journey_panel.events_count',
+                    {'count': model.timelineEvents.length},
+                  ),
                   color: AppTheme.primaryBlue,
                 ),
                 _metricPill(
                   icon: Icons.date_range_outlined,
-                  label: model.dateRangeLabel,
+                  label: _dateRangeLabel(model),
                   color: AppTheme.primaryTeal,
                 ),
-                if (model.latestEventLabel != null)
+                if (_latestEventLabel(model) != null)
                   _metricPill(
                     icon: Icons.history_outlined,
-                    label: model.latestEventLabel!,
+                    label: _latestEventLabel(model)!,
                     color: AppTheme.warningOnSurface,
                   ),
               ],
@@ -148,13 +152,24 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
 
   Widget _activityCard(_HealthJourneyModel model) {
     final colors = _JourneyColors.of(context);
+    final s = AppStrings.of(context);
     return _sectionCard(
       icon: Icons.directions_walk_outlined,
-      title: 'Walking, steps, and sleep',
-      subtitle: 'Daily patient-app summaries',
-      trailing: _sourceChip('Patient generated'),
+      title: s.lookup(
+        's4.lib.patient_health_journey_panel.walking_steps_sleep',
+      ),
+      subtitle: s.lookup(
+        's4.lib.patient_health_journey_panel.daily_patient_app_summaries',
+      ),
+      trailing: _sourceChip(
+        s.lookup('s4.lib.patient_health_journey_panel.patient_generated'),
+      ),
       child: model.activityByDay.isEmpty
-          ? _smallEmpty('No patient-app activity synced yet')
+          ? _smallEmpty(
+              s.lookup(
+                's4.lib.patient_health_journey_panel.no_patient_app_activity',
+              ),
+            )
           : _horizontal(
               controller: _activityScrollController,
               minWidth: model.chartWidth,
@@ -169,23 +184,39 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
 
   Widget _vitalsCard(_HealthJourneyModel model) {
     final colors = _JourneyColors.of(context);
+    final s = AppStrings.of(context);
     final hasVitals = model.weightByDay.isNotEmpty || model.bpByDay.isNotEmpty;
     return _sectionCard(
       icon: Icons.monitor_heart_outlined,
-      title: 'Vitals trends',
-      subtitle: 'Weight and BP over time',
+      title: s.lookup('s4.lib.patient_health_journey_panel.vitals_trends'),
+      subtitle: s.lookup(
+        's4.lib.patient_health_journey_panel.weight_bp_over_time',
+      ),
       trailing: Wrap(
         spacing: 6,
         runSpacing: 6,
         alignment: WrapAlignment.end,
         children: [
-          _legendDot('Weight', AppTheme.primaryTeal),
-          _legendDot('SBP', AppTheme.errorOnSurface),
-          _legendDot('DBP', AppTheme.primaryBlue),
+          _legendDot(
+            s.lookup('s4.lib.patient_health_journey_panel.weight'),
+            AppTheme.primaryTeal,
+          ),
+          _legendDot(
+            s.lookup('s4.lib.patient_health_journey_panel.sbp'),
+            AppTheme.errorOnSurface,
+          ),
+          _legendDot(
+            s.lookup('s4.lib.patient_health_journey_panel.dbp'),
+            AppTheme.primaryBlue,
+          ),
         ],
       ),
       child: !hasVitals
-          ? _smallEmpty('No weight or BP trend data in this timeline yet')
+          ? _smallEmpty(
+              s.lookup(
+                's4.lib.patient_health_journey_panel.no_weight_bp_trend',
+              ),
+            )
           : _horizontal(
               controller: _vitalsScrollController,
               minWidth: model.chartWidth,
@@ -198,6 +229,9 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                         days: model.days,
                         bpByDay: model.bpByDay,
                         colors: colors,
+                        label: s.lookup(
+                          's4.lib.patient_health_journey_panel.blood_pressure_mmhg',
+                        ),
                       ),
                       child: const SizedBox.expand(),
                     ),
@@ -210,6 +244,9 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                         days: model.days,
                         weightByDay: model.weightByDay,
                         colors: colors,
+                        label: s.lookup(
+                          's4.lib.patient_health_journey_panel.weight_kg',
+                        ),
                       ),
                       child: const SizedBox.expand(),
                     ),
@@ -222,18 +259,24 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
 
   Widget _clinicalMarkersCard(_HealthJourneyModel model) {
     final colors = _JourneyColors.of(context);
+    final s = AppStrings.of(context);
     return _sectionCard(
       icon: Icons.timeline_outlined,
-      title: 'Clinical story',
-      subtitle:
-          'Time runs left to right. Tap any card to open the source detail.',
+      title: s.lookup('s4.lib.patient_health_journey_panel.clinical_story'),
+      subtitle: s.lookup(
+        's4.lib.patient_health_journey_panel.timeline_tap_source_detail',
+      ),
       trailing: _metricPill(
         icon: Icons.touch_app_outlined,
-        label: 'Tap to inspect',
+        label: s.lookup('s4.lib.patient_health_journey_panel.tap_to_inspect'),
         color: AppTheme.primaryBlue,
       ),
       child: model.timelineEvents.isEmpty
-          ? _smallEmpty('No clinical events in this date range')
+          ? _smallEmpty(
+              s.lookup(
+                's4.lib.patient_health_journey_panel.no_clinical_events',
+              ),
+            )
           : _horizontal(
               controller: _markerScrollController,
               minWidth: model.timelineWidth,
@@ -247,13 +290,20 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   }
 
   Widget _wellnessPlaceholder() {
+    final s = AppStrings.of(context);
     return _sectionCard(
       icon: Icons.insights_outlined,
-      title: 'Patient-generated trends',
-      subtitle: 'Steps, walking distance, sleep, weight, and BP sync here',
-      trailing: _sourceChip('Optional'),
+      title: s.lookup(
+        's4.lib.patient_health_journey_panel.patient_generated_trends',
+      ),
+      subtitle: s.lookup(
+        's4.lib.patient_health_journey_panel.steps_walk_sleep_sync',
+      ),
+      trailing: _sourceChip(s.lookup('label.optional')),
       child: _smallEmpty(
-        'No patient-app activity or trend vitals synced yet. Clinical events remain available above.',
+        s.lookup(
+          's4.lib.patient_health_journey_panel.no_patient_activity_or_trends',
+        ),
       ),
     );
   }
@@ -310,6 +360,27 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
         ],
       ),
     );
+  }
+
+  String _dateRangeLabel(_HealthJourneyModel model) {
+    final s = AppStrings.of(context);
+    if (model.days.isEmpty) {
+      return s.lookup('s4.lib.patient_health_journey_panel.zero_days');
+    }
+    if (model.days.length == 1) return _shortDate(model.days.first);
+    return '${_shortDate(model.days.first)}-${_shortDate(model.days.last)}';
+  }
+
+  String? _latestEventLabel(_HealthJourneyModel model) {
+    final s = AppStrings.of(context);
+    if (model.timelineEvents.isEmpty) return null;
+    final latest = _eventDate(model.timelineEvents.last);
+    if (latest == null) {
+      return s.lookup('s4.lib.patient_health_journey_panel.latest_event');
+    }
+    return s.format('s4.dynamic.patient_health_journey_panel.latest_time', {
+      'time': _shortTime(latest),
+    });
   }
 
   Widget _horizontal({
@@ -680,6 +751,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
           ),
           for (var i = 0; i < events.length; i++)
             _timelineEventNode(
+              context: context,
               event: events[i],
               index: i,
               x:
@@ -694,6 +766,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
   }
 
   Widget _timelineEventNode({
+    required BuildContext context,
     required Map<String, dynamic> event,
     required int index,
     required double x,
@@ -796,7 +869,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
                         const SizedBox(width: 5),
                         Expanded(
                           child: Text(
-                            _eventKindLabel(event),
+                            _eventKindLabel(context, event),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -810,7 +883,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      _shortEventTitle(event),
+                      _shortEventTitle(context, event),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -820,7 +893,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
                         height: 1.18,
                       ),
                     ),
-                    _eventSubtitleText(event),
+                    _eventSubtitleText(context, event),
                   ],
                 ),
               ),
@@ -831,8 +904,8 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
     );
   }
 
-  Widget _eventSubtitleText(Map<String, dynamic> event) {
-    final subtitle = _eventSubtitle(event);
+  Widget _eventSubtitleText(BuildContext context, Map<String, dynamic> event) {
+    final subtitle = _eventSubtitle(context, event);
     if (subtitle.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 5),
@@ -855,15 +928,17 @@ class _BpLinePainter extends CustomPainter {
     required this.days,
     required this.bpByDay,
     required this.colors,
+    required this.label,
   });
 
   final List<DateTime> days;
   final Map<String, _BpPoint> bpByDay;
   final _JourneyColors colors;
+  final String label;
 
   @override
   void paint(Canvas canvas, Size size) {
-    _drawChartFrame(canvas, size, 'Blood pressure (mmHg)', colors);
+    _drawChartFrame(canvas, size, label, colors);
     final points = days
         .map((day) => MapEntry(day, bpByDay[_dayKey(day)]))
         .where((entry) => entry.value != null)
@@ -906,7 +981,8 @@ class _BpLinePainter extends CustomPainter {
   bool shouldRepaint(covariant _BpLinePainter oldDelegate) {
     return oldDelegate.days != days ||
         oldDelegate.bpByDay != bpByDay ||
-        oldDelegate.colors != colors;
+        oldDelegate.colors != colors ||
+        oldDelegate.label != label;
   }
 }
 
@@ -915,15 +991,17 @@ class _WeightLinePainter extends CustomPainter {
     required this.days,
     required this.weightByDay,
     required this.colors,
+    required this.label,
   });
 
   final List<DateTime> days;
   final Map<String, double> weightByDay;
   final _JourneyColors colors;
+  final String label;
 
   @override
   void paint(Canvas canvas, Size size) {
-    _drawChartFrame(canvas, size, 'Weight (kg)', colors);
+    _drawChartFrame(canvas, size, label, colors);
     final points = days
         .map((day) => MapEntry(day, weightByDay[_dayKey(day)]))
         .where((entry) => entry.value != null)
@@ -949,7 +1027,8 @@ class _WeightLinePainter extends CustomPainter {
   bool shouldRepaint(covariant _WeightLinePainter oldDelegate) {
     return oldDelegate.days != days ||
         oldDelegate.weightByDay != weightByDay ||
-        oldDelegate.colors != colors;
+        oldDelegate.colors != colors ||
+        oldDelegate.label != label;
   }
 }
 
@@ -1071,19 +1150,6 @@ class _HealthJourneyModel {
   bool get hasActivity => activityByDay.isNotEmpty;
 
   bool get hasVitals => weightByDay.isNotEmpty || bpByDay.isNotEmpty;
-
-  String get dateRangeLabel {
-    if (days.isEmpty) return '0 days';
-    if (days.length == 1) return _shortDate(days.first);
-    return '${_shortDate(days.first)}-${_shortDate(days.last)}';
-  }
-
-  String? get latestEventLabel {
-    if (timelineEvents.isEmpty) return null;
-    final latest = _eventDate(timelineEvents.last);
-    if (latest == null) return 'Latest event';
-    return 'Latest ${_shortTime(latest)}';
-  }
 
   double get chartWidth => math.max(680, days.length * 78.0);
 
@@ -1316,7 +1382,8 @@ String _compactInt(int value) {
   return value.toString();
 }
 
-String _shortEventTitle(Map<String, dynamic> event) {
+String _shortEventTitle(BuildContext context, Map<String, dynamic> event) {
+  final s = AppStrings.of(context);
   final payload = _payload(event);
   final type = (event['event_type'] ?? event['type'] ?? '')
       .toString()
@@ -1326,27 +1393,48 @@ String _shortEventTitle(Map<String, dynamic> event) {
           .toString()
           .trim();
   if (type.contains('prescription') || type.contains('medication')) {
-    if (title.contains('signed')) return 'Prescription signed';
-    if (title.contains('created')) return 'Prescription created';
-    if (title.contains('dispensed')) return 'Medicines dispensed';
+    if (title.contains('signed')) {
+      return s.lookup(
+        's4.lib.patient_health_journey_panel.prescription_signed',
+      );
+    }
+    if (title.contains('created')) {
+      return s.lookup(
+        's4.lib.patient_health_journey_panel.prescription_created',
+      );
+    }
+    if (title.contains('dispensed')) {
+      return s.lookup(
+        's4.lib.patient_health_journey_panel.medicines_dispensed',
+      );
+    }
     final drug =
         payload['drug_name'] ??
         payload['medication_name'] ??
         payload['name'] ??
         payload['generic_name'];
     if (drug != null && drug.toString().trim().isNotEmpty) {
-      return 'Prescription - ${drug.toString().trim()}';
+      return s.format(
+        's4.dynamic.patient_health_journey_panel.prescription_drug',
+        {'drug': drug.toString().trim()},
+      );
     }
-    return title.isEmpty ? 'Prescription' : _humanizeEventText(title);
+    return title.isEmpty
+        ? s.lookup('s4.lib.patient_health_journey_panel.event.prescription')
+        : _humanizeEventText(title);
   }
   if (type.contains('note') || type.contains('consultation')) {
     final noteType =
         payload['note_type'] ?? payload['kind'] ?? payload['visit_type'];
     if (title.startsWith('OP consultation')) return title;
     if (noteType != null && noteType.toString().trim().isNotEmpty) {
-      return '${_humanizeEventText(noteType.toString())} note';
+      return s.format('s4.dynamic.patient_health_journey_panel.note_type', {
+        'type': _humanizeEventText(noteType.toString()),
+      });
     }
-    return title.isEmpty ? 'Clinical note' : _humanizeEventText(title);
+    return title.isEmpty
+        ? s.lookup('s4.lib.patient_health_journey_panel.event.clinical_note')
+        : _humanizeEventText(title);
   }
   if (type.contains('investigation') || type.contains('lab')) {
     final test =
@@ -1357,14 +1445,19 @@ String _shortEventTitle(Map<String, dynamic> event) {
     final status = (payload['status'] ?? event['status'] ?? '')
         .toString()
         .trim();
-    final action = status.isEmpty ? 'requested' : status.toLowerCase();
+    final action = status.isEmpty
+        ? s.lookup('s4.lib.patient_health_journey_panel.requested')
+        : status.toLowerCase();
     if (test != null && test.toString().trim().isNotEmpty) {
       return '${_humanizeEventText(test.toString())} $action';
     }
     if (title.isNotEmpty && title.toLowerCase() != 'lab') {
       return _humanizeEventText(title);
     }
-    return 'Investigation $action';
+    return s.format(
+      's4.dynamic.patient_health_journey_panel.investigation_action',
+      {'action': action},
+    );
   }
   if (type.contains('referral')) {
     final department =
@@ -1372,18 +1465,29 @@ String _shortEventTitle(Map<String, dynamic> event) {
         payload['referred_to_department'] ??
         payload['speciality'];
     if (department != null && department.toString().trim().isNotEmpty) {
-      return 'Referral - ${_humanizeEventText(department.toString())}';
+      return s.format(
+        's4.dynamic.patient_health_journey_panel.referral_department',
+        {'department': _humanizeEventText(department.toString())},
+      );
     }
-    return 'Specialist referral';
+    return s.lookup('s4.lib.patient_health_journey_panel.specialist_referral');
   }
-  if (type.contains('vital')) return 'Vitals recorded';
-  if (type.contains('admission')) return 'Admission';
-  if (type.contains('discharge')) return 'Discharge';
+  if (type.contains('vital')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.vitals_recorded');
+  }
+  if (type.contains('admission')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.event.admission');
+  }
+  if (type.contains('discharge')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.event.discharge');
+  }
   if (title.isNotEmpty) return _humanizeEventText(title);
-  return _humanizeEventText(type.isEmpty ? 'event' : type);
+  return type.isEmpty
+      ? s.lookup('s4.lib.patient_health_journey_panel.event.event')
+      : _humanizeEventText(type);
 }
 
-String _eventSubtitle(Map<String, dynamic> event) {
+String _eventSubtitle(BuildContext context, Map<String, dynamic> event) {
   final payload = _payload(event);
   final type = (event['event_type'] ?? event['type'] ?? '')
       .toString()
@@ -1447,24 +1551,33 @@ String _humanizeEventText(String value) {
   return '${lower[0].toUpperCase()}${lower.substring(1)}';
 }
 
-String _eventKindLabel(Map<String, dynamic> event) {
+String _eventKindLabel(BuildContext context, Map<String, dynamic> event) {
+  final s = AppStrings.of(context);
   final type = (event['event_type'] ?? event['type'] ?? '')
       .toString()
       .toLowerCase();
   if (type.contains('prescription') || type.contains('medication')) {
-    return 'Prescription';
+    return s.lookup('s4.lib.patient_health_journey_panel.event.prescription');
   }
   if (type.contains('investigation') || type.contains('lab')) {
-    return 'Investigation';
+    return s.lookup('s4.lib.patient_health_journey_panel.event.investigation');
   }
-  if (type.contains('vital')) return 'Vitals';
+  if (type.contains('vital')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.event.vitals');
+  }
   if (type.contains('note') || type.contains('consultation')) {
-    return 'Clinical note';
+    return s.lookup('s4.lib.patient_health_journey_panel.event.clinical_note');
   }
-  if (type.contains('referral')) return 'Referral';
-  if (type.contains('admission')) return 'Admission';
-  if (type.contains('discharge')) return 'Discharge';
-  return 'Event';
+  if (type.contains('referral')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.event.referral');
+  }
+  if (type.contains('admission')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.event.admission');
+  }
+  if (type.contains('discharge')) {
+    return s.lookup('s4.lib.patient_health_journey_panel.event.discharge');
+  }
+  return s.lookup('s4.lib.patient_health_journey_panel.event.event');
 }
 
 IconData _eventIcon(Map<String, dynamic> event) {

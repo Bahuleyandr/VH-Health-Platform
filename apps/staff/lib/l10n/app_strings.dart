@@ -5129,6 +5129,34 @@ class AppStrings {
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.admission.admitting_doctor': "Admitting doctor",
       's4.lib.admission_case_sheet.case_sheet_saved': "Case sheet saved",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
+      's4.lib.admission_case_sheet.section.history': "History",
+      's4.lib.admission_case_sheet.section.examination': "Examination",
+      's4.lib.admission_case_sheet.section.assessment': "Assessment",
+      's4.lib.admission_case_sheet.chief_complaints': "Chief Complaints",
+      's4.lib.admission_case_sheet.hpi': "History of Presenting Illness",
+      's4.lib.admission_case_sheet.past_history': "Past History",
+      's4.lib.admission_case_sheet.past_medical_surgical_history':
+          "Past Medical/Surgical History",
+      's4.lib.admission_case_sheet.personal_history': "Personal History",
+      's4.lib.admission_case_sheet.menstrual_pregnancy_history':
+          "Menstrual/Pregnancy History",
+      's4.lib.admission_case_sheet.family_history': "Family History",
+      's4.lib.admission_case_sheet.allergies': "Allergies",
+      's4.lib.admission_case_sheet.pulse_rate': "Pulse Rate",
+      's4.lib.admission_case_sheet.bp': "BP",
+      's4.lib.admission_case_sheet.spo2': "SpO2",
+      's4.lib.admission_case_sheet.cbg': "CBG",
+      's4.lib.admission_case_sheet.weight': "Weight",
+      's4.lib.admission_case_sheet.temperature': "Temperature",
+      's4.lib.admission_case_sheet.cvs': "CVS",
+      's4.lib.admission_case_sheet.rs': "RS",
+      's4.lib.admission_case_sheet.pa': "P/A",
+      's4.lib.admission_case_sheet.cns': "CNS",
+      's4.lib.admission_case_sheet.provisional_diagnosis':
+          "Provisional Diagnosis",
+      's4.lib.admission_case_sheet.saving': "Saving",
+      's4.lib.admission_case_sheet.save_case_sheet': "Save Case Sheet",
       's4.lib.app_router.go_home': "Go Home",
       's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
           "Appointment queue workflows now run from the consolidated workbench.",
@@ -5652,6 +5680,69 @@ class AppStrings {
       's4.lib.patient_command_board.patient_command_board':
           "Patient Command Board",
       's4.lib.patient_command_board.ward_area': "Ward / area",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm patient-context copy before production.
+      's4.lib.patient_command_board.selected_patient': "selected patient",
+      's4.lib.patient_command_board.scope.all_active': "All active inpatients",
+      's4.lib.patient_command_board.scope.own_patients':
+          "Patients assigned to you",
+      's4.lib.patient_command_board.scope.duty_doctor':
+          "Current duty floor coverage",
+      's4.lib.patient_command_board.scope.ward_nursing':
+          "Current nursing floor",
+      's4.lib.patient_command_board.scope.op_nursing': "OP nursing coverage",
+      's4.lib.patient_command_board.scope.housekeeping':
+          "Current housekeeping area",
+      's4.lib.patient_command_board.scope.none':
+          "No inpatient scope for this role",
+      's4.lib.patient_command_board.scope.role_based':
+          "Role-based inpatient scope",
+      's4.lib.patient_command_board.all_floors': "All floors",
+      's4.lib.patient_command_board.metric.patients': "Patients",
+      's4.lib.patient_command_board.metric.tasks': "Tasks",
+      's4.lib.patient_command_board.metric.alerts': "Alerts",
+      's4.lib.patient_command_board.metric.discharge': "Discharge",
+      's4.lib.patient_command_board.load_more_patients': "Load more patients",
+      's4.lib.patient_command_board.loading_patients': "Loading patients...",
+      's4.lib.patient_command_board.filter.all': "All",
+      's4.lib.patient_command_board.filter.emergency': "Emergency",
+      's4.lib.patient_command_board.filter.alerts': "Alerts",
+      's4.lib.patient_command_board.filter.tasks': "Tasks",
+      's4.lib.patient_command_board.filter.discharge': "Discharge",
+      's4.lib.patient_command_board.allergies': "Allergies",
+      's4.lib.patient_command_board.no_allergies_documented':
+          "No allergies documented.",
+      's4.lib.patient_command_board.allergy': "Allergy",
+      's4.lib.patient_command_board.active_alerts': "Active alerts",
+      's4.lib.patient_command_board.no_active_alerts': "No active alerts.",
+      's4.lib.patient_command_board.alert': "Alert",
+      's4.lib.patient_command_board.open_tasks_referrals':
+          "Open tasks and referrals",
+      's4.lib.patient_command_board.no_open_tasks': "No open tasks.",
+      's4.lib.patient_command_board.task': "Task",
+      's4.lib.patient_command_board.patient': "Patient",
+      's4.lib.patient_command_board.clinical_details_hidden':
+          "Clinical details hidden for this role",
+      's4.lib.patient_command_board.diagnosis_pending': "Diagnosis pending",
+      's4.lib.patient_command_board.location_only': "Location only",
+      's4.lib.patient_command_board.working': "working",
+      's4.lib.patient_command_board.routine': "Routine",
+      's4.lib.patient_command_board.no_time': "No time",
+      's4.lib.patient_command_board.open': "Open",
+      's4.lib.patient_command_board.could_not_load_care_plans':
+          "Could not load care plans",
+      's4.lib.patient_command_board.no_care_plans': "No care plans",
+      's4.lib.patient_command_board.no_active_care_plan':
+          "No active care plan has been recorded for this patient.",
+      's4.lib.patient_command_board.care_plan': "Care plan",
+      's4.lib.patient_command_board.goals': "Goals",
+      's4.lib.patient_command_board.activities': "Activities",
+      's4.lib.patient_command_board.goal': "Goal",
+      's4.lib.patient_command_board.activity': "Activity",
+      's4.lib.patient_command_board.only_this_patient_loaded':
+          "Only this patient is loaded from the command board scope.",
+      's4.lib.patient_command_board.no_active_patients': "No active patients",
+      's4.lib.patient_command_board.no_matching_patients':
+          "No matching patients",
       's4.lib.patient_context_chip.clear_patient_context':
           "Clear patient context",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
@@ -5662,6 +5753,68 @@ class AppStrings {
           "No timeline data yet",
       's4.lib.patient_health_journey_panel.patient_health_journey':
           "Patient health journey",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm health-journey display labels before production.
+      's4.lib.patient_health_journey_panel.walking_steps_sleep':
+          "Walking, steps, and sleep",
+      's4.lib.patient_health_journey_panel.daily_patient_app_summaries':
+          "Daily patient-app summaries",
+      's4.lib.patient_health_journey_panel.patient_generated':
+          "Patient generated",
+      's4.lib.patient_health_journey_panel.no_patient_app_activity':
+          "No patient-app activity synced yet",
+      's4.lib.patient_health_journey_panel.vitals_trends': "Vitals trends",
+      's4.lib.patient_health_journey_panel.weight_bp_over_time':
+          "Weight and BP over time",
+      's4.lib.patient_health_journey_panel.weight': "Weight",
+      's4.lib.patient_health_journey_panel.sbp': "SBP",
+      's4.lib.patient_health_journey_panel.dbp': "DBP",
+      's4.lib.patient_health_journey_panel.no_weight_bp_trend':
+          "No weight or BP trend data in this timeline yet",
+      's4.lib.patient_health_journey_panel.clinical_story': "Clinical story",
+      's4.lib.patient_health_journey_panel.timeline_tap_source_detail':
+          "Time runs left to right. Tap any card to open the source detail.",
+      's4.lib.patient_health_journey_panel.tap_to_inspect': "Tap to inspect",
+      's4.lib.patient_health_journey_panel.no_clinical_events':
+          "No clinical events in this date range",
+      's4.lib.patient_health_journey_panel.patient_generated_trends':
+          "Patient-generated trends",
+      's4.lib.patient_health_journey_panel.steps_walk_sleep_sync':
+          "Steps, walking distance, sleep, weight, and BP sync here",
+      's4.lib.patient_health_journey_panel.no_patient_activity_or_trends':
+          "No patient-app activity or trend vitals synced yet. Clinical events remain available above.",
+      's4.lib.patient_health_journey_panel.blood_pressure_mmhg':
+          "Blood pressure (mmHg)",
+      's4.lib.patient_health_journey_panel.weight_kg': "Weight (kg)",
+      's4.lib.patient_health_journey_panel.zero_days': "0 days",
+      's4.lib.patient_health_journey_panel.latest_event': "Latest event",
+      's4.lib.patient_health_journey_panel.prescription_signed':
+          "Prescription signed",
+      's4.lib.patient_health_journey_panel.prescription_created':
+          "Prescription created",
+      's4.lib.patient_health_journey_panel.medicines_dispensed':
+          "Medicines dispensed",
+      's4.lib.patient_health_journey_panel.requested': "requested",
+      's4.lib.patient_health_journey_panel.specialist_referral':
+          "Specialist referral",
+      's4.lib.patient_health_journey_panel.vitals_recorded': "Vitals recorded",
+      's4.lib.patient_health_journey_panel.event.prescription': "Prescription",
+      's4.lib.patient_health_journey_panel.event.investigation':
+          "Investigation",
+      's4.lib.patient_health_journey_panel.event.vitals': "Vitals",
+      's4.lib.patient_health_journey_panel.event.clinical_note':
+          "Clinical note",
+      's4.lib.patient_health_journey_panel.event.referral': "Referral",
+      's4.lib.patient_health_journey_panel.event.admission': "Admission",
+      's4.lib.patient_health_journey_panel.event.discharge': "Discharge",
+      's4.lib.patient_health_journey_panel.event.event': "Event",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm autosave status copy before production.
+      's4.lib.note_draft_status.unsaved_changes': "Unsaved changes...",
+      's4.lib.note_draft_status.saving': "Saving...",
+      's4.lib.note_draft_status.draft_saved': "Draft saved",
+      's4.lib.note_draft_status.offline_will_sync': "Offline - will sync",
+      's4.lib.note_draft_status.save_failed_retrying':
+          "Couldn't save draft - retrying",
+      's4.lib.note_draft_status.just_now': "just now",
       's4.lib.patient_notes_list.admin_edit': "Admin edit",
       's4.lib.patient_notes_list.admin_edit_prior_note':
           "Admin: edit prior note",
@@ -5714,6 +5867,15 @@ class AppStrings {
       's4.lib.patient_timeline.health_journey': "Health journey",
       's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
           "Read-only on phone. Clinical entries must be completed on Staff Desktop.",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm timeline action labels before production.
+      's4.lib.patient_timeline.filter.drug_chart': "Drug chart",
+      's4.lib.patient_timeline.filter.referrals': "Referrals",
+      's4.lib.patient_timeline.medication_order': "Medication order",
+      's4.lib.patient_timeline.specialist': "specialist",
+      's4.lib.patient_timeline.action.add_note': "Add note",
+      's4.lib.patient_timeline.action.orders': "Orders",
+      's4.lib.patient_timeline.action.vitals': "Vitals",
+      's4.lib.patient_timeline.action.investigations': "Investigations",
       's4.lib.pharmacy.10_digit_mobile_number': "10-digit mobile number",
       's4.lib.pharmacy.10_tablets_strip': "10 tablets / strip",
       's4.lib.pharmacy.650_mg': "650 mg",
@@ -6108,6 +6270,53 @@ class AppStrings {
       's4.dynamic.patient_command_board.allergies_count': "{count} allergies",
       's4.dynamic.patient_command_board.alerts_count': "{count} alerts",
       's4.dynamic.patient_command_board.tasks_count': "{count} tasks",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm dynamic patient-context copy before production.
+      's4.dynamic.patient_command_board.admission_number': "Admission #{id}",
+      's4.dynamic.patient_command_board.floor': "Floor {floor}",
+      's4.dynamic.patient_command_board.floors': "Floors {floors}",
+      's4.dynamic.patient_command_board.postings':
+          "{source} - {count} posting(s)",
+      's4.dynamic.patient_command_board.loaded_filtered':
+          "Showing {visible} filtered rows from {loaded} loaded; scoped total {total}.",
+      's4.dynamic.patient_command_board.loaded_first':
+          "Showing first {loaded} of {total} patients in your current scope.",
+      's4.dynamic.patient_command_board.loaded_current':
+          "Showing {loaded} of {total} patients in your current scope.",
+      's4.dynamic.patient_command_board.load_next_patients':
+          "Load next {count} patients",
+      's4.dynamic.patient_command_board.hospital_id': "Hospital ID {id}",
+      's4.dynamic.patient_command_board.bed': "Bed {bed}",
+      's4.dynamic.patient_command_board.goals_count': "{count} goal(s)",
+      's4.dynamic.patient_command_board.activities_count':
+          "{count} activit(y/ies)",
+      's4.dynamic.patient_command_board.target_value': "Target {value}",
+      's4.dynamic.patient_command_board.current_value': "Current {value}",
+      's4.dynamic.patient_command_board.due_date': "Due {date}",
+      's4.dynamic.patient_command_board.subheading_count': "{title} ({count})",
+      's4.dynamic.patient_command_board.focused_patient':
+          "Focused patient: {patient}",
+      's4.dynamic.patient_command_board.opening_action':
+          "Opening {action} from the command board workflow.",
+      's4.dynamic.patient_health_journey_panel.events_count': "{count} events",
+      's4.dynamic.patient_health_journey_panel.latest_time': "Latest {time}",
+      's4.dynamic.patient_health_journey_panel.prescription_drug':
+          "Prescription - {drug}",
+      's4.dynamic.patient_health_journey_panel.note_type': "{type} note",
+      's4.dynamic.patient_health_journey_panel.investigation_action':
+          "Investigation {action}",
+      's4.dynamic.patient_health_journey_panel.referral_department':
+          "Referral - {department}",
+      's4.dynamic.patient_timeline.note_type': "{type} note",
+      's4.dynamic.patient_timeline.note_type_author': "{type} note - {author}",
+      's4.dynamic.patient_timeline.drug_chart_med': "Drug chart - {medication}",
+      's4.dynamic.patient_timeline.referral_department':
+          "Referral - {department}",
+      's4.dynamic.patient_timeline.minutes_ago': "{count}m ago",
+      's4.dynamic.patient_timeline.hours_ago': "{count}h ago",
+      's4.dynamic.note_draft_status.saved_when': "Saved {when}",
+      's4.dynamic.note_draft_status.minutes_ago': "{count}m ago",
+      's4.dynamic.note_draft_status.hours_ago': "{count}h ago",
+      's4.dynamic.note_draft_status.days_ago': "{count}d ago",
       's4.dynamic.housekeeping.week_label': "Week {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} shift name",
       's4.dynamic.leave_approvals.decision_title': "{decision} leave",
@@ -8428,6 +8637,33 @@ class AppStrings {
       // REVIEW: AI first-pass S4 i18n sweep - confirm wording before production.
       's4.lib.admission.admitting_doctor': "भर्ती कर रहे डॉक्टर",
       's4.lib.admission_case_sheet.case_sheet_saved': "केस शीट सहेजी गई",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
+      's4.lib.admission_case_sheet.section.history': "इतिहास",
+      's4.lib.admission_case_sheet.section.examination': "परीक्षण",
+      's4.lib.admission_case_sheet.section.assessment': "मूल्यांकन",
+      's4.lib.admission_case_sheet.chief_complaints': "मुख्य शिकायतें",
+      's4.lib.admission_case_sheet.hpi': "वर्तमान बीमारी का इतिहास",
+      's4.lib.admission_case_sheet.past_history': "पूर्व इतिहास",
+      's4.lib.admission_case_sheet.past_medical_surgical_history':
+          "पूर्व चिकित्सा/शल्य इतिहास",
+      's4.lib.admission_case_sheet.personal_history': "व्यक्तिगत इतिहास",
+      's4.lib.admission_case_sheet.menstrual_pregnancy_history':
+          "मासिक धर्म/गर्भावस्था इतिहास",
+      's4.lib.admission_case_sheet.family_history': "पारिवारिक इतिहास",
+      's4.lib.admission_case_sheet.allergies': "एलर्जी",
+      's4.lib.admission_case_sheet.pulse_rate': "नाड़ी दर",
+      's4.lib.admission_case_sheet.bp': "BP",
+      's4.lib.admission_case_sheet.spo2': "SpO2",
+      's4.lib.admission_case_sheet.cbg': "CBG",
+      's4.lib.admission_case_sheet.weight': "वज़न",
+      's4.lib.admission_case_sheet.temperature': "तापमान",
+      's4.lib.admission_case_sheet.cvs': "CVS",
+      's4.lib.admission_case_sheet.rs': "RS",
+      's4.lib.admission_case_sheet.pa': "P/A",
+      's4.lib.admission_case_sheet.cns': "CNS",
+      's4.lib.admission_case_sheet.provisional_diagnosis': "प्रारंभिक निदान",
+      's4.lib.admission_case_sheet.saving': "सहेज रहा है",
+      's4.lib.admission_case_sheet.save_case_sheet': "केस शीट सहेजें",
       's4.lib.app_router.go_home': "घर जाओ",
       's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
           "अपॉइंटमेंट कतार वर्कफ़्लो अब समेकित कार्यक्षेत्र से चलते हैं।",
@@ -8968,6 +9204,68 @@ class AppStrings {
           "कोई गोल दर्ज नहीं किया गया.",
       's4.lib.patient_command_board.patient_command_board': "रोगी कमांड बोर्ड",
       's4.lib.patient_command_board.ward_area': "वार्ड/क्षेत्र",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm patient-context copy before production.
+      's4.lib.patient_command_board.selected_patient': "चयनित रोगी",
+      's4.lib.patient_command_board.scope.all_active': "सभी सक्रिय भर्ती रोगी",
+      's4.lib.patient_command_board.scope.own_patients': "आपको सौंपे गए रोगी",
+      's4.lib.patient_command_board.scope.duty_doctor':
+          "वर्तमान ड्यूटी फ्लोर कवरेज",
+      's4.lib.patient_command_board.scope.ward_nursing':
+          "वर्तमान नर्सिंग फ्लोर",
+      's4.lib.patient_command_board.scope.op_nursing': "OP नर्सिंग कवरेज",
+      's4.lib.patient_command_board.scope.housekeeping':
+          "वर्तमान हाउसकीपिंग क्षेत्र",
+      's4.lib.patient_command_board.scope.none':
+          "इस भूमिका के लिए कोई भर्ती रोगी दायरा नहीं",
+      's4.lib.patient_command_board.scope.role_based':
+          "भूमिका-आधारित भर्ती रोगी दायरा",
+      's4.lib.patient_command_board.all_floors': "सभी मंज़िलें",
+      's4.lib.patient_command_board.metric.patients': "रोगी",
+      's4.lib.patient_command_board.metric.tasks': "कार्य",
+      's4.lib.patient_command_board.metric.alerts': "अलर्ट",
+      's4.lib.patient_command_board.metric.discharge': "डिस्चार्ज",
+      's4.lib.patient_command_board.load_more_patients': "और रोगी लोड करें",
+      's4.lib.patient_command_board.loading_patients': "रोगी लोड हो रहे हैं...",
+      's4.lib.patient_command_board.filter.all': "सभी",
+      's4.lib.patient_command_board.filter.emergency': "आपातकाल",
+      's4.lib.patient_command_board.filter.alerts': "अलर्ट",
+      's4.lib.patient_command_board.filter.tasks': "कार्य",
+      's4.lib.patient_command_board.filter.discharge': "डिस्चार्ज",
+      's4.lib.patient_command_board.allergies': "एलर्जी",
+      's4.lib.patient_command_board.no_allergies_documented':
+          "कोई एलर्जी दर्ज नहीं है।",
+      's4.lib.patient_command_board.allergy': "एलर्जी",
+      's4.lib.patient_command_board.active_alerts': "सक्रिय अलर्ट",
+      's4.lib.patient_command_board.no_active_alerts': "कोई सक्रिय अलर्ट नहीं।",
+      's4.lib.patient_command_board.alert': "अलर्ट",
+      's4.lib.patient_command_board.open_tasks_referrals':
+          "खुले कार्य और रेफरल",
+      's4.lib.patient_command_board.no_open_tasks': "कोई खुला कार्य नहीं।",
+      's4.lib.patient_command_board.task': "कार्य",
+      's4.lib.patient_command_board.patient': "रोगी",
+      's4.lib.patient_command_board.clinical_details_hidden':
+          "इस भूमिका के लिए क्लिनिकल विवरण छिपाए गए हैं",
+      's4.lib.patient_command_board.diagnosis_pending': "निदान लंबित",
+      's4.lib.patient_command_board.location_only': "केवल स्थान",
+      's4.lib.patient_command_board.working': "कार्यरत",
+      's4.lib.patient_command_board.routine': "नियमित",
+      's4.lib.patient_command_board.no_time': "समय नहीं",
+      's4.lib.patient_command_board.open': "खोलें",
+      's4.lib.patient_command_board.could_not_load_care_plans':
+          "देखभाल योजनाएँ लोड नहीं हो सकीं",
+      's4.lib.patient_command_board.no_care_plans': "कोई देखभाल योजना नहीं",
+      's4.lib.patient_command_board.no_active_care_plan':
+          "इस रोगी के लिए कोई सक्रिय देखभाल योजना दर्ज नहीं है।",
+      's4.lib.patient_command_board.care_plan': "देखभाल योजना",
+      's4.lib.patient_command_board.goals': "लक्ष्य",
+      's4.lib.patient_command_board.activities': "गतिविधियाँ",
+      's4.lib.patient_command_board.goal': "लक्ष्य",
+      's4.lib.patient_command_board.activity': "गतिविधि",
+      's4.lib.patient_command_board.only_this_patient_loaded':
+          "कमांड बोर्ड दायरे से केवल यह रोगी लोड किया गया है।",
+      's4.lib.patient_command_board.no_active_patients': "कोई सक्रिय रोगी नहीं",
+      's4.lib.patient_command_board.no_matching_patients':
+          "कोई मेल खाता रोगी नहीं",
       's4.lib.patient_context_chip.clear_patient_context': "स्पष्ट रोगी संदर्भ",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
           "नोट्स, नुस्खों, जांचों, महत्वपूर्ण बातों और रोगी-जनित कल्याण डेटा की विहित समयरेखा।",
@@ -8977,6 +9275,68 @@ class AppStrings {
           "अभी तक कोई समयरेखा डेटा नहीं",
       's4.lib.patient_health_journey_panel.patient_health_journey':
           "रोगी स्वास्थ्य यात्रा",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm health-journey display labels before production.
+      's4.lib.patient_health_journey_panel.walking_steps_sleep':
+          "चलना, कदम और नींद",
+      's4.lib.patient_health_journey_panel.daily_patient_app_summaries':
+          "दैनिक रोगी-ऐप सारांश",
+      's4.lib.patient_health_journey_panel.patient_generated':
+          "रोगी द्वारा उत्पन्न",
+      's4.lib.patient_health_journey_panel.no_patient_app_activity':
+          "अभी कोई रोगी-ऐप गतिविधि सिंक नहीं हुई",
+      's4.lib.patient_health_journey_panel.vitals_trends': "वाइटल्स रुझान",
+      's4.lib.patient_health_journey_panel.weight_bp_over_time':
+          "समय के साथ वज़न और BP",
+      's4.lib.patient_health_journey_panel.weight': "वज़न",
+      's4.lib.patient_health_journey_panel.sbp': "SBP",
+      's4.lib.patient_health_journey_panel.dbp': "DBP",
+      's4.lib.patient_health_journey_panel.no_weight_bp_trend':
+          "इस समयरेखा में अभी वज़न या BP रुझान डेटा नहीं",
+      's4.lib.patient_health_journey_panel.clinical_story': "क्लिनिकल कहानी",
+      's4.lib.patient_health_journey_panel.timeline_tap_source_detail':
+          "समय बाएँ से दाएँ चलता है। स्रोत विवरण खोलने के लिए किसी कार्ड पर टैप करें।",
+      's4.lib.patient_health_journey_panel.tap_to_inspect':
+          "देखने के लिए टैप करें",
+      's4.lib.patient_health_journey_panel.no_clinical_events':
+          "इस तारीख़ सीमा में कोई क्लिनिकल घटना नहीं",
+      's4.lib.patient_health_journey_panel.patient_generated_trends':
+          "रोगी-जनित रुझान",
+      's4.lib.patient_health_journey_panel.steps_walk_sleep_sync':
+          "कदम, पैदल दूरी, नींद, वज़न और BP यहाँ सिंक होते हैं",
+      's4.lib.patient_health_journey_panel.no_patient_activity_or_trends':
+          "अभी कोई रोगी-ऐप गतिविधि या ट्रेंड वाइटल्स सिंक नहीं हुए। क्लिनिकल घटनाएँ ऊपर उपलब्ध रहती हैं।",
+      's4.lib.patient_health_journey_panel.blood_pressure_mmhg':
+          "रक्तचाप (mmHg)",
+      's4.lib.patient_health_journey_panel.weight_kg': "वज़न (kg)",
+      's4.lib.patient_health_journey_panel.zero_days': "0 दिन",
+      's4.lib.patient_health_journey_panel.latest_event': "नवीनतम घटना",
+      's4.lib.patient_health_journey_panel.prescription_signed':
+          "नुस्खे पर हस्ताक्षर हुए",
+      's4.lib.patient_health_journey_panel.prescription_created':
+          "नुस्खा बनाया गया",
+      's4.lib.patient_health_journey_panel.medicines_dispensed':
+          "दवाएँ वितरित की गईं",
+      's4.lib.patient_health_journey_panel.requested': "अनुरोधित",
+      's4.lib.patient_health_journey_panel.specialist_referral':
+          "विशेषज्ञ रेफरल",
+      's4.lib.patient_health_journey_panel.vitals_recorded':
+          "वाइटल्स दर्ज किए गए",
+      's4.lib.patient_health_journey_panel.event.prescription': "नुस्खा",
+      's4.lib.patient_health_journey_panel.event.investigation': "जांच",
+      's4.lib.patient_health_journey_panel.event.vitals': "वाइटल्स",
+      's4.lib.patient_health_journey_panel.event.clinical_note': "क्लिनिकल नोट",
+      's4.lib.patient_health_journey_panel.event.referral': "रेफरल",
+      's4.lib.patient_health_journey_panel.event.admission': "भर्ती",
+      's4.lib.patient_health_journey_panel.event.discharge': "डिस्चार्ज",
+      's4.lib.patient_health_journey_panel.event.event': "घटना",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm autosave status copy before production.
+      's4.lib.note_draft_status.unsaved_changes': "बिना सहेजे बदलाव...",
+      's4.lib.note_draft_status.saving': "सहेज रहा है...",
+      's4.lib.note_draft_status.draft_saved': "ड्राफ्ट सहेजा गया",
+      's4.lib.note_draft_status.offline_will_sync': "ऑफ़लाइन - सिंक होगा",
+      's4.lib.note_draft_status.save_failed_retrying':
+          "ड्राफ्ट सहेज नहीं सका - फिर प्रयास कर रहा है",
+      's4.lib.note_draft_status.just_now': "अभी",
       's4.lib.patient_notes_list.admin_edit': "व्यवस्थापक संपादित करें",
       's4.lib.patient_notes_list.admin_edit_prior_note':
           "व्यवस्थापक: पूर्व नोट संपादित करें",
@@ -9030,6 +9390,15 @@ class AppStrings {
       's4.lib.patient_timeline.health_journey': "स्वास्थ्य यात्रा",
       's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
           "केवल फ़ोन पर पढ़ें। क्लिनिकल प्रविष्टियाँ स्टाफ़ डेस्कटॉप पर पूरी की जानी चाहिए।",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm timeline action labels before production.
+      's4.lib.patient_timeline.filter.drug_chart': "ड्रग चार्ट",
+      's4.lib.patient_timeline.filter.referrals': "रेफरल",
+      's4.lib.patient_timeline.medication_order': "दवा आदेश",
+      's4.lib.patient_timeline.specialist': "विशेषज्ञ",
+      's4.lib.patient_timeline.action.add_note': "नोट जोड़ें",
+      's4.lib.patient_timeline.action.orders': "ऑर्डर",
+      's4.lib.patient_timeline.action.vitals': "वाइटल्स",
+      's4.lib.patient_timeline.action.investigations': "जांचें",
       's4.lib.pharmacy.10_digit_mobile_number': "10 अंकों का मोबाइल नंबर",
       's4.lib.pharmacy.10_tablets_strip': "10 गोलियाँ/स्ट्रिप",
       's4.lib.pharmacy.650_mg': "650 मिलीग्राम",
@@ -9430,6 +9799,51 @@ class AppStrings {
       's4.dynamic.patient_command_board.allergies_count': "{count} एलर्जी",
       's4.dynamic.patient_command_board.alerts_count': "{count} अलर्ट",
       's4.dynamic.patient_command_board.tasks_count': "{count} कार्य",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm dynamic patient-context copy before production.
+      's4.dynamic.patient_command_board.admission_number': "भर्ती #{id}",
+      's4.dynamic.patient_command_board.floor': "मंज़िल {floor}",
+      's4.dynamic.patient_command_board.floors': "मंज़िलें {floors}",
+      's4.dynamic.patient_command_board.postings':
+          "{source} - {count} पोस्टिंग",
+      's4.dynamic.patient_command_board.loaded_filtered':
+          "{loaded} लोड में से {visible} फ़िल्टर पंक्तियाँ दिखा रहे हैं; दायरा कुल {total}.",
+      's4.dynamic.patient_command_board.loaded_first':
+          "वर्तमान दायरे में {total} में से पहले {loaded} रोगी दिखा रहे हैं.",
+      's4.dynamic.patient_command_board.loaded_current':
+          "वर्तमान दायरे में {total} में से {loaded} रोगी दिखा रहे हैं.",
+      's4.dynamic.patient_command_board.load_next_patients':
+          "अगले {count} रोगी लोड करें",
+      's4.dynamic.patient_command_board.hospital_id': "अस्पताल ID {id}",
+      's4.dynamic.patient_command_board.bed': "बेड {bed}",
+      's4.dynamic.patient_command_board.goals_count': "{count} लक्ष्य",
+      's4.dynamic.patient_command_board.activities_count': "{count} गतिविधियाँ",
+      's4.dynamic.patient_command_board.target_value': "लक्ष्य {value}",
+      's4.dynamic.patient_command_board.current_value': "वर्तमान {value}",
+      's4.dynamic.patient_command_board.due_date': "देय {date}",
+      's4.dynamic.patient_command_board.subheading_count': "{title} ({count})",
+      's4.dynamic.patient_command_board.focused_patient':
+          "केंद्रित रोगी: {patient}",
+      's4.dynamic.patient_command_board.opening_action':
+          "कमांड बोर्ड वर्कफ़्लो से {action} खोल रहे हैं.",
+      's4.dynamic.patient_health_journey_panel.events_count': "{count} घटनाएँ",
+      's4.dynamic.patient_health_journey_panel.latest_time': "नवीनतम {time}",
+      's4.dynamic.patient_health_journey_panel.prescription_drug':
+          "नुस्खा - {drug}",
+      's4.dynamic.patient_health_journey_panel.note_type': "{type} नोट",
+      's4.dynamic.patient_health_journey_panel.investigation_action':
+          "जांच {action}",
+      's4.dynamic.patient_health_journey_panel.referral_department':
+          "रेफरल - {department}",
+      's4.dynamic.patient_timeline.note_type': "{type} नोट",
+      's4.dynamic.patient_timeline.note_type_author': "{type} नोट - {author}",
+      's4.dynamic.patient_timeline.drug_chart_med': "ड्रग चार्ट - {medication}",
+      's4.dynamic.patient_timeline.referral_department': "रेफरल - {department}",
+      's4.dynamic.patient_timeline.minutes_ago': "{count}मि पहले",
+      's4.dynamic.patient_timeline.hours_ago': "{count}घं पहले",
+      's4.dynamic.note_draft_status.saved_when': "{when} सहेजा गया",
+      's4.dynamic.note_draft_status.minutes_ago': "{count}मि पहले",
+      's4.dynamic.note_draft_status.hours_ago': "{count}घं पहले",
+      's4.dynamic.note_draft_status.days_ago': "{count}दि पहले",
       's4.dynamic.housekeeping.week_label': "सप्ताह {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} शिफ्ट नाम",
       's4.dynamic.leave_approvals.decision_title': "{decision} छोड़ें",
@@ -12239,6 +12653,33 @@ class AppStrings {
       's4.lib.admission.admitting_doctor': "அனுமதிக்கும் மருத்துவர்",
       's4.lib.admission_case_sheet.case_sheet_saved':
           "கேஸ் ஷீட் சேமிக்கப்பட்டது",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
+      's4.lib.admission_case_sheet.section.history': "வரலாறு",
+      's4.lib.admission_case_sheet.section.examination': "பரிசோதனை",
+      's4.lib.admission_case_sheet.section.assessment': "மதிப்பீடு",
+      's4.lib.admission_case_sheet.chief_complaints': "முக்கிய புகார்கள்",
+      's4.lib.admission_case_sheet.hpi': "தற்போதைய நோயின் வரலாறு",
+      's4.lib.admission_case_sheet.past_history': "முந்தைய வரலாறு",
+      's4.lib.admission_case_sheet.past_medical_surgical_history':
+          "முந்தைய மருத்துவ/அறுவை சிகிச்சை வரலாறு",
+      's4.lib.admission_case_sheet.personal_history': "தனிப்பட்ட வரலாறு",
+      's4.lib.admission_case_sheet.menstrual_pregnancy_history':
+          "மாதவிடாய்/கர்ப்ப வரலாறு",
+      's4.lib.admission_case_sheet.family_history': "குடும்ப வரலாறு",
+      's4.lib.admission_case_sheet.allergies': "ஒவ்வாமைகள்",
+      's4.lib.admission_case_sheet.pulse_rate': "நாடி வீதம்",
+      's4.lib.admission_case_sheet.bp': "BP",
+      's4.lib.admission_case_sheet.spo2': "SpO2",
+      's4.lib.admission_case_sheet.cbg': "CBG",
+      's4.lib.admission_case_sheet.weight': "எடை",
+      's4.lib.admission_case_sheet.temperature': "வெப்பநிலை",
+      's4.lib.admission_case_sheet.cvs': "CVS",
+      's4.lib.admission_case_sheet.rs': "RS",
+      's4.lib.admission_case_sheet.pa': "P/A",
+      's4.lib.admission_case_sheet.cns': "CNS",
+      's4.lib.admission_case_sheet.provisional_diagnosis': "தற்காலிக நோயறிதல்",
+      's4.lib.admission_case_sheet.saving': "சேமிக்கிறது",
+      's4.lib.admission_case_sheet.save_case_sheet': "கேஸ் ஷீட்டை சேமிக்கவும்",
       's4.lib.app_router.go_home': "வீட்டிற்கு செல்",
       's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
           "அப்பாயிண்ட்மெண்ட் வரிசை பணிப்பாய்வுகள் இப்போது ஒருங்கிணைக்கப்பட்ட பணியிடத்தில் இருந்து இயங்குகின்றன.",
@@ -12795,6 +13236,77 @@ class AppStrings {
       's4.lib.patient_command_board.patient_command_board':
           "நோயாளி கட்டளை வாரியம்",
       's4.lib.patient_command_board.ward_area': "வார்டு / பகுதி",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm patient-context copy before production.
+      's4.lib.patient_command_board.selected_patient': "தேர்ந்தெடுத்த நோயாளி",
+      's4.lib.patient_command_board.scope.all_active':
+          "அனைத்து செயலில் உள்ள உள் நோயாளிகள்",
+      's4.lib.patient_command_board.scope.own_patients':
+          "உங்களுக்கு ஒதுக்கப்பட்ட நோயாளிகள்",
+      's4.lib.patient_command_board.scope.duty_doctor':
+          "தற்போதைய டியூட்டி தள கவரேஜ்",
+      's4.lib.patient_command_board.scope.ward_nursing':
+          "தற்போதைய நர்சிங் தளம்",
+      's4.lib.patient_command_board.scope.op_nursing': "OP நர்சிங் கவரேஜ்",
+      's4.lib.patient_command_board.scope.housekeeping':
+          "தற்போதைய ஹவுஸ்கீப்பிங் பகுதி",
+      's4.lib.patient_command_board.scope.none':
+          "இந்தப் பங்கிற்கு உள் நோயாளி வரம்பு இல்லை",
+      's4.lib.patient_command_board.scope.role_based':
+          "பங்கு அடிப்படையிலான உள் நோயாளி வரம்பு",
+      's4.lib.patient_command_board.all_floors': "அனைத்து தளங்களும்",
+      's4.lib.patient_command_board.metric.patients': "நோயாளிகள்",
+      's4.lib.patient_command_board.metric.tasks': "பணிகள்",
+      's4.lib.patient_command_board.metric.alerts': "எச்சரிக்கைகள்",
+      's4.lib.patient_command_board.metric.discharge': "வெளியேற்றம்",
+      's4.lib.patient_command_board.load_more_patients':
+          "மேலும் நோயாளிகளை ஏற்றவும்",
+      's4.lib.patient_command_board.loading_patients':
+          "நோயாளிகளை ஏற்றுகிறது...",
+      's4.lib.patient_command_board.filter.all': "அனைத்தும்",
+      's4.lib.patient_command_board.filter.emergency': "அவசரம்",
+      's4.lib.patient_command_board.filter.alerts': "எச்சரிக்கைகள்",
+      's4.lib.patient_command_board.filter.tasks': "பணிகள்",
+      's4.lib.patient_command_board.filter.discharge': "வெளியேற்றம்",
+      's4.lib.patient_command_board.allergies': "ஒவ்வாமைகள்",
+      's4.lib.patient_command_board.no_allergies_documented':
+          "ஒவ்வாமைகள் பதிவு செய்யப்படவில்லை.",
+      's4.lib.patient_command_board.allergy': "ஒவ்வாமை",
+      's4.lib.patient_command_board.active_alerts':
+          "செயலில் உள்ள எச்சரிக்கைகள்",
+      's4.lib.patient_command_board.no_active_alerts':
+          "செயலில் உள்ள எச்சரிக்கைகள் இல்லை.",
+      's4.lib.patient_command_board.alert': "எச்சரிக்கை",
+      's4.lib.patient_command_board.open_tasks_referrals':
+          "திறந்த பணிகள் மற்றும் பரிந்துரைகள்",
+      's4.lib.patient_command_board.no_open_tasks': "திறந்த பணிகள் இல்லை.",
+      's4.lib.patient_command_board.task': "பணி",
+      's4.lib.patient_command_board.patient': "நோயாளி",
+      's4.lib.patient_command_board.clinical_details_hidden':
+          "இந்தப் பங்கிற்கு மருத்துவ விவரங்கள் மறைக்கப்பட்டுள்ளன",
+      's4.lib.patient_command_board.diagnosis_pending':
+          "நோயறிதல் நிலுவையில் உள்ளது",
+      's4.lib.patient_command_board.location_only': "இடம் மட்டும்",
+      's4.lib.patient_command_board.working': "செயலில்",
+      's4.lib.patient_command_board.routine': "வழக்கமான",
+      's4.lib.patient_command_board.no_time': "நேரம் இல்லை",
+      's4.lib.patient_command_board.open': "திற",
+      's4.lib.patient_command_board.could_not_load_care_plans':
+          "பராமரிப்பு திட்டங்களை ஏற்ற முடியவில்லை",
+      's4.lib.patient_command_board.no_care_plans':
+          "பராமரிப்பு திட்டங்கள் இல்லை",
+      's4.lib.patient_command_board.no_active_care_plan':
+          "இந்த நோயாளிக்கான செயலில் உள்ள பராமரிப்பு திட்டம் பதிவு செய்யப்படவில்லை.",
+      's4.lib.patient_command_board.care_plan': "பராமரிப்பு திட்டம்",
+      's4.lib.patient_command_board.goals': "இலக்குகள்",
+      's4.lib.patient_command_board.activities': "செயல்பாடுகள்",
+      's4.lib.patient_command_board.goal': "இலக்கு",
+      's4.lib.patient_command_board.activity': "செயல்பாடு",
+      's4.lib.patient_command_board.only_this_patient_loaded':
+          "கட்டளை வாரிய வரம்பிலிருந்து இந்த நோயாளி மட்டும் ஏற்றப்பட்டுள்ளார்.",
+      's4.lib.patient_command_board.no_active_patients':
+          "செயலில் உள்ள நோயாளிகள் இல்லை",
+      's4.lib.patient_command_board.no_matching_patients':
+          "பொருந்தும் நோயாளிகள் இல்லை",
       's4.lib.patient_context_chip.clear_patient_context':
           "தெளிவான நோயாளி சூழல்",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
@@ -12805,6 +13317,70 @@ class AppStrings {
           "இதுவரை காலவரிசை தரவு இல்லை",
       's4.lib.patient_health_journey_panel.patient_health_journey':
           "நோயாளியின் ஆரோக்கிய பயணம்",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm health-journey display labels before production.
+      's4.lib.patient_health_journey_panel.walking_steps_sleep':
+          "நடை, படிகள் மற்றும் தூக்கம்",
+      's4.lib.patient_health_journey_panel.daily_patient_app_summaries':
+          "தினசரி நோயாளி-ஆப் சுருக்கங்கள்",
+      's4.lib.patient_health_journey_panel.patient_generated':
+          "நோயாளி உருவாக்கியது",
+      's4.lib.patient_health_journey_panel.no_patient_app_activity':
+          "இதுவரை நோயாளி-ஆப் செயல்பாடு ஒத்திசைக்கப்படவில்லை",
+      's4.lib.patient_health_journey_panel.vitals_trends':
+          "உயிர்விளைவு போக்குகள்",
+      's4.lib.patient_health_journey_panel.weight_bp_over_time':
+          "காலப்போக்கில் எடை மற்றும் BP",
+      's4.lib.patient_health_journey_panel.weight': "எடை",
+      's4.lib.patient_health_journey_panel.sbp': "SBP",
+      's4.lib.patient_health_journey_panel.dbp': "DBP",
+      's4.lib.patient_health_journey_panel.no_weight_bp_trend':
+          "இந்த காலவரிசையில் எடை அல்லது BP போக்கு தரவு இல்லை",
+      's4.lib.patient_health_journey_panel.clinical_story': "மருத்துவ கதை",
+      's4.lib.patient_health_journey_panel.timeline_tap_source_detail':
+          "நேரம் இடமிருந்து வலம் செல்கிறது. மூல விவரத்தைத் திறக்க எந்த கார்டையும் தட்டவும்.",
+      's4.lib.patient_health_journey_panel.tap_to_inspect': "பார்க்க தட்டவும்",
+      's4.lib.patient_health_journey_panel.no_clinical_events':
+          "இந்த தேதி வரம்பில் மருத்துவ நிகழ்வுகள் இல்லை",
+      's4.lib.patient_health_journey_panel.patient_generated_trends':
+          "நோயாளி உருவாக்கிய போக்குகள்",
+      's4.lib.patient_health_journey_panel.steps_walk_sleep_sync':
+          "படிகள், நடை தூரம், தூக்கம், எடை மற்றும் BP இங்கே ஒத்திசைகின்றன",
+      's4.lib.patient_health_journey_panel.no_patient_activity_or_trends':
+          "நோயாளி-ஆப் செயல்பாடு அல்லது போக்கு உயிர்விளைவு இன்னும் ஒத்திசைக்கப்படவில்லை. மருத்துவ நிகழ்வுகள் மேலே கிடைக்கும்.",
+      's4.lib.patient_health_journey_panel.blood_pressure_mmhg':
+          "இரத்த அழுத்தம் (mmHg)",
+      's4.lib.patient_health_journey_panel.weight_kg': "எடை (kg)",
+      's4.lib.patient_health_journey_panel.zero_days': "0 நாட்கள்",
+      's4.lib.patient_health_journey_panel.latest_event': "சமீபத்திய நிகழ்வு",
+      's4.lib.patient_health_journey_panel.prescription_signed':
+          "மருந்துச்சீட்டு கையொப்பமிடப்பட்டது",
+      's4.lib.patient_health_journey_panel.prescription_created':
+          "மருந்துச்சீட்டு உருவாக்கப்பட்டது",
+      's4.lib.patient_health_journey_panel.medicines_dispensed':
+          "மருந்துகள் வழங்கப்பட்டன",
+      's4.lib.patient_health_journey_panel.requested': "கோரப்பட்டது",
+      's4.lib.patient_health_journey_panel.specialist_referral':
+          "நிபுணர் பரிந்துரை",
+      's4.lib.patient_health_journey_panel.vitals_recorded':
+          "உயிர்விளைவுகள் பதிவு செய்யப்பட்டன",
+      's4.lib.patient_health_journey_panel.event.prescription':
+          "மருந்துச்சீட்டு",
+      's4.lib.patient_health_journey_panel.event.investigation': "பரிசோதனை",
+      's4.lib.patient_health_journey_panel.event.vitals': "உயிர்விளைவுகள்",
+      's4.lib.patient_health_journey_panel.event.clinical_note':
+          "மருத்துவ குறிப்பு",
+      's4.lib.patient_health_journey_panel.event.referral': "பரிந்துரை",
+      's4.lib.patient_health_journey_panel.event.admission': "சேர்க்கை",
+      's4.lib.patient_health_journey_panel.event.discharge': "வெளியேற்றம்",
+      's4.lib.patient_health_journey_panel.event.event': "நிகழ்வு",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm autosave status copy before production.
+      's4.lib.note_draft_status.unsaved_changes': "சேமிக்காத மாற்றங்கள்...",
+      's4.lib.note_draft_status.saving': "சேமிக்கிறது...",
+      's4.lib.note_draft_status.draft_saved': "வரைவு சேமிக்கப்பட்டது",
+      's4.lib.note_draft_status.offline_will_sync': "ஆஃப்லைன் - ஒத்திசைக்கும்",
+      's4.lib.note_draft_status.save_failed_retrying':
+          "வரைவை சேமிக்க முடியவில்லை - மீண்டும் முயற்சிக்கிறது",
+      's4.lib.note_draft_status.just_now': "இப்போது",
       's4.lib.patient_notes_list.admin_edit': "நிர்வாக திருத்தம்",
       's4.lib.patient_notes_list.admin_edit_prior_note':
           "நிர்வாகம்: முன் குறிப்பைத் திருத்தவும்",
@@ -12860,6 +13436,15 @@ class AppStrings {
       's4.lib.patient_timeline.health_journey': "ஆரோக்கிய பயணம்",
       's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
           "மொபைலில் படிக்க மட்டும். மருத்துவப் பதிவுகள் பணியாளர் டெஸ்க்டாப்பில் முடிக்கப்பட வேண்டும்.",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm timeline action labels before production.
+      's4.lib.patient_timeline.filter.drug_chart': "மருந்து அட்டவணை",
+      's4.lib.patient_timeline.filter.referrals': "பரிந்துரைகள்",
+      's4.lib.patient_timeline.medication_order': "மருந்து ஆணை",
+      's4.lib.patient_timeline.specialist': "நிபுணர்",
+      's4.lib.patient_timeline.action.add_note': "குறிப்பு சேர்க்கவும்",
+      's4.lib.patient_timeline.action.orders': "ஆணைகள்",
+      's4.lib.patient_timeline.action.vitals': "உயிர்விளைவுகள்",
+      's4.lib.patient_timeline.action.investigations': "பரிசோதனைகள்",
       's4.lib.pharmacy.10_digit_mobile_number': "10 இலக்க மொபைல் எண்",
       's4.lib.pharmacy.10_tablets_strip': "10 மாத்திரைகள் / துண்டு",
       's4.lib.pharmacy.650_mg': "650 மி.கி",
@@ -13274,6 +13859,56 @@ class AppStrings {
       's4.dynamic.patient_command_board.alerts_count':
           "{count} விழிப்பூட்டல்கள்",
       's4.dynamic.patient_command_board.tasks_count': "{count} பணிகள்",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm dynamic patient-context copy before production.
+      's4.dynamic.patient_command_board.admission_number': "சேர்க்கை #{id}",
+      's4.dynamic.patient_command_board.floor': "தளம் {floor}",
+      's4.dynamic.patient_command_board.floors': "தளங்கள் {floors}",
+      's4.dynamic.patient_command_board.postings':
+          "{source} - {count} பணியிடங்கள்",
+      's4.dynamic.patient_command_board.loaded_filtered':
+          "{loaded} ஏற்றப்பட்டதில் {visible} வடிகட்டிய வரிசைகள்; வரம்பு மொத்தம் {total}.",
+      's4.dynamic.patient_command_board.loaded_first':
+          "தற்போதைய வரம்பில் {total} நோயாளிகளில் முதல் {loaded} ஐ காட்டுகிறது.",
+      's4.dynamic.patient_command_board.loaded_current':
+          "தற்போதைய வரம்பில் {total} நோயாளிகளில் {loaded} ஐ காட்டுகிறது.",
+      's4.dynamic.patient_command_board.load_next_patients':
+          "அடுத்த {count} நோயாளிகளை ஏற்றவும்",
+      's4.dynamic.patient_command_board.hospital_id': "மருத்துவமனை ID {id}",
+      's4.dynamic.patient_command_board.bed': "படுக்கை {bed}",
+      's4.dynamic.patient_command_board.goals_count': "{count} இலக்குகள்",
+      's4.dynamic.patient_command_board.activities_count':
+          "{count} செயல்பாடுகள்",
+      's4.dynamic.patient_command_board.target_value': "இலக்கு {value}",
+      's4.dynamic.patient_command_board.current_value': "தற்போதைய {value}",
+      's4.dynamic.patient_command_board.due_date': "காலக்கெடு {date}",
+      's4.dynamic.patient_command_board.subheading_count': "{title} ({count})",
+      's4.dynamic.patient_command_board.focused_patient':
+          "கவனம் செலுத்திய நோயாளி: {patient}",
+      's4.dynamic.patient_command_board.opening_action':
+          "கட்டளை வாரிய பணிப்பாய்வில் இருந்து {action} திறக்கிறது.",
+      's4.dynamic.patient_health_journey_panel.events_count':
+          "{count} நிகழ்வுகள்",
+      's4.dynamic.patient_health_journey_panel.latest_time': "சமீபத்திய {time}",
+      's4.dynamic.patient_health_journey_panel.prescription_drug':
+          "மருந்துச்சீட்டு - {drug}",
+      's4.dynamic.patient_health_journey_panel.note_type': "{type} குறிப்பு",
+      's4.dynamic.patient_health_journey_panel.investigation_action':
+          "பரிசோதனை {action}",
+      's4.dynamic.patient_health_journey_panel.referral_department':
+          "பரிந்துரை - {department}",
+      's4.dynamic.patient_timeline.note_type': "{type} குறிப்பு",
+      's4.dynamic.patient_timeline.note_type_author':
+          "{type} குறிப்பு - {author}",
+      's4.dynamic.patient_timeline.drug_chart_med':
+          "மருந்து அட்டவணை - {medication}",
+      's4.dynamic.patient_timeline.referral_department':
+          "பரிந்துரை - {department}",
+      's4.dynamic.patient_timeline.minutes_ago': "{count}நி முன்பு",
+      's4.dynamic.patient_timeline.hours_ago': "{count}மணி முன்பு",
+      's4.dynamic.note_draft_status.saved_when': "{when} சேமிக்கப்பட்டது",
+      's4.dynamic.note_draft_status.minutes_ago': "{count}நி முன்பு",
+      's4.dynamic.note_draft_status.hours_ago': "{count}மணி முன்பு",
+      's4.dynamic.note_draft_status.days_ago': "{count}நா முன்பு",
       's4.dynamic.housekeeping.week_label': "வாரம் {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} ஷிப்ட் பெயர்",
       's4.dynamic.leave_approvals.decision_title': "{decision} விடுப்பு",
@@ -16047,6 +16682,33 @@ class AppStrings {
       's4.lib.admission.admitting_doctor': "అడ్మిట్ అవుతున్న డాక్టర్",
       's4.lib.admission_case_sheet.case_sheet_saved':
           "కేస్ షీట్ సేవ్ చేయబడింది",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm clinical form labels before production.
+      's4.lib.admission_case_sheet.section.history': "చరిత్ర",
+      's4.lib.admission_case_sheet.section.examination': "పరీక్ష",
+      's4.lib.admission_case_sheet.section.assessment': "అంచనా",
+      's4.lib.admission_case_sheet.chief_complaints': "ప్రధాన ఫిర్యాదులు",
+      's4.lib.admission_case_sheet.hpi': "ప్రస్తుత వ్యాధి చరిత్ర",
+      's4.lib.admission_case_sheet.past_history': "గత చరిత్ర",
+      's4.lib.admission_case_sheet.past_medical_surgical_history':
+          "గత వైద్య/శస్త్రచికిత్స చరిత్ర",
+      's4.lib.admission_case_sheet.personal_history': "వ్యక్తిగత చరిత్ర",
+      's4.lib.admission_case_sheet.menstrual_pregnancy_history':
+          "రుతుస్రావం/గర్భధారణ చరిత్ర",
+      's4.lib.admission_case_sheet.family_history': "కుటుంబ చరిత్ర",
+      's4.lib.admission_case_sheet.allergies': "అలర్జీలు",
+      's4.lib.admission_case_sheet.pulse_rate': "పల్స్ రేట్",
+      's4.lib.admission_case_sheet.bp': "BP",
+      's4.lib.admission_case_sheet.spo2': "SpO2",
+      's4.lib.admission_case_sheet.cbg': "CBG",
+      's4.lib.admission_case_sheet.weight': "బరువు",
+      's4.lib.admission_case_sheet.temperature': "ఉష్ణోగ్రత",
+      's4.lib.admission_case_sheet.cvs': "CVS",
+      's4.lib.admission_case_sheet.rs': "RS",
+      's4.lib.admission_case_sheet.pa': "P/A",
+      's4.lib.admission_case_sheet.cns': "CNS",
+      's4.lib.admission_case_sheet.provisional_diagnosis': "తాత్కాలిక నిర్ధారణ",
+      's4.lib.admission_case_sheet.saving': "సేవ్ చేస్తోంది",
+      's4.lib.admission_case_sheet.save_case_sheet': "కేస్ షీట్ సేవ్ చేయండి",
       's4.lib.app_router.go_home': "ఇంటికి వెళ్ళు",
       's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
           "అపాయింట్‌మెంట్ క్యూ వర్క్‌ఫ్లోలు ఇప్పుడు ఏకీకృత వర్క్‌బెంచ్ నుండి అమలు చేయబడతాయి.",
@@ -16599,6 +17261,75 @@ class AppStrings {
       's4.lib.patient_command_board.patient_command_board':
           "పేషెంట్ కమాండ్ బోర్డ్",
       's4.lib.patient_command_board.ward_area': "వార్డు / ప్రాంతం",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm patient-context copy before production.
+      's4.lib.patient_command_board.selected_patient': "ఎంచుకున్న రోగి",
+      's4.lib.patient_command_board.scope.all_active':
+          "అన్ని క్రియాశీల ఇన్‌పేషెంట్లు",
+      's4.lib.patient_command_board.scope.own_patients':
+          "మీకు కేటాయించిన రోగులు",
+      's4.lib.patient_command_board.scope.duty_doctor':
+          "ప్రస్తుత డ్యూటీ ఫ్లోర్ కవరేజ్",
+      's4.lib.patient_command_board.scope.ward_nursing':
+          "ప్రస్తుత నర్సింగ్ ఫ్లోర్",
+      's4.lib.patient_command_board.scope.op_nursing': "OP నర్సింగ్ కవరేజ్",
+      's4.lib.patient_command_board.scope.housekeeping':
+          "ప్రస్తుత హౌస్‌కీపింగ్ ప్రాంతం",
+      's4.lib.patient_command_board.scope.none':
+          "ఈ పాత్రకు ఇన్‌పేషెంట్ పరిధి లేదు",
+      's4.lib.patient_command_board.scope.role_based':
+          "పాత్ర ఆధారిత ఇన్‌పేషెంట్ పరిధి",
+      's4.lib.patient_command_board.all_floors': "అన్ని ఫ్లోర్లు",
+      's4.lib.patient_command_board.metric.patients': "రోగులు",
+      's4.lib.patient_command_board.metric.tasks': "పనులు",
+      's4.lib.patient_command_board.metric.alerts': "అలర్ట్లు",
+      's4.lib.patient_command_board.metric.discharge': "డిశ్చార్జ్",
+      's4.lib.patient_command_board.load_more_patients':
+          "మరిన్ని రోగులను లోడ్ చేయండి",
+      's4.lib.patient_command_board.loading_patients':
+          "రోగులను లోడ్ చేస్తోంది...",
+      's4.lib.patient_command_board.filter.all': "అన్నీ",
+      's4.lib.patient_command_board.filter.emergency': "అత్యవసరం",
+      's4.lib.patient_command_board.filter.alerts': "అలర్ట్లు",
+      's4.lib.patient_command_board.filter.tasks': "పనులు",
+      's4.lib.patient_command_board.filter.discharge': "డిశ్చార్జ్",
+      's4.lib.patient_command_board.allergies': "అలర్జీలు",
+      's4.lib.patient_command_board.no_allergies_documented':
+          "అలర్జీలు నమోదు చేయబడలేదు.",
+      's4.lib.patient_command_board.allergy': "అలర్జీ",
+      's4.lib.patient_command_board.active_alerts': "క్రియాశీల అలర్ట్లు",
+      's4.lib.patient_command_board.no_active_alerts':
+          "క్రియాశీల అలర్ట్లు లేవు.",
+      's4.lib.patient_command_board.alert': "అలర్ట్",
+      's4.lib.patient_command_board.open_tasks_referrals':
+          "తెరిచిన పనులు మరియు రిఫరల్స్",
+      's4.lib.patient_command_board.no_open_tasks': "తెరిచిన పనులు లేవు.",
+      's4.lib.patient_command_board.task': "పని",
+      's4.lib.patient_command_board.patient': "రోగి",
+      's4.lib.patient_command_board.clinical_details_hidden':
+          "ఈ పాత్రకు క్లినికల్ వివరాలు దాచబడ్డాయి",
+      's4.lib.patient_command_board.diagnosis_pending':
+          "నిర్ధారణ పెండింగ్‌లో ఉంది",
+      's4.lib.patient_command_board.location_only': "ప్రదేశం మాత్రమే",
+      's4.lib.patient_command_board.working': "పనిలో ఉంది",
+      's4.lib.patient_command_board.routine': "రొటీన్",
+      's4.lib.patient_command_board.no_time': "సమయం లేదు",
+      's4.lib.patient_command_board.open': "తెరవండి",
+      's4.lib.patient_command_board.could_not_load_care_plans':
+          "సంరక్షణ ప్రణాళికలను లోడ్ చేయలేకపోయాం",
+      's4.lib.patient_command_board.no_care_plans': "సంరక్షణ ప్రణాళికలు లేవు",
+      's4.lib.patient_command_board.no_active_care_plan':
+          "ఈ రోగికి క్రియాశీల సంరక్షణ ప్రణాళిక నమోదు కాలేదు.",
+      's4.lib.patient_command_board.care_plan': "సంరక్షణ ప్రణాళిక",
+      's4.lib.patient_command_board.goals': "లక్ష్యాలు",
+      's4.lib.patient_command_board.activities': "కార్యకలాపాలు",
+      's4.lib.patient_command_board.goal': "లక్ష్యం",
+      's4.lib.patient_command_board.activity': "కార్యకలాపం",
+      's4.lib.patient_command_board.only_this_patient_loaded':
+          "కమాండ్ బోర్డ్ పరిధి నుంచి ఈ రోగి మాత్రమే లోడ్ అయ్యారు.",
+      's4.lib.patient_command_board.no_active_patients':
+          "క్రియాశీల రోగులు లేరు",
+      's4.lib.patient_command_board.no_matching_patients':
+          "సరిపోలే రోగులు లేరు",
       's4.lib.patient_context_chip.clear_patient_context':
           "రోగి సందర్భాన్ని క్లియర్ చేయండి",
       's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest':
@@ -16609,6 +17340,70 @@ class AppStrings {
           "ఇంకా టైమ్‌లైన్ డేటా లేదు",
       's4.lib.patient_health_journey_panel.patient_health_journey':
           "రోగి ఆరోగ్య ప్రయాణం",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm health-journey display labels before production.
+      's4.lib.patient_health_journey_panel.walking_steps_sleep':
+          "నడక, అడుగులు మరియు నిద్ర",
+      's4.lib.patient_health_journey_panel.daily_patient_app_summaries':
+          "రోజువారీ రోగి-యాప్ సారాంశాలు",
+      's4.lib.patient_health_journey_panel.patient_generated':
+          "రోగి రూపొందించినది",
+      's4.lib.patient_health_journey_panel.no_patient_app_activity':
+          "ఇంకా రోగి-యాప్ కార్యకలాపం సింక్ కాలేదు",
+      's4.lib.patient_health_journey_panel.vitals_trends': "వైటల్స్ ధోరణులు",
+      's4.lib.patient_health_journey_panel.weight_bp_over_time':
+          "కాలక్రమంలో బరువు మరియు BP",
+      's4.lib.patient_health_journey_panel.weight': "బరువు",
+      's4.lib.patient_health_journey_panel.sbp': "SBP",
+      's4.lib.patient_health_journey_panel.dbp': "DBP",
+      's4.lib.patient_health_journey_panel.no_weight_bp_trend':
+          "ఈ టైమ్‌లైన్‌లో ఇంకా బరువు లేదా BP ధోరణి డేటా లేదు",
+      's4.lib.patient_health_journey_panel.clinical_story': "క్లినికల్ కథనం",
+      's4.lib.patient_health_journey_panel.timeline_tap_source_detail':
+          "సమయం ఎడమ నుంచి కుడికి సాగుతుంది. మూల వివరాన్ని తెరవడానికి ఏ కార్డ్‌నైనా ట్యాప్ చేయండి.",
+      's4.lib.patient_health_journey_panel.tap_to_inspect':
+          "పరిశీలించడానికి ట్యాప్ చేయండి",
+      's4.lib.patient_health_journey_panel.no_clinical_events':
+          "ఈ తేదీ పరిధిలో క్లినికల్ ఈవెంట్లు లేవు",
+      's4.lib.patient_health_journey_panel.patient_generated_trends':
+          "రోగి రూపొందించిన ధోరణులు",
+      's4.lib.patient_health_journey_panel.steps_walk_sleep_sync':
+          "అడుగులు, నడక దూరం, నిద్ర, బరువు మరియు BP ఇక్కడ సింక్ అవుతాయి",
+      's4.lib.patient_health_journey_panel.no_patient_activity_or_trends':
+          "ఇంకా రోగి-యాప్ కార్యకలాపం లేదా ధోరణి వైటల్స్ సింక్ కాలేదు. క్లినికల్ ఈవెంట్లు పై భాగంలో అందుబాటులో ఉంటాయి.",
+      's4.lib.patient_health_journey_panel.blood_pressure_mmhg':
+          "రక్తపోటు (mmHg)",
+      's4.lib.patient_health_journey_panel.weight_kg': "బరువు (kg)",
+      's4.lib.patient_health_journey_panel.zero_days': "0 రోజులు",
+      's4.lib.patient_health_journey_panel.latest_event': "తాజా ఈవెంట్",
+      's4.lib.patient_health_journey_panel.prescription_signed':
+          "ప్రిస్క్రిప్షన్ సంతకం చేయబడింది",
+      's4.lib.patient_health_journey_panel.prescription_created':
+          "ప్రిస్క్రిప్షన్ సృష్టించబడింది",
+      's4.lib.patient_health_journey_panel.medicines_dispensed':
+          "మందులు పంపిణీ చేయబడ్డాయి",
+      's4.lib.patient_health_journey_panel.requested': "అభ్యర్థించబడింది",
+      's4.lib.patient_health_journey_panel.specialist_referral':
+          "నిపుణుడి రిఫరల్",
+      's4.lib.patient_health_journey_panel.vitals_recorded':
+          "వైటల్స్ నమోదు చేయబడ్డాయి",
+      's4.lib.patient_health_journey_panel.event.prescription':
+          "ప్రిస్క్రిప్షన్",
+      's4.lib.patient_health_journey_panel.event.investigation': "పరిశోధన",
+      's4.lib.patient_health_journey_panel.event.vitals': "వైటల్స్",
+      's4.lib.patient_health_journey_panel.event.clinical_note':
+          "క్లినికల్ గమనిక",
+      's4.lib.patient_health_journey_panel.event.referral': "రిఫరల్",
+      's4.lib.patient_health_journey_panel.event.admission': "ప్రవేశం",
+      's4.lib.patient_health_journey_panel.event.discharge': "డిశ్చార్జ్",
+      's4.lib.patient_health_journey_panel.event.event': "ఈవెంట్",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm autosave status copy before production.
+      's4.lib.note_draft_status.unsaved_changes': "సేవ్ చేయని మార్పులు...",
+      's4.lib.note_draft_status.saving': "సేవ్ చేస్తోంది...",
+      's4.lib.note_draft_status.draft_saved': "డ్రాఫ్ట్ సేవ్ చేయబడింది",
+      's4.lib.note_draft_status.offline_will_sync': "ఆఫ్‌లైన్ - సింక్ అవుతుంది",
+      's4.lib.note_draft_status.save_failed_retrying':
+          "డ్రాఫ్ట్ సేవ్ చేయలేకపోయాం - మళ్లీ ప్రయత్నిస్తోంది",
+      's4.lib.note_draft_status.just_now': "ఇప్పుడే",
       's4.lib.patient_notes_list.admin_edit': "అడ్మిన్ సవరణ",
       's4.lib.patient_notes_list.admin_edit_prior_note':
           "అడ్మిన్: ముందస్తు గమనికను సవరించండి",
@@ -16664,6 +17459,15 @@ class AppStrings {
       's4.lib.patient_timeline.health_journey': "ఆరోగ్య ప్రయాణం",
       's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp':
           "ఫోన్‌లో చదవడానికి మాత్రమే. స్టాఫ్ డెస్క్‌టాప్‌లో క్లినికల్ ఎంట్రీలు పూర్తి చేయాలి.",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm timeline action labels before production.
+      's4.lib.patient_timeline.filter.drug_chart': "డ్రగ్ చార్ట్",
+      's4.lib.patient_timeline.filter.referrals': "రిఫరల్స్",
+      's4.lib.patient_timeline.medication_order': "మందుల ఆర్డర్",
+      's4.lib.patient_timeline.specialist': "నిపుణుడు",
+      's4.lib.patient_timeline.action.add_note': "గమనిక జోడించండి",
+      's4.lib.patient_timeline.action.orders': "ఆర్డర్లు",
+      's4.lib.patient_timeline.action.vitals': "వైటల్స్",
+      's4.lib.patient_timeline.action.investigations': "పరిశోధనలు",
       's4.lib.pharmacy.10_digit_mobile_number': "10-అంకెల మొబైల్ నంబర్",
       's4.lib.pharmacy.10_tablets_strip': "10 మాత్రలు / స్ట్రిప్",
       's4.lib.pharmacy.650_mg': "650 మి.గ్రా",
@@ -17069,6 +17873,55 @@ class AppStrings {
       's4.dynamic.patient_command_board.allergies_count': "{count} అలెర్జీలు",
       's4.dynamic.patient_command_board.alerts_count': "{count} హెచ్చరికలు",
       's4.dynamic.patient_command_board.tasks_count': "{count} పనులు",
+      // REVIEW: AI first-pass S4 EMR i18n sweep - confirm dynamic patient-context copy before production.
+      's4.dynamic.patient_command_board.admission_number': "ప్రవేశం #{id}",
+      's4.dynamic.patient_command_board.floor': "ఫ్లోర్ {floor}",
+      's4.dynamic.patient_command_board.floors': "ఫ్లోర్లు {floors}",
+      's4.dynamic.patient_command_board.postings':
+          "{source} - {count} పోస్టింగ్‌లు",
+      's4.dynamic.patient_command_board.loaded_filtered':
+          "{loaded} లోడ్ చేసిన వాటిలో {visible} ఫిల్టర్ వరుసలు; పరిధి మొత్తం {total}.",
+      's4.dynamic.patient_command_board.loaded_first':
+          "ప్రస్తుత పరిధిలో {total} రోగులలో మొదటి {loaded} చూపిస్తోంది.",
+      's4.dynamic.patient_command_board.loaded_current':
+          "ప్రస్తుత పరిధిలో {total} రోగులలో {loaded} చూపిస్తోంది.",
+      's4.dynamic.patient_command_board.load_next_patients':
+          "తర్వాతి {count} రోగులను లోడ్ చేయండి",
+      's4.dynamic.patient_command_board.hospital_id': "ఆసుపత్రి ID {id}",
+      's4.dynamic.patient_command_board.bed': "బెడ్ {bed}",
+      's4.dynamic.patient_command_board.goals_count': "{count} లక్ష్యాలు",
+      's4.dynamic.patient_command_board.activities_count':
+          "{count} కార్యకలాపాలు",
+      's4.dynamic.patient_command_board.target_value': "లక్ష్యం {value}",
+      's4.dynamic.patient_command_board.current_value': "ప్రస్తుత {value}",
+      's4.dynamic.patient_command_board.due_date': "గడువు {date}",
+      's4.dynamic.patient_command_board.subheading_count': "{title} ({count})",
+      's4.dynamic.patient_command_board.focused_patient':
+          "కేంద్రీకృత రోగి: {patient}",
+      's4.dynamic.patient_command_board.opening_action':
+          "కమాండ్ బోర్డ్ వర్క్‌ఫ్లో నుండి {action} తెరుస్తోంది.",
+      's4.dynamic.patient_health_journey_panel.events_count':
+          "{count} ఈవెంట్లు",
+      's4.dynamic.patient_health_journey_panel.latest_time': "తాజా {time}",
+      's4.dynamic.patient_health_journey_panel.prescription_drug':
+          "ప్రిస్క్రిప్షన్ - {drug}",
+      's4.dynamic.patient_health_journey_panel.note_type': "{type} గమనిక",
+      's4.dynamic.patient_health_journey_panel.investigation_action':
+          "పరిశోధన {action}",
+      's4.dynamic.patient_health_journey_panel.referral_department':
+          "రిఫరల్ - {department}",
+      's4.dynamic.patient_timeline.note_type': "{type} గమనిక",
+      's4.dynamic.patient_timeline.note_type_author': "{type} గమనిక - {author}",
+      's4.dynamic.patient_timeline.drug_chart_med':
+          "డ్రగ్ చార్ట్ - {medication}",
+      's4.dynamic.patient_timeline.referral_department':
+          "రిఫరల్ - {department}",
+      's4.dynamic.patient_timeline.minutes_ago': "{count}ని క్రితం",
+      's4.dynamic.patient_timeline.hours_ago': "{count}గం క్రితం",
+      's4.dynamic.note_draft_status.saved_when': "{when} సేవ్ చేయబడింది",
+      's4.dynamic.note_draft_status.minutes_ago': "{count}ని క్రితం",
+      's4.dynamic.note_draft_status.hours_ago': "{count}గం క్రితం",
+      's4.dynamic.note_draft_status.days_ago': "{count}రో క్రితం",
       's4.dynamic.housekeeping.week_label': "వారం {range}",
       's4.dynamic.housekeeping.shift_name_label': "{department} షిఫ్ట్ పేరు",
       's4.dynamic.leave_approvals.decision_title': "{decision} సెలవు",

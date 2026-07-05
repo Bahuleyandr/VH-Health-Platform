@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../l10n/app_strings.dart';
 import '../note_draft_autosave.dart';
 
 class NoteDraftStatusIndicator extends StatelessWidget {
@@ -25,7 +26,7 @@ class NoteDraftStatusIndicator extends StatelessWidget {
     return ValueListenableBuilder<NoteDraftStatus>(
       valueListenable: status,
       builder: (context, value, _) {
-        final (icon, label, color) = _present(value);
+        final (icon, label, color) = _present(context, value);
         if (label == null) return const SizedBox.shrink();
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -53,36 +54,48 @@ class NoteDraftStatusIndicator extends StatelessWidget {
     );
   }
 
-  (IconData, String?, Color) _present(NoteDraftStatus value) {
+  (IconData, String?, Color) _present(
+    BuildContext context,
+    NoteDraftStatus value,
+  ) {
+    final s = AppStrings.of(context);
     switch (value.kind) {
       case NoteDraftStatusKind.idle:
         return (Icons.cloud_done_outlined, null, AppTheme.textSecondary);
       case NoteDraftStatusKind.dirty:
         return (
           Icons.edit_outlined,
-          'Unsaved changes…',
+          s.lookup('s4.lib.note_draft_status.unsaved_changes'),
           AppTheme.textSecondary,
         );
       case NoteDraftStatusKind.saving:
-        return (Icons.cloud_sync_outlined, 'Saving…', AppTheme.textSecondary);
+        return (
+          Icons.cloud_sync_outlined,
+          s.lookup('s4.lib.note_draft_status.saving'),
+          AppTheme.textSecondary,
+        );
       case NoteDraftStatusKind.saved:
         final at = value.savedAt;
-        final when = at != null ? _relativeTime(at) : '';
+        final when = at != null ? _relativeTime(context, at) : '';
         return (
           Icons.cloud_done_outlined,
-          when.isEmpty ? 'Draft saved' : 'Saved $when',
+          when.isEmpty
+              ? s.lookup('s4.lib.note_draft_status.draft_saved')
+              : s.format('s4.dynamic.note_draft_status.saved_when', {
+                  'when': when,
+                }),
           AppTheme.successOnSurface,
         );
       case NoteDraftStatusKind.offline:
         return (
           Icons.cloud_off_outlined,
-          'Offline — will sync',
+          s.lookup('s4.lib.note_draft_status.offline_will_sync'),
           AppTheme.warningOnSurface,
         );
       case NoteDraftStatusKind.error:
         return (
           Icons.error_outline,
-          'Couldn\'t save draft — retrying',
+          s.lookup('s4.lib.note_draft_status.save_failed_retrying'),
           AppTheme.warningOnSurface,
         );
     }
@@ -92,11 +105,24 @@ class NoteDraftStatusIndicator extends StatelessWidget {
   /// visibly old (rather than a static clock time that never changes). Quiet
   /// by design — no alarming age threshold; the status flips to error on a
   /// failed PUT, which is the real signal.
-  String _relativeTime(DateTime at) {
+  String _relativeTime(BuildContext context, DateTime at) {
+    final s = AppStrings.of(context);
     final delta = (now ?? DateTime.now)().difference(at);
-    if (delta.isNegative || delta.inSeconds < 45) return 'just now';
-    if (delta.inMinutes < 60) return '${delta.inMinutes}m ago';
-    if (delta.inHours < 24) return '${delta.inHours}h ago';
-    return '${delta.inDays}d ago';
+    if (delta.isNegative || delta.inSeconds < 45) {
+      return s.lookup('s4.lib.note_draft_status.just_now');
+    }
+    if (delta.inMinutes < 60) {
+      return s.format('s4.dynamic.note_draft_status.minutes_ago', {
+        'count': delta.inMinutes,
+      });
+    }
+    if (delta.inHours < 24) {
+      return s.format('s4.dynamic.note_draft_status.hours_ago', {
+        'count': delta.inHours,
+      });
+    }
+    return s.format('s4.dynamic.note_draft_status.days_ago', {
+      'count': delta.inDays,
+    });
   }
 }

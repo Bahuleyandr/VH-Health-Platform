@@ -261,6 +261,74 @@ void main() {
     );
   });
 
+  test(
+    'S4 EMR patient-context copy stores keys with required locale entries',
+    () {
+      final files = [
+        File('lib/features/emr/screens/patient_command_board_screen.dart'),
+        File('lib/features/emr/widgets/patient_health_journey_panel.dart'),
+        File('lib/features/emr/screens/patient_timeline_screen.dart'),
+        File('lib/features/emr/screens/admission_case_sheet_screen.dart'),
+        File('lib/features/emr/widgets/note_draft_status_indicator.dart'),
+      ];
+      final hits = <String>[];
+      for (final file in files) {
+        for (final entry in _literalHits(file, [
+          _Pattern(
+            'case sheet field label',
+            RegExp(
+              r'''_(?:sectionTitle|field|smallField)\(\s*(?:r)?(['"])(.*?)\1''',
+            ),
+          ),
+          _Pattern(
+            'section title',
+            RegExp(r'''\btitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+          ),
+          _Pattern(
+            'section subtitle',
+            RegExp(r'''\bsubtitle\s*:\s*(?:r)?(['"])(.*?)\1'''),
+          ),
+          _Pattern(
+            'button label',
+            RegExp(r'''\blabel\s*:\s*(?:r)?(['"])(.*?)\1'''),
+          ),
+        ])) {
+          hits.add(entry);
+        }
+      }
+
+      final keys = <String>{};
+      for (final file in files) {
+        keys.addAll(
+          _appStringKeysFrom(file.readAsStringSync(), [
+            's4.lib.admission_case_sheet.',
+            's4.dynamic.admission_case_sheet.',
+            's4.lib.patient_command_board.',
+            's4.dynamic.patient_command_board.',
+            's4.lib.patient_health_journey_panel.',
+            's4.dynamic.patient_health_journey_panel.',
+            's4.lib.patient_timeline.',
+            's4.dynamic.patient_timeline.',
+            's4.lib.note_draft_status.',
+            's4.dynamic.note_draft_status.',
+          ]),
+        );
+      }
+
+      expect(
+        hits,
+        isEmpty,
+        reason:
+            'S4 EMR patient-context labels should use AppStrings/AppText keys.',
+      );
+      expect(
+        _missingLocaleEntries(keys),
+        isEmpty,
+        reason: 'S4 EMR patient-context keys must have en/hi/ta/te entries.',
+      );
+    },
+  );
+
   test('calculator metadata stores keys with required locale entries', () {
     final calculatorFile = File(
       'lib/features/productivity/screens/calculators_screen.dart',
