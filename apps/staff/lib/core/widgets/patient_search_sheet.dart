@@ -190,8 +190,9 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
                   controller: _controller,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
-                    hintText:
-                        'Find a patient by Hospital ID, name, phone, or ABHA…',
+                    hintText: AppStrings.of(context).lookup(
+                      's4.lib.patient_search_sheet.find_a_patient_by_hospital_id_name_phone_or_abha',
+                    ),
                     prefixIcon: const ExcludeSemantics(
                       child: Icon(Icons.search),
                     ),

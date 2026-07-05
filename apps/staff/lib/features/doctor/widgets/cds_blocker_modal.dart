@@ -219,13 +219,17 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
               ],
               // ── Step 1: Category ────────────────────────────────────────
               DropdownButtonFormField<_CdsOverrideCategory>(
-                decoration: const InputDecoration(
-                  labelText: 'Override category *',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.cds_blocker_modal.override_category'),
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
                 initialValue: _category,
-                hint: const Text('Select a reason category'),
+                hint: const AppText(
+                  's4.lib.cds_blocker_modal.select_a_reason_category',
+                ),
                 items: _CdsOverrideCategory.values
                     .map(
                       (c) => DropdownMenuItem(value: c, child: Text(c.label)),
@@ -240,9 +244,12 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                 maxLines: 3,
                 autofocus: true,
                 decoration: InputDecoration(
-                  labelText: 'Clinical justification *',
-                  hintText:
-                      'Min 15 characters — describe the specific rationale',
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.cds_blocker_modal.clinical_justification'),
+                  hintText: AppStrings.of(context).lookup(
+                    's4.lib.cds_blocker_modal.min_15_characters_describe_the_specific_rational',
+                  ),
                   border: const OutlineInputBorder(),
                   suffixIcon: _justificationCtrl.text.isEmpty
                       ? null
@@ -286,8 +293,8 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                       color: Colors.red.withValues(alpha: 0.4),
                     ),
                   ),
-                  child: const Text(
-                    'SEVERE allergy conflict: a supervising clinician '
+                  child: const AppText(
+                    's4.lib.cds_blocker_modal.severe_allergy_conflict_a_supervising_clinician'
                     'acknowledgement is required.',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
@@ -295,10 +302,14 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: _supervisorCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Supervising clinician name / staff ID *',
-                    hintText: 'e.g. Dr. Sharma — EMP-1042',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(context).lookup(
+                      's4.lib.cds_blocker_modal.supervising_clinician_name_staff_id',
+                    ),
+                    hintText: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.cds_blocker_modal.e_g_dr_sharma_emp_1042'),
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                   onChanged: (_) => setState(() {}),
@@ -306,8 +317,8 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                 if (_supervisorCtrl.text.isNotEmpty &&
                     _supervisorCtrl.text.trim().length < 3) ...[
                   const SizedBox(height: 4),
-                  const Text(
-                    'Enter the supervising clinician name or staff ID',
+                  const AppText(
+                    's4.lib.cds_blocker_modal.enter_the_supervising_clinician_name_or_staff_id',
                     style: TextStyle(fontSize: 11, color: Colors.red),
                   ),
                 ],

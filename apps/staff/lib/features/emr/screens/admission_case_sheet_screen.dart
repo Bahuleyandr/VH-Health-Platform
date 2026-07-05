@@ -4,6 +4,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/clinical_autocomplete_field.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/vital_text_field.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class AdmissionCaseSheetScreen extends StatefulWidget {
   final int admissionId;
@@ -199,7 +200,7 @@ class _AdmissionCaseSheetScreenState extends State<AdmissionCaseSheetScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Case sheet saved'),
+          content: AppText('s4.lib.admission_case_sheet.case_sheet_saved'),
           backgroundColor: Colors.green,
         ),
       );
@@ -222,7 +223,10 @@ class _AdmissionCaseSheetScreenState extends State<AdmissionCaseSheetScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: Text('Case Sheet - ${widget.patientName}'),
+        title: AppText(
+          's4.dynamic.admission_case_sheet.title_for_patient',
+          values: {'patient': widget.patientName},
+        ),
         actions: [
           TextButton.icon(
             onPressed: _loading || _saving ? null : _save,
@@ -233,7 +237,7 @@ class _AdmissionCaseSheetScreenState extends State<AdmissionCaseSheetScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.save_outlined),
-            label: const Text('Save'),
+            label: const AppText('action.save'),
           ),
           const LogoutAction(),
         ],

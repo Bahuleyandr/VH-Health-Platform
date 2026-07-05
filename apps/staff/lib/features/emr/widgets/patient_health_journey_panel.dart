@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 const double _timelineSegmentWidth = 212.0;
 const double _timelineSidePad = 108.0;
@@ -98,8 +99,8 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Patient health journey',
+                AppText(
+                  's4.lib.patient_health_journey_panel.patient_health_journey',
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 16,
@@ -107,8 +108,8 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Canonical timeline of notes, prescriptions, investigations, vitals, and patient-generated wellness data.',
+                AppText(
+                  's4.lib.patient_health_journey_panel.canonical_timeline_of_notes_prescriptions_invest',
                   style: TextStyle(color: colors.textSecondary, fontSize: 12),
                 ),
               ],
@@ -429,8 +430,8 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
         children: [
           Icon(Icons.timeline_outlined, size: 54, color: colors.divider),
           const SizedBox(height: 12),
-          Text(
-            'No timeline data yet',
+          AppText(
+            's4.lib.patient_health_journey_panel.no_timeline_data_yet',
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 16,
@@ -438,8 +439,8 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            'Clinical events and patient-app activity will appear here once available.',
+          AppText(
+            's4.lib.patient_health_journey_panel.clinical_events_and_patient_app_activity_will_ap',
             textAlign: TextAlign.center,
             style: TextStyle(color: colors.textSecondary),
           ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 /// A pinned banner shown at the top of forms (Vitals, Nursing Notes,
 /// Handover) when the screen was opened from the bed-board with a patient
@@ -88,7 +89,9 @@ class PatientContextChip extends StatelessWidget {
             iconSize: 24,
             padding: const EdgeInsets.all(12),
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            tooltip: 'Clear patient context',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.patient_context_chip.clear_patient_context'),
             onPressed: () => _clear(context),
           ),
         ],

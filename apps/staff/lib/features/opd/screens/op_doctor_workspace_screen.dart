@@ -13,6 +13,7 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../emr/note_draft_autosave.dart';
 import '../../emr/widgets/note_draft_status_indicator.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class OpDoctorWorkspaceScreen extends StatefulWidget {
   final String patientUid;
@@ -290,7 +291,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     setState(() => _diagnosisCoding = null);
     messenger.showSnackBar(
       const SnackBar(
-        content: Text('Draft discarded'),
+        content: AppText('s4.lib.nursing_notes.draft_discarded'),
         duration: Duration(seconds: 3),
       ),
     );
@@ -896,14 +897,16 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save_outlined, size: 18),
-                  label: const Text('Save note'),
+                  label: const AppText('s4.lib.op_doctor_workspace.save_note'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _savingNote || !noteFieldsEnabled
                       ? null
                       : () => _saveOpNote(openInvestigationsAfter: true),
                   icon: const Icon(Icons.biotech_outlined, size: 18),
-                  label: const Text('Save, then investigations'),
+                  label: const AppText(
+                    's4.lib.op_doctor_workspace.save_then_investigations',
+                  ),
                 ),
                 OutlinedButton.icon(
                   onPressed:
@@ -914,7 +917,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                       ? null
                       : () => _saveOpNote(signAfter: true),
                   icon: const Icon(Icons.verified_outlined, size: 18),
-                  label: const Text('Sign note'),
+                  label: const AppText('s4.lib.op_doctor_workspace.sign_note'),
                 ),
               ],
             ),
@@ -1032,7 +1035,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
                 TextButton.icon(
                   onPressed: () => context.push(_timelineRoute),
                   icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('Open full'),
+                  label: const AppText('s4.lib.op_doctor_workspace.open_full'),
                 ),
               ],
             ),
@@ -1041,8 +1044,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 28),
                 child: Center(
-                  child: Text(
-                    'No clinical timeline entries yet',
+                  child: AppText(
+                    's4.lib.op_doctor_workspace.no_clinical_timeline_entries_yet',
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ),

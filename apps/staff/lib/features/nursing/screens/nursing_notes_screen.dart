@@ -103,7 +103,11 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
               tabs: [
                 Tab(text: s.nursingNotesTabAdd),
                 Tab(text: s.nursingNotesTabRecent),
-                const Tab(text: 'All Notes'),
+                Tab(
+                  text: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.nursing_notes.all_notes'),
+                ),
               ],
             ),
           ),
@@ -286,7 +290,7 @@ class _AddNoteTabState extends State<_AddNoteTab> with WidgetsBindingObserver {
     setState(() => _noteType = null);
     messenger.showSnackBar(
       const SnackBar(
-        content: Text('Draft discarded'),
+        content: AppText('s4.lib.nursing_notes.draft_discarded'),
         duration: Duration(seconds: 3),
       ),
     );
@@ -655,8 +659,8 @@ class _NoPatientContext extends StatelessWidget {
           children: [
             Icon(Icons.person_search, size: 56, color: AppTheme.textSecondary),
             const SizedBox(height: 12),
-            Text(
-              'Open this screen from the bed board to see all notes for a patient.',
+            AppText(
+              's4.lib.nursing_notes.open_this_screen_from_the_bed_board_to_see_all_n',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textSecondary),
             ),

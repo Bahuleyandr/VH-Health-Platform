@@ -332,8 +332,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       Row(
                         children: [
                           const Expanded(
-                            child: Text(
-                              'Order Investigation',
+                            child: AppText(
+                              'queue.order_investigation',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -342,7 +342,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            tooltip: 'Close',
+                            tooltip: AppStrings.of(
+                              context,
+                            ).lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -356,7 +358,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                           readOnly: true,
                           keyboardType: TextInputType.phone,
                           decoration: InputDecoration(
-                            labelText: 'Patient phone',
+                            labelText: AppStrings.of(
+                              context,
+                            ).lookup('reception_counter.patient.phone'),
                             helperText: [
                               if ((widget.initialPatientName ?? '')
                                   .trim()
@@ -434,7 +438,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                         readOnly: scopedPatientId != null,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          labelText: 'Patient ID',
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('vitals.patient_id_label'),
                           helperText: scopedPatientId != null
                               ? 'Using selected OP patient'
                               : null,
@@ -455,10 +461,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: testNameCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Test name',
-                          hintText: 'CBC, X-Ray chest, ECG...',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.investigations.test_name'),
+                          hintText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.investigations.cbc_x_ray_chest_ecg'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.science_outlined),
                           ),
                         ),
@@ -469,9 +479,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         initialValue: type,
-                        decoration: const InputDecoration(
-                          labelText: 'Type',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('bed_sheet.field.type'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.category_outlined),
                           ),
                         ),
@@ -499,9 +511,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         initialValue: priority,
-                        decoration: const InputDecoration(
-                          labelText: 'Priority',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('clinical_inbox.priority'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.priority_high_outlined),
                           ),
                         ),
@@ -522,9 +536,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: notesCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Clinical notes (optional)',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(context).lookup(
+                            's4.lib.investigations.clinical_notes_optional',
+                          ),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.notes_outlined),
                           ),
                           alignLabelWithHint: true,
@@ -568,7 +584,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       if (ordered == true && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Investigation ordered'),
+            content: const AppText(
+              's4.lib.investigations.investigation_ordered',
+            ),
             backgroundColor: AppTheme.successGreen,
             action: _isScopedOpVisit
                 ? SnackBarAction(
@@ -651,7 +669,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                   OutlinedButton.icon(
                     onPressed: _continueToPrescription,
                     icon: const Icon(Icons.medication_outlined),
-                    label: const Text('Continue to prescription'),
+                    label: const AppText(
+                      's4.lib.investigations.continue_to_prescription',
+                    ),
                   ),
                   const SizedBox(width: 12),
                 ],
@@ -659,7 +679,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                 ElevatedButton.icon(
                   onPressed: _orderInvestigation,
                   icon: const Icon(Icons.add, color: Colors.white, size: 18),
-                  label: const Text('Order'),
+                  label: const AppText('timeline.filter.order'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.accentCyan,
                     foregroundColor: Colors.white,
@@ -1185,7 +1205,9 @@ class _SelectedFileRow extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: 'Remove file',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.patient_records.remove_file'),
             onPressed: onRemove,
             icon: const Icon(Icons.close, size: 18),
           ),
@@ -1780,7 +1802,7 @@ class _InvestigationResultSheet extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Close',
+                    tooltip: AppStrings.of(context).lookup('action.close'),
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -1823,8 +1845,8 @@ class _InvestigationResultSheet extends StatelessWidget {
               if (resultSummary.isEmpty &&
                   interpretation.isEmpty &&
                   results == null)
-                Text(
-                  'Result has been marked ready, but no structured summary is attached yet.',
+                AppText(
+                  's4.lib.investigations.result_has_been_marked_ready_but_no_structured_s',
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
             ],

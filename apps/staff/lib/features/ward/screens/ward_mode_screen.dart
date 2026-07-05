@@ -5,6 +5,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class WardModeScreen extends StatefulWidget {
   const WardModeScreen({super.key});
@@ -94,8 +95,8 @@ class _WardModeScreenState extends State<WardModeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Ward workbench',
+                AppText(
+                  's4.lib.ward_mode.ward_workbench',
                   style: Theme.of(
                     context,
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
@@ -133,16 +134,16 @@ class _WardModeScreenState extends State<WardModeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Built for ward-specific flows',
+                AppText(
+                  's4.lib.ward_mode.built_for_ward_specific_flows',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: AppTheme.primaryBlue,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'This uses the same workbench pattern as Reception Counter; the next step is patient-aware shortcuts from the bed board into notes, vitals, investigations, and drug charts.',
+                AppText(
+                  's4.lib.ward_mode.this_uses_the_same_workbench_pattern_as_receptio',
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],

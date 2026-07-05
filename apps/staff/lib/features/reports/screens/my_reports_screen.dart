@@ -273,8 +273,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                 if (inc['location'] != null)
                   _detailRow('Location', inc['location'] as String),
                 const Divider(),
-                Text(
-                  'Description',
+                AppText(
+                  'my_reports.label.description',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.bold,

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class CathLabScreen extends StatefulWidget {
   const CathLabScreen({super.key});
@@ -48,10 +49,10 @@ class _CathLabScreenState extends State<CathLabScreen>
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Cath Lab'),
+        title: const AppText('s4.lib.cath_lab.cath_lab'),
         actions: [
           IconButton(
-            tooltip: 'Pick date',
+            tooltip: AppStrings.of(context).lookup('theatre.pick_date'),
             icon: const Icon(Icons.calendar_today),
             onPressed: _pickDate,
           ),
@@ -62,9 +63,11 @@ class _CathLabScreenState extends State<CathLabScreen>
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: 'Schedule'),
-            Tab(text: 'Readiness'),
+          tabs: [
+            Tab(text: AppStrings.of(context).lookup('theatre.tab.schedule')),
+            Tab(
+              text: AppStrings.of(context).lookup('s4.lib.cath_lab.readiness'),
+            ),
           ],
         ),
       ),

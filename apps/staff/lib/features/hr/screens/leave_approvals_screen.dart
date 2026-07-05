@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class LeaveApprovalsScreen extends StatefulWidget {
   const LeaveApprovalsScreen({super.key});
@@ -70,27 +71,40 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('${decision == 'approve' ? 'Approve' : 'Reject'} leave'),
-        content: TextField(
-          controller: controller,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Review note',
-            hintText: 'Optional note for audit',
+      builder: (_) {
+        final s = AppStrings.of(context);
+        final decisionLabel = decision == 'approve'
+            ? s.lookup('s4.lib.housekeeping_roster_board.approve')
+            : s.lookup('clinical_ai.draft.reject_button');
+        return AlertDialog(
+          title: Text(
+            s.format('s4.dynamic.leave_approvals.decision_title', {
+              'decision': decisionLabel,
+            }),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+          content: TextField(
+            controller: controller,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: s.lookup('s4.lib.patient_records.review_note'),
+              hintText: s.lookup(
+                's4.lib.leave_approvals.optional_note_for_audit',
+              ),
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const AppText('action.cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: const AppText('action.confirm'),
+            ),
+          ],
+        );
+      },
     );
     controller.dispose();
     return result;
@@ -111,8 +125,10 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Leave ${decision == 'approve' ? 'approved' : 'rejected'}',
+          content: AppText(
+            decision == 'approve'
+                ? 's4.lib.leave_approvals.leave_approved'
+                : 's4.lib.leave_approvals.leave_rejected',
           ),
           backgroundColor: decision == 'approve'
               ? AppTheme.successGreen
@@ -137,7 +153,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       title: 'Leave Approvals',
       actions: [
         IconButton(
-          tooltip: 'Refresh',
+          tooltip: AppStrings.of(context).lookup('action.refresh'),
           onPressed: _loading ? null : _load,
           icon: const Icon(Icons.refresh),
         ),
@@ -282,7 +298,7 @@ class _LeaveRequestCard extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: onReject,
                       icon: const Icon(Icons.close),
-                      label: const Text('Reject'),
+                      label: const AppText('clinical_ai.draft.reject_button'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -290,7 +306,9 @@ class _LeaveRequestCard extends StatelessWidget {
                     child: FilledButton.icon(
                       onPressed: onApprove,
                       icon: const Icon(Icons.check),
-                      label: const Text('Approve'),
+                      label: const AppText(
+                        's4.lib.housekeeping_roster_board.approve',
+                      ),
                     ),
                   ),
                 ],
@@ -377,7 +395,7 @@ class _ErrorState extends StatelessWidget {
           const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 42),
           const SizedBox(height: 10),
           Text(error, style: TextStyle(color: AppTheme.textSecondary)),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(onPressed: onRetry, child: const AppText('action.retry')),
         ],
       ),
     );

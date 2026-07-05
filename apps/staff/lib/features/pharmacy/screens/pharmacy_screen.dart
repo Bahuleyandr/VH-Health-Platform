@@ -319,8 +319,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       Row(
                         children: [
                           const Expanded(
-                            child: Text(
-                              'Create Pharmacy Order',
+                            child: AppText(
+                              's4.lib.pharmacy.create_pharmacy_order',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -329,7 +329,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            tooltip: 'Close',
+                            tooltip: AppStrings.of(
+                              context,
+                            ).lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -340,10 +342,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       TextFormField(
                         controller: phoneCtrl,
                         keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'Patient phone',
-                          hintText: '10-digit mobile number',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('reception_counter.patient.phone'),
+                          hintText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.pharmacy.10_digit_mobile_number'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.phone_outlined),
                           ),
                         ),
@@ -360,11 +366,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: noteCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Order note',
-                          hintText:
-                              'Medicine names, dose, quantity, or Rx note',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.pharmacy.order_note'),
+                          hintText: AppStrings.of(context).lookup(
+                            's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note',
+                          ),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.medication_outlined),
                           ),
                           alignLabelWithHint: true,
@@ -379,7 +388,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: urgent,
-                        title: const Text('Mark urgent'),
+                        title: const AppText('s4.lib.pharmacy.mark_urgent'),
                         onChanged: submitting
                             ? null
                             : (value) => setSheetState(() => urgent = value),
@@ -528,7 +537,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               TextField(
                 controller: notesController,
                 decoration: InputDecoration(
-                  labelText: 'Notes (optional)',
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('appt_queue.notes_optional'),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -664,7 +675,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('No'),
+            child: const AppText('bed_board.no_filtered_prefix'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -696,7 +707,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Cancel order ${order['order_number']}?'),
+            AppText(
+              's4.dynamic.pharmacy.cancel_order_confirm',
+              values: {'orderNumber': order['order_number'] ?? ''},
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: reasonCtrl,
@@ -710,7 +724,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('No'),
+            child: const AppText('bed_board.no_filtered_prefix'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -853,7 +867,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Close',
+                            tooltip: AppStrings.of(
+                              context,
+                            ).lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -864,10 +880,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: nameCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Drug name with strength',
-                          hintText: 'Paracetamol 650 mg',
-                          prefixIcon: ExcludeSemantics(
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.pharmacy.drug_name_with_strength'),
+                          hintText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.pharmacy.paracetamol_650_mg'),
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.medication_outlined),
                           ),
                         ),
@@ -881,8 +901,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: genericCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Generic name',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.generic_name'),
                               ),
                             ),
                           ),
@@ -890,8 +912,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: categoryCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Category',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('vitals_chart.category'),
                                 hintText: 'analgesic',
                               ),
                             ),
@@ -904,9 +928,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: packSizeCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Pack / strength note',
-                                hintText: '10 tablets / strip',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.pack_strength_note'),
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.10_tablets_strip'),
                               ),
                             ),
                           ),
@@ -918,8 +946,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                   const TextInputType.numberWithOptions(
                                     decimal: true,
                                   ),
-                              decoration: const InputDecoration(
-                                labelText: 'Unit price',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.unit_price'),
                                 prefixText: '₹ ',
                               ),
                             ),
@@ -932,8 +962,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: manufacturerCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Manufacturer',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.manufacturer'),
                               ),
                             ),
                           ),
@@ -942,8 +974,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: stockCtrl,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Stock quantity',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.stock_quantity'),
                               ),
                             ),
                           ),
@@ -952,8 +986,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: reorderCtrl,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Reorder level',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.reorder_level'),
                               ),
                             ),
                           ),
@@ -963,7 +999,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: requiresPrescription,
-                        title: const Text('Prescription required'),
+                        title: const AppText(
+                          's4.lib.pharmacy.prescription_required',
+                        ),
                         onChanged: submitting
                             ? null
                             : (value) => setSheetState(
@@ -973,7 +1011,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: inStock,
-                        title: const Text('Available in formulary'),
+                        title: const AppText(
+                          's4.lib.pharmacy.available_in_formulary',
+                        ),
                         onChanged: submitting
                             ? null
                             : (value) => setSheetState(() => inStock = value),
@@ -1040,19 +1080,19 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove from formulary?'),
+        title: const AppText('s4.lib.pharmacy.remove_from_formulary'),
         content: Text(
           '$name will be hidden from OP/IP prescribing suggestions and the pharmacy formulary list.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           ElevatedButton.icon(
             onPressed: () => Navigator.pop(ctx, true),
             icon: const Icon(Icons.delete_outline),
-            label: const Text('Remove'),
+            label: const AppText('s4.lib.pharmacy.remove'),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.errorRed,
               foregroundColor: Colors.white,
@@ -1176,8 +1216,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              'Add Inventory Item',
+                            child: AppText(
+                              's4.lib.pharmacy.add_inventory_item',
                               style: TextStyle(
                                 color: AppTheme.textPrimary,
                                 fontSize: 18,
@@ -1186,7 +1226,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Close',
+                            tooltip: AppStrings.of(
+                              context,
+                            ).lookup('action.close'),
                             onPressed: submitting
                                 ? null
                                 : () => Navigator.pop(ctx, false),
@@ -1200,9 +1242,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: skuCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'SKU code',
-                                hintText: 'PARA-650-TAB',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.sku_code'),
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.para_650_tab'),
                               ),
                               validator: (value) =>
                                   (value?.trim().isEmpty ?? true)
@@ -1215,9 +1261,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             flex: 2,
                             child: TextFormField(
                               controller: displayCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Display name',
-                                hintText: 'Paracetamol 650 mg tablet',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.display_name'),
+                                hintText: AppStrings.of(context).lookup(
+                                  's4.lib.pharmacy.paracetamol_650_mg_tablet',
+                                ),
                               ),
                               validator: (value) =>
                                   (value?.trim().isEmpty ?? true)
@@ -1233,8 +1283,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: genericCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Generic name',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.generic_name'),
                               ),
                             ),
                           ),
@@ -1242,8 +1294,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: brandCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Brand name',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.brand_name'),
                               ),
                             ),
                           ),
@@ -1251,8 +1305,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: manufacturerCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Manufacturer',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.manufacturer'),
                               ),
                             ),
                           ),
@@ -1264,8 +1320,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: formCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Form',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.form'),
                                 hintText: 'tablet',
                               ),
                             ),
@@ -1274,9 +1332,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: strengthCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Strength',
-                                hintText: '650 mg',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.strength'),
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.650_mg'),
                               ),
                             ),
                           ),
@@ -1284,8 +1346,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: unitCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Unit label',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.unit_label'),
                                 hintText: 'tablet',
                               ),
                             ),
@@ -1298,9 +1362,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: packCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Pack size',
-                                hintText: '10 tablets / strip',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.pack_size'),
+                                hintText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.10_tablets_strip'),
                               ),
                             ),
                           ),
@@ -1308,24 +1376,29 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                           Expanded(
                             child: DropdownButtonFormField<String?>(
                               initialValue: scheduleClass,
-                              decoration: const InputDecoration(
-                                labelText: 'Schedule',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('theatre.tab.schedule'),
                               ),
                               items: const [
                                 DropdownMenuItem<String?>(
                                   value: null,
-                                  child: Text('None'),
+                                  child: AppText('s4.lib.pharmacy.none'),
                                 ),
                                 DropdownMenuItem(
                                   value: 'OTC',
-                                  child: Text('OTC'),
+                                  child: AppText('s4.lib.pharmacy.otc'),
                                 ),
                                 DropdownMenuItem(value: 'H', child: Text('H')),
                                 DropdownMenuItem(
                                   value: 'H1',
-                                  child: Text('H1'),
+                                  child: AppText('s4.lib.pharmacy.h1'),
                                 ),
-                                DropdownMenuItem(value: 'X', child: Text('X')),
+                                DropdownMenuItem(
+                                  value: 'X',
+                                  child: AppText('s4.lib.pharmacy.x'),
+                                ),
                               ],
                               onChanged: submitting
                                   ? null
@@ -1344,8 +1417,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: reorderLevelCtrl,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Reorder level',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.reorder_level'),
                               ),
                             ),
                           ),
@@ -1354,8 +1429,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                             child: TextFormField(
                               controller: reorderQtyCtrl,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Reorder quantity',
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  context,
+                                ).lookup('s4.lib.pharmacy.reorder_quantity'),
                               ),
                             ),
                           ),
@@ -1364,7 +1441,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: isColdChain,
-                        title: const Text('Cold-chain item'),
+                        title: const AppText('s4.lib.pharmacy.cold_chain_item'),
                         onChanged: submitting
                             ? null
                             : (value) =>
@@ -1373,7 +1450,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: isNarcotic,
-                        title: const Text('Controlled / narcotic item'),
+                        title: const AppText(
+                          's4.lib.pharmacy.controlled_narcotic_item',
+                        ),
                         onChanged: submitting
                             ? null
                             : (value) =>
@@ -1439,8 +1518,17 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         Tab(text: '${s.pharmacyTabActive} (${_activeOrders.length})'),
         Tab(text: '${s.pharmacyTabDone} (${_completedOrders.length})'),
       ],
-      Tab(text: 'Formulary (${_catalog.length})'),
-      if (_canViewInventory) Tab(text: 'Inventory (${_inventoryItems.length})'),
+      Tab(
+        text: s.format('s4.dynamic.pharmacy.formulary_count', {
+          'count': _catalog.length,
+        }),
+      ),
+      if (_canViewInventory)
+        Tab(
+          text: s.format('s4.dynamic.pharmacy.inventory_count', {
+            'count': _inventoryItems.length,
+          }),
+        ),
     ];
     final tabViews = <Widget>[
       if (_canWorkPharmacyOrders) ...[
@@ -1514,7 +1602,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                   ElevatedButton.icon(
                     onPressed: _createOrder,
                     icon: const Icon(Icons.add, color: Color(0xFFE65100)),
-                    label: const Text('New'),
+                    label: const AppText('lab_bookings.tab.new'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.cardSurface,
                       foregroundColor: const Color(0xFFE65100),
@@ -1555,8 +1643,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            'Pharmacy dispensing workflow is handled by Pharmacy staff. Use Inventory for stock, expiry, and purchase oversight.',
+          child: AppText(
+            's4.lib.pharmacy.pharmacy_dispensing_workflow_is_handled_by_pharm',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.textSecondary),
           ),
@@ -1599,8 +1687,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'Shared Pharmacy Formulary',
+                        child: AppText(
+                          's4.lib.pharmacy.shared_pharmacy_formulary',
                           style: TextStyle(
                             color: AppTheme.textPrimary,
                             fontWeight: FontWeight.w700,
@@ -1612,7 +1700,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         ElevatedButton.icon(
                           onPressed: () => _openCatalogEditor(),
                           icon: const Icon(Icons.add),
-                          label: const Text('Add Drug'),
+                          label: const AppText('s4.lib.prescriptions.add_drug'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFE65100),
                             foregroundColor: Colors.white,
@@ -1638,10 +1726,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       Expanded(
                         child: TextField(
                           controller: _catalogSearchCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Search formulary',
-                            hintText: 'Drug, generic, or strength',
-                            prefixIcon: ExcludeSemantics(
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.pharmacy.search_formulary'),
+                            hintText: AppStrings.of(context).lookup(
+                              's4.lib.pharmacy.drug_generic_or_strength',
+                            ),
+                            prefixIcon: const ExcludeSemantics(
                               child: Icon(Icons.search),
                             ),
                           ),
@@ -1651,14 +1743,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
-                        tooltip: 'Search',
+                        tooltip: AppStrings.of(context).lookup('action.search'),
                         onPressed: () => _loadCatalog(),
                         icon: const Icon(Icons.search),
                       ),
                       if (_catalogSearchCtrl.text.isNotEmpty) ...[
                         const SizedBox(width: 4),
                         IconButton(
-                          tooltip: 'Clear search',
+                          tooltip: AppStrings.of(
+                            context,
+                          ).lookup('patient_records.clear_tooltip'),
                           onPressed: () {
                             _catalogSearchCtrl.clear();
                             _loadCatalog(search: '');
@@ -1695,7 +1789,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     OutlinedButton.icon(
                       onPressed: () => _loadCatalog(),
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
+                      label: const AppText('action.retry'),
                     ),
                   ],
                 ),
@@ -1706,8 +1800,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Center(
-                  child: Text(
-                    'No formulary drugs found',
+                  child: AppText(
+                    's4.lib.pharmacy.no_formulary_drugs_found',
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ),
@@ -1740,8 +1834,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'Inventory & Purchase Oversight',
+                        child: AppText(
+                          's4.lib.pharmacy.inventory_and_purchase_oversight',
                           style: TextStyle(
                             color: AppTheme.textPrimary,
                             fontWeight: FontWeight.w700,
@@ -1753,13 +1847,15 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         OutlinedButton.icon(
                           onPressed: _runExpiryScan,
                           icon: const Icon(Icons.history_toggle_off_outlined),
-                          label: const Text('Run Expiry Scan'),
+                          label: const AppText(
+                            's4.lib.pharmacy.run_expiry_scan',
+                          ),
                         ),
                         const SizedBox(width: 8),
                         ElevatedButton.icon(
                           onPressed: _openInventoryItemEditor,
                           icon: const Icon(Icons.add),
-                          label: const Text('Add Item'),
+                          label: const AppText('s4.lib.pharmacy.add_item'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFE65100),
                             foregroundColor: Colors.white,
@@ -1771,8 +1867,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    'Stores/Purchase can maintain the drug master, stock visibility, and expiry oversight without dispensing patient medications.',
+                  AppText(
+                    's4.lib.pharmacy.stores_purchase_can_maintain_the_drug_master_sto',
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -1784,10 +1880,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       Expanded(
                         child: TextField(
                           controller: _inventorySearchCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Search inventory',
-                            hintText: 'SKU, drug, brand, or generic',
-                            prefixIcon: ExcludeSemantics(
+                          decoration: InputDecoration(
+                            labelText: AppStrings.of(
+                              context,
+                            ).lookup('s4.lib.pharmacy.search_inventory'),
+                            hintText: AppStrings.of(context).lookup(
+                              's4.lib.pharmacy.sku_drug_brand_or_generic',
+                            ),
+                            prefixIcon: const ExcludeSemantics(
                               child: Icon(Icons.search),
                             ),
                           ),
@@ -1797,14 +1897,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
-                        tooltip: 'Search',
+                        tooltip: AppStrings.of(context).lookup('action.search'),
                         onPressed: () => _loadInventory(),
                         icon: const Icon(Icons.search),
                       ),
                       if (_inventorySearchCtrl.text.isNotEmpty) ...[
                         const SizedBox(width: 4),
                         IconButton(
-                          tooltip: 'Clear search',
+                          tooltip: AppStrings.of(
+                            context,
+                          ).lookup('patient_records.clear_tooltip'),
                           onPressed: () {
                             _inventorySearchCtrl.clear();
                             _loadInventory(search: '');
@@ -1841,7 +1943,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     OutlinedButton.icon(
                       onPressed: () => _loadInventory(),
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
+                      label: const AppText('action.retry'),
                     ),
                   ],
                 ),
@@ -1851,8 +1953,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             if (_expiryAlerts.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 6),
-                child: Text(
-                  'Expiry alerts',
+                child: AppText(
+                  's4.lib.pharmacy.expiry_alerts',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.w700,
@@ -1864,8 +1966,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             ],
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: 6),
-              child: Text(
-                'Inventory items',
+              child: AppText(
+                's4.lib.pharmacy.inventory_items',
                 style: TextStyle(
                   color: AppTheme.textPrimary,
                   fontWeight: FontWeight.w700,
@@ -1877,8 +1979,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Center(
-                    child: Text(
-                      'No inventory items found',
+                    child: AppText(
+                      's4.lib.pharmacy.no_inventory_items_found',
                       style: TextStyle(color: AppTheme.textSecondary),
                     ),
                   ),
@@ -2103,12 +2205,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             if (_canManageFormulary) ...[
               const SizedBox(width: 8),
               IconButton(
-                tooltip: 'Edit formulary drug',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.pharmacy.edit_formulary_drug'),
                 onPressed: () => _openCatalogEditor(item),
                 icon: const Icon(Icons.edit_outlined),
               ),
               IconButton(
-                tooltip: 'Remove from formulary',
+                tooltip: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.pharmacy.remove_from_formulary_2'),
                 onPressed: () => _removeCatalogItem(item),
                 icon: Icon(
                   Icons.delete_outline,

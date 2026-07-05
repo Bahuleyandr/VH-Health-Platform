@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/attendance_api_service.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class BreakTracker extends StatefulWidget {
   final String staffId;
@@ -60,8 +61,8 @@ class _BreakTrackerState extends State<BreakTracker> {
                   color: Colors.brown,
                 ),
                 const SizedBox(width: 8),
-                const Text(
-                  'Breaks',
+                const AppText(
+                  's4.lib.break_tracker.breaks',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 const Spacer(),
@@ -120,8 +121,8 @@ class _BreakTrackerState extends State<BreakTracker> {
                           ),
                         ),
                       if (end.isEmpty)
-                        const Text(
-                          ' (ongoing)',
+                        const AppText(
+                          's4.lib.break_tracker.ongoing',
                           style: TextStyle(fontSize: 11, color: Colors.orange),
                         ),
                     ],

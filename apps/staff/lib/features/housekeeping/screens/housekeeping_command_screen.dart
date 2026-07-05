@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class HousekeepingCommandScreen extends StatefulWidget {
   const HousekeepingCommandScreen({super.key});
@@ -105,7 +106,9 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Housekeeping staff delegated'),
+          content: AppText(
+            's4.lib.housekeeping_command.housekeeping_staff_delegated',
+          ),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -130,18 +133,18 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('End assignment?'),
+        title: const AppText('s4.lib.housekeeping_command.end_assignment'),
         content: Text(
           '${_asText(assignment['staff_name'], fallback: 'This staff member')} will stop receiving requests for this floor.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('End'),
+            child: const AppText('s4.lib.housekeeping_command.end'),
           ),
         ],
       ),
@@ -174,10 +177,12 @@ class _HousekeepingCommandScreenState extends State<HousekeepingCommandScreen> {
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Housekeeping Command'),
+        title: const AppText(
+          's4.lib.housekeeping_command.housekeeping_command',
+        ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -303,8 +308,8 @@ class _DelegationPanel extends StatelessWidget {
                   color: AppTheme.primaryTeal,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'Redeploy staff',
+                AppText(
+                  's4.lib.housekeeping_command.redeploy_staff',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 18,
@@ -316,9 +321,11 @@ class _DelegationPanel extends StatelessWidget {
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               initialValue: selectedStaffId,
-              decoration: const InputDecoration(
-                labelText: 'Staff member',
-                prefixIcon: Icon(Icons.person_search_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.housekeeping_command.staff_member'),
+                prefixIcon: const Icon(Icons.person_search_outlined),
               ),
               items: staff
                   .map(
@@ -336,9 +343,11 @@ class _DelegationPanel extends StatelessWidget {
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               initialValue: selectedZoneId,
-              decoration: const InputDecoration(
-                labelText: 'Floor or zone',
-                prefixIcon: Icon(Icons.location_on_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.housekeeping_command.floor_or_zone'),
+                prefixIcon: const Icon(Icons.location_on_outlined),
               ),
               items: zones
                   .map(
@@ -357,9 +366,11 @@ class _DelegationPanel extends StatelessWidget {
             TextField(
               controller: reasonController,
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Reason',
-                prefixIcon: Icon(Icons.edit_note_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('drug_chart.stop_reason_label'),
+                prefixIcon: const Icon(Icons.edit_note_outlined),
               ),
             ),
             const SizedBox(height: 8),
@@ -367,12 +378,12 @@ class _DelegationPanel extends StatelessWidget {
               value: reassignOpenRequests,
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                'Move open requests in this zone',
+              title: AppText(
+                's4.lib.housekeeping_command.move_open_requests_in_this_zone',
                 style: TextStyle(color: AppTheme.textPrimary),
               ),
-              subtitle: Text(
-                'Useful when one floor has more work than another.',
+              subtitle: AppText(
+                's4.lib.housekeeping_command.useful_when_one_floor_has_more_work_than_another',
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               onChanged: saving ? null : onReassignChanged,
@@ -387,7 +398,9 @@ class _DelegationPanel extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.swap_horiz),
-              label: const Text('Delegate staff'),
+              label: const AppText(
+                's4.lib.housekeeping_command.delegate_staff',
+              ),
             ),
           ],
         ),
@@ -529,7 +542,7 @@ class _AssignmentCard extends StatelessWidget {
             TextButton.icon(
               onPressed: saving ? null : onEnd,
               icon: const Icon(Icons.close),
-              label: const Text('End'),
+              label: const AppText('s4.lib.housekeeping_command.end'),
             ),
           ],
         ),

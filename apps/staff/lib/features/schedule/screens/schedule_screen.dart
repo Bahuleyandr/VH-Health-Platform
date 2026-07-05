@@ -293,8 +293,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Shift actions',
+            AppText(
+              's4.lib.schedule.shift_actions',
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 16,
@@ -360,7 +360,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.chevron_left),
-                  tooltip: 'Previous week',
+                  tooltip: AppStrings.of(context).lookup('schedule.prev_week'),
                   onPressed: () => _changeWeek(-1),
                 ),
                 Text(
@@ -372,7 +372,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.chevron_right),
-                  tooltip: 'Next week',
+                  tooltip: AppStrings.of(context).lookup('schedule.next_week'),
                   onPressed: () => _changeWeek(1),
                 ),
               ],

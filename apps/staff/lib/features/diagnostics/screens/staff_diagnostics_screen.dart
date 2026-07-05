@@ -7,6 +7,7 @@ import '../../../core/services/diagnostics_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class StaffDiagnosticsScreen extends StatefulWidget {
   const StaffDiagnosticsScreen({super.key});
@@ -64,10 +65,12 @@ class _StaffDiagnosticsScreenState extends State<StaffDiagnosticsScreen> {
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Staff Diagnostics'),
+        title: const AppText('s4.lib.staff_diagnostics.staff_diagnostics'),
         actions: [
           IconButton(
-            tooltip: 'Refresh diagnostics',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.staff_diagnostics.refresh_diagnostics'),
             onPressed: _allowed && !_loading ? _load : null,
             icon: const Icon(Icons.refresh),
           ),
@@ -401,8 +404,8 @@ class _DetailPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (visible.isEmpty)
-            Text(
-              'No details returned.',
+            AppText(
+              's4.lib.staff_diagnostics.no_details_returned',
               style: TextStyle(color: AppTheme.textSecondary),
             )
           else

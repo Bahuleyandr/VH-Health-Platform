@@ -5,6 +5,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DutyPreferenceScreen extends StatefulWidget {
   const DutyPreferenceScreen({super.key});
@@ -154,9 +155,11 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
       );
       _reasonController.clear();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Duty request submitted')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.duty_preference.duty_request_submitted'),
+        ),
+      );
       await _load();
     } catch (e) {
       if (!mounted) return;
@@ -173,14 +176,15 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Duty Request'),
+        title: const AppText('s4.lib.duty_preference.duty_request'),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -199,8 +203,8 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Request preferred duty',
+                    AppText(
+                      's4.lib.duty_preference.request_preferred_duty',
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontSize: 18,
@@ -209,9 +213,11 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                     ),
                     const SizedBox(height: 12),
                     InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Department',
-                        prefixIcon: Icon(Icons.apartment_outlined),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('profile.field.department'),
+                        prefixIcon: const Icon(Icons.apartment_outlined),
                       ),
                       child: Text(
                         _departmentLabel,
@@ -263,7 +269,11 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                               ? null
                               : () => _pickDate(end: false),
                           icon: const Icon(Icons.event_outlined),
-                          label: Text('Date  ${_dateText(_startDate)}'),
+                          label: Text(
+                            s.format('s4.dynamic.duty_preference.date_label', {
+                              'date': _dateText(_startDate),
+                            }),
+                          ),
                         ),
                       )
                     else
@@ -275,7 +285,12 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                                   ? null
                                   : () => _pickDate(end: false),
                               icon: const Icon(Icons.event_outlined),
-                              label: Text('From  ${_dateText(_startDate)}'),
+                              label: Text(
+                                s.format(
+                                  's4.dynamic.duty_preference.from_label',
+                                  {'date': _dateText(_startDate)},
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -285,7 +300,12 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                                   ? null
                                   : () => _pickDate(end: true),
                               icon: const Icon(Icons.event_available_outlined),
-                              label: Text('To  ${_dateText(_endDate)}'),
+                              label: Text(
+                                s.format(
+                                  's4.dynamic.duty_preference.to_label',
+                                  {'date': _dateText(_endDate)},
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -294,9 +314,11 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                     TextField(
                       controller: _reasonController,
                       maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Reason',
-                        prefixIcon: Icon(Icons.notes_outlined),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('drug_chart.stop_reason_label'),
+                        prefixIcon: const Icon(Icons.notes_outlined),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -313,7 +335,9 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                                 ),
                               )
                             : const Icon(Icons.send_outlined),
-                        label: const Text('Submit request'),
+                        label: const AppText(
+                          's4.lib.duty_preference.submit_request',
+                        ),
                       ),
                     ),
                   ],
@@ -321,8 +345,8 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Text(
-              'My requests',
+            AppText(
+              's4.lib.duty_preference.my_requests',
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 16,
@@ -337,8 +361,8 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                 color: AppTheme.cardSurface,
                 child: Padding(
                   padding: const EdgeInsets.all(18),
-                  child: Text(
-                    'No duty requests yet',
+                  child: AppText(
+                    's4.lib.duty_preference.no_duty_requests_yet',
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ),

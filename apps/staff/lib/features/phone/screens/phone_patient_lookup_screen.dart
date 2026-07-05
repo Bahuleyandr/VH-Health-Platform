@@ -7,6 +7,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class PhonePatientLookupScreen extends StatefulWidget {
   const PhonePatientLookupScreen({super.key});
@@ -84,7 +85,11 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
     final allowed = _allowed;
     if (allowed == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Read-Only Patient Lookup')),
+        appBar: AppBar(
+          title: const AppText(
+            's4.lib.phone_patient_lookup.read_only_patient_lookup',
+          ),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -93,7 +98,11 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Read-Only Patient Lookup')),
+      appBar: AppBar(
+        title: const AppText(
+          's4.lib.phone_patient_lookup.read_only_patient_lookup',
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -111,8 +120,8 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
                 Icon(Icons.visibility_outlined, color: AppTheme.primaryBlue),
                 SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'Read-only on phone. Clinical entries must be completed on Staff Desktop.',
+                  child: AppText(
+                    's4.lib.patient_timeline.read_only_on_phone_clinical_entries_must_be_comp',
                   ),
                 ),
               ],
@@ -123,7 +132,9 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
             controller: _ctrl,
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search),
-              labelText: 'Hospital ID / phone / name',
+              labelText: AppStrings.of(
+                context,
+              ).lookup('reception_counter.patient_lookup.hint'),
               suffixIcon: _loading
                   ? const Padding(
                       padding: EdgeInsets.all(12),
@@ -149,7 +160,9 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
             const Card(
               child: Padding(
                 padding: EdgeInsets.all(18),
-                child: Text('No matching patient found.'),
+                child: AppText(
+                  's4.lib.phone_patient_lookup.no_matching_patient_found',
+                ),
               ),
             ),
           ..._patients.map((patient) {
@@ -188,7 +201,11 @@ class _LookupDeniedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Read-Only Patient Lookup')),
+      appBar: AppBar(
+        title: const AppText(
+          's4.lib.phone_patient_lookup.read_only_patient_lookup',
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -207,8 +224,8 @@ class _LookupDeniedScreen extends StatelessWidget {
                 Icon(Icons.lock_outline, color: AppTheme.warningAmber),
                 SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'Patient lookup on phone is limited to doctor-class read-only access. Use Staff Desktop for clinical workflows.',
+                  child: AppText(
+                    's4.lib.phone_patient_lookup.patient_lookup_on_phone_is_limited_to_doctor_cla',
                   ),
                 ),
               ],

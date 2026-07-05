@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class CalculatorField {
   const CalculatorField({
@@ -367,7 +368,9 @@ class CalculatorsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Clinical Calculators')),
+      appBar: AppBar(
+        title: const AppText('s4.lib.calculators.clinical_calculators'),
+      ),
       body: ListView.separated(
         padding: const EdgeInsets.all(12),
         itemCount: _calculators.length,
@@ -585,7 +588,10 @@ class CalculatorDefDetailScreenState extends State<CalculatorDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Result', style: theme.textTheme.titleMedium),
+            AppText(
+              's4.lib.calculators.result',
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(
               result is Map ? _fmtMap(result) : '$result',

@@ -5,6 +5,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class StaffRosterHubScreen extends StatefulWidget {
   const StaffRosterHubScreen({super.key});
@@ -219,8 +220,8 @@ class _EmptyRosterState extends StatelessWidget {
           Icon(Icons.lock_outline, color: AppTheme.textSecondary),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              'No department roster board is assigned to this role.',
+            child: AppText(
+              's4.lib.staff_roster_hub.no_department_roster_board_is_assigned_to_this_r',
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ),
@@ -262,8 +263,8 @@ class _HeaderCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Department roster boards',
+                AppText(
+                  's4.lib.staff_roster_hub.department_roster_boards',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: isWide ? 20 : 18,
@@ -271,8 +272,8 @@ class _HeaderCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Choose a department to manage weekly duties, leave blocks, requests, and roster forecast overlays.',
+                AppText(
+                  's4.lib.staff_roster_hub.choose_a_department_to_manage_weekly_duties_leav',
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],

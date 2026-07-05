@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 typedef CompositionAlternativesLoader =
     Future<CompositionAlternativesResult> Function(int catalogId);
@@ -111,8 +112,8 @@ class _CompositionAlternativesLoadedPanel extends StatelessWidget {
         tilePadding: const EdgeInsets.symmetric(horizontal: 12),
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         leading: const Icon(Icons.compare_arrows, color: Color(0xFF00838F)),
-        title: Text(
-          'Composition alternatives',
+        title: AppText(
+          's4.lib.composition_alternatives_panel.composition_alternatives',
           style: theme.textTheme.titleSmall?.copyWith(
             color: AppTheme.textPrimary,
             fontWeight: FontWeight.w800,
@@ -227,7 +228,9 @@ class _CompositionAlternativeTile extends StatelessWidget {
           ? TextButton.icon(
               onPressed: () => onSwap(item),
               icon: const Icon(Icons.swap_horiz, size: 16),
-              label: const Text('Swap'),
+              label: const AppText(
+                's4.lib.composition_alternatives_panel.swap',
+              ),
             )
           : _InfoOnlyPill(label: doNotSubstitute ? 'DAW locked' : 'Info only'),
     );

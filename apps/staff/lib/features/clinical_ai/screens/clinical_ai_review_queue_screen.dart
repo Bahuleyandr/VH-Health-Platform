@@ -199,7 +199,9 @@ class _QuickAccessRow extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => context.push('/op-ai-assist'),
                 icon: const Icon(Icons.auto_awesome, size: 16),
-                label: const Text('OP AI Assist'),
+                label: const AppText(
+                  's4.lib.clinical_ai_review_queue.op_ai_assist',
+                ),
                 style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
               ),
             ],

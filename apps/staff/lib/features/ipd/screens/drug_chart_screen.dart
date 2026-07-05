@@ -642,8 +642,8 @@ class _DrugChartToolbar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Inpatient Drug Chart',
+                AppText(
+                  's4.lib.drug_chart.inpatient_drug_chart',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -969,8 +969,8 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Starts today',
+                  AppText(
+                    's4.lib.drug_chart.starts_today',
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontWeight: FontWeight.w700,
@@ -978,8 +978,8 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'Active until stopped',
+                  AppText(
+                    's4.lib.drug_chart.active_until_stopped',
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -1206,8 +1206,10 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
           },
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
           decoration: InputDecoration(
-            labelText: 'Drug',
-            hintText: 'Type drug name',
+            labelText: AppStrings.of(context).lookup('drug_chart.column.drug'),
+            hintText: AppStrings.of(
+              context,
+            ).lookup('s4.lib.prescriptions.type_drug_name'),
             isDense: true,
             suffixIcon: _loading
                 ? const Padding(

@@ -525,8 +525,8 @@ class _StaffSnapshotCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 3),
-                      Text(
-                        'Seeded and onboarded staff currently visible to HR',
+                      AppText(
+                        's4.lib.hr_dashboard.seeded_and_onboarded_staff_currently_visible_to',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: AppTheme.textSecondary),
@@ -537,14 +537,14 @@ class _StaffSnapshotCard extends StatelessWidget {
                 TextButton.icon(
                   onPressed: onOpenRoster,
                   icon: const Icon(Icons.calendar_month_outlined, size: 18),
-                  label: const Text('Roster'),
+                  label: const AppText('s4.lib.hr_dashboard.roster'),
                 ),
               ],
             ),
             const SizedBox(height: 14),
             if (departmentEntries.isEmpty)
-              Text(
-                'No staff records loaded yet.',
+              AppText(
+                's4.lib.hr_dashboard.no_staff_records_loaded_yet',
                 style: TextStyle(color: AppTheme.textSecondary),
               )
             else
@@ -560,8 +560,8 @@ class _StaffSnapshotCard extends StatelessWidget {
             const Divider(height: 1),
             const SizedBox(height: 10),
             if (visibleStaff.isEmpty)
-              Text(
-                'Use onboarding to add the first staff account.',
+              AppText(
+                's4.lib.hr_dashboard.use_onboarding_to_add_the_first_staff_account',
                 style: TextStyle(color: AppTheme.textSecondary),
               )
             else
@@ -576,7 +576,7 @@ class _StaffSnapshotCard extends StatelessWidget {
               child: TextButton.icon(
                 onPressed: onOpenOnboarding,
                 icon: const Icon(Icons.manage_accounts_outlined, size: 18),
-                label: const Text('Open onboarding'),
+                label: const AppText('s4.lib.hr_dashboard.open_onboarding'),
               ),
             ),
           ],

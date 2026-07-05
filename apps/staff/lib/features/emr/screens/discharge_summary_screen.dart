@@ -362,11 +362,14 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Safety flags', style: theme.textTheme.titleLarge),
+              AppText(
+                'clinical_ai.draft.safety_header',
+                style: theme.textTheme.titleLarge,
+              ),
               const SizedBox(height: 12),
               if (flags.isEmpty)
-                Text(
-                  'No safety flags are attached to this summary.',
+                AppText(
+                  's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary',
                   style: theme.textTheme.bodyMedium,
                 )
               else
@@ -408,7 +411,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Close'),
+                      child: const AppText('action.close'),
                     ),
                   ),
                   if (!_isSigned && flags.isNotEmpty) ...[
@@ -417,7 +420,9 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                       child: FilledButton.icon(
                         onPressed: () => Navigator.pop(ctx),
                         icon: const Icon(Icons.edit_note),
-                        label: const Text('Correct summary'),
+                        label: const AppText(
+                          's4.lib.discharge_summary.correct_summary',
+                        ),
                       ),
                     ),
                   ],
@@ -450,28 +455,38 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Signature details'),
+        title: const AppText('s4.lib.discharge_hub.signature_details'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (!_isSigned)
-              const Text('This summary has not been signed yet.')
+              const AppText(
+                's4.lib.discharge_summary.this_summary_has_not_been_signed_yet',
+              )
             else ...[
               Text(
                 signedByName.isNotEmpty ? signedByName : 'Signer unavailable',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               if (signedByRole.isNotEmpty) Text(signedByRole),
-              if (signedBy.isNotEmpty) Text('User ID: $signedBy'),
-              if (signedAt.isNotEmpty) Text('Signed at: $signedAt'),
+              if (signedBy.isNotEmpty)
+                AppText(
+                  's4.dynamic.common.user_id',
+                  values: {'userId': signedBy},
+                ),
+              if (signedAt.isNotEmpty)
+                AppText(
+                  's4.dynamic.common.signed_at',
+                  values: {'signedAt': signedAt},
+                ),
             ],
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: const AppText('action.close'),
           ),
         ],
       ),
@@ -486,7 +501,13 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: Text('${s.dischargeTitlePrefix} ${widget.patientName}'),
+        title: AppText(
+          's4.dynamic.discharge_summary.title_for_patient',
+          values: {
+            'prefix': s.dischargeTitlePrefix,
+            'patient': widget.patientName,
+          },
+        ),
         actions: [
           if (_summary != null && !_isSigned)
             TextButton.icon(

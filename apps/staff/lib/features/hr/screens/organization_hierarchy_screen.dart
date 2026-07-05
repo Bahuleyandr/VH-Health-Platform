@@ -6,6 +6,7 @@ import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class OrganizationHierarchyScreen extends StatefulWidget {
   const OrganizationHierarchyScreen({super.key});
@@ -172,8 +173,8 @@ class _OverviewCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Central hierarchy and role map',
+                      AppText(
+                        's4.lib.organization_hierarchy.central_hierarchy_and_role_map',
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w800,
                         ),
@@ -1043,8 +1044,8 @@ class _StaffPreview extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     if (staff.isEmpty) {
-      return Text(
-        'No registered staff under this role yet',
+      return AppText(
+        's4.lib.organization_hierarchy.no_registered_staff_under_this_role_yet',
         style: theme.textTheme.bodySmall?.copyWith(
           color: scheme.onSurfaceVariant,
           fontStyle: FontStyle.italic,
@@ -1190,8 +1191,8 @@ class _StaffListSheet extends StatelessWidget {
           Expanded(
             child: staff.isEmpty
                 ? Center(
-                    child: Text(
-                      'No registered staff found under this role.',
+                    child: AppText(
+                      's4.lib.organization_hierarchy.no_registered_staff_found_under_this_role',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -1412,7 +1413,7 @@ class _ErrorState extends StatelessWidget {
           child: OutlinedButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
+            label: const AppText('action.retry'),
           ),
         ),
       ],

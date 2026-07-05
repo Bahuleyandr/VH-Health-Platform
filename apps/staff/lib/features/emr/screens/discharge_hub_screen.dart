@@ -7,6 +7,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DischargeHubScreen extends StatefulWidget {
   final int admissionId;
@@ -88,10 +89,15 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Safety flags', style: theme.textTheme.titleLarge),
+              AppText(
+                'clinical_ai.draft.safety_header',
+                style: theme.textTheme.titleLarge,
+              ),
               const SizedBox(height: 12),
               if (flags.isEmpty)
-                const Text('No safety flags are attached to this summary.')
+                const AppText(
+                  's4.lib.discharge_hub.no_safety_flags_are_attached_to_this_summary',
+                )
               else
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 320),
@@ -130,7 +136,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                 width: double.infinity,
                 child: OutlinedButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
+                  child: const AppText('action.close'),
                 ),
               ),
             ],
@@ -148,28 +154,38 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Signature details'),
+        title: const AppText('s4.lib.discharge_hub.signature_details'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (summary['is_signed'] != true)
-              const Text('This discharge summary still needs doctor sign-off.')
+              const AppText(
+                's4.lib.discharge_hub.this_discharge_summary_still_needs_doctor_sign_o',
+              )
             else ...[
               Text(
                 signedByName.isNotEmpty ? signedByName : 'Signer unavailable',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               if (signedByRole.isNotEmpty) Text(signedByRole),
-              if (signedBy.isNotEmpty) Text('User ID: $signedBy'),
-              if (signedAt.isNotEmpty) Text('Signed at: $signedAt'),
+              if (signedBy.isNotEmpty)
+                AppText(
+                  's4.dynamic.common.user_id',
+                  values: {'userId': signedBy},
+                ),
+              if (signedAt.isNotEmpty)
+                AppText(
+                  's4.dynamic.common.signed_at',
+                  values: {'signedAt': signedAt},
+                ),
             ],
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: const AppText('action.close'),
           ),
         ],
       ),
@@ -185,16 +201,23 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       if (!mounted) return;
       final runId = result['run_id'] ?? result['workflow_run_id'];
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AI discharge package started')),
+        const SnackBar(
+          content: AppText('s4.lib.discharge_hub.ai_discharge_package_started'),
+        ),
       );
       if (runId is int) {
         context.push('/clinical-ai/compose/$runId', extra: result);
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('AI package failed: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: AppText(
+            's4.dynamic.discharge_hub.ai_package_failed',
+            values: {'error': e},
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -202,31 +225,38 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
 
   Future<String?> _askFinishNotes(Map<String, dynamic> item) async {
     final controller = TextEditingController();
-    final label = (item['label'] ?? 'work item').toString();
+    final s = AppStrings.of(context);
+    final label = (item['label'] ?? s.lookup('s4.lib.discharge_hub.work_item'))
+        .toString();
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Finish $label'),
+        title: AppText(
+          's4.dynamic.discharge_hub.finish_task_title',
+          values: {'label': label},
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
           minLines: 3,
           maxLines: 5,
-          decoration: const InputDecoration(
-            labelText: 'Completion note',
-            hintText: 'Advice given, handover completed, bill cleared...',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.lookup('s4.lib.discharge_hub.completion_note'),
+            hintText: s.lookup(
+              's4.lib.discharge_hub.advice_given_handover_completed_bill_cleared',
+            ),
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(ctx, controller.text),
             icon: const Icon(Icons.task_alt, size: 18),
-            label: const Text('Finish'),
+            label: const AppText('s4.lib.discharge_hub.finish'),
           ),
         ],
       ),
@@ -252,15 +282,29 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
         notes: notes,
       );
       if (!mounted) return;
+      final s = AppStrings.of(context);
+      final label =
+          (item['label'] ?? s.lookup('s4.lib.discharge_hub.work_item'))
+              .toString();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${item['label'] ?? 'Task'} finished')),
+        SnackBar(
+          content: AppText(
+            's4.dynamic.discharge_hub.task_finished',
+            values: {'label': label},
+          ),
+        ),
       );
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not finish task: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: AppText(
+            's4.dynamic.discharge_hub.finish_task_failed',
+            values: {'error': e},
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -298,10 +342,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: Text('Discharge Hub - ${_displayName()}'),
+        title: AppText(
+          's4.dynamic.discharge_hub.title_for_patient',
+          values: {'patient': _displayName()},
+        ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -347,7 +394,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             FilledButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: const AppText('action.retry'),
             ),
           ],
         ),
@@ -527,8 +574,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             children: [
               _sectionTitle(theme, 'Role work items', Icons.groups),
               const SizedBox(height: 8),
-              const Text(
-                'Start discharge to open dietary, counselling, pharmacy, physiotherapy, and billing tasks.',
+              const AppText(
+                's4.lib.discharge_hub.start_discharge_to_open_dietary_counselling_phar',
               ),
             ],
           ),
@@ -567,13 +614,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             Text(done ? 'Finished by ${item['completed_by'] ?? owner}' : owner),
             if (notes.isNotEmpty) Text(notes),
             if (type == 'pharmacy' && !done)
-              const Text(
-                'Finishing this also requires discharge drugs dispensed.',
+              const AppText(
+                's4.lib.discharge_hub.finishing_this_also_requires_discharge_drugs_dis',
               ),
           ],
         ),
         trailing: done
-            ? const Text('Done')
+            ? const AppText('incident_report.done_button')
             : canComplete
             ? FilledButton(
                 onPressed: _busyKey == type
@@ -585,9 +632,9 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Finish'),
+                    : const AppText('s4.lib.discharge_hub.finish'),
               )
-            : const Text('Pending'),
+            : const AppText('appt_queue.tab.pending_prefix'),
       ),
     );
   }
@@ -651,8 +698,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           children: [
             _sectionTitle(theme, 'Clinical AI package', Icons.auto_awesome),
             const SizedBox(height: 8),
-            const Text(
-              'Creates the reviewed discharge package from medication reconciliation, aftercare, readiness, and coding modules. It is draft-only until a doctor reviews and signs.',
+            const AppText(
+              's4.lib.discharge_hub.creates_the_reviewed_discharge_package_from_medi',
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
@@ -664,7 +711,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.auto_awesome),
-              label: const Text('Generate AI package'),
+              label: const AppText('s4.lib.discharge_hub.generate_ai_package'),
             ),
           ],
         ),

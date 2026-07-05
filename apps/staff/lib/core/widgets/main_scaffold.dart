@@ -13,6 +13,7 @@ import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
 import '../services/clinical_platform_api_service.dart';
 import 'message_unread_badge.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 @visibleForTesting
 bool shouldPushWorkbenchNav({
@@ -235,14 +236,18 @@ class _MainScaffoldState extends State<MainScaffold> {
     if (route == '/notifications') {
       return MessageUnreadBadge(
         unreadCount: unreadAlerts,
-        semanticLabel: 'unread alerts',
+        semanticLabel: AppStrings.of(
+          context,
+        ).lookup('s4.lib.main_scaffold.unread_alerts'),
         child: child,
       );
     }
     if (route == '/clinical-inbox') {
       return MessageUnreadBadge(
         unreadCount: pendingClinicalTasks,
-        semanticLabel: 'pending clinical tasks',
+        semanticLabel: AppStrings.of(
+          context,
+        ).lookup('s4.lib.main_scaffold.pending_clinical_tasks'),
         child: child,
       );
     }

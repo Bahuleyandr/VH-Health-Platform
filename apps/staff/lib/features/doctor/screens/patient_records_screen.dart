@@ -701,7 +701,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
             if (pickedFiles.isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 const SnackBar(
-                  content: Text('Attach at least one file or photo'),
+                  content: AppText(
+                    's4.lib.patient_records.attach_at_least_one_file_or_photo',
+                  ),
                   backgroundColor: AppTheme.errorRed,
                 ),
               );
@@ -777,8 +779,8 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     Row(
                       children: [
                         const Expanded(
-                          child: Text(
-                            'Upload Prior Record',
+                          child: AppText(
+                            's4.lib.patient_records.upload_prior_record',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -787,7 +789,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.close),
-                          tooltip: 'Close',
+                          tooltip: AppStrings.of(
+                            context,
+                          ).lookup('action.close'),
                           onPressed: submitting
                               ? null
                               : () => Navigator.pop(ctx, false),
@@ -800,7 +804,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                       keyboardType: TextInputType.phone,
                       readOnly: hasScopedPatient,
                       decoration: InputDecoration(
-                        labelText: 'Patient phone',
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('reception_counter.patient.phone'),
                         helperText: lookupMessage,
                         prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.phone_outlined),
@@ -822,7 +828,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                 onPressed: submitting
                                     ? null
                                     : () => lookupPatient(setSheetState),
-                                child: const Text('Check'),
+                                child: const AppText(
+                                  's4.lib.patient_records.check',
+                                ),
                               ),
                       ),
                       validator: (value) =>
@@ -835,9 +843,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     TextFormField(
                       controller: patientNameCtrl,
                       readOnly: patientNameReadOnly,
-                      decoration: const InputDecoration(
-                        labelText: 'Patient name',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('reception_counter.patient.name'),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.person_outline),
                         ),
                       ),
@@ -849,10 +859,14 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: titleCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Record title',
-                        hintText: 'Old discharge summary, prior scan...',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.patient_records.record_title'),
+                        hintText: AppStrings.of(context).lookup(
+                          's4.lib.patient_records.old_discharge_summary_prior_scan',
+                        ),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.title_outlined),
                         ),
                       ),
@@ -863,34 +877,41 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: documentType,
-                      decoration: const InputDecoration(
-                        labelText: 'Document type',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('s4.lib.patient_records.document_type'),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.folder_copy_outlined),
                         ),
                       ),
                       items: const [
                         DropdownMenuItem(
                           value: 'prior_record',
-                          child: Text('Prior record'),
+                          child: AppText('s4.lib.patient_records.prior_record'),
                         ),
                         DropdownMenuItem(
                           value: 'discharge_summary',
-                          child: Text('Discharge summary'),
+                          child: AppText(
+                            's4.lib.patient_records.discharge_summary',
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'lab_report',
-                          child: Text('Lab report'),
+                          child: AppText('s4.lib.patient_records.lab_report'),
                         ),
                         DropdownMenuItem(
                           value: 'radiology',
-                          child: Text('Radiology'),
+                          child: AppText('radiology.title'),
                         ),
                         DropdownMenuItem(
                           value: 'prescription',
-                          child: Text('Prescription'),
+                          child: AppText('prescriptions.created_prefix'),
                         ),
-                        DropdownMenuItem(value: 'other', child: Text('Other')),
+                        DropdownMenuItem(
+                          value: 'other',
+                          child: AppText('nursing_notes.type.other'),
+                        ),
                       ],
                       onChanged: submitting
                           ? null
@@ -904,9 +925,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                         Expanded(
                           child: TextField(
                             controller: sourceCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Source hospital',
-                              prefixIcon: ExcludeSemantics(
+                            decoration: InputDecoration(
+                              labelText: AppStrings.of(context).lookup(
+                                's4.lib.patient_records.source_hospital',
+                              ),
+                              prefixIcon: const ExcludeSemantics(
                                 child: Icon(Icons.local_hospital_outlined),
                               ),
                             ),
@@ -994,7 +1017,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                         Expanded(
                           child: OutlinedButton.icon(
                             icon: const Icon(Icons.camera_alt_outlined),
-                            label: const Text('Camera'),
+                            label: const AppText('prescriptions.photo.camera'),
                             onPressed: submitting
                                 ? null
                                 : () async {
@@ -1073,7 +1096,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                             )
                                           : null
                                     : IconButton(
-                                        tooltip: 'Remove file',
+                                        tooltip: AppStrings.of(context).lookup(
+                                          's4.lib.patient_records.remove_file',
+                                        ),
                                         icon: const Icon(Icons.close),
                                         onPressed: () => setSheetState(
                                           () => pickedFiles.removeAt(index),
@@ -1089,9 +1114,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     TextField(
                       controller: notesCtrl,
                       maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes (optional)',
-                        prefixIcon: ExcludeSemantics(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(
+                          context,
+                        ).lookup('appt_queue.notes_optional'),
+                        prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.notes_outlined),
                         ),
                       ),
@@ -1146,7 +1173,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     if (uploaded == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Patient record uploaded'),
+          content: AppText('s4.lib.patient_records.patient_record_uploaded'),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -1207,9 +1234,17 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
               labelColor: AppTheme.primaryBlue,
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.primaryBlue,
-              tabs: const [
-                Tab(text: 'Current Admission Notes'),
-                Tab(text: 'Prior Records'),
+              tabs: [
+                Tab(
+                  text: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.patient_records.current_admission_notes'),
+                ),
+                Tab(
+                  text: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.patient_records.prior_records'),
+                ),
               ],
             ),
           ),
@@ -1272,7 +1307,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                   ? ElevatedButton.icon(
                       onPressed: _showUploadRecordSheet,
                       icon: const Icon(Icons.upload_file, color: Colors.white),
-                      label: const Text('Upload Prior Record'),
+                      label: const AppText(
+                        's4.lib.patient_records.upload_prior_record',
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primaryBlue,
                         foregroundColor: Colors.white,
@@ -1574,13 +1611,18 @@ class _AdmissionNotesCard extends StatelessWidget {
             if (admittedAt.isNotEmpty) admittedAt,
           ].join(' • '),
         ),
-        trailing: Chip(label: Text('${bundle.notes.length} notes')),
+        trailing: Chip(
+          label: AppText(
+            's4.dynamic.patient_records.notes_count',
+            values: {'count': bundle.notes.length},
+          ),
+        ),
         children: [
           if (bundle.notes.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-              child: Text(
-                'No notes recorded for this admission yet.',
+              child: AppText(
+                's4.lib.patient_records.no_notes_recorded_for_this_admission_yet',
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
             )
@@ -1604,7 +1646,7 @@ class _AdmissionNotesCard extends StatelessWidget {
                         ),
                       ),
                 icon: const Icon(Icons.open_in_new),
-                label: const Text('Open Notes'),
+                label: const AppText('s4.lib.patient_records.open_notes'),
               ),
             ),
           ),
@@ -1740,7 +1782,9 @@ class _IpPriorRecordsTabState extends State<_IpPriorRecordsTab> {
               child: ElevatedButton.icon(
                 onPressed: _uploadAndRefresh,
                 icon: const Icon(Icons.upload_file, color: Colors.white),
-                label: const Text('Upload Prior Record'),
+                label: const AppText(
+                  's4.lib.patient_records.upload_prior_record',
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primaryBlue,
                   foregroundColor: Colors.white,
@@ -1847,7 +1891,9 @@ class _IpPriorRecordCard extends StatelessWidget {
               ].join(' • '),
             ),
             trailing: IconButton(
-              tooltip: 'Open',
+              tooltip: AppStrings.of(
+                context,
+              ).lookup('s4.lib.patient_records.open'),
               icon: const Icon(Icons.open_in_new),
               onPressed: fileUrl.isEmpty
                   ? null
@@ -1905,7 +1951,7 @@ class _AiExtractionActionRow extends StatelessWidget {
                 )
               : null,
           icon: const Icon(Icons.fact_check_outlined),
-          label: const Text('AI Review'),
+          label: const AppText('dashboard.stat.review_queue'),
         );
         if (constraints.maxWidth < 420) {
           return Column(
@@ -2067,7 +2113,7 @@ class _PatientRecordExtractionDialogState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Extraction review saved'),
+          content: AppText('s4.lib.patient_records.extraction_review_saved'),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -2102,15 +2148,15 @@ class _PatientRecordExtractionDialogState
                   Icon(Icons.auto_awesome_outlined, color: scheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      'AI-assisted record review',
+                    child: AppText(
+                      's4.lib.patient_records.ai_assisted_record_review',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Close',
+                    tooltip: AppStrings.of(context).lookup('action.close'),
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -2236,7 +2282,7 @@ class _RecordDocumentPreview extends StatelessWidget {
                           }
                         },
                   icon: const Icon(Icons.open_in_new),
-                  label: const Text('Open'),
+                  label: const AppText('s4.lib.patient_records.open'),
                 ),
               ],
             ),
@@ -2245,8 +2291,8 @@ class _RecordDocumentPreview extends StatelessWidget {
           Expanded(
             child: fileUrl.isEmpty
                 ? Center(
-                    child: Text(
-                      'Document link unavailable',
+                    child: AppText(
+                      's4.lib.patient_records.document_link_unavailable',
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                   )
@@ -2364,7 +2410,12 @@ class _ExtractionDraftPane extends StatelessWidget {
               children: [
                 _AiExtractionChip(extraction: extraction),
                 if (confidence != null)
-                  Chip(label: Text('Confidence $confidence')),
+                  Chip(
+                    label: AppText(
+                      's4.dynamic.patient_records.confidence',
+                      values: {'confidence': confidence},
+                    ),
+                  ),
                 Chip(
                   label: Text(
                     'OCR ${_firstText([extraction['ocr_status']], fallback: 'unknown')}',
@@ -2378,8 +2429,8 @@ class _ExtractionDraftPane extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.all(14),
               children: [
-                Text(
-                  'Draft, not imported to chart',
+                AppText(
+                  's4.lib.patient_records.draft_not_imported_to_chart',
                   style: TextStyle(
                     color: scheme.primary,
                     fontWeight: FontWeight.w800,
@@ -2438,9 +2489,11 @@ class _ExtractionDraftPane extends StatelessWidget {
                   controller: noteCtrl,
                   minLines: 2,
                   maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Review note',
-                    prefixIcon: Icon(Icons.edit_note_outlined),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.patient_records.review_note'),
+                    prefixIcon: const Icon(Icons.edit_note_outlined),
                   ),
                 ),
               ],
@@ -2457,12 +2510,12 @@ class _ExtractionDraftPane extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: saving ? null : () => onDecision('rejected'),
                   icon: const Icon(Icons.close),
-                  label: const Text('Reject'),
+                  label: const AppText('clinical_ai.draft.reject_button'),
                 ),
                 OutlinedButton.icon(
                   onPressed: saving ? null : () => onDecision('needs_revision'),
                   icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Needs Revision'),
+                  label: const AppText('s4.lib.patient_records.needs_revision'),
                 ),
                 ElevatedButton.icon(
                   onPressed: saving ? null : () => onDecision('accepted'),
@@ -2473,7 +2526,7 @@ class _ExtractionDraftPane extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.check_circle_outline),
-                  label: const Text('Accept'),
+                  label: const AppText('leave.action.accept'),
                 ),
               ],
             ),
@@ -2514,8 +2567,8 @@ class _ExtractionTextSection extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           if (items.isEmpty)
-            Text(
-              'No clear text extracted',
+            AppText(
+              's4.lib.patient_records.no_clear_text_extracted',
               style: TextStyle(color: scheme.onSurfaceVariant),
             )
           else
@@ -3008,7 +3061,9 @@ class _EmptyState extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onUpload,
               icon: const Icon(Icons.upload_file_outlined),
-              label: const Text('Upload prior record'),
+              label: const AppText(
+                's4.lib.patient_records.upload_prior_record_2',
+              ),
             ),
           ],
         ],

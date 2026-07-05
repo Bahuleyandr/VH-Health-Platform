@@ -10,6 +10,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_collect_button.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class BillingDeskScreen extends StatefulWidget {
   final String? prefillPatientUid;
@@ -174,9 +175,11 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       );
       await _loadInvoices();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Draft invoice created')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.billing_desk.draft_invoice_created'),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -194,9 +197,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       await BillingApiService.issueInvoice(id);
       await _loadInvoices();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Invoice issued')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: AppText('s4.lib.billing_desk.invoice_issued')),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -216,9 +219,11 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       if (!collected || !mounted) return;
       await _loadInvoices();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Payment collected')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.billing_desk.payment_collected'),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }
@@ -311,8 +316,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           ),
           ConstrainedBox(
             constraints: const BoxConstraints(minWidth: 220, maxWidth: 460),
-            child: Text(
-              'Billing Desk',
+            child: AppText(
+              's4.lib.billing_desk.billing_desk',
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
@@ -331,7 +336,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
             color: AppTheme.warningAmber,
           ),
           IconButton.filledTonal(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loadInvoices,
             icon: const Icon(Icons.refresh),
           ),
@@ -356,7 +361,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                   onChanged: _queuePatientLookup,
                   onSubmitted: _searchPatients,
                   decoration: InputDecoration(
-                    labelText: 'Hospital ID / phone / name',
+                    labelText: AppStrings.of(
+                      context,
+                    ).lookup('reception_counter.patient_lookup.hint'),
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _lookupBusy
                         ? const Padding(
@@ -373,7 +380,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
               ),
               const SizedBox(width: 10),
               IconButton.filledTonal(
-                tooltip: 'Search',
+                tooltip: AppStrings.of(context).lookup('action.search'),
                 onPressed: () => _searchPatients(_searchCtrl.text),
                 icon: const Icon(Icons.search),
               ),
@@ -419,7 +426,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.add),
-                    label: const Text('Draft OP'),
+                    label: const AppText('s4.lib.billing_desk.draft_op'),
                   ),
           ),
           const SizedBox(height: 10),
@@ -454,7 +461,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final actions = <Widget>[
       if (canPrintTax)
         IconButton.filledTonal(
-          tooltip: 'Print tax invoice',
+          tooltip: AppStrings.of(
+            context,
+          ).lookup('s4.lib.billing_desk.print_tax_invoice'),
           onPressed: _actionBusy
               ? null
               : () => _printInvoiceDocument(
@@ -465,7 +474,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
         ),
       if (canPrintReceipt)
         IconButton.filledTonal(
-          tooltip: 'Print receipt',
+          tooltip: AppStrings.of(
+            context,
+          ).lookup('s4.lib.billing_desk.print_receipt'),
           onPressed: _actionBusy
               ? null
               : () =>
@@ -478,7 +489,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           child: OutlinedButton.icon(
             onPressed: _actionBusy ? null : () => _issueInvoice(invoice),
             icon: const Icon(Icons.publish_outlined, size: 16),
-            label: const Text('Issue'),
+            label: const AppText('s4.lib.billing_desk.issue'),
           ),
         ),
       if (canCollect)

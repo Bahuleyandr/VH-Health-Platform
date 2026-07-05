@@ -250,8 +250,8 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
                 Icon(Icons.block, color: AppTheme.errorRed),
                 SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    'Transfusion hard-stop',
+                  child: AppText(
+                    's4.lib.transfusion_scan.transfusion_hard_stop',
                     style: TextStyle(
                       color: AppTheme.errorRed,
                       fontSize: 16,
@@ -278,8 +278,8 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
                 ),
               ),
             const SizedBox(height: 8),
-            Text(
-              'This cannot be overridden. Re-scan the correct wristband and unit.',
+            AppText(
+              's4.lib.transfusion_scan.this_cannot_be_overridden_re_scan_the_correct_wr',
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 16),
@@ -292,7 +292,7 @@ class _TransfusionScanScreenState extends State<TransfusionScanScreen> {
                 ),
                 onPressed: _reset,
                 icon: const Icon(Icons.qr_code_scanner),
-                label: const Text('Scan again'),
+                label: const AppText('mar_scan.scan_again'),
               ),
             ),
           ],

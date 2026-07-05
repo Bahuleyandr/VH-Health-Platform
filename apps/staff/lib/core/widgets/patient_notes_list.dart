@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/api_config.dart';
 import '../services/medical_api_service.dart';
 import '../theme/app_theme.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 /// Read-only list of every clinical note on a patient — doctor + nurse +
 /// any other authoring role surfaced as visible, badged rows. The point is
@@ -135,8 +136,8 @@ class _PatientNotesListState extends State<PatientNotesList> {
             children: [
               const Icon(Icons.error_outline, color: Colors.red, size: 40),
               const SizedBox(height: 8),
-              Text(
-                'Failed to load notes',
+              AppText(
+                's4.lib.patient_notes_list.failed_to_load_notes',
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 4),
@@ -146,7 +147,10 @@ class _PatientNotesListState extends State<PatientNotesList> {
                 style: const TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 12),
-              OutlinedButton(onPressed: _load, child: const Text('Retry')),
+              OutlinedButton(
+                onPressed: _load,
+                child: const AppText('action.retry'),
+              ),
             ],
           ),
         ),
@@ -170,7 +174,7 @@ class _PatientNotesListState extends State<PatientNotesList> {
               ],
               const Spacer(),
               IconButton(
-                tooltip: 'Refresh',
+                tooltip: AppStrings.of(context).lookup('action.refresh'),
                 onPressed: _load,
                 icon: const Icon(Icons.refresh),
               ),
@@ -180,8 +184,8 @@ class _PatientNotesListState extends State<PatientNotesList> {
         Expanded(
           child: visible.isEmpty
               ? Center(
-                  child: Text(
-                    'No notes to show',
+                  child: AppText(
+                    's4.lib.patient_notes_list.no_notes_to_show',
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 )
@@ -274,7 +278,9 @@ class _NoteCard extends StatelessWidget {
                   ),
                 if (canEdit)
                   IconButton(
-                    tooltip: 'Admin: edit prior note',
+                    tooltip: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.patient_notes_list.admin_edit_prior_note'),
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.edit_note, size: 20),
                     onPressed: () => _openEditor(context),
@@ -421,8 +427,8 @@ class _NoteCard extends StatelessWidget {
                   children: [
                     const Icon(Icons.edit_note, color: Colors.purple),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Admin edit',
+                    const AppText(
+                      's4.lib.patient_notes_list.admin_edit',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -435,8 +441,8 @@ class _NoteCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                Text(
-                  'Overwrites the original prose. The note\'s author, role, and creation time are preserved.',
+                AppText(
+                  's4.lib.patient_notes_list.overwrites_the_original_prose_the_note_s_author',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 12),
@@ -461,7 +467,7 @@ class _NoteCard extends StatelessWidget {
                   children: [
                     TextButton(
                       onPressed: () => Navigator.pop(sheetCtx),
-                      child: const Text('Cancel'),
+                      child: const AppText('action.cancel'),
                     ),
                     const SizedBox(width: 8),
                     FilledButton(
@@ -471,7 +477,7 @@ class _NoteCard extends StatelessWidget {
                             e.key: e.value.text,
                         });
                       },
-                      child: const Text('Save'),
+                      child: const AppText('action.save'),
                     ),
                   ],
                 ),
@@ -493,15 +499,22 @@ class _NoteCard extends StatelessWidget {
       await MedicalApiService.updateClinicalNote(id.toInt(), result);
       onEdited();
       if (ctx.mounted) {
-        ScaffoldMessenger.of(
-          ctx,
-        ).showSnackBar(const SnackBar(content: Text('Note updated')));
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(
+            content: AppText('s4.lib.patient_notes_list.note_updated'),
+          ),
+        );
       }
     } catch (e) {
       if (ctx.mounted) {
-        ScaffoldMessenger.of(
-          ctx,
-        ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: AppText(
+              's4.dynamic.patient_notes.update_failed',
+              values: {'error': e},
+            ),
+          ),
+        );
       }
     }
   }

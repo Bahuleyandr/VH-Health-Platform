@@ -6,6 +6,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class ReportsAdminQueueScreen extends StatefulWidget {
   const ReportsAdminQueueScreen({super.key});
@@ -104,7 +105,7 @@ class _ReportsAdminQueueScreenState extends State<ReportsAdminQueueScreen>
         backgroundColor: AppTheme.backgroundGrey,
         appBar: AppBar(
           leading: const NavigationBackAction(),
-          title: const Text('Reports Review'),
+          title: const AppText('s4.lib.reports_admin_queue.reports_review'),
           actions: const [LogoutAction()],
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -116,7 +117,7 @@ class _ReportsAdminQueueScreenState extends State<ReportsAdminQueueScreen>
         backgroundColor: AppTheme.backgroundGrey,
         appBar: AppBar(
           leading: const NavigationBackAction(),
-          title: const Text('Reports Review'),
+          title: const AppText('s4.lib.reports_admin_queue.reports_review'),
           actions: const [LogoutAction()],
         ),
         body: Center(
@@ -128,17 +129,26 @@ class _ReportsAdminQueueScreenState extends State<ReportsAdminQueueScreen>
       );
     }
 
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Reports Review'),
+        title: const AppText('s4.lib.reports_admin_queue.reports_review'),
         actions: const [LogoutAction()],
         bottom: TabBar(
           controller: _tabController,
           tabs: [
-            Tab(text: 'Incidents (${_incidents.length})'),
-            Tab(text: 'Grievances (${_grievances.length})'),
+            Tab(
+              text: s.format('s4.dynamic.reports.incidents_count', {
+                'count': _incidents.length,
+              }),
+            ),
+            Tab(
+              text: s.format('s4.dynamic.reports.grievances_count', {
+                'count': _grievances.length,
+              }),
+            ),
           ],
         ),
       ),
@@ -150,13 +160,13 @@ class _ReportsAdminQueueScreenState extends State<ReportsAdminQueueScreen>
                 controller: _tabController,
                 children: [
                   _ReportList(
-                    emptyText: 'No incident reports',
+                    emptyText: s.myReportsEmptyIncidents,
                     reports: _incidents,
                     type: _ReportType.incident,
                     onTap: _openIncident,
                   ),
                   _ReportList(
-                    emptyText: 'No staff grievances',
+                    emptyText: s.myReportsEmptyGrievances,
                     reports: _grievances,
                     type: _ReportType.grievance,
                     onTap: _openGrievance,
@@ -476,9 +486,11 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
       await _load();
       await widget.onChanged();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Report update saved')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.reports_admin_queue.report_update_saved'),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -560,7 +572,7 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Close',
+                    tooltip: AppStrings.of(context).lookup('action.close'),
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                   ),
@@ -644,7 +656,11 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                   initialValue: widget.statuses.contains(_status)
                       ? _status
                       : widget.statuses.first,
-                  decoration: const InputDecoration(labelText: 'Status'),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(
+                      context,
+                    ).lookup('clinical_inbox.status'),
+                  ),
                   items: widget.statuses
                       .map(
                         (status) => DropdownMenuItem(
@@ -659,18 +675,22 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                 TextField(
                   controller: _publicUpdateCtrl,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Public update',
-                    hintText: 'Optional',
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(
+                      context,
+                    ).lookup('s4.lib.reports_admin_queue.public_update'),
+                    hintText: AppStrings.of(context).lookup('label.optional'),
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _internalNoteCtrl,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Internal HR/Admin note',
-                    hintText: 'Optional',
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(context).lookup(
+                      's4.lib.reports_admin_queue.internal_hr_admin_note',
+                    ),
+                    hintText: AppStrings.of(context).lookup('label.optional'),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -683,13 +703,15 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save_outlined),
-                  label: const Text('Save update'),
+                  label: const AppText(
+                    's4.lib.reports_admin_queue.save_update',
+                  ),
                 ),
                 const SizedBox(height: 20),
                 const _SectionTitle('Activity log'),
                 if (updates.isEmpty)
-                  Text(
-                    'No activity recorded',
+                  AppText(
+                    's4.lib.reports_admin_queue.no_activity_recorded',
                     style: TextStyle(color: AppTheme.textSecondary),
                   )
                 else
@@ -730,8 +752,8 @@ class _AccessPanel extends StatelessWidget {
           children: [
             Icon(Icons.lock_outline, color: AppTheme.textSecondary, size: 42),
             const SizedBox(height: 12),
-            Text(
-              'HR/Admin access required',
+            AppText(
+              's4.lib.reports_admin_queue.hr_admin_access_required',
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 17,
@@ -776,7 +798,7 @@ class _ErrorPanel extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: const AppText('action.retry'),
             ),
           ],
         ),

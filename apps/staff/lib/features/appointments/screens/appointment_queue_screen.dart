@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 /// Legacy compatibility screen.
 ///
@@ -43,16 +44,16 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen> {
                   size: 42,
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  'Opening Front Office Workbench',
+                AppText(
+                  's4.lib.appointment_queue.opening_front_office_workbench',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'Appointment queue workflows now run from the consolidated workbench.',
+                AppText(
+                  's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
@@ -60,7 +61,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen> {
                 FilledButton.icon(
                   onPressed: () => context.go('/front-office'),
                   icon: const Icon(Icons.open_in_new),
-                  label: const Text('Open Front Office'),
+                  label: const AppText(
+                    's4.lib.appointment_queue.open_front_office',
+                  ),
                 ),
               ],
             ),

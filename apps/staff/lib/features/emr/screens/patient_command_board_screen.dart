@@ -620,10 +620,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Patient Command Board'),
+        title: const AppText(
+          's4.lib.patient_command_board.patient_command_board',
+        ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -862,16 +864,18 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
             initialValue: _ward,
-            decoration: const InputDecoration(
-              labelText: 'Ward / area',
-              prefixIcon: Icon(Icons.location_on_outlined),
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: AppStrings.of(
+                context,
+              ).lookup('s4.lib.patient_command_board.ward_area'),
+              prefixIcon: const Icon(Icons.location_on_outlined),
+              border: const OutlineInputBorder(),
               isDense: true,
             ),
             items: [
               const DropdownMenuItem<String?>(
                 value: null,
-                child: Text('All wards'),
+                child: AppText('due_meds.filter.all_wards'),
               ),
               ...wards.map(
                 (ward) =>
@@ -1007,17 +1011,26 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.warning_amber, size: 16),
-                          label: Text('${_int(allergies['count'])} allergies'),
+                          label: AppText(
+                            's4.dynamic.patient_command_board.allergies_count',
+                            values: {'count': _int(allergies['count'])},
+                          ),
                           onPressed: () => _openAllergies(row),
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.health_and_safety, size: 16),
-                          label: Text('${_int(alerts['count'])} alerts'),
+                          label: AppText(
+                            's4.dynamic.patient_command_board.alerts_count',
+                            values: {'count': _int(alerts['count'])},
+                          ),
                           onPressed: () => _openAlerts(row),
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.task_alt, size: 16),
-                          label: Text('${_int(tasks['open_count'])} tasks'),
+                          label: AppText(
+                            's4.dynamic.patient_command_board.tasks_count',
+                            values: {'count': _int(tasks['open_count'])},
+                          ),
                           onPressed: () => _openTasks(row),
                         ),
                         ActionChip(
@@ -1025,7 +1038,9 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                             Icons.fact_check_outlined,
                             size: 16,
                           ),
-                          label: const Text('Care plans'),
+                          label: const AppText(
+                            's4.lib.patient_command_board.care_plans',
+                          ),
                           onPressed: () => _openCarePlans(row),
                         ),
                         if (discharge['initiated'] == true)
@@ -1132,7 +1147,7 @@ class _ErrorView extends StatelessWidget {
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: const AppText('action.retry'),
             ),
           ],
         ),
@@ -1191,9 +1206,11 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
       await action();
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Care plan updated')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText('s4.lib.patient_command_board.care_plan_updated'),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1250,8 +1267,8 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Care plans',
+                      AppText(
+                        's4.lib.patient_command_board.care_plans',
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w800,
                         ),
@@ -1266,7 +1283,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: AppStrings.of(context).lookup('action.refresh'),
                   onPressed: _loading ? null : _load,
                   icon: const Icon(Icons.refresh),
                 ),
@@ -1286,7 +1303,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
                 action: FilledButton.icon(
                   onPressed: _load,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+                  label: const AppText('action.retry'),
                 ),
               )
             else if (_carePlans.isEmpty)
@@ -1339,7 +1356,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
             ),
             const SizedBox(height: 6),
             if (goals.isEmpty)
-              const Text('No goals recorded.')
+              const AppText('s4.lib.patient_command_board.no_goals_recorded')
             else
               ...goals.map(_buildGoalTile),
             const SizedBox(height: 12),
@@ -1350,7 +1367,9 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
             ),
             const SizedBox(height: 6),
             if (activities.isEmpty)
-              const Text('No activities recorded.')
+              const AppText(
+                's4.lib.patient_command_board.no_activities_recorded',
+              )
             else
               ...activities.map(_buildActivityTile),
           ],
@@ -1389,7 +1408,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.check_circle_outline, size: 18),
-              label: const Text('Achieve'),
+              label: const AppText('s4.lib.patient_command_board.achieve'),
             ),
     );
   }
@@ -1422,7 +1441,7 @@ class _CarePlanSheetState extends State<_CarePlanSheet> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.done_all_outlined, size: 18),
-              label: const Text('Complete'),
+              label: const AppText('front_office.appointment_status.completed'),
             ),
     );
   }

@@ -10,6 +10,7 @@ import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class ReferralsScreen extends StatefulWidget {
   final int? requestAdmissionId;
@@ -271,14 +272,16 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                         onPressed: () =>
                             _transitionReferral(referral, 'accept'),
                         icon: const Icon(Icons.check_circle_outline),
-                        label: const Text('Accept'),
+                        label: const AppText('leave.action.accept'),
                       ),
                     if (canComplete)
                       OutlinedButton.icon(
                         onPressed: () =>
                             _transitionReferral(referral, 'complete'),
                         icon: const Icon(Icons.done_all),
-                        label: const Text('Complete'),
+                        label: const AppText(
+                          'front_office.appointment_status.completed',
+                        ),
                       ),
                     if (canDecline)
                       OutlinedButton.icon(
@@ -294,7 +297,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                         context.push('/emr/timeline/$uid');
                       },
                       icon: const Icon(Icons.timeline),
-                      label: const Text('Open patient'),
+                      label: const AppText('s4.lib.referrals.open_patient'),
                     ),
                   ],
                 ),
@@ -341,10 +344,14 @@ class _ReferralsScreenState extends State<ReferralsScreen>
       children: [
         TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Incoming'),
-            Tab(text: 'Outgoing'),
-            Tab(text: 'Audit'),
+          tabs: [
+            Tab(
+              text: AppStrings.of(context).lookup('s4.lib.referrals.incoming'),
+            ),
+            Tab(
+              text: AppStrings.of(context).lookup('s4.lib.referrals.outgoing'),
+            ),
+            Tab(text: AppStrings.of(context).lookup('s4.lib.referrals.audit')),
           ],
         ),
         Expanded(
@@ -365,8 +372,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               _auditAllowed
                   ? _AuditList(rows: _audit)
                   : const Center(
-                      child: Text(
-                        'Referral audit is available to Admin/SuperAdmin roles.',
+                      child: AppText(
+                        's4.lib.referrals.referral_audit_is_available_to_admin_superadmin',
                       ),
                     ),
             ],
@@ -415,20 +422,25 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             TextField(
               controller: _departmentCtrl,
               onChanged: _debouncedSearch,
-              decoration: const InputDecoration(
-                labelText: 'Department / specialty',
-                prefixIcon: Icon(Icons.apartment_outlined),
-                helperText:
-                    'Leave consultant unselected to notify the department.',
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.referrals.department_specialty'),
+                prefixIcon: const Icon(Icons.apartment_outlined),
+                helperText: AppStrings.of(context).lookup(
+                  's4.lib.referrals.leave_consultant_unselected_to_notify_the_depart',
+                ),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _consultantSearchCtrl,
               onChanged: _debouncedSearch,
-              decoration: const InputDecoration(
-                labelText: 'Consultant name',
-                prefixIcon: Icon(Icons.search),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.referrals.consultant_name'),
+                prefixIcon: const Icon(Icons.search),
               ),
             ),
             if (_consultants.isNotEmpty) ...[
@@ -448,9 +460,18 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             const SizedBox(height: 10),
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'routine', label: Text('Routine')),
-                ButtonSegment(value: 'urgent', label: Text('Urgent')),
-                ButtonSegment(value: 'emergency', label: Text('Emergency')),
+                ButtonSegment(
+                  value: 'routine',
+                  label: AppText('admission.priority.routine'),
+                ),
+                ButtonSegment(
+                  value: 'urgent',
+                  label: AppText('priority.urgent'),
+                ),
+                ButtonSegment(
+                  value: 'emergency',
+                  label: AppText('department.emergency'),
+                ),
               ],
               selected: {_urgency},
               onSelectionChanged: (value) =>
@@ -461,9 +482,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               controller: _reasonCtrl,
               minLines: 2,
               maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Reason for referral',
-                prefixIcon: Icon(Icons.report_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.referrals.reason_for_referral'),
+                prefixIcon: const Icon(Icons.report_outlined),
               ),
             ),
             const SizedBox(height: 10),
@@ -471,9 +494,11 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               controller: _summaryCtrl,
               minLines: 3,
               maxLines: 6,
-              decoration: const InputDecoration(
-                labelText: 'Clinical summary',
-                prefixIcon: Icon(Icons.notes_outlined),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.referrals.clinical_summary'),
+                prefixIcon: const Icon(Icons.notes_outlined),
               ),
             ),
             const SizedBox(height: 8),
@@ -568,16 +593,16 @@ class _ReferralsScreenState extends State<ReferralsScreen>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'AI assisted clinical summary',
+              AppText(
+                's4.lib.referrals.ai_assisted_clinical_summary',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AppTheme.textPrimary,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
-                'Edit and confirm this draft. It is not sent until you press Request referral.',
+              AppText(
+                's4.lib.referrals.edit_and_confirm_this_draft_it_is_not_sent_until',
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 12),
@@ -586,8 +611,10 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                 autofocus: true,
                 minLines: 8,
                 maxLines: 14,
-                decoration: const InputDecoration(
-                  labelText: 'Referral clinical summary',
+                decoration: InputDecoration(
+                  labelText: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.referrals.referral_clinical_summary'),
                   alignLabelWithHint: true,
                 ),
               ),
@@ -597,7 +624,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
+                      child: const AppText('action.cancel'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -606,7 +633,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                       onPressed: () =>
                           Navigator.of(context).pop(ctrl.text.trim()),
                       icon: const Icon(Icons.check),
-                      label: const Text('Use summary'),
+                      label: const AppText('s4.lib.referrals.use_summary'),
                     ),
                   ),
                 ],
@@ -711,7 +738,9 @@ class _AuditList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
-      return const Center(child: Text('No referral audit rows'));
+      return const Center(
+        child: AppText('s4.lib.referrals.no_referral_audit_rows'),
+      );
     }
     return DesktopScrollControls(
       axis: Axis.vertical,

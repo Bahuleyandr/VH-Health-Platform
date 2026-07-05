@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class DischargeHubListScreen extends StatefulWidget {
   const DischargeHubListScreen({super.key});
@@ -72,10 +73,10 @@ class _DischargeHubListScreenState extends State<DischargeHubListScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Discharge Hub'),
+        title: const AppText('bed_board.discharge_hub'),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -118,7 +119,7 @@ class _DischargeHubListScreenState extends State<DischargeHubListScreen> {
             FilledButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: const AppText('action.retry'),
             ),
           ],
         ),
@@ -137,14 +138,14 @@ class _DischargeHubListScreenState extends State<DischargeHubListScreen> {
           color: theme.colorScheme.outline,
         ),
         const SizedBox(height: 12),
-        Text(
-          'No active discharge work',
+        AppText(
+          's4.lib.discharge_hub_list.no_active_discharge_work',
           textAlign: TextAlign.center,
           style: theme.textTheme.titleMedium,
         ),
         const SizedBox(height: 6),
-        Text(
-          'Patients appear here after discharge is initiated and stay until final discharge is complete.',
+        AppText(
+          's4.lib.discharge_hub_list.patients_appear_here_after_discharge_is_initiate',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,

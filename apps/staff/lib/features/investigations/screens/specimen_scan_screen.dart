@@ -240,8 +240,8 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
                 Icon(Icons.block, color: AppTheme.errorRed),
                 SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    'Specimen hard-stop',
+                  child: AppText(
+                    's4.lib.specimen_scan.specimen_hard_stop',
                     style: TextStyle(
                       color: AppTheme.errorRed,
                       fontSize: 16,
@@ -256,12 +256,16 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
               children: [
                 Icon(Icons.cancel, color: AppTheme.errorRed, size: 18),
                 SizedBox(width: 8),
-                Expanded(child: Text('Patient wristband mismatch')),
+                Expanded(
+                  child: AppText(
+                    's4.lib.specimen_scan.patient_wristband_mismatch',
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 10),
-            Text(
-              'This cannot be overridden. Re-scan the correct wristband and tube.',
+            AppText(
+              's4.lib.specimen_scan.this_cannot_be_overridden_re_scan_the_correct_wr',
               style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 16),
@@ -274,7 +278,7 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
                 ),
                 onPressed: _reset,
                 icon: const Icon(Icons.qr_code_scanner),
-                label: const Text('Scan again'),
+                label: const AppText('mar_scan.scan_again'),
               ),
             ),
           ],

@@ -1134,7 +1134,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         if (pdfUrl != null && pdfUrl.isNotEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Prescription PDF is ready'),
+              content: const AppText(
+                's4.lib.prescriptions.prescription_pdf_is_ready',
+              ),
               action: SnackBarAction(
                 label: 'Open',
                 onPressed: () => _openPrescriptionPdf(pdfUrl),
@@ -1173,7 +1175,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           children: [
             Icon(Icons.warning_amber_outlined, color: Colors.orange),
             SizedBox(width: 8),
-            Expanded(child: Text('Review prescription warnings')),
+            Expanded(
+              child: AppText(
+                's4.lib.prescriptions.review_prescription_warnings',
+              ),
+            ),
           ],
         ),
         content: SingleChildScrollView(
@@ -1181,8 +1187,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'The server returned non-blocking CDS warnings for this prescription.',
+              const AppText(
+                's4.lib.prescriptions.the_server_returned_non_blocking_cds_warnings_fo',
               ),
               const SizedBox(height: 12),
               for (final warning in warnings)
@@ -1207,11 +1213,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Review draft'),
+            child: const AppText('s4.lib.prescriptions.review_draft'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Continue'),
+            child: const AppText('s4.lib.prescriptions.continue'),
           ),
         ],
       ),
@@ -1499,19 +1505,19 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clear prescription draft?'),
-        content: const Text(
-          'This removes the medicines, notes, vitals and follow-up currently on this draft. Created prescriptions are not deleted.',
+        title: const AppText('s4.lib.prescriptions.clear_prescription_draft'),
+        content: const AppText(
+          's4.lib.prescriptions.this_removes_the_medicines_notes_vitals_and_foll',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const AppText('action.cancel'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(ctx, true),
             icon: const Icon(Icons.delete_outline),
-            label: const Text('Clear draft'),
+            label: const AppText('s4.lib.prescriptions.clear_draft'),
           ),
         ],
       ),
@@ -2169,8 +2175,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               children: [
                 const Icon(Icons.assignment_outlined, color: Color(0xFF00838F)),
                 const SizedBox(width: 8),
-                Text(
-                  'OP consultation context',
+                AppText(
+                  's4.lib.prescriptions.op_consultation_context',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.w800,
@@ -2321,10 +2327,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       width: desktop ? 260 : double.infinity,
       child: DropdownButtonFormField<String>(
         initialValue: _preferredPharmacy,
-        decoration: const InputDecoration(
-          labelText: 'Pharmacy',
+        decoration: InputDecoration(
+          labelText: AppStrings.of(context).lookup('dashboard.action.pharmacy'),
           isDense: true,
-          prefixIcon: Icon(Icons.local_pharmacy_outlined),
+          prefixIcon: const Icon(Icons.local_pharmacy_outlined),
         ),
         items: _pharmacyOptions
             .map((value) => DropdownMenuItem(value: value, child: Text(value)))
@@ -2351,7 +2357,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     final clearButton = TextButton.icon(
       onPressed: _submitting ? null : _clearPrescriptionDraft,
       icon: const Icon(Icons.delete_outline),
-      label: const Text('Clear draft'),
+      label: const AppText('s4.lib.prescriptions.clear_draft'),
       style: TextButton.styleFrom(foregroundColor: AppTheme.errorOnSurface),
     );
     return Card(
@@ -2367,8 +2373,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   const Icon(Icons.medication_liquid, color: Color(0xFF00838F)),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      'Add Drug',
+                    child: AppText(
+                      's4.lib.prescriptions.add_drug',
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w800,
@@ -2394,8 +2400,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'Add Drug',
+                        child: AppText(
+                          's4.lib.prescriptions.add_drug',
                           style: TextStyle(
                             color: AppTheme.textPrimary,
                             fontWeight: FontWeight.w800,
@@ -2477,7 +2483,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               subtitle.isEmpty ? drugName : '$drugName ($subtitle)',
               overflow: TextOverflow.ellipsis,
             ),
-            tooltip: 'Use favorite',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.prescriptions.use_favorite'),
             onPressed: () => _applyFavorite(med),
             onDeleted: () => _removeFavorite(med),
           );
@@ -2514,16 +2522,18 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 columnSpacing: compact ? 6 : 8,
                 horizontalMargin: compact ? 8 : 12,
                 columns: const [
-                  DataColumn(label: Text('Drug / form*')),
-                  DataColumn(label: Text('Dose')),
-                  DataColumn(label: Text('Route')),
+                  DataColumn(label: AppText('s4.lib.prescriptions.drug_form')),
+                  DataColumn(label: AppText('drug_chart.column.dose')),
+                  DataColumn(label: AppText('drug_chart.column.route')),
                   DataColumn(label: Text('M')),
                   DataColumn(label: Text('A')),
                   DataColumn(label: Text('E')),
                   DataColumn(label: Text('N')),
-                  DataColumn(label: Text('Food')),
-                  DataColumn(label: Text('Days')),
-                  DataColumn(label: Text('Notes / safety')),
+                  DataColumn(label: AppText('drug_chart.column.food')),
+                  DataColumn(label: AppText('s4.lib.prescriptions.days')),
+                  DataColumn(
+                    label: AppText('s4.lib.prescriptions.notes_safety'),
+                  ),
                   DataColumn(label: Text('')),
                 ],
                 rows: _medications.asMap().entries.map((entry) {
@@ -2709,7 +2719,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             setState(() => med.daw = value);
           }),
           IconButton(
-            tooltip: 'Save favorite',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.prescriptions.save_favorite'),
             visualDensity: VisualDensity.compact,
             onPressed: med.name.trim().isEmpty
                 ? null
@@ -2717,7 +2729,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             icon: const Icon(Icons.star_border, size: 18),
           ),
           IconButton(
-            tooltip: 'Delete row',
+            tooltip: AppStrings.of(
+              context,
+            ).lookup('s4.lib.prescriptions.delete_row'),
             visualDensity: VisualDensity.compact,
             onPressed: _medications.length <= 1
                 ? null
@@ -2757,7 +2771,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 controller: textController,
                 focusNode: fieldFocusNode,
                 decoration: InputDecoration(
-                  hintText: 'Type drug name',
+                  hintText: AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.prescriptions.type_drug_name'),
                   isDense: true,
                   prefixIcon: const Icon(Icons.search, size: 18),
                   suffixIcon: loading
@@ -3770,8 +3786,8 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                     )
                   : _isSigned(p)
                   ? Chip(
-                      label: const Text(
-                        'Signed',
+                      label: const AppText(
+                        's4.lib.prescriptions.signed',
                         style: TextStyle(
                           fontSize: 10,
                           color: AppTheme.primaryBlue,
@@ -4013,7 +4029,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                       );
                     },
                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                    label: const Text('Open PDF'),
+                    label: const AppText('s4.lib.prescriptions.open_pdf'),
                   ),
                 ClinicalPrintPdfAction(
                   key: const Key('recent-prescription-print-share-pdf'),
