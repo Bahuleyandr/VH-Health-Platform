@@ -63,6 +63,7 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
   }
 
   Future<void> _collectSpecimen() async {
+    final s = AppStrings.of(context);
     final patientUid = _patientUid;
     final tubeBarcode = _tubeBarcode;
     if (patientUid == null || tubeBarcode == null) return;
@@ -80,7 +81,7 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
       _busy = intent.submit;
       _errorMessage = intent.submit || intent.hardStop
           ? null
-          : 'Scan both wristband and sample tube before collection.';
+          : s.lookup('s4.lib.specimen_scan.scan_both_before_collection');
     });
 
     if (!intent.submit) return;
@@ -91,7 +92,9 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
           endpoint: intent.endpoint,
           method: 'POST',
           body: intent.body,
-          contextLabel: 'Specimen collection #${widget.investigationId}',
+          contextLabel: s.format('s4.dynamic.specimen_scan.context_label', {
+            'id': widget.investigationId,
+          }),
         );
         if (!mounted) return;
         setState(() {
@@ -110,13 +113,15 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
       } else {
         setState(
           () => _errorMessage = response.failureMessage(
-            'Sample collection failed.',
+            s.lookup('s4.lib.specimen_scan.sample_collection_failed'),
           ),
         );
       }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _errorMessage = 'Could not reach the server.');
+      setState(
+        () => _errorMessage = s.lookup('s4.lib.scan_common.server_unreachable'),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -137,7 +142,10 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    return StaffScaffold(title: 'Specimen scan', body: _buildBody(s));
+    return StaffScaffold(
+      title: s.lookup('s4.lib.specimen_scan.title'),
+      body: _buildBody(s),
+    );
   }
 
   Widget _buildBody(AppStrings s) {
@@ -145,17 +153,17 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
       case _SpecimenScanStep.scanWristband:
         return _scanPanel(
           icon: Icons.badge_outlined,
-          title: 'Scan patient wristband',
-          subtitle: 'Match the patient before labeling the specimen tube.',
+          title: s.lookup('s4.lib.scan_common.scan_patient_wristband'),
+          subtitle: s.lookup('s4.lib.specimen_scan.patient_wristband_subtitle'),
         );
       case _SpecimenScanStep.scanTube:
         return _scanPanel(
           icon: Icons.science_outlined,
-          title: 'Scan sample tube',
-          subtitle: 'Scan the tube barcode at collection.',
+          title: s.lookup('s4.lib.specimen_scan.scan_sample_tube'),
+          subtitle: s.lookup('s4.lib.specimen_scan.scan_sample_tube_subtitle'),
         );
       case _SpecimenScanStep.collect:
-        return _collectPanel();
+        return _collectPanel(s);
       case _SpecimenScanStep.done:
         return _donePanel(s);
     }
@@ -206,7 +214,7 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
     );
   }
 
-  Widget _collectPanel() {
+  Widget _collectPanel(AppStrings s) {
     if (_busy) return const Center(child: CircularProgressIndicator());
     final hardStop = _hardStop;
     if (hardStop != null) return _hardStopPanel(hardStop);
@@ -214,9 +222,10 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
     return _messagePanel(
       icon: Icons.error_outline,
       color: AppTheme.errorRed,
-      title: 'Specimen not collected',
-      message: _errorMessage ?? 'Please scan again.',
-      actionLabel: 'Scan again',
+      title: s.lookup('s4.lib.specimen_scan.specimen_not_collected'),
+      message:
+          _errorMessage ?? s.lookup('s4.lib.scan_common.please_scan_again'),
+      actionLabel: s.marScanScanAgain,
       onAction: _reset,
     );
   }
@@ -291,11 +300,13 @@ class _SpecimenScanScreenState extends State<SpecimenScanScreen> {
     return _messagePanel(
       icon: _pendingSync ? Icons.cloud_off : Icons.check_circle,
       color: _pendingSync ? AppTheme.textSecondary : AppTheme.successGreen,
-      title: _pendingSync ? s.offlineRecordedPendingSync : 'Specimen collected',
+      title: _pendingSync
+          ? s.offlineRecordedPendingSync
+          : s.lookup('s4.lib.specimen_scan.specimen_collected'),
       message: _pendingSync
           ? s.specimenScanPendingSyncMessage
-          : 'The wristband and tube barcode were recorded.',
-      actionLabel: 'Done',
+          : s.lookup('s4.lib.specimen_scan.specimen_collected_message'),
+      actionLabel: s.incidentReportDoneButton,
       onAction: () => context.pop(true),
     );
   }
