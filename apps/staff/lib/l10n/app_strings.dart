@@ -5420,8 +5420,27 @@ class AppStrings {
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "This summary has not been signed yet.",
       's4.lib.drug_chart.active_until_stopped': "Active until stopped",
+      // REVIEW: AI first-pass S4 Drug Chart state copy - confirm wording before production.
+      's4.dynamic.drug_chart.admission_number': "Admission #{id}",
+      's4.dynamic.drug_chart.bed': "Bed {bed}",
+      's4.dynamic.drug_chart.source_count': "{count} sources",
+      's4.dynamic.drug_chart.source_count_one': "{count} source",
+      's4.lib.drug_chart.administration_time_required':
+          "Select at least one administration time",
+      's4.lib.drug_chart.dose_required':
+          "Dose is required; select a drug with strength or enter dose",
+      's4.lib.drug_chart.drug_required': "Drug is required",
+      's4.lib.drug_chart.empty_body':
+          "Add a medication row to start this inpatient chart.",
       's4.lib.drug_chart.inpatient_drug_chart': "Inpatient Drug Chart",
+      's4.lib.drug_chart.offline_order_queued':
+          "Medication order queued - will sync when back online.",
+      's4.lib.drug_chart.patient': "Patient",
+      's4.lib.drug_chart.rules_clear': "Rules clear",
+      's4.lib.drug_chart.safety_review_needed': "Safety review needed",
       's4.lib.drug_chart.starts_today': "Starts today",
+      's4.lib.drug_chart.workflow_hint':
+          "Doctor edit - Nurse MAR - Pharmacy indent",
       's4.lib.duty_preference.duty_request': "Duty Request",
       's4.lib.duty_preference.duty_request_submitted': "Duty request submitted",
       's4.lib.duty_preference.my_requests': "My requests",
@@ -9739,8 +9758,27 @@ class AppStrings {
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "इस सारांश पर अभी तक हस्ताक्षर नहीं किए गए हैं.",
       's4.lib.drug_chart.active_until_stopped': "रुकने तक सक्रिय",
+      // REVIEW: AI first-pass S4 Drug Chart state copy - confirm wording before production.
+      's4.dynamic.drug_chart.admission_number': "भर्ती #{id}",
+      's4.dynamic.drug_chart.bed': "बेड {bed}",
+      's4.dynamic.drug_chart.source_count': "{count} स्रोत",
+      's4.dynamic.drug_chart.source_count_one': "{count} स्रोत",
+      's4.lib.drug_chart.administration_time_required':
+          "कम से कम एक दवा देने का समय चुनें",
+      's4.lib.drug_chart.dose_required':
+          "खुराक आवश्यक है; ताकत वाली दवा चुनें या खुराक दर्ज करें",
+      's4.lib.drug_chart.drug_required': "दवा आवश्यक है",
+      's4.lib.drug_chart.empty_body':
+          "इस इनपेशेंट चार्ट को शुरू करने के लिए दवा पंक्ति जोड़ें।",
       's4.lib.drug_chart.inpatient_drug_chart': "रोगी दवा चार्ट",
+      's4.lib.drug_chart.offline_order_queued':
+          "दवा आदेश कतार में है - ऑनलाइन होने पर सिंक होगा।",
+      's4.lib.drug_chart.patient': "मरीज",
+      's4.lib.drug_chart.rules_clear': "नियम स्पष्ट हैं",
+      's4.lib.drug_chart.safety_review_needed': "सुरक्षा समीक्षा आवश्यक है",
       's4.lib.drug_chart.starts_today': "आज से शुरू हो रहा है",
+      's4.lib.drug_chart.workflow_hint':
+          "डॉक्टर संपादन - नर्स MAR - फार्मेसी इंडेंट",
       's4.lib.duty_preference.duty_request': "कर्तव्य अनुरोध",
       's4.lib.duty_preference.duty_request_submitted':
           "शुल्क अनुरोध प्रस्तुत किया गया",
@@ -11806,9 +11844,33 @@ class AppStrings {
           'மருந்து ஆர்டர் சேமிக்கப்பட்டு பார்மசிக்கு அறிவிக்கப்பட்டது',
       'drug_chart.empty': 'உள்நோயாளி மருந்துகள் எதுவும் பதிவில் இல்லை',
       'drug_chart.given': 'கொடுக்கப்பட்டது',
+      'drug_chart.column.drug': 'மருந்து',
+      'drug_chart.column.dose': 'அளவு',
+      'drug_chart.column.route': 'வழி',
+      'drug_chart.column.started': 'தொடங்கியது',
+      'drug_chart.column.food': 'உணவு',
+      'drug_chart.column.safety_mar_actions': 'பாதுகாப்பு / MAR / செயல்கள்',
       'drug_chart.notes_label': 'குறிப்புகள்',
       'drug_chart.notes_hint': 'கரைத்தல், PRN காரணம், நிறுத்த விதிகள்',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.route.oral': 'வாய் வழி',
+      'drug_chart.route.iv': 'IV',
+      'drug_chart.route.im': 'IM',
+      'drug_chart.route.sc': 'SC',
+      'drug_chart.route.sl': 'SL',
+      'drug_chart.route.inhaled': 'உள்ளிழுக்கும்',
+      'drug_chart.route.topical': 'மேற்பூச்சு',
+      'drug_chart.food.none': '-',
+      'drug_chart.food.before_food': 'உணவுக்கு முன்',
+      'drug_chart.food.after_food': 'உணவுக்குப் பின்',
+      'drug_chart.food.with_food': 'உணவுடன்',
+      'drug_chart.food.empty_stomach': 'காலியான வயிறு',
+      'drug_chart.food.bedtime': 'தூங்கும் நேரம்',
+      'drug_chart.food.prn': 'PRN',
+      'drug_chart.dose_slot.morning': 'காலை',
+      'drug_chart.dose_slot.afternoon': 'மதியம்',
+      'drug_chart.dose_slot.evening': 'மாலை',
+      'drug_chart.dose_slot.night': 'இரவு',
       // REVIEW: ta AI first-pass patient-summary batch — clinical wording
       'summary.title': 'நோயாளர் சுருக்கம்',
       'summary.tooltip': 'நோயாளர் சுருக்கம்',
@@ -14561,9 +14623,28 @@ class AppStrings {
           "இந்த சுருக்கம் இன்னும் கையெழுத்திடப்படவில்லை.",
       's4.lib.drug_chart.active_until_stopped':
           "நிறுத்தப்படும் வரை செயலில் உள்ளது",
+      // REVIEW: AI first-pass S4 Drug Chart state copy - confirm wording before production.
+      's4.dynamic.drug_chart.admission_number': "சேர்க்கை #{id}",
+      's4.dynamic.drug_chart.bed': "படுக்கை {bed}",
+      's4.dynamic.drug_chart.source_count': "{count} ஆதாரங்கள்",
+      's4.dynamic.drug_chart.source_count_one': "{count} ஆதாரம்",
+      's4.lib.drug_chart.administration_time_required':
+          "குறைந்தது ஒரு மருந்தளிக்கும் நேரத்தைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.drug_chart.dose_required':
+          "அளவு தேவை; வலிமையுள்ள மருந்தைத் தேர்ந்தெடுக்கவும் அல்லது அளவை உள்ளிடவும்",
+      's4.lib.drug_chart.drug_required': "மருந்து தேவை",
+      's4.lib.drug_chart.empty_body':
+          "இந்த உள்நோயாளி அட்டவணையைத் தொடங்க ஒரு மருந்து வரிசையைச் சேர்க்கவும்.",
       's4.lib.drug_chart.inpatient_drug_chart':
           "உள்நோயாளிகளுக்கான மருந்து விளக்கப்படம்",
+      's4.lib.drug_chart.offline_order_queued':
+          "மருந்து உத்தரவு வரிசையில் சேர்க்கப்பட்டது - மீண்டும் ஆன்லைனில் வந்ததும் ஒத்திசையும்.",
+      's4.lib.drug_chart.patient': "நோயாளி",
+      's4.lib.drug_chart.rules_clear': "விதிகள் தெளிவாக உள்ளன",
+      's4.lib.drug_chart.safety_review_needed': "பாதுகாப்பு மதிப்பாய்வு தேவை",
       's4.lib.drug_chart.starts_today': "இன்று தொடங்குகிறது",
+      's4.lib.drug_chart.workflow_hint':
+          "மருத்துவர் திருத்தம் - செவிலியர் MAR - மருந்தக கோரிக்கை",
       's4.lib.duty_preference.duty_request': "கடமை கோரிக்கை",
       's4.lib.duty_preference.duty_request_submitted':
           "கடமை கோரிக்கை சமர்ப்பிக்கப்பட்டது",
@@ -16720,9 +16801,33 @@ class AppStrings {
           'మందు ఆర్డర్ సేవ్ చేయబడింది, ఫార్మసీకి తెలియజేయబడింది',
       'drug_chart.empty': 'ఇన్‌పేషెంట్ మందులు చార్ట్ చేయలేదు',
       'drug_chart.given': 'ఇవ్వబడింది',
+      'drug_chart.column.drug': 'మందు',
+      'drug_chart.column.dose': 'మోతాదు',
+      'drug_chart.column.route': 'మార్గం',
+      'drug_chart.column.started': 'ప్రారంభం',
+      'drug_chart.column.food': 'ఆహారం',
+      'drug_chart.column.safety_mar_actions': 'భద్రత / MAR / చర్యలు',
       'drug_chart.notes_label': 'గమనికలు',
       'drug_chart.notes_hint': 'డైల్యూషన్, PRN కారణం, నిలిపే నియమాలు',
       'drug_chart.daw_label': 'DAW',
+      'drug_chart.route.oral': 'నోటి ద్వారా',
+      'drug_chart.route.iv': 'IV',
+      'drug_chart.route.im': 'IM',
+      'drug_chart.route.sc': 'SC',
+      'drug_chart.route.sl': 'SL',
+      'drug_chart.route.inhaled': 'ఇన్హేల్డ్',
+      'drug_chart.route.topical': 'స్థానికంగా',
+      'drug_chart.food.none': '-',
+      'drug_chart.food.before_food': 'ఆహారానికి ముందు',
+      'drug_chart.food.after_food': 'ఆహారం తర్వాత',
+      'drug_chart.food.with_food': 'ఆహారంతో',
+      'drug_chart.food.empty_stomach': 'ఖాళీ కడుపు',
+      'drug_chart.food.bedtime': 'నిద్ర సమయం',
+      'drug_chart.food.prn': 'PRN',
+      'drug_chart.dose_slot.morning': 'ఉదయం',
+      'drug_chart.dose_slot.afternoon': 'మధ్యాహ్నం',
+      'drug_chart.dose_slot.evening': 'సాయంత్రం',
+      'drug_chart.dose_slot.night': 'రాత్రి',
       // REVIEW: te AI first-pass patient-summary batch — clinical wording
       'summary.title': 'రోగి సారాంశం',
       'summary.tooltip': 'రోగి సారాంశం',
@@ -19437,8 +19542,27 @@ class AppStrings {
       's4.lib.discharge_summary.this_summary_has_not_been_signed_yet':
           "ఈ సారాంశం ఇంకా సంతకం చేయలేదు.",
       's4.lib.drug_chart.active_until_stopped': "ఆగిపోయే వరకు చురుకుగా ఉంటుంది",
+      // REVIEW: AI first-pass S4 Drug Chart state copy - confirm wording before production.
+      's4.dynamic.drug_chart.admission_number': "అడ్మిషన్ #{id}",
+      's4.dynamic.drug_chart.bed': "బెడ్ {bed}",
+      's4.dynamic.drug_chart.source_count': "{count} మూలాలు",
+      's4.dynamic.drug_chart.source_count_one': "{count} మూలం",
+      's4.lib.drug_chart.administration_time_required':
+          "కనీసం ఒక మందు ఇచ్చే సమయాన్ని ఎంచుకోండి",
+      's4.lib.drug_chart.dose_required':
+          "మోతాదు అవసరం; బలం ఉన్న మందును ఎంచుకోండి లేదా మోతాదును నమోదు చేయండి",
+      's4.lib.drug_chart.drug_required': "మందు అవసరం",
+      's4.lib.drug_chart.empty_body':
+          "ఈ ఇన్‌పేషెంట్ చార్ట్‌ను ప్రారంభించడానికి మందు వరుసను చేర్చండి.",
       's4.lib.drug_chart.inpatient_drug_chart': "ఇన్‌పేషెంట్ డ్రగ్ చార్ట్",
+      's4.lib.drug_chart.offline_order_queued':
+          "మందు ఆర్డర్ క్యూలో ఉంది - మళ్లీ ఆన్లైన్‌లోకి వచ్చినప్పుడు సమకాలీకరించబడుతుంది.",
+      's4.lib.drug_chart.patient': "రోగి",
+      's4.lib.drug_chart.rules_clear': "నియమాలు స్పష్టంగా ఉన్నాయి",
+      's4.lib.drug_chart.safety_review_needed': "భద్రతా సమీక్ష అవసరం",
       's4.lib.drug_chart.starts_today': "ఈరోజు ప్రారంభమవుతుంది",
+      's4.lib.drug_chart.workflow_hint':
+          "డాక్టర్ సవరణ - నర్స్ MAR - ఫార్మసీ ఇండెంట్",
       's4.lib.duty_preference.duty_request': "విధి అభ్యర్థన",
       's4.lib.duty_preference.duty_request_submitted':
           "విధి అభ్యర్థన సమర్పించబడింది",
