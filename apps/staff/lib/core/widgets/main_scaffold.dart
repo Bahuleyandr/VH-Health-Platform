@@ -135,6 +135,7 @@ class _MainScaffoldState extends State<MainScaffold> {
         _role,
         policyFeatureIds: _policyFeatureIds,
       );
+      final s = AppStrings.of(context);
       final selectedIndex = _currentRailIndex(navItems);
       return Scaffold(
         body: Row(
@@ -164,7 +165,7 @@ class _MainScaffoldState extends State<MainScaffold> {
                         unreadAlerts,
                         pendingClinicalTasks,
                       ),
-                      label: Text(item.label),
+                      label: Text(s.lookup(item.labelKey)),
                     ),
                   )
                   .toList(),
@@ -260,10 +261,18 @@ class _MainScaffoldState extends State<MainScaffold> {
     int unreadAlerts,
     int pendingClinicalTasks,
   ) {
+    final s = AppStrings.of(context);
+    final label = s.lookup(navItem.labelKey);
     if (navItem.route != '/messaging' &&
         navItem.route != '/notifications' &&
         navItem.route != '/clinical-inbox') {
-      return navItem.item;
+      return BottomNavigationBarItem(
+        icon: navItem.item.icon,
+        activeIcon: navItem.item.activeIcon,
+        label: label,
+        tooltip: navItem.item.tooltip,
+        backgroundColor: navItem.item.backgroundColor,
+      );
     }
     final count = navItem.route == '/messaging'
         ? unreadMessages
@@ -271,10 +280,10 @@ class _MainScaffoldState extends State<MainScaffold> {
         ? unreadAlerts
         : pendingClinicalTasks;
     final semanticLabel = navItem.route == '/messaging'
-        ? 'unread messages'
+        ? s.lookup('s4.lib.main_scaffold.unread_messages')
         : navItem.route == '/notifications'
-        ? 'unread alerts'
-        : 'pending clinical tasks';
+        ? s.lookup('s4.lib.main_scaffold.unread_alerts')
+        : s.lookup('s4.lib.main_scaffold.pending_clinical_tasks');
     return BottomNavigationBarItem(
       icon: MessageUnreadBadge(
         unreadCount: count,
@@ -286,7 +295,7 @@ class _MainScaffoldState extends State<MainScaffold> {
         semanticLabel: semanticLabel,
         child: navItem.item.activeIcon,
       ),
-      label: navItem.item.label,
+      label: label,
       tooltip: navItem.item.tooltip,
       backgroundColor: navItem.item.backgroundColor,
     );

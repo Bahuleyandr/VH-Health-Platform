@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 import '../config/role_config.dart';
 import '../providers/message_unread_provider.dart';
 import '../theme/app_theme.dart';
@@ -94,7 +95,7 @@ class StaffScaffold extends StatelessWidget {
                 item.route,
                 unreadMessages,
               ),
-              label: item.label,
+              label: AppStrings.of(context).lookup(item.labelKey),
             ),
           )
           .toList(),
@@ -114,25 +115,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.anaesthetist:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'OP Nursing',
+            'role.nav.op_nursing',
             Icons.fact_check_outlined,
             Icons.fact_check,
             '/op/nursing-dashboard',
           ),
           const _NavItem(
-            'Records',
+            'role.nav.records',
             Icons.folder_shared_outlined,
             Icons.folder_shared,
             '/patient-records',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -145,25 +146,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.ipIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'My Roster',
+            'role.nav.my_roster',
             Icons.schedule_outlined,
             Icons.schedule,
             '/schedule',
           ),
           const _NavItem(
-            'Notes',
+            'role.nav.notes',
             Icons.note_alt_outlined,
             Icons.note_alt,
             '/nursing-notes',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -173,31 +174,31 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.opIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Front Desk',
+            'role.nav.front_desk',
             Icons.space_dashboard_outlined,
             Icons.space_dashboard,
             '/front-office',
           ),
           const _NavItem(
-            'Appointments',
+            'role.nav.appointments',
             Icons.calendar_month_outlined,
             Icons.calendar_month,
             '/appointments',
           ),
           const _NavItem(
-            'Records',
+            'role.nav.records',
             Icons.folder_shared_outlined,
             Icons.folder_shared,
             '/patient-records',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -207,25 +208,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.otIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Theatre',
+            'role.nav.theatre',
             Icons.meeting_room_outlined,
             Icons.meeting_room,
             '/theatre',
           ),
           const _NavItem(
-            'Records',
+            'role.nav.records',
             Icons.folder_shared_outlined,
             Icons.folder_shared,
             '/patient-records',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -235,25 +236,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.cathLabIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Cath Lab',
+            'role.nav.cath_lab',
             Icons.monitor_heart_outlined,
             Icons.monitor_heart,
             '/cath-lab',
           ),
           const _NavItem(
-            'Records',
+            'role.nav.records',
             Icons.folder_shared_outlined,
             Icons.folder_shared,
             '/patient-records',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -262,25 +263,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.hr:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Staff Roster',
+            'role.nav.staff_roster',
             Icons.calendar_month_outlined,
             Icons.calendar_month,
             '/staff-rosters',
           ),
           const _NavItem(
-            'HR Hub',
+            'role.nav.hr_hub',
             Icons.groups_outlined,
             Icons.groups,
             '/hr-dashboard',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -289,25 +290,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.admin || StaffRole.superAdmin:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Staff Roster',
+            'role.nav.staff_roster',
             Icons.calendar_month_outlined,
             Icons.calendar_month,
             '/staff-rosters',
           ),
           const _NavItem(
-            'Onboarding',
+            'role.nav.onboarding',
             Icons.manage_accounts_outlined,
             Icons.manage_accounts,
             '/staff-management',
           ),
           const _NavItem(
-            'Settings',
+            'role.nav.settings',
             Icons.settings_outlined,
             Icons.settings,
             '/settings',
@@ -316,25 +317,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.medicalSuperintendent:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Staff Roster',
+            'role.nav.staff_roster',
             Icons.calendar_month_outlined,
             Icons.calendar_month,
             '/staff-rosters',
           ),
           const _NavItem(
-            'Directory',
+            'role.nav.directory',
             Icons.contacts_outlined,
             Icons.contacts,
             '/staff-directory',
           ),
           const _NavItem(
-            'Settings',
+            'role.nav.settings',
             Icons.settings_outlined,
             Icons.settings,
             '/settings',
@@ -344,25 +345,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.pharmacyIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Orders',
+            'role.nav.orders',
             Icons.medication_outlined,
             Icons.medication,
             '/pharmacy',
           ),
           const _NavItem(
-            'Attendance',
+            'role.nav.attendance',
             Icons.fingerprint_outlined,
             Icons.fingerprint,
             '/attendance',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -371,25 +372,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.storesPurchaseIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Inventory',
+            'role.nav.inventory',
             Icons.inventory_2_outlined,
             Icons.inventory_2,
             '/pharmacy',
           ),
           const _NavItem(
-            'Attendance',
+            'role.nav.attendance',
             Icons.fingerprint_outlined,
             Icons.fingerprint,
             '/attendance',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -399,25 +400,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.radiologyStaff:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Lab',
+            'role.nav.lab',
             Icons.science_outlined,
             Icons.science,
             '/investigations',
           ),
           const _NavItem(
-            'Attendance',
+            'role.nav.attendance',
             Icons.fingerprint_outlined,
             Icons.fingerprint,
             '/attendance',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -426,25 +427,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.housekeeping:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Beds',
+            'role.nav.beds',
             Icons.local_hotel_outlined,
             Icons.local_hotel,
             '/beds',
           ),
           const _NavItem(
-            'Cleaning',
+            'role.nav.cleaning',
             Icons.cleaning_services_outlined,
             Icons.cleaning_services,
             '/housekeeping',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -453,31 +454,31 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.housekeepingIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Beds',
+            'role.nav.beds',
             Icons.local_hotel_outlined,
             Icons.local_hotel,
             '/beds',
           ),
           const _NavItem(
-            'Command',
+            'role.nav.command',
             Icons.supervisor_account_outlined,
             Icons.supervisor_account,
             '/housekeeping-command',
           ),
           const _NavItem(
-            'Cleaning',
+            'role.nav.cleaning',
             Icons.cleaning_services_outlined,
             Icons.cleaning_services,
             '/housekeeping',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -487,31 +488,31 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.receptionIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Front Desk',
+            'role.nav.front_desk',
             Icons.space_dashboard_outlined,
             Icons.space_dashboard,
             '/front-office',
           ),
           const _NavItem(
-            'My Roster',
+            'role.nav.my_roster',
             Icons.schedule_outlined,
             Icons.schedule,
             '/schedule',
           ),
           const _NavItem(
-            'Messages',
+            'role.nav.messages',
             Icons.chat_outlined,
             Icons.chat,
             '/messaging',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -522,31 +523,31 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.financeIncharge:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Billing',
+            'role.nav.billing',
             Icons.receipt_long_outlined,
             Icons.receipt_long,
             '/billing-desk',
           ),
           const _NavItem(
-            'Front Desk',
+            'role.nav.front_desk',
             Icons.space_dashboard_outlined,
             Icons.space_dashboard,
             '/front-office',
           ),
           const _NavItem(
-            'Messages',
+            'role.nav.messages',
             Icons.chat_outlined,
             Icons.chat,
             '/messaging',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -557,31 +558,31 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.ipdCounsellor:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Front Desk',
+            'role.nav.front_desk',
             Icons.space_dashboard_outlined,
             Icons.space_dashboard,
             '/front-office',
           ),
           const _NavItem(
-            'Admissions',
+            'role.nav.admissions',
             Icons.local_hospital_outlined,
             Icons.local_hospital,
             '/emr/admissions',
           ),
           const _NavItem(
-            'Messages',
+            'role.nav.messages',
             Icons.chat_outlined,
             Icons.chat,
             '/messaging',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -593,25 +594,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.maintenance:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Work',
+            'role.nav.work',
             Icons.build_outlined,
             Icons.build,
             '/dashboard',
           ),
           const _NavItem(
-            'Messages',
+            'role.nav.messages',
             Icons.chat_outlined,
             Icons.chat,
             '/messaging',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -620,25 +621,25 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.general:
         return [
           const _NavItem(
-            'Home',
+            'role.nav.home',
             Icons.dashboard_outlined,
             Icons.dashboard,
             '/dashboard',
           ),
           const _NavItem(
-            'Tasks',
+            'role.nav.tasks',
             Icons.checklist_outlined,
             Icons.checklist,
             '/tasks',
           ),
           const _NavItem(
-            'Attendance',
+            'role.nav.attendance',
             Icons.fingerprint_outlined,
             Icons.fingerprint,
             '/attendance',
           ),
           const _NavItem(
-            'Profile',
+            'role.nav.profile',
             Icons.person_outlined,
             Icons.person,
             '/profile',
@@ -649,11 +650,11 @@ class StaffScaffold extends StatelessWidget {
 }
 
 class _NavItem {
-  final String label;
+  final String labelKey;
   final IconData icon;
   final IconData activeIcon;
   final String route;
-  const _NavItem(this.label, this.icon, this.activeIcon, this.route);
+  const _NavItem(this.labelKey, this.icon, this.activeIcon, this.route);
 }
 
 // _LogoutAction lifted to lib/core/widgets/logout_action.dart so screens

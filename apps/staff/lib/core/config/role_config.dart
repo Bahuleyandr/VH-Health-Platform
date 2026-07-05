@@ -320,14 +320,14 @@ enum StaffRole {
 
 class DashboardFeature {
   final String id;
-  final String title;
+  final String titleKey;
   final IconData icon;
   final String route;
   final Color color;
 
   const DashboardFeature({
     required this.id,
-    required this.title,
+    required this.titleKey,
     required this.icon,
     required this.route,
     required this.color,
@@ -338,20 +338,25 @@ class DashboardFeature {
 
 class BottomNavItem {
   final BottomNavigationBarItem item;
+  final String labelKey;
   final String route;
 
-  const BottomNavItem({required this.item, required this.route});
+  const BottomNavItem({
+    required this.item,
+    required this.labelKey,
+    required this.route,
+  });
 }
 
 class WorkbenchNavItem {
-  final String label;
+  final String labelKey;
   final IconData icon;
   final IconData selectedIcon;
   final String route;
   final String? featureId;
 
   const WorkbenchNavItem({
-    required this.label,
+    required this.labelKey,
     required this.icon,
     required this.selectedIcon,
     required this.route,
@@ -367,385 +372,385 @@ class RoleFeatures {
   // All available features
   static const DashboardFeature _attendance = DashboardFeature(
     id: 'attendance',
-    title: 'Attendance',
+    titleKey: 'role.feature.attendance',
     icon: Icons.fingerprint,
     route: '/attendance',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _appointments = DashboardFeature(
     id: 'appointments',
-    title: 'Appointments',
+    titleKey: 'role.feature.appointments',
     icon: Icons.calendar_month,
     route: '/appointments',
     color: Color(0xFF6A1B9A),
   );
   static const DashboardFeature _admissions = DashboardFeature(
     id: 'admissions',
-    title: 'IP Admissions',
+    titleKey: 'role.feature.admissions',
     icon: Icons.local_hospital,
     route: '/emr/admissions',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _frontOfficeWorkbench = DashboardFeature(
     id: 'front_office_workbench',
-    title: 'Front Office',
+    titleKey: 'role.feature.front_office_workbench',
     icon: Icons.space_dashboard_outlined,
     route: '/front-office',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _billingDesk = DashboardFeature(
     id: 'billing_desk',
-    title: 'Billing Desk',
+    titleKey: 'role.feature.billing_desk',
     icon: Icons.receipt_long,
     route: '/billing-desk',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _patientRecords = DashboardFeature(
     id: 'patient_records',
-    title: 'Patient Records',
+    titleKey: 'role.feature.patient_records',
     icon: Icons.folder_shared,
     route: '/patient-records',
     color: Color(0xFF0277BD),
   );
   static const DashboardFeature _prescriptions = DashboardFeature(
     id: 'prescriptions',
-    title: 'Prescriptions',
+    titleKey: 'role.feature.prescriptions',
     icon: Icons.medication_liquid,
     route: '/prescriptions',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _pharmacyOrders = DashboardFeature(
     id: 'pharmacy_orders',
-    title: 'Pharmacy',
+    titleKey: 'role.feature.pharmacy_orders',
     icon: Icons.medication,
     route: '/pharmacy',
     color: Color(0xFFE65100),
   );
   static const DashboardFeature _investigationsUpload = DashboardFeature(
     id: 'investigations_upload',
-    title: 'Upload Results',
+    titleKey: 'role.feature.investigations_upload',
     icon: Icons.upload_file,
     route: '/investigations',
     color: Color(0xFF0097A7),
   );
   static const DashboardFeature _investigationResults = DashboardFeature(
     id: 'investigation_results',
-    title: 'Lab Results',
+    titleKey: 'role.feature.investigation_results',
     icon: Icons.biotech,
     route: '/investigations',
     color: Color(0xFF0097A7),
   );
   static const DashboardFeature _labBookings = DashboardFeature(
     id: 'lab_bookings',
-    title: 'Lab Bookings',
+    titleKey: 'role.feature.lab_bookings',
     icon: Icons.science,
     route: '/lab-bookings',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _leave = DashboardFeature(
     id: 'leave',
-    title: 'Leave',
+    titleKey: 'role.feature.leave',
     icon: Icons.event_available,
     route: '/leave',
     color: Color(0xFF00796B),
   );
   static const DashboardFeature _payroll = DashboardFeature(
     id: 'payroll',
-    title: 'Payroll',
+    titleKey: 'role.feature.payroll',
     icon: Icons.payments_outlined,
     route: '/payroll',
     color: Color(0xFF00695C),
   );
   static const DashboardFeature _leaveApprovals = DashboardFeature(
     id: 'leave_approvals',
-    title: 'Leave Approvals',
+    titleKey: 'role.feature.leave_approvals',
     icon: Icons.fact_check_outlined,
     route: '/leave-approvals',
     color: Color(0xFF00796B),
   );
   static const DashboardFeature _reportsGrievances = DashboardFeature(
     id: 'reports_grievances',
-    title: 'Reports & Grievances',
+    titleKey: 'role.feature.reports_grievances',
     icon: Icons.report_problem_outlined,
     route: '/reports-grievances',
     color: Color(0xFF00796B),
   );
   static const DashboardFeature _staffDirectory = DashboardFeature(
     id: 'staff_directory',
-    title: 'Staff Directory',
+    titleKey: 'role.feature.staff_directory',
     icon: Icons.people,
     route: '/staff-directory',
     color: Color(0xFF455A64),
   );
   static const DashboardFeature _hrDashboard = DashboardFeature(
     id: 'hr_dashboard',
-    title: 'HR Dashboard',
+    titleKey: 'role.feature.hr_dashboard',
     icon: Icons.analytics,
     route: '/hr-dashboard',
     color: Color(0xFF6A1B9A),
   );
   static const DashboardFeature _staffManagement = DashboardFeature(
     id: 'staff_management',
-    title: 'Onboarding',
+    titleKey: 'role.feature.staff_management',
     icon: Icons.manage_accounts,
     route: '/staff-management',
     color: Color(0xFF4527A0),
   );
   static const DashboardFeature _organizationHierarchy = DashboardFeature(
     id: 'organization_hierarchy',
-    title: 'Hierarchy',
+    titleKey: 'role.feature.organization_hierarchy',
     icon: Icons.account_tree_outlined,
     route: '/organization-hierarchy',
     color: Color(0xFF00695C),
   );
   static const DashboardFeature _performance = DashboardFeature(
     id: 'performance',
-    title: 'Performance',
+    titleKey: 'role.feature.performance',
     icon: Icons.star_rate,
     route: '/performance',
     color: Color(0xFFF57F17),
   );
   static const DashboardFeature _housekeepingTasks = DashboardFeature(
     id: 'housekeeping_tasks',
-    title: 'My Tasks',
+    titleKey: 'role.feature.housekeeping_tasks',
     icon: Icons.checklist,
     route: '/housekeeping-tasks',
     color: Color(0xFF2E7D32),
   );
   static const DashboardFeature _housekeepingHub = DashboardFeature(
     id: 'housekeeping_hub',
-    title: 'Housekeeping',
+    titleKey: 'role.feature.housekeeping_hub',
     icon: Icons.cleaning_services_outlined,
     route: '/housekeeping',
     color: Color(0xFF007A64),
   );
   static const DashboardFeature _housekeepingCommand = DashboardFeature(
     id: 'housekeeping_command',
-    title: 'HK Command',
+    titleKey: 'role.feature.housekeeping_command',
     icon: Icons.supervisor_account,
     route: '/housekeeping-command',
     color: Color(0xFF00695C),
   );
   static const DashboardFeature _housekeepingRoster = DashboardFeature(
     id: 'housekeeping_roster',
-    title: 'Shift Roster',
+    titleKey: 'role.feature.housekeeping_roster',
     icon: Icons.calendar_month,
     route: '/staff-roster/housekeeping',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _dutyPreference = DashboardFeature(
     id: 'duty_preference',
-    title: 'Duty Request',
+    titleKey: 'role.feature.duty_preference',
     icon: Icons.how_to_reg,
     route: '/duty-preference',
     color: Color(0xFF00796B),
   );
   static const DashboardFeature _nursingRoster = DashboardFeature(
     id: 'nursing_roster',
-    title: 'Nursing Roster',
+    titleKey: 'role.feature.nursing_roster',
     icon: Icons.assignment_ind,
     route: '/staff-roster/nursing',
     color: Color(0xFF00695C),
   );
   static const DashboardFeature _opNursingRoster = DashboardFeature(
     id: 'op_nursing_roster',
-    title: 'OP Roster',
+    titleKey: 'role.feature.op_nursing_roster',
     icon: Icons.event_note,
     route: '/staff-roster/op_nursing',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _opNursingDashboard = DashboardFeature(
     id: 'op_nursing_dashboard',
-    title: 'OP Nursing',
+    titleKey: 'role.feature.op_nursing_dashboard',
     icon: Icons.fact_check_outlined,
     route: '/op/nursing-dashboard',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _receptionRoster = DashboardFeature(
     id: 'reception_roster',
-    title: 'Reception Roster',
+    titleKey: 'role.feature.reception_roster',
     icon: Icons.support_agent,
     route: '/staff-roster/reception',
     color: Color(0xFF455A64),
   );
   static const DashboardFeature _maintenanceRoster = DashboardFeature(
     id: 'maintenance_roster',
-    title: 'Maintenance Roster',
+    titleKey: 'role.feature.maintenance_roster',
     icon: Icons.engineering_outlined,
     route: '/staff-roster/maintenance',
     color: Color(0xFFF9A825),
   );
   static const DashboardFeature _pharmacyRoster = DashboardFeature(
     id: 'pharmacy_roster',
-    title: 'Pharmacy Roster',
+    titleKey: 'role.feature.pharmacy_roster',
     icon: Icons.local_pharmacy_outlined,
     route: '/staff-roster/pharmacy',
     color: Color(0xFFE65100),
   );
   static const DashboardFeature _staffRosterHub = DashboardFeature(
     id: 'staff_roster',
-    title: 'Staff Roster',
+    titleKey: 'role.feature.staff_roster',
     icon: Icons.calendar_month_outlined,
     route: '/staff-rosters',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _nursingNotes = DashboardFeature(
     id: 'nursing_notes',
-    title: 'Nursing Notes',
+    titleKey: 'role.feature.nursing_notes',
     icon: Icons.edit_note,
     route: '/nursing-notes',
     color: Color(0xFF00695C),
   );
   static const DashboardFeature _clinicalAiReviewQueue = DashboardFeature(
     id: 'clinical_ai_review_queue',
-    title: 'AI Review',
+    titleKey: 'role.feature.clinical_ai_review_queue',
     icon: Icons.fact_check_outlined,
     route: '/clinical-ai/queue',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _clinicalInbox = DashboardFeature(
     id: 'clinical_inbox',
-    title: 'Clinical Inbox',
+    titleKey: 'role.feature.clinical_inbox',
     icon: Icons.assignment_late_outlined,
     route: '/clinical-inbox',
     color: Color(0xFFC62828),
   );
   static const DashboardFeature _opAiAssist = DashboardFeature(
     id: 'op_ai_assist',
-    title: 'OP AI Assist',
+    titleKey: 'role.feature.op_ai_assist',
     icon: Icons.auto_awesome,
     route: '/op-ai-assist',
     color: Color(0xFF5E35B1),
   );
   static const DashboardFeature _opDoctorWorkspace = DashboardFeature(
     id: 'op_doctor_workspace',
-    title: 'OP Workspace',
+    titleKey: 'role.feature.op_doctor_workspace',
     icon: Icons.fact_check_outlined,
     route: '/appointments?context=op&scope=my&workspace=doctor',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _schedule = DashboardFeature(
     id: 'schedule',
-    title: 'My Roster',
+    titleKey: 'role.feature.schedule',
     icon: Icons.schedule,
     route: '/schedule',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _handover = DashboardFeature(
     id: 'handover',
-    title: 'Shift Handover',
+    titleKey: 'role.feature.handover',
     icon: Icons.swap_horiz,
     route: '/handover',
     color: Color(0xFF00695C),
   );
   static const DashboardFeature _profile = DashboardFeature(
     id: 'profile',
-    title: 'Profile',
+    titleKey: 'role.feature.profile',
     icon: Icons.person,
     route: '/profile',
     color: Color(0xFF37474F),
   );
   static const DashboardFeature _settings = DashboardFeature(
     id: 'settings',
-    title: 'Settings',
+    titleKey: 'role.feature.settings',
     icon: Icons.settings,
     route: '/settings',
     color: Color(0xFF546E7A),
   );
   static const DashboardFeature _messaging = DashboardFeature(
     id: 'messaging',
-    title: 'Messages',
+    titleKey: 'role.feature.messaging',
     icon: Icons.chat_outlined,
     route: '/messaging',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _safetyCenter = DashboardFeature(
     id: 'safety_center',
-    title: 'Safety Center',
+    titleKey: 'role.feature.safety_center',
     icon: Icons.health_and_safety_outlined,
     route: '/safety-center',
     color: Color(0xFFC62828),
   );
   static const DashboardFeature _auditLogs = DashboardFeature(
     id: 'audit_logs',
-    title: 'Audit Logs',
+    titleKey: 'role.feature.audit_logs',
     icon: Icons.manage_search,
     route: '/audit-logs',
     color: Color(0xFFC62828),
   );
   static const DashboardFeature _staffDiagnostics = DashboardFeature(
     id: 'staff_diagnostics',
-    title: 'Diagnostics',
+    titleKey: 'role.feature.staff_diagnostics',
     icon: Icons.monitor_heart_outlined,
     route: '/staff-diagnostics',
     color: Color(0xFF546E7A),
   );
   static const DashboardFeature _bedBoard = DashboardFeature(
     id: 'bed_board',
-    title: 'Bed Board',
+    titleKey: 'role.feature.bed_board',
     icon: Icons.local_hotel,
     route: '/beds',
     color: Color(0xFF0277BD),
   );
   static const DashboardFeature _patientCommandBoard = DashboardFeature(
     id: 'patient_command_board',
-    title: 'Command Board',
+    titleKey: 'role.feature.patient_command_board',
     icon: Icons.view_timeline_outlined,
     route: '/patient-command-board',
     color: Color(0xFF1565C0),
   );
   static const DashboardFeature _referrals = DashboardFeature(
     id: 'referrals',
-    title: 'Referrals',
+    titleKey: 'role.feature.referrals',
     icon: Icons.medical_services_outlined,
     route: '/referrals',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _wardMode = DashboardFeature(
     id: 'ward_mode',
-    title: 'Ward Mode',
+    titleKey: 'role.feature.ward_mode',
     icon: Icons.local_hospital_outlined,
     route: '/ward-mode',
     color: Color(0xFF00796B),
   );
   static const DashboardFeature _dischargeHub = DashboardFeature(
     id: 'discharge_hub',
-    title: 'Discharge Hub',
+    titleKey: 'role.feature.discharge_hub',
     icon: Icons.rule_folder,
     route: '/emr/discharge-hub',
     color: Color(0xFFD84315),
   );
   static const DashboardFeature _bloodBank = DashboardFeature(
     id: 'blood_bank',
-    title: 'Blood Bank',
+    titleKey: 'role.feature.blood_bank',
     icon: Icons.bloodtype,
     route: '/blood-bank',
     color: Color(0xFFC62828),
   );
   static const DashboardFeature _dietary = DashboardFeature(
     id: 'dietary',
-    title: 'Dietary',
+    titleKey: 'role.feature.dietary',
     icon: Icons.restaurant_menu,
     route: '/dietary',
     color: Color(0xFF00796B),
   );
   static const DashboardFeature _theatre = DashboardFeature(
     id: 'theatre',
-    title: 'Operating Theatre',
+    titleKey: 'role.feature.theatre',
     icon: Icons.local_hospital,
     route: '/theatre',
     color: Color(0xFF6A1B9A),
   );
   static const DashboardFeature _cathLab = DashboardFeature(
     id: 'cath_lab',
-    title: 'Cath Lab',
+    titleKey: 'role.feature.cath_lab',
     icon: Icons.monitor_heart_outlined,
     route: '/cath-lab',
     color: Color(0xFFAD1457),
   );
   static const DashboardFeature _radiology = DashboardFeature(
     id: 'radiology',
-    title: 'Radiology',
+    titleKey: 'role.feature.radiology',
     icon: Icons.biotech,
     route: '/radiology',
     color: Color(0xFF0277BD),
@@ -1229,40 +1234,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.fact_check_outlined),
             activeIcon: Icon(Icons.fact_check),
-            label: 'OP Workspace',
           ),
+          labelKey: 'role.nav.op_workspace',
           route: '/appointments?context=op&scope=my&workspace=doctor',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.folder_shared_outlined),
             activeIcon: Icon(Icons.folder_shared),
-            label: 'Records',
           ),
+          labelKey: 'role.nav.records',
           route: '/patient-records',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1271,40 +1276,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.local_hospital_outlined),
             activeIcon: Icon(Icons.local_hospital),
-            label: 'Theatre',
           ),
+          labelKey: 'role.nav.theatre',
           route: '/theatre',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.folder_shared_outlined),
             activeIcon: Icon(Icons.folder_shared),
-            label: 'Records',
           ),
+          labelKey: 'role.nav.records',
           route: '/patient-records',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1317,40 +1322,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.view_timeline_outlined),
             activeIcon: Icon(Icons.view_timeline),
-            label: 'Command',
           ),
+          labelKey: 'role.nav.command',
           route: '/patient-command-board',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.schedule_outlined),
             activeIcon: Icon(Icons.schedule),
-            label: 'My Roster',
           ),
+          labelKey: 'role.nav.my_roster',
           route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1359,40 +1364,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.local_hospital_outlined),
             activeIcon: Icon(Icons.local_hospital),
-            label: 'Theatre',
           ),
+          labelKey: 'role.nav.theatre',
           route: '/theatre',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.schedule_outlined),
             activeIcon: Icon(Icons.schedule),
-            label: 'My Roster',
           ),
+          labelKey: 'role.nav.my_roster',
           route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1401,40 +1406,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.monitor_heart_outlined),
             activeIcon: Icon(Icons.monitor_heart),
-            label: 'Cath Lab',
           ),
+          labelKey: 'role.nav.cath_lab',
           route: '/cath-lab',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.schedule_outlined),
             activeIcon: Icon(Icons.schedule),
-            label: 'My Roster',
           ),
+          labelKey: 'role.nav.my_roster',
           route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1443,40 +1448,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.fact_check_outlined),
             activeIcon: Icon(Icons.fact_check),
-            label: 'OP Nursing',
           ),
+          labelKey: 'role.nav.op_nursing',
           route: '/op/nursing-dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.schedule_outlined),
             activeIcon: Icon(Icons.schedule),
-            label: 'My Roster',
           ),
+          labelKey: 'role.nav.my_roster',
           route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1485,40 +1490,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.analytics_outlined),
             activeIcon: Icon(Icons.analytics),
-            label: 'HR Hub',
           ),
+          labelKey: 'role.nav.hr_hub',
           route: '/hr-dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.schedule_outlined),
             activeIcon: Icon(Icons.schedule),
-            label: 'My Roster',
           ),
+          labelKey: 'role.nav.my_roster',
           route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1529,40 +1534,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.apps_outlined),
             activeIcon: Icon(Icons.apps),
-            label: 'Features',
           ),
+          labelKey: 'role.nav.features',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             activeIcon: Icon(Icons.settings),
-            label: 'Settings',
           ),
+          labelKey: 'role.nav.settings',
           route: '/settings',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1571,32 +1576,32 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.medication_outlined),
             activeIcon: Icon(Icons.medication),
-            label: 'Orders',
           ),
+          labelKey: 'role.nav.orders',
           route: '/pharmacy',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1605,32 +1610,32 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.inventory_2_outlined),
             activeIcon: Icon(Icons.inventory_2),
-            label: 'Inventory',
           ),
+          labelKey: 'role.nav.inventory',
           route: '/pharmacy',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1639,32 +1644,32 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.biotech_outlined),
             activeIcon: Icon(Icons.biotech),
-            label: 'Investigations',
           ),
+          labelKey: 'role.nav.investigations',
           route: '/investigations',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1673,32 +1678,32 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.local_hotel_outlined),
             activeIcon: Icon(Icons.local_hotel),
-            label: 'Beds',
           ),
+          labelKey: 'role.nav.beds',
           route: '/beds',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.cleaning_services_outlined),
             activeIcon: Icon(Icons.cleaning_services),
-            label: 'Cleaning',
           ),
+          labelKey: 'role.nav.cleaning',
           route: '/housekeeping',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1707,40 +1712,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.local_hotel_outlined),
             activeIcon: Icon(Icons.local_hotel),
-            label: 'Beds',
           ),
+          labelKey: 'role.nav.beds',
           route: '/beds',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.supervisor_account_outlined),
             activeIcon: Icon(Icons.supervisor_account),
-            label: 'Command',
           ),
+          labelKey: 'role.nav.command',
           route: '/housekeeping-command',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.cleaning_services_outlined),
             activeIcon: Icon(Icons.cleaning_services),
-            label: 'Cleaning',
           ),
+          labelKey: 'role.nav.cleaning',
           route: '/housekeeping',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1749,40 +1754,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.space_dashboard_outlined),
             activeIcon: Icon(Icons.space_dashboard),
-            label: 'Front Desk',
           ),
+          labelKey: 'role.nav.front_desk',
           route: '/front-office',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.schedule_outlined),
             activeIcon: Icon(Icons.schedule),
-            label: 'My Roster',
           ),
+          labelKey: 'role.nav.my_roster',
           route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1793,40 +1798,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.receipt_long_outlined),
             activeIcon: Icon(Icons.receipt_long),
-            label: 'Billing',
           ),
+          labelKey: 'role.nav.billing',
           route: '/billing-desk',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.space_dashboard_outlined),
             activeIcon: Icon(Icons.space_dashboard),
-            label: 'Front Desk',
           ),
+          labelKey: 'role.nav.front_desk',
           route: '/front-office',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1837,40 +1842,40 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.space_dashboard_outlined),
             activeIcon: Icon(Icons.space_dashboard),
-            label: 'Front Desk',
           ),
+          labelKey: 'role.nav.front_desk',
           route: '/front-office',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.local_hospital_outlined),
             activeIcon: Icon(Icons.local_hospital),
-            label: 'Admissions',
           ),
+          labelKey: 'role.nav.admissions',
           route: '/emr/admissions',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1882,32 +1887,32 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.build_outlined),
             activeIcon: Icon(Icons.build),
-            label: 'Work',
           ),
+          labelKey: 'role.nav.work',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1916,32 +1921,32 @@ class RoleFeatures {
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
           ),
+          labelKey: 'role.nav.home',
           route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.checklist_outlined),
             activeIcon: Icon(Icons.checklist),
-            label: 'Tasks',
           ),
+          labelKey: 'role.nav.tasks',
           route: '/housekeeping-tasks',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.chat_outlined),
             activeIcon: Icon(Icons.chat),
-            label: 'Messages',
           ),
+          labelKey: 'role.nav.messages',
           route: '/messaging',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.person_outlined),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
           ),
+          labelKey: 'role.nav.profile',
           route: '/profile',
         ),
       ],
@@ -1954,40 +1959,40 @@ class RoleFeatures {
         item: BottomNavigationBarItem(
           icon: Icon(Icons.home_outlined),
           activeIcon: Icon(Icons.home),
-          label: 'Home',
         ),
+        labelKey: 'role.nav.home',
         route: '/dashboard',
       ),
       BottomNavItem(
         item: BottomNavigationBarItem(
           icon: Icon(Icons.notifications_outlined),
           activeIcon: Icon(Icons.notifications),
-          label: 'Alerts',
         ),
+        labelKey: 'role.nav.alerts',
         route: '/notifications',
       ),
       BottomNavItem(
         item: BottomNavigationBarItem(
           icon: Icon(Icons.chat_bubble_outline),
           activeIcon: Icon(Icons.chat_bubble),
-          label: 'Messages',
         ),
+        labelKey: 'role.nav.messages',
         route: '/messaging',
       ),
       BottomNavItem(
         item: BottomNavigationBarItem(
           icon: Icon(Icons.fingerprint_outlined),
           activeIcon: Icon(Icons.fingerprint),
-          label: 'Attendance',
         ),
+        labelKey: 'role.nav.attendance',
         route: '/attendance',
       ),
       BottomNavItem(
         item: BottomNavigationBarItem(
           icon: Icon(Icons.more_horiz),
           activeIcon: Icon(Icons.more),
-          label: 'More',
         ),
+        labelKey: 'role.nav.more',
         route: '/phone/more',
       ),
     ];
@@ -2229,7 +2234,7 @@ class RoleFeatures {
   }) {
     final items = <WorkbenchNavItem>[
       const WorkbenchNavItem(
-        label: 'Home',
+        labelKey: 'role.nav.home',
         icon: Icons.dashboard_outlined,
         selectedIcon: Icons.dashboard,
         route: '/dashboard',
@@ -2239,7 +2244,7 @@ class RoleFeatures {
     if (hasStaffRosterHub(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Staff Roster',
+          labelKey: 'role.nav.staff_roster',
           icon: Icons.calendar_month_outlined,
           selectedIcon: Icons.calendar_month,
           route: '/staff-rosters',
@@ -2251,7 +2256,7 @@ class RoleFeatures {
     if (hasStaffOnboarding(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Onboarding',
+          labelKey: 'role.nav.onboarding',
           icon: Icons.manage_accounts_outlined,
           selectedIcon: Icons.manage_accounts,
           route: '/staff-management',
@@ -2263,7 +2268,7 @@ class RoleFeatures {
     if (hasClinicalInbox(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Clinical Inbox',
+          labelKey: 'role.nav.clinical_inbox',
           icon: Icons.assignment_late_outlined,
           selectedIcon: Icons.assignment_late,
           route: '/clinical-inbox',
@@ -2274,7 +2279,7 @@ class RoleFeatures {
     if (hasFrontOfficeWorkbench(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Front Office',
+          labelKey: 'role.nav.front_office',
           icon: Icons.space_dashboard_outlined,
           selectedIcon: Icons.space_dashboard,
           route: '/front-office',
@@ -2286,7 +2291,7 @@ class RoleFeatures {
     if (role == StaffRole.opStaffNurse || role == StaffRole.opIncharge) {
       items.add(
         const WorkbenchNavItem(
-          label: 'OP Nursing',
+          labelKey: 'role.nav.op_nursing',
           icon: Icons.fact_check_outlined,
           selectedIcon: Icons.fact_check,
           route: '/op/nursing-dashboard',
@@ -2298,7 +2303,7 @@ class RoleFeatures {
     if (role == StaffRole.doctor || role == StaffRole.dutyDoctor) {
       items.add(
         const WorkbenchNavItem(
-          label: 'OP Workspace',
+          labelKey: 'role.nav.op_workspace',
           icon: Icons.fact_check_outlined,
           selectedIcon: Icons.fact_check,
           route: '/appointments?context=op&scope=my&workspace=doctor',
@@ -2310,7 +2315,7 @@ class RoleFeatures {
     if (hasIpAdmissionAccess(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'IP Admissions',
+          labelKey: 'role.nav.ip_admissions',
           icon: Icons.local_hospital_outlined,
           selectedIcon: Icons.local_hospital,
           route: '/emr/admissions',
@@ -2322,7 +2327,7 @@ class RoleFeatures {
     if (hasBillingDesk(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Billing',
+          labelKey: 'role.nav.billing',
           icon: Icons.receipt_long_outlined,
           selectedIcon: Icons.receipt_long,
           route: '/billing-desk',
@@ -2334,7 +2339,7 @@ class RoleFeatures {
     if (hasClinicalEntry(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Patient Records',
+          labelKey: 'role.nav.patient_records',
           icon: Icons.folder_shared_outlined,
           selectedIcon: Icons.folder_shared,
           route: '/patient-records',
@@ -2347,14 +2352,14 @@ class RoleFeatures {
         role == StaffRole.housekeepingIncharge) {
       items.addAll(const [
         WorkbenchNavItem(
-          label: 'Beds',
+          labelKey: 'role.nav.beds',
           icon: Icons.local_hotel_outlined,
           selectedIcon: Icons.local_hotel,
           route: '/beds',
           featureId: 'bed_board',
         ),
         WorkbenchNavItem(
-          label: 'Housekeeping',
+          labelKey: 'role.nav.housekeeping',
           icon: Icons.cleaning_services_outlined,
           selectedIcon: Icons.cleaning_services,
           route: '/housekeeping',
@@ -2366,7 +2371,7 @@ class RoleFeatures {
     if (hasPayrollSelfService(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Payroll',
+          labelKey: 'role.nav.payroll',
           icon: Icons.payments_outlined,
           selectedIcon: Icons.payments,
           route: '/payroll',
@@ -2377,25 +2382,25 @@ class RoleFeatures {
 
     items.addAll(const [
       WorkbenchNavItem(
-        label: 'My Roster',
+        labelKey: 'role.nav.my_roster',
         icon: Icons.schedule_outlined,
         selectedIcon: Icons.schedule,
         route: '/schedule',
       ),
       WorkbenchNavItem(
-        label: 'Messages',
+        labelKey: 'role.nav.messages',
         icon: Icons.chat_outlined,
         selectedIcon: Icons.chat,
         route: '/messaging',
       ),
       WorkbenchNavItem(
-        label: 'Alerts',
+        labelKey: 'role.nav.alerts',
         icon: Icons.notifications_outlined,
         selectedIcon: Icons.notifications_active,
         route: '/notifications',
       ),
       WorkbenchNavItem(
-        label: 'Safety',
+        labelKey: 'role.nav.safety',
         icon: Icons.health_and_safety_outlined,
         selectedIcon: Icons.health_and_safety,
         route: '/safety-center',
@@ -2405,14 +2410,14 @@ class RoleFeatures {
     if (role.isAdminTier) {
       items.addAll(const [
         WorkbenchNavItem(
-          label: 'Audit Logs',
+          labelKey: 'role.nav.audit_logs',
           icon: Icons.manage_search_outlined,
           selectedIcon: Icons.manage_search,
           route: '/audit-logs',
           featureId: 'audit_logs',
         ),
         WorkbenchNavItem(
-          label: 'Diagnostics',
+          labelKey: 'role.nav.diagnostics',
           icon: Icons.monitor_heart_outlined,
           selectedIcon: Icons.monitor_heart,
           route: '/staff-diagnostics',
@@ -2422,7 +2427,7 @@ class RoleFeatures {
 
     items.addAll(const [
       WorkbenchNavItem(
-        label: 'Profile',
+        labelKey: 'role.nav.profile',
         icon: Icons.person_outlined,
         selectedIcon: Icons.person,
         route: '/profile',

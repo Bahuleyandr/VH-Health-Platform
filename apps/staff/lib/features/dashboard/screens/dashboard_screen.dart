@@ -1208,13 +1208,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Map<String, String> titleOverrides = const {},
     Map<String, String> routeOverrides = const {},
   }) {
+    final s = AppStrings.of(context);
     final byId = {for (final feature in features) feature.id: feature};
     return [
       for (final id in ids)
         if (byId[id] != null)
           _ServiceTile.fromFeature(
             byId[id]!,
-            title: titleOverrides[id] ?? byId[id]!.title,
+            title: titleOverrides[id] ?? s.lookup(byId[id]!.titleKey),
             route: routeOverrides[id] ?? byId[id]!.route,
           ),
     ];
@@ -1244,6 +1245,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   };
 
   Widget _buildFeatureGrid(List<DashboardFeature> features) {
+    final s = AppStrings.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -1266,7 +1268,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final feature = features[index];
             return _FeatureButton(
               icon: feature.icon,
-              label: feature.title,
+              label: s.lookup(feature.titleKey),
               color: feature.color,
               route: feature.route,
               compact: width < 760,
@@ -1400,7 +1402,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               .map(
                 (feature) => _SecondaryFeatureTile(
                   icon: feature.icon,
-                  label: feature.title,
+                  label: s.lookup(feature.titleKey),
                   color: feature.color,
                   route: feature.route,
                 ),

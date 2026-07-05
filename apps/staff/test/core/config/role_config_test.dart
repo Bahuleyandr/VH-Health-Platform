@@ -1,10 +1,14 @@
 // Unit tests for StaffRole enum + RoleFeatures dispatch.
 // No Flutter runtime needed — StaffRole is pure Dart; RoleFeatures returns const lists.
 
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/config/role_config.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
+  final strings = AppStrings.forLocale(const Locale('en'));
+
   group('StaffRole.fromString', () {
     test('parses canonical uppercase backend values', () {
       expect(StaffRole.fromString('DOCTOR'), StaffRole.doctor);
@@ -166,7 +170,8 @@ void main() {
         expect(ids, contains('ward_mode'));
         expect(ids, isNot(contains('vitals')));
         expect(ids, contains('nursing_notes'));
-        expect(handover.title, 'Shift Handover');
+        expect(handover.titleKey, 'role.feature.handover');
+        expect(strings.lookup(handover.titleKey), 'Shift Handover');
         expect(ids, contains('clinical_ai_review_queue'));
         expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
       },
@@ -552,8 +557,15 @@ void main() {
         expect(
           items
               .firstWhere((item) => item.route == '/op/nursing-dashboard')
-              .item
-              .label,
+              .labelKey,
+          'role.nav.op_nursing',
+        );
+        expect(
+          strings.lookup(
+            items
+                .firstWhere((item) => item.route == '/op/nursing-dashboard')
+                .labelKey,
+          ),
           'OP Nursing',
         );
       }
@@ -664,21 +676,21 @@ void main() {
           .map((item) => item.route)
           .toSet();
       final doctorRoutes = doctorNav.map((item) => item.route).toSet();
-      final doctorLabels = {
-        for (final item in doctorNav) item.route: item.label,
+      final doctorLabelKeys = {
+        for (final item in doctorNav) item.route: item.labelKey,
       };
-      final admissionsLabel = receptionistNav
+      final admissionsLabelKey = receptionistNav
           .singleWhere((item) => item.route == '/emr/admissions')
-          .label;
-      final patientRecordsLabel = doctorNav
+          .labelKey;
+      final patientRecordsLabelKey = doctorNav
           .singleWhere((item) => item.route == '/patient-records')
-          .label;
+          .labelKey;
 
       expect(
         receptionistRoutes,
         containsAll(['/front-office', '/billing-desk']),
       );
-      expect(admissionsLabel, 'IP Admissions');
+      expect(strings.lookup(admissionsLabelKey), 'IP Admissions');
       expect(receptionistRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, contains('/patient-records'));
       expect(doctorRoutes, contains('/clinical-inbox'));
@@ -687,12 +699,14 @@ void main() {
         contains('/appointments?context=op&scope=my&workspace=doctor'),
       );
       expect(
-        doctorLabels['/appointments?context=op&scope=my&workspace=doctor'],
+        strings.lookup(
+          doctorLabelKeys['/appointments?context=op&scope=my&workspace=doctor']!,
+        ),
         'OP Workspace',
       );
       expect(doctorRoutes, isNot(contains('/appointments')));
       expect(doctorRoutes, isNot(contains('/front-office')));
-      expect(patientRecordsLabel, 'Patient Records');
+      expect(strings.lookup(patientRecordsLabelKey), 'Patient Records');
       expect(doctorRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, isNot(contains('/billing-desk')));
       expect(doctorRoutes, isNot(contains('/emr/admissions')));
@@ -863,7 +877,7 @@ void main() {
   group('RoleFeatures.getPhoneSelfServiceNavForRole', () {
     test('phone mode exposes the non-clinical five-tab shell', () {
       final nav = RoleFeatures.getPhoneSelfServiceNavForRole(StaffRole.nurse);
-      expect(nav.map((item) => item.item.label).toList(), [
+      expect(nav.map((item) => strings.lookup(item.labelKey)).toList(), [
         'Home',
         'Alerts',
         'Messages',
