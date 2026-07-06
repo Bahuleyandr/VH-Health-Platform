@@ -68,7 +68,9 @@
 	<!-- Permission strings for features already shipped; harmless if a
 	     particular release doesn't use one. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Camera access is used to upload prescriptions, investigation slips, and profile photos.</string>
+	<string>Camera access is used for video consultations, prescription uploads, investigation slips, and profile photos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is used for audio during video consultations.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Photo library access is used to attach medical records and profile photos.</string>
 	<key>NSFaceIDUsageDescription</key>
