@@ -3,7 +3,10 @@
 // its own StatefulWidget so the screen is just a tab coordinator. The
 // parent holds a GlobalKey<AppointmentsListTabState> and calls refresh()
 // after a new booking.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -15,14 +18,22 @@ import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/features/appointments/models/appointment_models.dart';
 import 'package:vhhealth/features/appointments/widgets/appointment_card.dart';
+import 'package:vhhealth/features/teleconsult/models/teleconsult_models.dart';
+import 'package:vhhealth/features/teleconsult/models/teleconsult_route_args.dart';
+import 'package:vhhealth/features/teleconsult/services/teleconsult_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class AppointmentsListTab extends StatefulWidget {
   /// Invoked when the empty-state "Book one now" button is tapped — the
   /// parent screen switches to the Book tab.
   final VoidCallback onBookOne;
+  final TeleconsultRepository teleconsultRepository;
 
-  const AppointmentsListTab({super.key, required this.onBookOne});
+  const AppointmentsListTab({
+    super.key,
+    required this.onBookOne,
+    this.teleconsultRepository = const TeleconsultRepository(),
+  });
 
   @override
   State<AppointmentsListTab> createState() => AppointmentsListTabState();
@@ -32,6 +43,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   static final _secureStorage = VHSecureStorage.instance;
 
   List<AppointmentInfo> _appointments = [];
+  Map<int, TeleconsultLobbyState> _teleconsultStates = const {};
   bool _loadingAppointments = true;
   String? _patientId;
   String? _error;
@@ -111,13 +123,21 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                 : null,
             confirmationNotes: a['confirmation_notes']?.toString(),
             hasDocuments: false, // updated when documents are fetched
+            visitType:
+                a['visit_type']?.toString() ?? a['visitType']?.toString() ?? '',
           );
         }).toList();
         if (mounted) {
           setState(() {
             _appointments = list;
             _loadingAppointments = false;
+            _teleconsultStates = Map.fromEntries(
+              _teleconsultStates.entries.where(
+                (entry) => list.any((appt) => appt.id == entry.key),
+              ),
+            );
           });
+          unawaited(_refreshTeleconsultStates(list));
         }
         return;
       }
@@ -137,6 +157,58 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
         _loadingAppointments = false;
       });
     }
+  }
+
+  Future<void> _refreshTeleconsultStates(
+    List<AppointmentInfo> appointments,
+  ) async {
+    final teleconsults = appointments
+        .where((appt) => appt.isTeleconsult && !appt.hasTerminalStatus)
+        .toList();
+    if (teleconsults.isEmpty) {
+      if (mounted && _teleconsultStates.isNotEmpty) {
+        setState(() => _teleconsultStates = const {});
+      }
+      return;
+    }
+
+    for (final appt in teleconsults) {
+      try {
+        final state = await widget.teleconsultRepository.fetchLobbyState(
+          appt.id,
+        );
+        if (!mounted) return;
+        setState(() {
+          _teleconsultStates = {..._teleconsultStates, appt.id: state};
+        });
+      } catch (e) {
+        debugPrint('Teleconsult lobby state failed for ${appt.id}: $e');
+      }
+    }
+  }
+
+  void _openAppointmentDetail(AppointmentInfo appt) {
+    context.push(
+      '/appointments/${appt.id}',
+      extra: TeleconsultRouteArgs(
+        appointment: appt,
+        initialState: _teleconsultStates[appt.id],
+        repository: widget.teleconsultRepository,
+      ),
+    );
+  }
+
+  void _openTeleconsultLobby(AppointmentInfo appt) {
+    final state = _teleconsultStates[appt.id];
+    if (state?.joinable != true) return;
+    context.push(
+      '/teleconsult/appointments/${appt.id}/lobby',
+      extra: TeleconsultRouteArgs(
+        appointment: appt,
+        initialState: state,
+        repository: widget.teleconsultRepository,
+      ),
+    );
   }
 
   Future<void> _viewPrescription(AppointmentInfo appt) async {
@@ -470,6 +542,9 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                 ...upcoming.map(
                   (a) => AppointmentCard(
                     appt: a,
+                    teleconsultState: _teleconsultStates[a.id],
+                    onOpenDetails: () => _openAppointmentDetail(a),
+                    onJoinTeleconsult: _openTeleconsultLobby,
                     onViewPrescription: _viewPrescription,
                     onReschedule: _rescheduleAppointment,
                     onCancel: _cancelAppointment,
@@ -482,6 +557,9 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
                 ...past.map(
                   (a) => AppointmentCard(
                     appt: a,
+                    teleconsultState: _teleconsultStates[a.id],
+                    onOpenDetails: () => _openAppointmentDetail(a),
+                    onJoinTeleconsult: _openTeleconsultLobby,
                     onViewPrescription: _viewPrescription,
                     onReschedule: _rescheduleAppointment,
                     onCancel: _cancelAppointment,
