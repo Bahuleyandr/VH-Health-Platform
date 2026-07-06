@@ -11,6 +11,7 @@ import { computeGestationalAge } from '../maternity/maternityService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { attachAppointmentQueues } from './appointmentQueueService.js';
+import { attachTeleconsultState } from './appointmentTeleconsultStateService.js';
 
 const DOCTOR_SCOPED_APPOINTMENT_ROLES = new Set(['DOCTOR', 'DUTY_DOCTOR']);
 
@@ -30,6 +31,7 @@ const APPT_BASE_SELECT = {
   department: true,
   token_number: true,
   triage_acuity: true,
+  visit_type: true,
   // Persisted human-readable visit_no (migration 217) so receptionists
   // can reprint the slip and downstream counters can match the printed
   // OPD-YYYYMMDD-NNN token in list responses.
@@ -508,8 +510,11 @@ export class AppointmentQueryService {
 
       const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
 
-      const appointments = await attachAppointmentQueues(
-        rows.map((row) => flattenListRow(row, allergyMap)),
+      const appointments = await attachTeleconsultState(
+        await attachAppointmentQueues(
+          rows.map((row) => flattenListRow(row, allergyMap)),
+          prisma,
+        ),
         prisma,
       );
 
@@ -577,7 +582,10 @@ export class AppointmentQueryService {
         flat.patient_email = p?.email ?? null;
         return attachPatientAllergies(flat, p, allergyMap);
       });
-      return attachAppointmentQueues(appointments, prisma);
+      return attachTeleconsultState(
+        await attachAppointmentQueues(appointments, prisma),
+        prisma,
+      );
     } catch (error) {
       logger.error('Error getting doctor appointments:', error);
       throw error;
@@ -635,7 +643,10 @@ export class AppointmentQueryService {
         flat.department = r.department ?? profile?.department ?? null;
         return attachPatientAllergies(flat, p, allergyMap);
       });
-      return attachAppointmentQueues(appointments, prisma);
+      return attachTeleconsultState(
+        await attachAppointmentQueues(appointments, prisma),
+        prisma,
+      );
     } catch (error) {
       logger.error('Error getting patient appointments:', error);
       throw error;
@@ -687,7 +698,13 @@ export class AppointmentQueryService {
         return attachPatientAllergies(flat, p, allergyMap);
       });
 
-      return { appointments: await attachAppointmentQueues(appointments, prisma), date: todayStr };
+      return {
+        appointments: await attachTeleconsultState(
+          await attachAppointmentQueues(appointments, prisma),
+          prisma,
+        ),
+        date: todayStr,
+      };
     } catch (error) {
       logger.error('Error getting today appointments:', error);
       throw error;

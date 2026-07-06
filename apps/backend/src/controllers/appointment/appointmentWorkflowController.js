@@ -16,6 +16,7 @@ import { istDateString } from '../../utils/dateUtils.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
+import { attachTeleconsultState } from '../../services/appointment/appointmentTeleconsultStateService.js';
 // Aliased: this file has its own request-level requireTenantId(req); this is the
 // value-level fail-closed guard for the anti-spoof claim source below.
 import { requireTenantId as requireTenantValue } from '../../services/tenant/tenantService.js';
@@ -963,7 +964,7 @@ export const getTodayQueue = async (req, res) => {
       };
     });
 
-    success(res, enriched, "Today's queue fetched");
+    success(res, await attachTeleconsultState(enriched, prisma), "Today's queue fetched");
   } catch (err) {
     logger.error('Get Queue Error:', err);
     error(res, 'Failed to fetch queue', HTTP_STATUS.INTERNAL_SERVER_ERROR);
