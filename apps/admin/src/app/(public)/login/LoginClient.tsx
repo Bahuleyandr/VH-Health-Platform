@@ -23,7 +23,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
+import { KeyRound } from "lucide-react";
 import styles from "./Login.module.css";
+
+type SsoProvider = {
+  provider_key: string;
+  display_name: string;
+};
 
 function LoginInner() {
   const { login, verifyMfa, mfaSetupEnroll, mfaSetupConfirm, loginStaff } =
@@ -39,6 +45,7 @@ function LoginInner() {
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [ssoProviders, setSsoProviders] = useState<SsoProvider[]>([]);
 
   // Validation state
   const [touched, setTouched] = useState({ username: false, password: false });
@@ -90,6 +97,37 @@ function LoginInner() {
     } else {
       userRef.current?.focus();
     }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/login/sso/oidc/providers", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const body = await response.json();
+        const providers = body?.data?.providers ?? body?.providers ?? [];
+        return Array.isArray(providers) ? providers : [];
+      })
+      .then((providers: unknown[]) => {
+        if (!active) return;
+        setSsoProviders(
+          providers
+            .map((provider) => {
+              const item = provider as Partial<SsoProvider>;
+              return {
+                provider_key: String(item.provider_key || "").trim(),
+                display_name: String(item.display_name || item.provider_key || "").trim(),
+              };
+            })
+            .filter((provider) => provider.provider_key && provider.display_name),
+        );
+      })
+      .catch(() => {
+        if (active) setSsoProviders([]);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Real-time validation
@@ -312,6 +350,30 @@ function LoginInner() {
           <div role="alert" className={styles.errorBox}>
             <span>⚠️</span>
             <p className={styles.errorText}>{error}</p>
+          </div>
+        )}
+
+        {loginMode === "admin" && ssoProviders.length > 0 && (
+          <div className={styles.ssoBlock}>
+            {ssoProviders.map((provider) => (
+              <button
+                key={provider.provider_key}
+                type="button"
+                className={styles.ssoButton}
+                disabled={disabled}
+                onClick={() => {
+                  setError("");
+                  window.location.href =
+                    `/api/login/sso/oidc/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
+                }}
+              >
+                <KeyRound className={styles.ssoIcon} aria-hidden="true" />
+                <span>Sign in with {provider.display_name}</span>
+              </button>
+            ))}
+            <div className={styles.ssoDivider}>
+              <span>or</span>
+            </div>
           </div>
         )}
 
