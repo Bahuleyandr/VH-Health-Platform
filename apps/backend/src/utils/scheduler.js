@@ -203,6 +203,7 @@ import { resolveLedgerModeForTenant } from '../services/billing/ledger/ledgerAut
 
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
 import { dispatchPendingDeliveries, enqueueDelivery, reapStaleInFlightDeliveries } from '../services/integrations/webhookDeliveryService.js';
+import { dispatchPendingNHCXMessages, reapStaleNHCXDispatches } from '../services/nhcx/nhcxOutboundDispatcherService.js';
 
 // Event-outbox drain. publishEvent() writes event_outbox rows from ~40 producers
 // but NOTHING drained them — rows sat at status='pending' forever (the delivery
@@ -838,6 +839,20 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('*/5 * * * *', withJobLock('webhook-reap-stale-inflight', async () => {
     const { reaped } = await reapStaleInFlightDeliveries({ staleMinutes: 15 });
     if (reaped) logger.warn(`Scheduled Task: reaped ${reaped} stale in_flight webhook deliveries`);
+  }));
+
+  // Every 30 seconds — NHCX outbound dispatcher. It is inert when
+  // NHCX_ENABLED=false, and otherwise claims pending/retryable NHCX exchange
+  // envelopes with SKIP LOCKED before encrypting and POSTing to the gateway.
+  registerCron('*/30 * * * * *', withJobLock('nhcx-outbound-dispatch', async () => {
+    await dispatchPendingNHCXMessages({ batchSize: 25 });
+  }));
+
+  // Every 5 minutes — recover NHCX rows left in the transient sent state after
+  // a worker crash between claim and terminal status write.
+  registerCron('*/5 * * * *', withJobLock('nhcx-reap-stale-sent', async () => {
+    const { reaped } = await reapStaleNHCXDispatches({ staleMinutes: 15 });
+    if (reaped) logger.warn(`Scheduled Task: reaped ${reaped} stale NHCX outbound dispatches`);
   }));
 
   // Schema drift detection — once at startup

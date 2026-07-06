@@ -40,6 +40,7 @@ import pharmacySupplyRoutes from './pharmacySupplyRoutes.js';
 import smartFhirRoutes from './smartFhirRoutes.js';
 import tasksWorkflowRoutes from './tasksWorkflowRoutes.js';
 import telemedicineRoutes from './telemedicineRoutes.js';
+import nhcxRoutes from './nhcxRoutes.js';
 
 // Dashboard / stats / SOS / upload handlers (M20 extraction)
 import * as dash from './dashboardController.js';
@@ -152,5 +153,6 @@ router.use('/abdm', abdmFullRoutes);
 router.use('/smart-fhir', smartFhirRoutes);
 router.use('/encryption-keys', encryptionKeyRoutes);
 router.use('/ed', edRoutes);
+router.use('/nhcx', nhcxRoutes);
 
 export default router;

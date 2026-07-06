@@ -90,8 +90,11 @@ Every ✗ below was verified against the repo (grep/read), not assumed.
       as the substrate; no commercial packaging layer).
 
 ### B. India money rails
-- [ ] ✗ **NHCX** (National Health Claims Exchange) — zero code; the FHIR-based
-      claim/preauth cycle should ride the existing `tpa_claims` spine.
+- [ ] ◐ **NHCX** (National Health Claims Exchange) — P1 backend core exists
+      behind `NHCX_ENABLED=false`: exchange envelope, tenant credentials,
+      eligibility/preauth FHIR builders, outbound dispatcher, callbacks, and
+      mock exchange. Live version lock, sandbox enrolment, claim cycle,
+      communications, payment notice, and tariff UI remain.
 - [ ] ✗ Tariff / rate-card master admin UI (entities exist; no editor).
 - [ ] ✗ Statutory register/report pack (OPD/IPD registers, birth/death, MLC
       registers as printable statutory formats).
@@ -264,8 +267,8 @@ one-commit-per-item for bisectability.
 
 | Program | Wave | Status |
 |---|---|---|
-| NL-1 Enterprise identity | A | ◐ P1 in review — PR #436 ([spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); Keycloak-first admin OIDC SSO held/default-off |
-| NL-2 NHCX claims exchange | A | ◐ design merged — PR #430 ([spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md)); build gated on NHCX version lock + sandbox enrolment |
+| NL-1 Enterprise identity | A | ◐ P1 shipped — PR #436 ([spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); Keycloak-first admin OIDC SSO held/default-off |
+| NL-2 NHCX claims exchange | A | ◐ P1 core in review — [PR #437](https://github.com/Bahuleyandr/VH-Health-Platform/pull/437) ([spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement |
 | NL-3 Teleconsultation | A | ◐ design merged — PR #431 ([spec](superpowers/specs/2026-07-05-nl3-teleconsultation-design.md)); build gated on SFU pick + TURN edge sign-off |
 | NL-4 Demo-basics debt | A | ☑ shipped — PR #429 |
 | NL-5 Terminology + content studio | B | ☐ not started |

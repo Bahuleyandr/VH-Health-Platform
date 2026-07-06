@@ -9613,6 +9613,7 @@ model tenants {
   mlc_records                                mlc_records[]
   nabh_indicator_snapshots                   nabh_indicator_snapshots[]
   news2_scores                               news2_scores[]
+  nhcx_messages                              nhcx_messages[]
   note_drafts                                note_drafts[]
   notification_delivery_log                  notification_delivery_log[]
   notification_events                        notification_events[]
@@ -11458,6 +11459,7 @@ model insurance_policies {
   payers              payers?             @relation(fields: [payer_id], references: [id], onUpdate: NoAction)
   tpas                tpas?               @relation(fields: [tpa_id], references: [id], onUpdate: NoAction)
   insurance_preauth   insurance_preauth[]
+  nhcx_messages       nhcx_messages[]
   tpa_claims          tpa_claims[]
 
   @@index([patient_uid, status], map: "idx_insurance_policies_patient")
@@ -11507,6 +11509,7 @@ model insurance_preauth {
   other_insurance_preauth     insurance_preauth[]           @relation("insurance_preauthToinsurance_preauth")
   insurance_policies          insurance_policies            @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   insurance_preauth_responses insurance_preauth_responses[]
+  nhcx_messages               nhcx_messages[]
   tpa_claim_correspondence    tpa_claim_correspondence[]
   tpa_claim_documents         tpa_claim_documents[]
   tpa_claims                  tpa_claims[]
@@ -12274,6 +12277,7 @@ model tpa_claims {
   stage                    String?                    @default("final") @db.VarChar(20)
   parent_claim_id          Int?
   insurance_claim_caps     insurance_claim_caps[]
+  nhcx_messages            nhcx_messages[]
   tpa_claim_correspondence tpa_claim_correspondence[]
   tpa_claim_documents      tpa_claim_documents[]
   tpa_claim_line_decisions tpa_claim_line_decisions[]
@@ -15226,6 +15230,58 @@ model composition_search_settings {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model nhcx_messages {
+  id                            BigInt              @id @default(autoincrement())
+  tenant_id                     String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  environment                   String              @db.VarChar(20)
+  direction                     String              @db.VarChar(20)
+  cycle                         String              @db.VarChar(30)
+  endpoint                      String              @db.VarChar(120)
+  participant_code_self         String              @db.VarChar(255)
+  participant_code_counterparty String?             @db.VarChar(255)
+  hcx_api_call_id               String?             @db.VarChar(120)
+  hcx_correlation_id            String?             @db.VarChar(120)
+  hcx_workflow_id               String?             @db.VarChar(120)
+  hcx_status                    String?             @db.VarChar(80)
+  claim_id                      Int?
+  preauth_id                    Int?
+  policy_id                     Int?
+  patient_uid                   String?             @db.Uuid
+  admission_id                  Int?
+  domain_resource_type          String?             @db.VarChar(80)
+  profile_url                   String?
+  profile_version               String?             @db.VarChar(40)
+  payload_hash                  String              @db.VarChar(128)
+  protected_headers             Json                @default("{}")
+  payload_ciphertext            String?
+  signature_verified            Boolean             @default(false)
+  registry_key_id               String?             @db.VarChar(160)
+  certificate_thumbprint        String?             @db.VarChar(160)
+  validation_issues             Json                @default("[]")
+  status                        String              @default("pending") @db.VarChar(30)
+  attempt_count                 Int                 @default(0)
+  last_error                    String?
+  next_retry_at                 DateTime?           @db.Timestamptz(6)
+  received_at                   DateTime?           @db.Timestamptz(6)
+  sent_at                       DateTime?           @db.Timestamptz(6)
+  processed_at                  DateTime?           @db.Timestamptz(6)
+  created_at                    DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime            @default(now()) @db.Timestamptz(6)
+  tenants                       tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nhcx_messages_tenant")
+  tpa_claims                    tpa_claims?         @relation(fields: [claim_id], references: [id], onUpdate: NoAction)
+  insurance_policies            insurance_policies? @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
+  insurance_preauth             insurance_preauth?  @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, hcx_api_call_id, environment], map: "uniq_nhcx_messages_api_call")
+  @@unique([tenant_id, hcx_correlation_id, endpoint, direction, payload_hash, environment], map: "uniq_nhcx_messages_correlation_payload")
+  @@index([claim_id, created_at(sort: Desc)], map: "idx_nhcx_messages_claim", where: raw("(claim_id IS NOT NULL)"))
+  @@index([tenant_id, hcx_correlation_id, created_at(sort: Desc)], map: "idx_nhcx_messages_correlation", where: raw("(hcx_correlation_id IS NOT NULL)"))
+  @@index([patient_uid, created_at(sort: Desc)], map: "idx_nhcx_messages_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([policy_id, created_at(sort: Desc)], map: "idx_nhcx_messages_policy", where: raw("(policy_id IS NOT NULL)"))
+  @@index([preauth_id, created_at(sort: Desc)], map: "idx_nhcx_messages_preauth", where: raw("(preauth_id IS NOT NULL)"))
+  @@index([tenant_id, status, next_retry_at], map: "idx_nhcx_messages_tenant_status")
+}
+
 model federated_identities {
   id                        BigInt                    @id @default(autoincrement())
   tenant_id                 String?                   @db.Uuid

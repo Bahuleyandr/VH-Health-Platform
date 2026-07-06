@@ -32,6 +32,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: { $queryRawUnsafe: queryRawUnsafeMock },
+  prismaReadOnly: { $queryRawUnsafe: queryRawUnsafeMock },
   setTenantTx: async (_t, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
   setTenant: async (_t, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
 }));

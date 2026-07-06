@@ -18,7 +18,13 @@ import logger from '../../logging/logger.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
 import { AppError } from '../../utils/AppError.js';
 
-export const VALID_INTEROP_SECRET_KINDS = ['abdm_callback', 'hl7_inbound'];
+export const VALID_INTEROP_SECRET_KINDS = [
+  'abdm_callback',
+  'hl7_inbound',
+  'nhcx_api_token',
+  'nhcx_jwe_private_key',
+  'nhcx_callback_secret',
+];
 const KINDS = new Set(VALID_INTEROP_SECRET_KINDS);
 
 function normalizeKind(kind) {
@@ -78,14 +84,17 @@ export async function resolveTenantBySender(kind, senderIdentifier) {
  * null when there is no per-tenant row (the route falls back to the env secret
  * for the default tenant).
  */
-export async function getInteropSecret(tenantId, kind) {
+export async function getInteropSecret(tenantId, kind, { senderIdentifier = null } = {}) {
   if (!tenantId || !KINDS.has(kind)) return null;
+  const sid = normalizeSender(senderIdentifier) || null;
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT secret_ciphertext FROM tenant_interop_secrets
         WHERE tenant_id = $1::uuid AND kind = $2 AND status = 'active'
+          AND ($3::text IS NULL OR sender_identifier = $3)
+        ORDER BY updated_at DESC, id DESC
         LIMIT 1`,
-      tenantId, kind,
+      tenantId, kind, sid,
     );
     const ct = rows[0]?.secret_ciphertext;
     return ct ? decryptField(ct) : null;

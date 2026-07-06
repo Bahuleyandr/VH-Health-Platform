@@ -13,6 +13,8 @@ CI job will validate each one against the official HL7 validator JAR.
 | `observation_lab_glucose.json`     | Observation       | Laboratory category with a single `valueQuantity`, interpretation coding, and reference range — the canonical pattern for chemistry results. |
 | `medicationrequest_with_dosage.json` | MedicationRequest | RxNorm-coded medication + structured `dosageInstruction[]` with timing + route (SNOMED oral) + dose quantity + ICD-10 reasonCode. |
 | `bundle_transaction_patient_vitals.json` | Bundle (transaction) | 1 Patient + 2 Observations (HR + SpO2) using `urn:uuid:*` fullUrls + PUT/POST request entries. Catches reference-integrity errors within a bundle. |
+| `nhcx_coverageeligibility_request_bundle.json` | Bundle (NHCX CoverageEligibilityRequest) | NL-2 P1 design-target sample for `/coverageeligibility/check`; profile/version must be re-verified at live NHCX version lock. |
+| `nhcx_preauth_claim_request_bundle.json` | Bundle (NHCX Claim) | NL-2 P1 design-target sample for `/preauth/submit` with `Claim.use=preauthorization`; profile/version must be re-verified at live NHCX version lock. |
 
 ## How to add a sample
 
