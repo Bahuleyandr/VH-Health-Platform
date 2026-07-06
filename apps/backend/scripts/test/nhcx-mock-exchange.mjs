@@ -47,6 +47,7 @@ function compactRequestSnapshot(req, body, endpoint) {
     workflow_id: workflowId,
     sender_code: header(req, 'sender_code', 'x-hcx-sender_code', 'x-hcx-sender-code') || DEFAULT_PROVIDER_CODE,
     recipient_code: header(req, 'recipient_code', 'x-hcx-recipient_code', 'x-hcx-recipient-code') || DEFAULT_PAYER_CODE,
+    mock_outcome: header(req, 'x-nhcx-mock-outcome') || body?.mock_outcome || body?.mockOutcome || 'approve',
     payload_hash: sha256(payload),
     payload_segments: String(payload).split('.').length,
     received_at: new Date().toISOString(),
@@ -127,16 +128,110 @@ function preauthClaimResponseBundle(snapshot) {
   };
 }
 
+function claimResponseBundle(snapshot) {
+  const claimRef = snapshot.workflow_id && /^\d+$/.test(snapshot.workflow_id)
+    ? `Claim/claim-${snapshot.workflow_id}`
+    : 'Claim/claim-1';
+  const outcome = String(snapshot.mock_outcome || 'approve').toLowerCase();
+  const variants = {
+    approve: {
+      outcome: 'complete',
+      disposition: 'Approved by mock NHCX payer',
+      amount: 50000,
+      note: 'Mock final claim approval for local smoke testing',
+    },
+    partial: {
+      outcome: 'partial',
+      disposition: 'Partially approved by mock NHCX payer',
+      amount: 42000,
+      note: 'Mock partial approval with disallowed balance',
+    },
+    deny: {
+      outcome: 'error',
+      disposition: 'Denied by mock NHCX payer',
+      amount: 0,
+      note: 'Mock denial for local smoke testing',
+    },
+    query: {
+      outcome: 'queued',
+      disposition: 'Additional information requested by mock NHCX payer',
+      amount: null,
+      note: 'Please upload the signed discharge summary and itemized final bill',
+    },
+  };
+  const selected = variants[outcome] || variants.approve;
+  return {
+    resourceType: 'Bundle',
+    id: `mock-claim-response-${snapshot.id}-${outcome}`,
+    meta: {
+      profile: ['https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimResponseBundle'],
+      versionId: '7.0.0-design-target',
+    },
+    type: 'collection',
+    entry: [{
+      resource: {
+        resourceType: 'ClaimResponse',
+        id: `claim-response-${snapshot.id}-${outcome}`,
+        status: 'active',
+        use: 'claim',
+        outcome: selected.outcome,
+        disposition: selected.disposition,
+        request: { reference: claimRef },
+        total: selected.amount == null ? [] : [{ amount: { value: selected.amount, currency: 'INR' } }],
+        processNote: [{ text: selected.note }],
+      },
+    }],
+  };
+}
+
+function claimStatusTaskBundle(snapshot) {
+  return {
+    resourceType: 'Bundle',
+    id: `mock-claim-status-${snapshot.id}`,
+    meta: {
+      profile: ['https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/TaskBundle'],
+      versionId: '7.0.0-design-target',
+    },
+    type: 'collection',
+    entry: [{
+      resource: {
+        resourceType: 'Task',
+        id: `claim-status-${snapshot.id}`,
+        status: 'completed',
+        intent: 'order',
+        code: {
+          coding: [{ system: 'https://hcxprotocol.io/task-code', code: 'status-check' }],
+          text: 'NHCX claim status check',
+        },
+        for: { reference: 'Patient/mock' },
+        authoredOn: new Date().toISOString(),
+        output: [{
+          type: { text: 'gateway-status' },
+          valueString: 'accepted',
+        }],
+      },
+    }],
+  };
+}
+
 async function maybePostCallback({ snapshot, endpoint, options, state }) {
   const callbackBaseUrl = options.callbackBaseUrl;
   if (!callbackBaseUrl) return null;
 
-  const callbackEndpoint = endpoint === 'coverageeligibility/check'
-    ? 'coverageeligibility/on_check'
-    : 'preauth/on_submit';
-  const bundle = endpoint === 'coverageeligibility/check'
-    ? eligibilityResponseBundle(snapshot)
-    : preauthClaimResponseBundle(snapshot);
+  const callbackEndpointByRequest = {
+    'coverageeligibility/check': 'coverageeligibility/on_check',
+    'preauth/submit': 'preauth/on_submit',
+    'claim/submit': 'claim/on_submit',
+    'claim/status': 'claim/on_status',
+  };
+  const callbackEndpoint = callbackEndpointByRequest[endpoint];
+  const bundleByRequest = {
+    'coverageeligibility/check': eligibilityResponseBundle,
+    'preauth/submit': preauthClaimResponseBundle,
+    'claim/submit': claimResponseBundle,
+    'claim/status': claimStatusTaskBundle,
+  };
+  const bundle = bundleByRequest[endpoint](snapshot);
   const payload = await encryptCallbackBundle(bundle, options.jweSecret);
   const timestamp = String(Date.now());
   const requestId = `mock-callback-${snapshot.id}`;
@@ -149,6 +244,7 @@ async function maybePostCallback({ snapshot, endpoint, options, state }) {
       'x-hcx-correlation_id': snapshot.correlation_id,
       'x-hcx-workflow_id': snapshot.workflow_id,
       status: 'accepted',
+      mock_outcome: snapshot.mock_outcome,
     },
   };
   const signature = signPayload({
@@ -177,6 +273,9 @@ async function maybePostCallback({ snapshot, endpoint, options, state }) {
     endpoint: callbackEndpoint,
     status: response.status,
     request_id: requestId,
+    correlation_id: snapshot.correlation_id,
+    workflow_id: snapshot.workflow_id,
+    mock_outcome: snapshot.mock_outcome,
     posted_at: new Date().toISOString(),
   };
   state.callbacks.push(callbackRecord);
@@ -202,7 +301,10 @@ export function startMockNHCXExchange(options = {}) {
       }
 
       const endpoint = url.pathname.replace(new RegExp(`^${versionPrefix.replace(/\./g, '\\.')}/?`), '');
-      const supported = endpoint === 'coverageeligibility/check' || endpoint === 'preauth/submit';
+      const supported = endpoint === 'coverageeligibility/check'
+        || endpoint === 'preauth/submit'
+        || endpoint === 'claim/submit'
+        || endpoint === 'claim/status';
       if (req.method !== 'POST' || !supported) {
         return json(res, 404, { error: 'not_found' });
       }
