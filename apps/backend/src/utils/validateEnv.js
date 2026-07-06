@@ -260,6 +260,13 @@ export const envSchema = Joi.object({
     .optional()
     .label('REVENUE_CYCLE_TRACKER_ENABLED'),
 
+  // NL-2 NHCX claims exchange. P1 builds inert/mock-first and must remain off
+  // until operators lock the live NHCX/NRCeS version, sandbox enrolment,
+  // participant codes, gateway URLs, and certificate/JWE requirements.
+  NHCX_ENABLED: Joi.string().valid('true', 'false').default('false').label('NHCX_ENABLED'),
+  NHCX_CREDENTIAL_CACHE_TTL_MS: Joi.number().min(1000).max(900000).optional()
+    .label('NHCX_CREDENTIAL_CACHE_TTL_MS'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',
