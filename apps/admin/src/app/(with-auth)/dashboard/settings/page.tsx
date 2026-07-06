@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { SystemSetting } from "@/lib/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AdminOidcSettingsPanel } from "./components/AdminOidcSettingsPanel";
 import { SettingsListForm } from "./components/SettingsListForm";
 
 function SettingsContent() {
@@ -46,7 +47,10 @@ function SettingsContent() {
   }
 
   return (
-    <SettingsListForm settings={settings} onUpdate={handleSettingUpdated} />
+    <div className="space-y-6">
+      <AdminOidcSettingsPanel />
+      <SettingsListForm settings={settings} onUpdate={handleSettingUpdated} />
+    </div>
   );
 }
 

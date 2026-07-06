@@ -252,7 +252,7 @@ Scope:
 
 - Tenant admin UI/API for OIDC provider config, stored tenant-scoped and encrypted.
 - OIDC authorization-code callback broker.
-- Link IdP principal to existing `admins` row or create only if tenant policy allows just-in-time admin creation.
+- Link IdP principal to an existing `admins` row only. P1 does not allow admin just-in-time creation.
 - Per-tenant group to `ADMIN` mapping; platform-only path for `SUPER_ADMIN`.
 - Local VH Health token issuance through `issueAccessTokenAndClaimSession()`.
 - Preserve SUPER_ADMIN local MFA step-up.
@@ -314,14 +314,20 @@ Test strategy:
 - Tenant A/B metadata mix-up tests.
 - Same role mapping and VH Health JWT issuance tests as OIDC.
 
-## 13. Owner Decisions Needed
+## 13. Owner Decisions
 
-- Pick the reference IdP for implementation tests: Keycloak, Microsoft Entra ID, or both.
-- Decide whether VH Health should bundle a Keycloak Helm chart in infra for self-hosted hospital deployments and CI integration tests.
-- Decide whether admin JIT creation is allowed or whether all admin accounts must be pre-created/local-approved before SSO can link.
+Locked for P1:
+
+- Reference IdP: Keycloak first. Microsoft Entra ID validation is deferred until after the Keycloak-first broker is reviewable.
+- Keycloak bundle: include a HELD/default-off Keycloak reference under infra for self-hosted hospital deployments and operator-run local smoke testing. It must not be referenced by root kustomization or CI until explicitly approved.
+- Admin JIT: disabled. ADMIN and SUPER_ADMIN SSO can only link to an existing, active `admins` row; unmatched assertions are audited failures.
+- SUPER_ADMIN step-up: local TOTP is always required for sensitive namespaces. SSO must not mint `mfa: true`; no OIDC `acr`/`amr` shortcut is approved in P1.
+- P1 scope: ADMIN realm OIDC only. Staff realm, SAML, and SCIM remain P2-P4.
+- Tenant admin UX: P1 maps one or more IdP group strings to the single effective ADMIN role for tenant providers; platform providers may map only to SUPER_ADMIN.
+
+Still open after P1:
+
 - Decide whether staff JIT creation is allowed before SCIM ships, and which fields are required for safe creation.
-- Decide whether any IdP high-assurance claim may satisfy SUPER_ADMIN step-up, or whether local TOTP is always required.
-- Decide the tenant admin UX for mapping multiple IdP groups to one effective staff role.
 - Decide retention periods for assertion hashes, SSO audit events, and SCIM request logs.
 
 ## 14. Open Questions
