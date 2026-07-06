@@ -27,6 +27,8 @@ const TELE_VISIT_TYPE = 'TELE';
 const DEFAULT_TOKEN_TTL_SECONDS = 600;
 const MIN_TOKEN_TTL_SECONDS = 300;
 const MAX_TOKEN_TTL_SECONDS = 600;
+const DEFAULT_LOBBY_OPENS_MINUTES = 15;
+const DEFAULT_JOIN_WINDOW_MINUTES = 120;
 const TERMINAL_APPOINTMENT_STATUSES = new Set([
   'CANCELLED',
   'NO_SHOW',
@@ -138,8 +140,68 @@ function tokenTtlSeconds() {
   return value;
 }
 
+function numericEnv(name, fallback, min, max) {
+  const raw = process.env[name];
+  const value = raw === undefined || raw === ''
+    ? fallback
+    : Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new AppError(
+      `${name} must be between ${min} and ${max}`,
+      503,
+      `${name}_INVALID`,
+    );
+  }
+  return value;
+}
+
+function lobbyWindowConfig() {
+  return {
+    opensMinutes: numericEnv('TELECONSULT_LOBBY_OPENS_MINUTES', DEFAULT_LOBBY_OPENS_MINUTES, 0, 240),
+    joinWindowMinutes: numericEnv('TELECONSULT_JOIN_WINDOW_MINUTES', DEFAULT_JOIN_WINDOW_MINUTES, 15, 720),
+  };
+}
+
 function tenantHash(tenantId) {
   return crypto.createHash('sha256').update(String(tenantId)).digest('hex').slice(0, 10);
+}
+
+function teleconsultPatientJoinState(consult) {
+  const status = String(consult?.status || '').trim().toLowerCase();
+  if (['cancelled', 'canceled', 'no_show'].includes(status)) return 'cancelled';
+  if (['completed', 'closed', 'ended', 'failed'].includes(status)) return 'ended';
+  if (status === 'in_progress') return 'in-progress';
+  if (status === 'waiting') return 'lobby-open';
+
+  const scheduledStart = consult?.scheduled_start ? new Date(consult.scheduled_start) : null;
+  if (!scheduledStart || Number.isNaN(scheduledStart.getTime())) return 'lobby-open';
+
+  const { opensMinutes, joinWindowMinutes } = lobbyWindowConfig();
+  const now = Date.now();
+  const opensAt = scheduledStart.getTime() - opensMinutes * 60 * 1000;
+  const closesAt = scheduledStart.getTime() + joinWindowMinutes * 60 * 1000;
+  if (now < opensAt) return 'not-yet';
+  if (now > closesAt) return 'ended';
+  return 'lobby-open';
+}
+
+function joinStateMessage(joinState) {
+  switch (joinState) {
+    case 'not-yet':
+      return 'The teleconsult lobby is not open yet';
+    case 'lobby-open':
+      return 'The teleconsult lobby is open';
+    case 'in-progress':
+      return 'The teleconsultation is in progress';
+    case 'ended':
+      return 'The teleconsultation has ended';
+    case 'cancelled':
+      return 'The teleconsultation was cancelled';
+    case 'unavailable':
+      return 'Teleconsultation is not available yet';
+    default:
+      return 'Teleconsult state retrieved';
+  }
 }
 
 function generateRoomName({ tenantId, teleconsultationId }) {
@@ -384,14 +446,53 @@ export async function getTeleconsultRoomState({
     limit: 10,
   });
   const livekitSession = sessions.video_sessions.find((session) => session.provider === LIVEKIT_PROVIDER) || null;
+  const joinState = teleconsultPatientJoinState(consult);
   return {
     ...getTeleconsultFeatureState(),
     teleconsultation_id: consult.id,
     appointment_id: consult.appointment_id,
     status: consult.status,
+    join_state: joinState,
+    joinable: ['lobby-open', 'in-progress'].includes(joinState),
+    message: joinStateMessage(joinState),
     consent_recorded: Boolean(consult.remote_consent_id && consult.remote_consent_signed_at),
     video_session: livekitSession,
   };
+}
+
+export async function getPatientTeleconsultLobbyStateForAppointment({
+  tenantId = null,
+  appointmentId,
+  actorUid = null,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const appointment = await loadTeleAppointment({ tenantId: tid, appointmentId });
+  assertPatientAppointmentAccess({ appointment, actorUid, role: 'PATIENT' });
+
+  if (!livekitEnabled()) {
+    return {
+      ...getTeleconsultFeatureState(),
+      appointment_id: appointment.id,
+      teleconsultation_id: null,
+      status: null,
+      join_state: 'unavailable',
+      joinable: false,
+      consent_recorded: false,
+      video_session: null,
+      message: joinStateMessage('unavailable'),
+    };
+  }
+
+  const teleconsultation = await ensureTeleconsultationForAppointment({
+    tenantId: tid,
+    appointmentId: appointment.id,
+    actorUid,
+    role: 'PATIENT',
+  });
+  return getTeleconsultRoomState({
+    tenantId: tid,
+    teleconsultationId: teleconsultation.id,
+  });
 }
 
 export function assertTeleconsultCanIssueToken({ consult, appointment } = {}) {
@@ -542,10 +643,12 @@ export const __testing__ = {
   buildLivekitVideoGrant,
   buildParticipantMetadata,
   generateRoomName,
+  getPatientTeleconsultLobbyStateForAppointment,
   livekitConfig,
   loadTeleAppointment,
   normalizeParticipantRole,
   signLivekitToken,
+  teleconsultPatientJoinState,
   tokenTtlSeconds,
 };
 
@@ -554,5 +657,6 @@ export default {
   ensureVideoSession,
   recordTeleconsultConsent,
   getTeleconsultRoomState,
+  getPatientTeleconsultLobbyStateForAppointment,
   issueJoinToken,
 };
