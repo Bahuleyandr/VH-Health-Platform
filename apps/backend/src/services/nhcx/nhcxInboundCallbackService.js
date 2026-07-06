@@ -16,6 +16,7 @@ import {
   validateNHCXInboundBundle,
 } from './nhcxFhirProfileService.js';
 import { loadNHCXRuntimeConfig } from './nhcxTenantConfigService.js';
+import { recordInboundCommunicationRequest } from './nhcxCommunicationService.js';
 
 const ENDPOINTS = Object.freeze({
   'coverageeligibility/on_check': {
@@ -33,6 +34,11 @@ const ENDPOINTS = Object.freeze({
   'claim/on_status': {
     cycle: 'task',
     expectedMainResourceType: 'Task',
+  },
+  'communication/request': {
+    cycle: 'communication',
+    expectedMainResourceType: 'CommunicationRequest',
+    correlationCycles: ['claim', 'preauth', 'communication'],
   },
 });
 
@@ -317,10 +323,18 @@ export function mapClaimResponseToClaimDecision(claimResponse, {
   };
 }
 
-async function findOutboundContext({ tenantId, cycle, hcxCorrelationId, hcxWorkflowId }) {
+async function findOutboundContext({ tenantId, cycle, cycles = null, hcxCorrelationId, hcxWorkflowId }) {
   if (!hcxCorrelationId && !hcxWorkflowId) return null;
-  const filters = ['tenant_id = $1::uuid', "direction = 'outbound'", 'cycle = $2'];
-  const params = [tenantId, cycle];
+  const filters = ['tenant_id = $1::uuid', "direction = 'outbound'"];
+  const params = [tenantId];
+  if (Array.isArray(cycles) && cycles.length) {
+    const placeholders = cycles.map((_, index) => `$${params.length + index + 1}`).join(', ');
+    filters.push(`cycle IN (${placeholders})`);
+    params.push(...cycles);
+  } else if (cycle) {
+    params.push(cycle);
+    filters.push(`cycle = $${params.length}`);
+  }
   if (hcxCorrelationId) {
     params.push(hcxCorrelationId);
     filters.push(`hcx_correlation_id = $${params.length}`);
@@ -334,7 +348,13 @@ async function findOutboundContext({ tenantId, cycle, hcxCorrelationId, hcxWorkf
             participant_code_self, participant_code_counterparty
        FROM nhcx_messages
       WHERE ${filters.join(' AND ')}
-      ORDER BY created_at DESC
+      ORDER BY CASE
+                 WHEN cycle = 'claim' THEN 0
+                 WHEN cycle = 'preauth' THEN 1
+                 WHEN cycle = 'communication' THEN 2
+                 ELSE 3
+               END,
+               created_at DESC
       LIMIT 1`,
     ...params,
   );
@@ -605,6 +625,7 @@ export async function processNHCXCallback({
   const outboundContext = await findOutboundContext({
     tenantId,
     cycle: definition.cycle,
+    cycles: definition.correlationCycles || null,
     hcxCorrelationId: context.hcxCorrelationId,
     hcxWorkflowId: context.hcxWorkflowId,
   });
@@ -662,6 +683,14 @@ export async function processNHCXCallback({
       });
     } else if (endpoint === 'claim/on_status') {
       domainResult = { statusOnly: true, workflowMutation: false };
+    } else if (endpoint === 'communication/request') {
+      domainResult = await recordInboundCommunicationRequest({
+        tenantId,
+        bundle,
+        context,
+        outboundContext,
+        envelope,
+      });
     }
     const updated = await markEnvelope({ id: envelope.id, status: 'processed', issues: [] });
     return { duplicate: false, envelope: updated || envelope, processed: true, domainResult, validation: profileResult };

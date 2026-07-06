@@ -26,6 +26,7 @@ const NHCX_CALLBACK_PATHS = new Set([
   '/preauth/on_submit',
   '/claim/on_submit',
   '/claim/on_status',
+  '/communication/request',
 ]);
 
 function nhcxEnabled() {
@@ -74,9 +75,10 @@ async function validateNHCXRequest(req, res, next) {
     return error(res, 'Invalid NHCX participant code', 401);
   }
 
-  // Design-target seam: live NHCX may use gateway JWT/API-token validation or
-  // detached signatures. Until operators lock the sandbox contract, callbacks
-  // must present this tenant-scoped HMAC signature and shared replay key.
+  // Design-target seam: live NHCX may use gateway JWT/API-token validation,
+  // detached signatures, or a different Communication callback contract. Until
+  // operators lock the sandbox contract, callbacks must present this
+  // tenant-scoped HMAC signature and shared replay key.
   const signature = header(req, 'x-nhcx-signature', 'x-hcx-signature', 'x-vhhealth-nhcx-signature');
   const timestamp = header(req, 'x-hcx-timestamp', 'timestamp') || bodyValue(req, 'timestamp');
   const requestId = header(req, 'x-hcx-request-id', 'x-request-id', 'request-id')
@@ -145,6 +147,7 @@ callbackRouter.post('/coverageeligibility/on_check', handleCallback);
 callbackRouter.post('/preauth/on_submit', handleCallback);
 callbackRouter.post('/claim/on_submit', handleCallback);
 callbackRouter.post('/claim/on_status', handleCallback);
+callbackRouter.post('/communication/request', handleCallback);
 
 export { callbackRouter };
 export default callbackRouter;
