@@ -72,6 +72,8 @@ prisma/schema.prisma  # 527 models, canonical schema source (regenerated after e
 - **Patient login**: Firebase OTP → `POST /api/v1/auth/firebase/firebase-login` (idToken) → JWT
 - **Staff login**: Employee ID + password → `POST /api/v1/auth/staff/login` → accessToken + refreshToken
 - **Admin login**: Username + password → `POST /api/v1/auth/admin/login` → JWT
+- **Admin OIDC SSO (NL-1 P1)**: `GET /api/v1/auth/admin/sso/oidc/:provider/start` and callback broker live in `src/services/auth/adminOidcSsoService.js`. Provider config is tenant-scoped under `/api/v1/admin/identity/sso/oidc/*`; secrets are write-only/encrypted. SSO links only to existing `admins` rows, never creates admins, and emits append-only `identity_audit_events`.
+- **SSO token boundary**: IdP `id_token` values are accepted only by the OIDC callback broker. `jwtMiddleware.js` remains the sole REST bearer verifier and accepts only VH Health HS256 tokens. SUPER_ADMIN SSO tokens intentionally do not carry `mfa: true`; `requireSuperAdminStepUp` still requires local TOTP step-up on sensitive admin namespaces.
 - **Middleware chain**: `requestIdMiddleware` → `apiVersionMiddleware` → `validateApiKey` (timing-safe, per-client keys) → `jwtAuth` (JWT + blacklist check + normalized req.user) → `requireRole()` (per-route RBAC)
 - **Single auth middleware**: `jwtMiddleware.js` is the sole JWT verification layer. `auth.js` and `authMiddleware.js` have been removed.
 - **Admin lockout**: 5 failed attempts → 15min lockout (configurable via `SECURITY_CONFIG`)

@@ -1,0 +1,48 @@
+# HELD values for Bitnami Keycloak. This file is a review fixture; it is not
+# loaded by any production overlay until an operator explicitly wires it in.
+global:
+  security:
+    allowInsecureImages: false
+
+image:
+  registry: quay.io
+  repository: keycloak/keycloak
+  tag: 26.6.4
+
+auth:
+  adminUser: admin
+  existingSecret: keycloak-admin
+  passwordSecretKey: admin-password
+
+production: true
+proxyHeaders: xforwarded
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hostname: sso.vhhealth.hospital.local
+  tls: true
+  annotations:
+    cert-manager.io/cluster-issuer: step-ca-internal
+
+postgresql:
+  enabled: false
+
+externalDatabase:
+  host: vhhealth-pg-rw.vhhealth-platform.svc.cluster.local
+  port: 5432
+  database: keycloak
+  user: keycloak
+  existingSecret: keycloak-database
+  existingSecretPasswordKey: password
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: vhhealth-monitoring
+
+networkPolicy:
+  enabled: true
+  allowExternal: false

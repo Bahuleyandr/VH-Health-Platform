@@ -21,6 +21,7 @@ import auditRoutes from './auditRoutes.js';
 import eventOutboxRoutes from './eventOutboxRoutes.js';
 import executiveKpiRoutes from './executiveKpiRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
+import identitySsoRoutes from './identitySsoRoutes.js';
 import { deliveryRouter, integrationRouter, subscriptionRouter } from './integrationRoutes.js';
 import patientIdentifierRoutes from './patientIdentifierRoutes.js';
 import patientMergeRoutes from './patientMergeRoutes.js';
@@ -39,6 +40,7 @@ import pharmacySupplyRoutes from './pharmacySupplyRoutes.js';
 import smartFhirRoutes from './smartFhirRoutes.js';
 import tasksWorkflowRoutes from './tasksWorkflowRoutes.js';
 import telemedicineRoutes from './telemedicineRoutes.js';
+import nhcxRoutes from './nhcxRoutes.js';
 
 // Dashboard / stats / SOS / upload handlers (M20 extraction)
 import * as dash from './dashboardController.js';
@@ -135,6 +137,7 @@ router.use('/patient-merges', patientMergeRoutes);
 router.use('/integrations', integrationRouter);
 router.use('/webhook-subscriptions', subscriptionRouter);
 router.use('/webhook-deliveries', deliveryRouter);
+router.use('/identity', identitySsoRoutes);
 router.use('/surgical', surgicalDocumentationRoutes);
 router.use('/telemedicine', telemedicineRoutes);
 router.use('/workflow', tasksWorkflowRoutes);
@@ -150,5 +153,6 @@ router.use('/abdm', abdmFullRoutes);
 router.use('/smart-fhir', smartFhirRoutes);
 router.use('/encryption-keys', encryptionKeyRoutes);
 router.use('/ed', edRoutes);
+router.use('/nhcx', nhcxRoutes);
 
 export default router;

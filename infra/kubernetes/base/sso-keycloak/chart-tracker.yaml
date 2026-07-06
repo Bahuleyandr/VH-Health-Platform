@@ -1,0 +1,21 @@
+# sso-keycloak/chart-tracker.yaml - held Keycloak chart version tracker.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-chart-tracker
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/component: chart-tracker
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    vhhealth.app/deploy-state: "held"
+data:
+  chartRepo: "https://charts.bitnami.com/bitnami"
+  chartName: "keycloak"
+  chartVersion: "25.2.0"
+  imageRepository: "quay.io/keycloak/keycloak"
+  imageTag: "26.6.4"
+  valuesFile: "infra/kubernetes/base/sso-keycloak/keycloak-values.yaml"

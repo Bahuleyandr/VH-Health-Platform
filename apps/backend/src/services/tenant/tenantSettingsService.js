@@ -20,6 +20,13 @@
 //         provider?: string,
 //       },
 //     },
+//     nhcx?: {
+//       enabled?: boolean,
+//       environment?: 'sandbox'|'production',
+//       participantCode?: string,
+//       counterpartyParticipantCode?: string,
+//       gatewayBaseUrls?: { sandbox?: string, production?: string },
+//     },
 //   }
 import { getTenantById } from './tenantService.js';
 

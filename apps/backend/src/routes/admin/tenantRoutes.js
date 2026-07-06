@@ -12,6 +12,11 @@ import {
   upsertInteropSecret,
 } from '../../services/interop/tenantInteropSecretService.js';
 import {
+  getAdminNHCXConfig,
+  updateNHCXConfigForTenant,
+  upsertNHCXSecret,
+} from '../../services/nhcx/nhcxTenantConfigService.js';
+import {
   getTenantKekRewrapJob,
   startTenantKekRewrapJob,
 } from '../../services/security/tenantKekRewrapService.js';
@@ -109,6 +114,50 @@ router.post('/:tenantId/interop-secrets', async (req, res, next) => {
       has_secret: row?.has_secret === true,
     });
     return success(res, row, 'Interop secret stored', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:tenantId/nhcx-config', async (req, res, next) => {
+  try {
+    await requireTenant(req.params.tenantId);
+    const result = await getAdminNHCXConfig(req.params.tenantId);
+    return success(res, result, 'NHCX configuration retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/:tenantId/nhcx-config', async (req, res, next) => {
+  try {
+    await requireTenant(req.params.tenantId);
+    const before = await getAdminNHCXConfig(req.params.tenantId);
+    const config = await updateNHCXConfigForTenant(req.params.tenantId, req.body || {});
+    await safeAudit(req, 'TENANT_NHCX_CONFIG_UPDATED', req.params.tenantId, before.config, config);
+    return success(res, config, 'NHCX configuration updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:tenantId/nhcx-secrets', async (req, res, next) => {
+  try {
+    await requireTenant(req.params.tenantId);
+    const row = await upsertNHCXSecret({
+      tenantId: req.params.tenantId,
+      kind: req.body?.kind,
+      participantCode: req.body?.participantCode ?? req.body?.participant_code,
+      secret: req.body?.secret,
+    });
+    await safeAudit(req, 'TENANT_NHCX_SECRET_UPSERTED', req.params.tenantId, null, {
+      id: row?.id,
+      kind: row?.kind,
+      sender_identifier: row?.sender_identifier,
+      status: row?.status,
+      has_secret: row?.has_secret === true,
+    });
+    return success(res, row, 'NHCX secret stored', 201);
   } catch (err) {
     return next(err);
   }

@@ -90,6 +90,20 @@ describe('validateEnv signed integration secrets', () => {
   });
 });
 
+describe('validateEnv NHCX inert feature flag', () => {
+  it('defaults to off and does not require live NHCX credentials at boot', () => {
+    const result = runValidateEnv();
+
+    expect(result.status).toBe(0);
+  });
+
+  it('allows NHCX_ENABLED=true without live credentials because tenant credentials are DB-backed', () => {
+    const result = runValidateEnv({ NHCX_ENABLED: 'true' });
+
+    expect(result.status).toBe(0);
+  });
+});
+
 // Item 4 (auth-hygiene audit §5): the dev-OTP opt-in must fail closed in prod.
 describe('validateEnv dev-OTP opt-in', () => {
   it('fails closed in production when ALLOW_DEV_OTP=true', () => {

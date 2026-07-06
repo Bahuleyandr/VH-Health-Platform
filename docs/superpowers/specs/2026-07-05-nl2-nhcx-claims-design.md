@@ -410,6 +410,18 @@ Deep tests:
 - mock exchange server accepts `/coverageeligibility/check` and
   `/preauth/submit`, records headers/JWE, and posts deterministic callbacks
 
+Implementation note 2026-07-06:
+
+- P1 backend core is implemented inert behind `NHCX_ENABLED=false`.
+- The exchange envelope is `nhcx_messages` migration `359_nhcx_messages.sql`.
+- Tenant enrolment/config lives under `tenants.settings.nhcx`; secret kinds are
+  `nhcx_api_token`, `nhcx_jwe_private_key`, and `nhcx_callback_secret`.
+- Outbound admin endpoints live under `/api/v1/admin/nhcx/*`; callbacks live
+  under `/api/v1/integrations/nhcx/*`.
+- Local mock scripts are `npm run nhcx:mock` and `npm run smoke:nhcx:mock`.
+- Operator must still lock the live NHCX/NRCeS version, sandbox OpenAPI,
+  callback auth, and certificate/JWE requirements before enabling the flag.
+
 ### P2 - Claim Cycle
 
 Deliver:

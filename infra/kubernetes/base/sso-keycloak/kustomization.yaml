@@ -1,0 +1,9 @@
+# HELD: not referenced by ../kustomization.yaml or any overlay by default.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-sso-keycloak-held
+resources:
+  - chart-tracker.yaml
+  - keycloak-admin.sealed-secret.yaml.example
+  - keycloak-app.held.yaml

@@ -196,6 +196,34 @@ export const envSchema = Joi.object({
     .default('true')
     .label('REQUIRE_MFA_FOR_SUPER_ADMIN'),
 
+  // NL-1 P1 OIDC SSO operational bounds. IdP issuer/client/secret config stays
+  // tenant-scoped in tenant_identity_providers; these are only global safety
+  // limits for outbound OIDC calls and assertion timestamp tolerance.
+  SSO_OIDC_HTTP_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .max(30000)
+    .default(5000)
+    .label('SSO_OIDC_HTTP_TIMEOUT_MS'),
+  SSO_METADATA_CACHE_TTL_SECONDS: Joi.number()
+    .integer()
+    .min(30)
+    .max(3600)
+    .default(300)
+    .label('SSO_METADATA_CACHE_TTL_SECONDS'),
+  SSO_ASSERTION_CLOCK_SKEW_SECONDS: Joi.number()
+    .integer()
+    .min(0)
+    .max(600)
+    .default(60)
+    .label('SSO_ASSERTION_CLOCK_SKEW_SECONDS'),
+  SSO_DEBUG_ASSERTION_LOGGING: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().valid('false', '').optional()
+      .messages({ 'any.only': 'SSO_DEBUG_ASSERTION_LOGGING must not be "true" when NODE_ENV=production' }),
+    otherwise: Joi.string().valid('true', 'false').allow('').optional(),
+  }).label('SSO_DEBUG_ASSERTION_LOGGING'),
+
   // Tenant RLS enforcement. The runtime defaults this on in production when
   // unset; explicit false is reserved for confirmed single-tenant deployments.
   AUTH_ENFORCE_TENANT_RLS: Joi.string()
@@ -259,6 +287,13 @@ export const envSchema = Joi.object({
     .allow('')
     .optional()
     .label('REVENUE_CYCLE_TRACKER_ENABLED'),
+
+  // NL-2 NHCX claims exchange. P1 builds inert/mock-first and must remain off
+  // until operators lock the live NHCX/NRCeS version, sandbox enrolment,
+  // participant codes, gateway URLs, and certificate/JWE requirements.
+  NHCX_ENABLED: Joi.string().valid('true', 'false').default('false').label('NHCX_ENABLED'),
+  NHCX_CREDENTIAL_CACHE_TTL_MS: Joi.number().min(1000).max(900000).optional()
+    .label('NHCX_CREDENTIAL_CACHE_TTL_MS'),
 
   // NL-3 P1 teleconsult media. Disabled by default: deployments must
   // explicitly provision self-hosted LiveKit inside hospital-owned infra before
