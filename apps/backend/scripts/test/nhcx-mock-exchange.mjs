@@ -252,6 +252,51 @@ function communicationRequestBundle(snapshot) {
   };
 }
 
+function paymentNoticeBundle(snapshot) {
+  const outcome = String(snapshot.mock_outcome || 'full').toLowerCase();
+  const amount = outcome === 'short' ? 42000 : 50000;
+  const claimRef = snapshot.workflow_id && /^\d+$/.test(snapshot.workflow_id)
+    ? `Claim/claim-${snapshot.workflow_id}`
+    : 'Claim/claim-1';
+  return {
+    resourceType: 'Bundle',
+    id: `mock-payment-notice-${snapshot.id}-${outcome}`,
+    meta: {
+      profile: ['https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/PaymentNoticeBundle'],
+      versionId: '7.0.0-design-target',
+    },
+    type: 'collection',
+    entry: [
+      {
+        resource: {
+          resourceType: 'PaymentNotice',
+          id: `payment-notice-${snapshot.id}-${outcome}`,
+          status: 'active',
+          created: new Date().toISOString(),
+          request: { reference: claimRef },
+          response: { reference: `ClaimResponse/claim-response-${snapshot.id}` },
+          payment: { identifier: { value: `MOCK-UTR-${snapshot.id}-${outcome}` } },
+          amount: { value: amount, currency: 'INR' },
+        },
+      },
+      {
+        resource: {
+          resourceType: 'PaymentReconciliation',
+          id: `payment-reconciliation-${snapshot.id}-${outcome}`,
+          status: 'active',
+          created: new Date().toISOString(),
+          paymentAmount: { value: amount, currency: 'INR' },
+          detail: [{
+            request: { reference: claimRef },
+            response: { reference: `ClaimResponse/claim-response-${snapshot.id}` },
+            amount: { value: amount, currency: 'INR' },
+          }],
+        },
+      },
+    ],
+  };
+}
+
 function callbackEndpointFor(snapshot, endpoint) {
   if (endpoint === 'claim/submit' && String(snapshot.mock_outcome || '').toLowerCase() === 'query') {
     return 'communication/request';
@@ -261,6 +306,7 @@ function callbackEndpointFor(snapshot, endpoint) {
     'preauth/submit': 'preauth/on_submit',
     'claim/submit': 'claim/on_submit',
     'claim/status': 'claim/on_status',
+    'paymentnotice/request': 'paymentnotice/request',
   }[endpoint] || null;
 }
 
@@ -273,6 +319,7 @@ function callbackBundleFor(snapshot, endpoint) {
     'preauth/submit': preauthClaimResponseBundle,
     'claim/submit': claimResponseBundle,
     'claim/status': claimStatusTaskBundle,
+    'paymentnotice/request': paymentNoticeBundle,
   };
   return bundleByRequest[endpoint]?.(snapshot) || null;
 }
@@ -331,6 +378,29 @@ async function maybePostCallback({ snapshot, endpoint, options, state }) {
     posted_at: new Date().toISOString(),
   };
   state.callbacks.push(callbackRecord);
+  if (endpoint === 'paymentnotice/request' && String(snapshot.mock_outcome || '').toLowerCase() === 'duplicate') {
+    const duplicate = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hcx-recipient_code': snapshot.sender_code,
+        'x-hcx-sender_code': snapshot.recipient_code,
+        'x-hcx-api_call_id': requestId,
+        'x-hcx-correlation_id': snapshot.correlation_id || '',
+        'x-hcx-workflow_id': snapshot.workflow_id || '',
+        'x-hcx-timestamp': timestamp,
+        'x-hcx-request-id': requestId,
+        'x-nhcx-signature': signature,
+      },
+      body: JSON.stringify(body),
+    });
+    state.callbacks.push({
+      ...callbackRecord,
+      status: duplicate.status,
+      duplicate: true,
+      posted_at: new Date().toISOString(),
+    });
+  }
   return callbackRecord;
 }
 
@@ -357,7 +427,8 @@ export function startMockNHCXExchange(options = {}) {
         || endpoint === 'preauth/submit'
         || endpoint === 'claim/submit'
         || endpoint === 'claim/status'
-        || endpoint === 'communication/request';
+        || endpoint === 'communication/request'
+        || endpoint === 'paymentnotice/request';
       if (req.method !== 'POST' || !supported) {
         return json(res, 404, { error: 'not_found' });
       }

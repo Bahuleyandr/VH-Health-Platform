@@ -17,6 +17,7 @@ import {
 } from './nhcxFhirProfileService.js';
 import { loadNHCXRuntimeConfig } from './nhcxTenantConfigService.js';
 import { recordInboundCommunicationRequest } from './nhcxCommunicationService.js';
+import { recordInboundPaymentNotice } from './nhcxPaymentNoticeService.js';
 
 const ENDPOINTS = Object.freeze({
   'coverageeligibility/on_check': {
@@ -39,6 +40,11 @@ const ENDPOINTS = Object.freeze({
     cycle: 'communication',
     expectedMainResourceType: 'CommunicationRequest',
     correlationCycles: ['claim', 'preauth', 'communication'],
+  },
+  'paymentnotice/request': {
+    cycle: 'payment_notice',
+    expectedMainResourceType: 'PaymentNotice',
+    correlationCycles: ['claim', 'payment_notice', 'task'],
   },
 });
 
@@ -466,10 +472,10 @@ async function insertInboundEnvelope({
 async function markEnvelope({ id, status, issues = [], errorMessage = null }) {
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE nhcx_messages
-        SET status = $2,
+        SET status = $2::varchar,
             validation_issues = $3::jsonb,
             last_error = $4,
-            processed_at = CASE WHEN $2 = 'processed' THEN NOW() ELSE processed_at END,
+            processed_at = CASE WHEN $2::varchar = 'processed' THEN NOW() ELSE processed_at END,
             updated_at = NOW()
       WHERE id = $1::bigint
       RETURNING *`,
@@ -652,7 +658,7 @@ export async function processNHCXCallback({
   if (!envelope?.inserted) {
     return { duplicate: true, envelope, processed: false };
   }
-  if ((profileResult.issues || []).length > 0) {
+  if ((profileResult.issues || []).length > 0 && endpoint !== 'paymentnotice/request') {
     const updated = await markEnvelope({
       id: envelope.id,
       status: 'manual_review',
@@ -691,6 +697,22 @@ export async function processNHCXCallback({
         outboundContext,
         envelope,
       });
+    } else if (endpoint === 'paymentnotice/request') {
+      domainResult = await recordInboundPaymentNotice({
+        tenantId,
+        bundle,
+        context,
+        outboundContext,
+        envelope,
+        profileIssues: profileResult.issues || [],
+      });
+      return {
+        duplicate: false,
+        envelope: domainResult.envelope || envelope,
+        processed: false,
+        domainResult,
+        validation: profileResult,
+      };
     }
     const updated = await markEnvelope({ id: envelope.id, status: 'processed', issues: [] });
     return { duplicate: false, envelope: updated || envelope, processed: true, domainResult, validation: profileResult };

@@ -2,7 +2,8 @@
 
 import express from 'express';
 
-import { success } from '../../utils/responseHelper.js';
+import { error, success } from '../../utils/responseHelper.js';
+import { canReviewNHCXPaymentNotice } from '../../utils/roleHelpers.js';
 import {
   dispatchPendingNHCXMessages,
   enqueueClaimStatusCheck,
@@ -15,8 +16,22 @@ import {
   redriveNHCXMessage,
 } from '../../services/nhcx/nhcxOutboundDispatcherService.js';
 import { getCommunicationWorkbench } from '../../services/nhcx/nhcxCommunicationService.js';
+import {
+  approvePaymentNoticeReview,
+  getPaymentNoticeReview,
+  listPaymentNoticeReviews,
+  rejectPaymentNoticeReview,
+} from '../../services/nhcx/nhcxPaymentNoticeService.js';
 
 const router = express.Router();
+
+function requirePaymentNoticeFinanceRole(req, res, next) {
+  const role = String(req.user?.rawRole || req.user?.role || '').toUpperCase();
+  if (!canReviewNHCXPaymentNotice(role)) {
+    return error(res, 'Finance review role required', 403, { safe: true });
+  }
+  return next();
+}
 
 router.get('/messages', async (req, res, next) => {
   try {
@@ -40,6 +55,59 @@ router.get('/messages/:id', async (req, res, next) => {
       id: req.params.id,
     });
     return success(res, row, 'NHCX message retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/payment-notices', requirePaymentNoticeFinanceRole, async (req, res, next) => {
+  try {
+    const result = await listPaymentNoticeReviews({
+      tenantId: req.tenantId,
+      status: req.query.status || 'manual_review',
+      limit: req.query.limit,
+    });
+    return success(res, result, 'NHCX payment notices retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/payment-notices/:id', requirePaymentNoticeFinanceRole, async (req, res, next) => {
+  try {
+    const result = await getPaymentNoticeReview({
+      tenantId: req.tenantId,
+      id: req.params.id,
+    });
+    return success(res, result, 'NHCX payment notice retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/payment-notices/:id/approve', requirePaymentNoticeFinanceRole, async (req, res, next) => {
+  try {
+    const result = await approvePaymentNoticeReview({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      reviewerUid: req.user?.uid ?? null,
+      draftOverrides: req.body || {},
+    });
+    return success(res, result, 'NHCX payment notice approved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/payment-notices/:id/reject', requirePaymentNoticeFinanceRole, async (req, res, next) => {
+  try {
+    const result = await rejectPaymentNoticeReview({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      reviewerUid: req.user?.uid ?? null,
+      reason: req.body?.reason,
+    });
+    return success(res, result, 'NHCX payment notice rejected', 201);
   } catch (err) {
     return next(err);
   }

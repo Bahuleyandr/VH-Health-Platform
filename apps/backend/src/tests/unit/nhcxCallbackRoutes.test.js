@@ -118,4 +118,31 @@ describe('NHCX callback router', () => {
     expect(res.status).toBe(401);
     expect(processNHCXCallback).not.toHaveBeenCalled();
   });
+
+  it('accepts the PaymentNotice request callback path', async () => {
+    processNHCXCallback.mockResolvedValueOnce({
+      envelope: { id: '44', status: 'manual_review' },
+      duplicate: false,
+      processed: false,
+    });
+
+    const res = await request(buildApp())
+      .post('/paymentnotice/request')
+      .set('x-hcx-recipient_code', 'VH-NHCX-PROVIDER')
+      .set('x-hcx-sender_code', 'PAYER-NHCX-SAMPLE')
+      .set('x-nhcx-signature', 'a'.repeat(64))
+      .set('x-hcx-timestamp', '1718800000000')
+      .set('x-hcx-request-id', 'nhcx-payment-notice-request-1')
+      .send({ payload: 'compact-jwe' });
+
+    expect(res.status).toBe(202);
+    expect(res.body.data).toMatchObject({
+      id: '44',
+      status: 'manual_review',
+      processed: false,
+    });
+    expect(processNHCXCallback).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: 'paymentnotice/request',
+    }));
+  });
 });

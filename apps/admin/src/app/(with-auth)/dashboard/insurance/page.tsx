@@ -11,10 +11,11 @@
 import { Suspense, useState } from "react";
 import { PreauthTab } from "./components/PreauthTab";
 import { ClaimsTab } from "./components/ClaimsTab";
+import { PaymentNoticeReviewTab } from "./components/PaymentNoticeReviewTab";
 import { PoliciesTab } from "./components/PoliciesTab";
 import { AdmissionIntakeTab } from "./components/AdmissionIntakeTab";
 
-type Tab = "admission" | "preauth" | "claims" | "policies";
+type Tab = "admission" | "preauth" | "claims" | "paymentNotices" | "policies";
 
 function InsuranceContent() {
   const [tab, setTab] = useState<Tab>("admission");
@@ -34,6 +35,7 @@ function InsuranceContent() {
             { key: "admission", label: "Admission intake" },
             { key: "preauth", label: "📨 Pre-auth" },
             { key: "claims", label: "📑 Claims" },
+            { key: "paymentNotices", label: "Payment notices" },
             { key: "policies", label: "🪪 Policies" },
           ] as { key: Tab; label: string }[]
         ).map(({ key, label }) => (
@@ -54,6 +56,7 @@ function InsuranceContent() {
       {tab === "admission" && <AdmissionIntakeTab />}
       {tab === "preauth" && <PreauthTab />}
       {tab === "claims" && <ClaimsTab />}
+      {tab === "paymentNotices" && <PaymentNoticeReviewTab />}
       {tab === "policies" && <PoliciesTab />}
     </div>
   );

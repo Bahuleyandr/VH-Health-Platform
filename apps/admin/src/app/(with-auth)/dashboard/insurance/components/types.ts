@@ -56,6 +56,55 @@ export interface Claim {
   policy_number: string | null;
 }
 
+export interface PaymentNoticeDiscrepancy {
+  code: string;
+  severity: "info" | "warning" | "critical" | string;
+  message: string;
+}
+
+export interface PaymentNoticeReview {
+  id: string;
+  status: string;
+  received_at: string | null;
+  processed_at: string | null;
+  last_error: string | null;
+  hcx_api_call_id: string | null;
+  hcx_correlation_id: string | null;
+  hcx_workflow_id: string | null;
+  participant_code_counterparty: string | null;
+  notice: {
+    amount: number | string | null;
+    currency: string | null;
+    payment_reference: string | null;
+    paid_at: string | null;
+    resource_id: string | null;
+    reconciliation_id: string | null;
+  };
+  claim: {
+    id: number;
+    claim_number: string | null;
+    status: string | null;
+    claimed_amount: number | string | null;
+    approved_amount: number | string | null;
+    paid_amount: number | string | null;
+    policy_number: string | null;
+    payer_name: string | null;
+    tpa_name: string | null;
+  } | null;
+  settlement_draft: {
+    claim_id: number;
+    paid_amount: number | string;
+    payment_reference: string;
+    paid_at: string | null;
+    expected_amount: number | string | null;
+    short_pay: boolean;
+    disallowed_amount_preview: number | string;
+  } | null;
+  discrepancies: PaymentNoticeDiscrepancy[];
+  review_status: string;
+  reason: string | null;
+}
+
 export const STATUS_COLOURS: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
   submitted: "bg-blue-100 text-blue-800",

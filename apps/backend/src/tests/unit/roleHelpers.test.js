@@ -11,6 +11,7 @@ import {
   DISCHARGE_SUMMARY_SIGN_ROLES,
   DOCTOR_TIERS,
   MACHINE_ROLES,
+  FINANCE_REVIEW_ROLES,
   PLATFORM_ROLES,
   SUPPORT_ROLES,
   canAccessBloodBank,
@@ -22,6 +23,7 @@ import {
   canManageClaims,
   canManageDataProtection,
   canManageIntegrations,
+  canReviewNHCXPaymentNotice,
   canSignDischargeSummary,
   isAiGovernanceAdmin,
   isAmbulanceCoordinator,
@@ -98,6 +100,20 @@ describe('Phase F1 role registry', () => {
     expect(PLATFORM_ROLES).toContain('INTEGRATION_ADMIN');
     expect(PLATFORM_ROLES).toContain('AI_GOVERNANCE_ADMIN');
     expect(PLATFORM_ROLES).toContain('DATA_PROTECTION_OFFICER');
+  });
+
+  it('keeps NHCX payment notice review on finance-class roles', () => {
+    expect(FINANCE_REVIEW_ROLES).toEqual(expect.arrayContaining([
+      'FINANCE_INCHARGE',
+      'BILLING_INCHARGE',
+      'CLAIMS_MANAGER',
+      'INSURANCE_COORDINATOR',
+      'ADMIN',
+      'SUPER_ADMIN',
+    ]));
+    expect(canReviewNHCXPaymentNotice('FINANCE_INCHARGE')).toBe(true);
+    expect(canReviewNHCXPaymentNotice('CLAIMS_MANAGER')).toBe(true);
+    expect(canReviewNHCXPaymentNotice('DOCTOR')).toBe(false);
   });
 
   it('routes WEBHOOK_CLIENT into MACHINE_ROLES (never a human)', () => {
