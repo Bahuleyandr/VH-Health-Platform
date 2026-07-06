@@ -66,10 +66,7 @@ export function verifyOidcIdToken({
     throw new Error('OIDC JWKS key is not RSA');
   }
 
-  const verifier = crypto.createVerify('RSA-SHA256');
-  verifier.update(signingInput);
-  verifier.end();
-  const valid = verifier.verify(normalizePemOrJwk(key), signature);
+  const valid = crypto.verify('RSA-SHA256', Buffer.from(signingInput, 'utf8'), normalizePemOrJwk(key), signature);
   if (!valid) {
     throw new Error('OIDC JWT signature invalid');
   }
