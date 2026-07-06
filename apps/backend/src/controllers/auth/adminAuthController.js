@@ -243,6 +243,9 @@ export const deactivateAdmin = async (req, res) => {
     if (err?.message === 'Admin not found') {
       return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
     }
+    if (err?.message === 'SCIM_OWNED_FIELD_OVERRIDE_REQUIRED') {
+      return error(res, 'SCIM-owned admin status requires an explicit override reason', HTTP_STATUS.CONFLICT, err.details);
+    }
     return error(res, 'Failed to deactivate admin account', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -256,14 +259,18 @@ export const reactivateAdmin = async (req, res) => {
   try {
     const adminId = String(req.body.adminId);
     const reactivatedBy = req.user?.uid;
+    const overrideReason = req.body.reason || req.body.scimOverrideReason || req.body.identityOverrideReason || null;
 
-    const result = await AuthService.reactivateAdmin(adminId, reactivatedBy);
+    const result = await AuthService.reactivateAdmin(adminId, reactivatedBy, overrideReason);
     logger.info(`Admin reactivated: ${adminId} by ${reactivatedBy}`);
     return success(res, result, 'Admin account reactivated successfully');
   } catch (err) {
     logger.error('[ReactivateAdmin]:', err);
     if (err?.message === 'Admin not found') {
       return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
+    }
+    if (err?.message === 'SCIM_OWNED_FIELD_OVERRIDE_REQUIRED') {
+      return error(res, 'SCIM-owned admin status requires an explicit override reason', HTTP_STATUS.CONFLICT, err.details);
     }
     return error(res, 'Failed to reactivate admin account', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

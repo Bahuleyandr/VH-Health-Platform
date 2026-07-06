@@ -14,6 +14,7 @@ import {
   replaceStaffOidcRoleMappings,
   upsertStaffOidcProvider,
 } from '../../services/auth/staffOidcSsoService.js';
+import { configureProviderScimCredentials } from '../../services/auth/scimCredentialService.js';
 import { AppError } from '../../utils/AppError.js';
 import { success } from '../../utils/responseHelper.js';
 
@@ -109,6 +110,26 @@ router.get('/sso/oidc/providers/:provider', async (req, res, next) => {
         providerKey: req.params.provider,
       });
     return success(res, { provider, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC provider retrieved`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/sso/oidc/providers/:provider/scim', async (req, res, next) => {
+  try {
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    if (scope.platform) {
+      throw AppError.badRequest('SCIM providers are tenant-scoped', 'SCIM_PLATFORM_FORBIDDEN');
+    }
+    const result = await configureProviderScimCredentials({
+      tenantId: scope.tenantId,
+      providerKey: req.params.provider,
+      realm,
+      actorUid: req.user?.uid || null,
+      input: req.body || {},
+    });
+    return success(res, { ...result, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} SCIM credentials saved`);
   } catch (err) {
     return next(err);
   }

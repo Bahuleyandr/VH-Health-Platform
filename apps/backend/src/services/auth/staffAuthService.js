@@ -46,6 +46,8 @@ const attendanceLocalIsoSql = (expression) =>
 const localDayStartUtcSql = (dateExpression) =>
   `(((${dateExpression})::timestamp AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC')`;
 
+const SCIM_MANAGED_SOURCES = new Set(['scim', 'hybrid']);
+
 const MAX_DEVICES_PER_STAFF = parseInt(process.env.MAX_DEVICES_PER_STAFF) || 5;
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONFIG.rateLimit.loginAttempts;
 
@@ -259,6 +261,19 @@ export class StaffAuthService {
     if (!name || name.length < 2 || name.length > 120) {
       const err = new Error('Name must be between 2 and 120 characters');
       err.statusCode = 400;
+      throw err;
+    }
+
+    const identity = await query(`
+      SELECT identity_source
+      FROM users
+      WHERE uid = $1::uuid
+      LIMIT 1
+    `, [staffUid]);
+    if (identity.rowCount > 0 && SCIM_MANAGED_SOURCES.has(String(identity.rows[0].identity_source || 'local').toLowerCase())) {
+      const err = new Error('Name is managed by SCIM provisioning for this staff identity');
+      err.statusCode = 403;
+      err.code = 'SCIM_OWNED_FIELD';
       throw err;
     }
 
