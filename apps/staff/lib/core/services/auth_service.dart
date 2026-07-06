@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
@@ -9,9 +10,50 @@ import 'api_client.dart';
 import 'recent_patients_service.dart';
 import 'telemetry_service.dart';
 
+class StaffSsoProvider {
+  const StaffSsoProvider({
+    required this.providerKey,
+    required this.displayName,
+    required this.startUrl,
+    required this.redirectUris,
+  });
+
+  final String providerKey;
+  final String displayName;
+  final String startUrl;
+  final List<String> redirectUris;
+
+  factory StaffSsoProvider.fromJson(Map<String, dynamic> json) {
+    return StaffSsoProvider(
+      providerKey: (json['provider_key'] ?? json['providerKey'] ?? '')
+          .toString(),
+      displayName: (json['display_name'] ?? json['displayName'] ?? 'SSO')
+          .toString(),
+      startUrl: (json['start_url'] ?? json['startUrl'] ?? '').toString(),
+      redirectUris: (json['redirect_uris'] is List)
+          ? (json['redirect_uris'] as List)
+                .map((value) => value.toString())
+                .where((value) => value.trim().isNotEmpty)
+                .toList()
+          : const [],
+    );
+  }
+}
+
+typedef StaffSsoBrowser =
+    Future<String> Function({
+      required String url,
+      required String callbackUrlScheme,
+    });
+
 class AuthService {
   // Centralized encrypted storage — same instance as api_config.dart and core.
   static final _storage = VHSecureStorage.instance;
+  static const _staffSsoCallbackScheme = 'vhhealthstaff';
+  static const _staffSsoCallbackUri = 'vhhealthstaff://sso/oidc/callback';
+
+  @visibleForTesting
+  static StaffSsoBrowser? debugStaffSsoBrowser;
 
   static Future<void> _saveAuthenticatedStaffSession({
     required String employeeId,
@@ -26,7 +68,10 @@ class AuthService {
       accessToken: token.toString(),
       refreshToken: refreshToken?.toString(),
     );
-    await ApiConfig.saveEmployeeId(employeeId);
+    await ApiConfig.saveJwt(token.toString());
+    if (employeeId.trim().isNotEmpty) {
+      await ApiConfig.saveEmployeeId(employeeId);
+    }
 
     final staffId =
         data['staff']?['_id'] ?? data['staff']?['id'] ?? data['staff_id'];
@@ -65,6 +110,133 @@ class AuthService {
     await CrashReporter.instance.setUserId(crashUserId);
     await CrashReporter.instance.setCustomKey('role', role.toString());
     await CrashReporter.instance.setCustomKey('device_type', currentDeviceType);
+  }
+
+  static Map<String, dynamic> _successData(ApiResponse response, String label) {
+    if (response.isSuccess && response.raw is Map) {
+      final raw = Map<String, dynamic>.from(response.raw as Map);
+      if (raw['success'] == true && raw['data'] is Map) {
+        return Map<String, dynamic>.from(raw['data'] as Map);
+      }
+      return raw;
+    }
+    throw Exception(response.failureMessage(label));
+  }
+
+  static String _staffEmployeeIdFromData(Map<String, dynamic> data) {
+    final staff = data['staff'];
+    final value =
+        data['employeeId'] ??
+        data['employee_id'] ??
+        (staff is Map ? staff['employeeId'] ?? staff['employee_id'] : null);
+    return value?.toString().trim() ?? '';
+  }
+
+  static String _ssoRedirectUriFor(StaffSsoProvider provider) {
+    return provider.redirectUris.firstWhere(
+      (uri) => uri.startsWith('$_staffSsoCallbackScheme://'),
+      orElse: () => provider.redirectUris.isNotEmpty
+          ? provider.redirectUris.first
+          : _staffSsoCallbackUri,
+    );
+  }
+
+  static Future<String> _openStaffSsoBrowser({
+    required String url,
+    required String callbackUrlScheme,
+  }) {
+    final browser = debugStaffSsoBrowser;
+    if (browser != null) {
+      return browser(url: url, callbackUrlScheme: callbackUrlScheme);
+    }
+    return FlutterWebAuth2.authenticate(
+      url: url,
+      callbackUrlScheme: callbackUrlScheme,
+      options: const FlutterWebAuth2Options(useWebview: false),
+    );
+  }
+
+  static Future<List<StaffSsoProvider>> discoverStaffSsoProviders() async {
+    final response = await ApiClient.get(
+      '/auth/staff/sso/oidc/providers',
+      auth: false,
+    );
+    final data = _successData(response, 'Staff SSO discovery failed');
+    final providers = data['providers'];
+    if (providers is! List) return const [];
+    return providers
+        .whereType<Map>()
+        .map(
+          (provider) =>
+              StaffSsoProvider.fromJson(Map<String, dynamic>.from(provider)),
+        )
+        .where(
+          (provider) =>
+              provider.providerKey.isNotEmpty && provider.startUrl.isNotEmpty,
+        )
+        .toList();
+  }
+
+  static Future<Map<String, dynamic>> loginWithStaffSso(
+    StaffSsoProvider provider,
+  ) async {
+    final redirectUri = _ssoRedirectUriFor(provider);
+    final deviceToken = await getDeviceToken();
+    final startResponse = await ApiClient.get(
+      '/auth/staff/sso/oidc/${Uri.encodeComponent(provider.providerKey)}/start',
+      auth: false,
+      queryParameters: {
+        'response_mode': 'json',
+        'redirect_uri': redirectUri,
+        'deviceType': currentDeviceType,
+        if (deviceToken != null && deviceToken.isNotEmpty)
+          'deviceId': deviceToken,
+      },
+    );
+    final startData = _successData(
+      startResponse,
+      'Staff SSO authorization failed',
+    );
+    final authorizationUrl = startData['redirectUrl']?.toString();
+    if (authorizationUrl == null || authorizationUrl.isEmpty) {
+      throw Exception('Staff SSO authorization URL missing');
+    }
+
+    final callback = Uri.parse(
+      await _openStaffSsoBrowser(
+        url: authorizationUrl,
+        callbackUrlScheme: Uri.parse(redirectUri).scheme,
+      ),
+    );
+    final error = callback.queryParameters['error'];
+    if (error != null && error.isNotEmpty) {
+      throw Exception(callback.queryParameters['error_description'] ?? error);
+    }
+    final code = callback.queryParameters['code'];
+    final state = callback.queryParameters['state'];
+    if (code == null || code.isEmpty || state == null || state.isEmpty) {
+      throw Exception('Staff SSO callback missing code or state');
+    }
+
+    final callbackResponse = await ApiClient.post(
+      '/auth/staff/sso/oidc/${Uri.encodeComponent(provider.providerKey)}/callback',
+      auth: false,
+      body: {
+        'code': code,
+        'state': state,
+        'redirect_uri': redirectUri,
+        'deviceType': currentDeviceType,
+        if (deviceToken != null && deviceToken.isNotEmpty)
+          'deviceId': deviceToken,
+      },
+    );
+    final data = _successData(callbackResponse, 'Staff SSO login failed');
+    await _saveAuthenticatedStaffSession(
+      employeeId: _staffEmployeeIdFromData(data),
+      data: data,
+      loginMethod: 'sso_oidc',
+    );
+    return data;
   }
 
   /// Staff login with employee ID + password
