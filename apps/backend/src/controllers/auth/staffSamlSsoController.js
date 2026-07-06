@@ -1,8 +1,8 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import {
+  completeSamlAcs,
   discoverStaffSamlProvidersForRequest,
   startSamlLogin,
-  validateSamlAcs,
 } from '../../services/auth/samlSsoService.js';
 import { error, success } from '../../utils/responseHelper.js';
 
@@ -40,23 +40,12 @@ export const start = async (req, res, next) => {
 
 export const acs = async (req, res) => {
   try {
-    const result = await validateSamlAcs({
+    const result = await completeSamlAcs({
       req,
       realm: 'staff',
       providerKey: req.params.provider,
     });
-    return success(res, {
-      provider: result.provider.provider_key,
-      tenant: { id: result.tenant.tenantId },
-      principal: {
-        issuer: result.principal.issuer,
-        subject: result.principal.subject,
-        nameIdFormat: result.principal.nameIdFormat,
-        email: result.principal.email,
-        employeeId: result.principal.employeeId,
-        groupCount: result.principal.groups.length,
-      },
-    }, 'Staff SAML assertion accepted');
+    return success(res, result, 'Staff SAML SSO login successful');
   } catch (err) {
     return error(res, err.message || 'Staff SAML SSO login failed', appErrorStatus(err), {
       code: err.code,

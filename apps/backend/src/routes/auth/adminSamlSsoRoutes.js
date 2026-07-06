@@ -25,5 +25,6 @@ const handleValidation = (req, res, next) => {
 router.get('/providers', authRateLimiter, controller.listProviders);
 router.get('/:provider/start', authRateLimiter, providerParam, handleValidation, controller.start);
 router.post('/:provider/acs', authRateLimiter, providerParam, handleValidation, controller.acs);
+router.post('/complete', authRateLimiter, controller.completeHandoff);
 
 export default router;
