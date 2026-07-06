@@ -38328,6 +38328,104 @@
         ]
       }
     },
+    "/api/v1/admin/nhcx/payment-notices": {
+      "get": {
+        "operationId": "get_api_v1_admin_nhcx_payment_notices",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/nhcx/payment-notices/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_nhcx_payment_notices_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/nhcx/payment-notices/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_payment_notices_by_id_approve",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/nhcx/payment-notices/{id}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_payment_notices_by_id_reject",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/nhcx/preauth/{preauthId}/submit": {
       "post": {
         "operationId": "post_api_v1_admin_nhcx_preauth_by_preauthId_submit",
@@ -68170,6 +68268,23 @@
     "/api/v1/integrations/nhcx/coverageeligibility/on_check": {
       "post": {
         "operationId": "post_api_v1_integrations_nhcx_coverageeligibility_on_check",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/nhcx/paymentnotice/request": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_paymentnotice_request",
         "responses": {
           "200": {
             "description": "Successful response",

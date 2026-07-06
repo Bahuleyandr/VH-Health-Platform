@@ -144,6 +144,14 @@ export const PLATFORM_ROLES = [
   ROLES.AI_GOVERNANCE_ADMIN,
   ROLES.DATA_PROTECTION_OFFICER
 ];
+export const FINANCE_REVIEW_ROLES = [
+  ROLES.FINANCE_INCHARGE,
+  ROLES.BILLING_INCHARGE,
+  ROLES.CLAIMS_MANAGER,
+  ROLES.INSURANCE_COORDINATOR,
+  ROLES.ADMIN,
+  'SUPER_ADMIN'
+];
 // Machine-account role for inbound webhook clients authenticating with
 // API key + signature; never assigned to a human.
 export const MACHINE_ROLES = [ROLES.WEBHOOK_CLIENT];
@@ -321,3 +329,5 @@ export const canDispatchAmbulance = role =>
   isAmbulanceCoordinator(role) || isAdmin(role) || role === ROLES.EMERGENCY_RESPONDER;
 export const canManageClaims = role =>
   isClaimsManager(role) || isAdmin(role) || role === ROLES.INSURANCE_COORDINATOR;
+export const canReviewFinance = role => FINANCE_REVIEW_ROLES.includes(String(role || '').toUpperCase());
+export const canReviewNHCXPaymentNotice = role => canReviewFinance(role);
