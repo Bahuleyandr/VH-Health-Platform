@@ -1,13 +1,14 @@
-# NHCX P1/P2 Core Runbook
+# NHCX P1/P2/P3 Core Runbook
 
-Status: P1 backend core is implemented and P2 claim-cycle support is in review,
-but the integration is still disabled by default. Treat all
+Status: P1 backend core is implemented and P2 claim-cycle plus P3
+communication/attachment support are in review, but the integration is still
+disabled by default. Treat all
 gateway endpoint names, profile URLs, and JWE/signature details as design-target
 until the live NHCX/NRCeS sandbox package is locked by the operator.
 
 ## Scope
 
-Implemented P1/P2 surfaces:
+Implemented P1/P2/P3 surfaces:
 
 - Exchange envelope: `nhcx_messages` migration `359_nhcx_messages.sql`.
 - Tenant config: `tenants.settings.nhcx`.
@@ -19,6 +20,8 @@ Implemented P1/P2 surfaces:
   - CoverageEligibilityRequest bundle from `insurance_policies`.
   - Preauth Claim bundle from `insurance_preauth`.
   - Final/reimbursement Claim bundle from `tpa_claims`.
+  - Communication response bundle from `tpa_claim_correspondence` plus
+    explicitly selected `tpa_claim_documents`.
   - Task bundle for claim status checks.
 - Outbound dispatcher:
   - JWE compact encryption with `jose`.
@@ -35,6 +38,9 @@ Implemented P1/P2 surfaces:
     correspondence metadata and ledger shifting disabled.
   - Bare Task status callbacks are persisted on `nhcx_messages` only and do not
     mutate claim workflow state.
+  - CommunicationRequest callbacks map to inbound `tpa_claim_correspondence`
+    rows (`direction='inbound'`, `channel='nhcx'`) and move linked
+    claim/preauth rows to `queried` only through allowed transitions.
 - Local mock exchange and smoke script.
 
 P2 claim-cycle guardrails:
@@ -51,9 +57,23 @@ P2 claim-cycle guardrails:
 - PaymentNotice and settlement remain out of scope; NHCX P2 does not post
   payments.
 
-Not implemented in P2:
+P3 communication/attachment guardrails:
 
-- Communication/attachments.
+- Communication rides only the `tpa_claims` / `insurance_preauth` spine.
+- Inbound CommunicationRequest mapping is correlation-id based; unmappable or
+  unsupported attachment payloads land in `manual_review`.
+- Outbound responses are drafted from an inbound NHCX correspondence row and
+  persisted as outbound correspondence before enqueue.
+- Only explicitly selected `tpa_claim_documents` for the same tenant and same
+  claim/preauth target are packaged.
+- No reusable raw R2/S3/document storage URLs are exposed to NHCX. FHIR
+  attachment references use internal URNs such as
+  `urn:vhhealth:tpa-claim-document:<id>`.
+- Attachment MIME and size limits are env-configurable design-target seams; the
+  operator must confirm final values against live NHCX docs before enablement.
+
+Not implemented in P3:
+
 - PaymentNotice/payment reconciliation.
 - Ledger mutation.
 - Tariff-master admin UI.
@@ -72,6 +92,9 @@ NHCX_ENABLED=false
 NHCX_CREDENTIAL_CACHE_TTL_MS=60000
 NHCX_GATEWAY_HOST_ALLOWLIST=
 NHCX_GATEWAY_ALLOW_PRIVATE_TARGETS=false
+NHCX_COMM_ATTACHMENT_ALLOWED_MIME_TYPES=application/pdf,image/jpeg,image/png,text/plain
+NHCX_COMM_ATTACHMENT_MAX_BYTES=5242880
+NHCX_COMM_ATTACHMENT_TOTAL_MAX_BYTES=20971520
 ```
 
 Use `NHCX_GATEWAY_ALLOW_PRIVATE_TARGETS=true` only for non-production local mock
@@ -108,6 +131,9 @@ Admin NHCX endpoints:
 - `POST /api/v1/admin/nhcx/preauth/:preauthId/submit`
 - `POST /api/v1/admin/nhcx/claim/:claimId/submit`
 - `POST /api/v1/admin/nhcx/claim/:claimId/status`
+- `GET /api/v1/admin/nhcx/communication/workbench?claim_id=...`
+- `GET /api/v1/admin/nhcx/communication/workbench?preauth_id=...`
+- `POST /api/v1/admin/nhcx/communication/:correspondenceId/respond`
 - `POST /api/v1/admin/nhcx/dispatch-now`
 - `GET /api/v1/admin/nhcx/messages`
 - `GET /api/v1/admin/nhcx/messages/:id`
@@ -119,6 +145,7 @@ Public callback endpoints:
 - `POST /api/v1/integrations/nhcx/preauth/on_submit`
 - `POST /api/v1/integrations/nhcx/claim/on_submit`
 - `POST /api/v1/integrations/nhcx/claim/on_status`
+- `POST /api/v1/integrations/nhcx/communication/request`
 
 Callback authentication currently requires a tenant-scoped HMAC signature with
 headers:
@@ -152,10 +179,14 @@ The mock accepts:
 - `/v0.9/preauth/submit`
 - `/v0.9/claim/submit`
 - `/v0.9/claim/status`
+- `/v0.9/communication/request`
 - `/__admin/requests`
 
 For `claim/submit`, pass `x-nhcx-mock-outcome: approve`, `partial`, `deny`, or
-`query` to choose the deterministic callback variant.
+`query` to choose the deterministic callback variant. `query` emits a
+CommunicationRequest callback to `/communication/request`; the same mock endpoint
+accepts the provider's outbound Communication response and records correlation
+continuity.
 
 Set these optional env vars to make the mock post callbacks:
 
@@ -167,10 +198,10 @@ NHCX_MOCK_JWE_SECRET=test-jwe-secret-32-byte-minimum
 
 ## Verification
 
-Focused P1/P2 unit/regression slice:
+Focused P1/P2/P3 unit/regression slice:
 
 ```bash
-node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand --runTestsByPath src/tests/unit/nhcxFhirProfileService.test.js src/tests/unit/nhcxClaimFhirProfileService.test.js src/tests/unit/nhcxOutboundDispatcherService.test.js src/tests/unit/nhcxInboundCallbackService.test.js src/tests/unit/nhcxCallbackRoutes.test.js src/tests/unit/nhcxP1Regression.test.js
+node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand --runTestsByPath src/tests/unit/nhcxFhirProfileService.test.js src/tests/unit/nhcxClaimFhirProfileService.test.js src/tests/unit/nhcxOutboundDispatcherService.test.js src/tests/unit/nhcxInboundCallbackService.test.js src/tests/unit/nhcxCommunicationP3.deep.test.js src/tests/unit/nhcxCallbackRoutes.test.js src/tests/unit/nhcxP1Regression.test.js
 ```
 
 Mock smoke:
