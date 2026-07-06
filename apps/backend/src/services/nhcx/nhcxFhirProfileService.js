@@ -25,6 +25,8 @@ export const NHCX_PROFILE_URLS = Object.freeze({
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationBundle',
   taskBundle:
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/TaskBundle',
+  paymentNoticeBundle:
+    'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/PaymentNoticeBundle',
 });
 
 const REQUIRED_BY_TYPE = {
@@ -34,6 +36,8 @@ const REQUIRED_BY_TYPE = {
   ClaimResponse: ['id', 'status', 'outcome'],
   CommunicationRequest: ['id', 'status', 'subject'],
   Communication: ['id', 'status', 'subject', 'payload'],
+  PaymentNotice: ['id', 'status', 'created', 'amount'],
+  PaymentReconciliation: ['id', 'status', 'created'],
   Coverage: ['id', 'status', 'beneficiary', 'payor', 'identifier'],
   DocumentReference: ['id', 'status', 'type', 'content'],
   Organization: ['id', 'identifier', 'name'],

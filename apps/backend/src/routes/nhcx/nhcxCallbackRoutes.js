@@ -27,6 +27,7 @@ const NHCX_CALLBACK_PATHS = new Set([
   '/claim/on_submit',
   '/claim/on_status',
   '/communication/request',
+  '/paymentnotice/request',
 ]);
 
 function nhcxEnabled() {
@@ -148,6 +149,7 @@ callbackRouter.post('/preauth/on_submit', handleCallback);
 callbackRouter.post('/claim/on_submit', handleCallback);
 callbackRouter.post('/claim/on_status', handleCallback);
 callbackRouter.post('/communication/request', handleCallback);
+callbackRouter.post('/paymentnotice/request', handleCallback);
 
 export { callbackRouter };
 export default callbackRouter;
