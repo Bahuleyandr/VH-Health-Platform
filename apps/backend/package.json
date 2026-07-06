@@ -51,6 +51,8 @@
     "openapi:check": "node scripts/check-openapi-drift.mjs",
     "openapi:sync-core": "node scripts/sync-openapi-to-core.mjs",
     "openapi:check-core": "node scripts/check-core-spec-sync.mjs",
+    "nhcx:mock": "node scripts/test/nhcx-mock-exchange.mjs",
+    "smoke:nhcx:mock": "node scripts/test/smoke-nhcx-mock-exchange.mjs",
     "logs:cleanup": "node src/scripts/cleanup-logs.js",
     "logs:list": "node src/scripts/list-logs.js",
     "logs:purge": "node src/scripts/purge-logs.js",
