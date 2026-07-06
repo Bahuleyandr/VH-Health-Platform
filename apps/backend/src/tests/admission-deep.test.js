@@ -486,6 +486,88 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       await cleanup();
     });
 
+    it('rejects a planned admit when the raw policy_number has no policy master', async () => {
+      // Swarm-port d94dfee8 (adapted): an unresolvable policy_number means
+      // every downstream TPA step (preauth auto-draft, discharge final claim)
+      // silently skips and the desk finds out at discharge. Planned admits
+      // have time to create/select the policy master, so fail closed.
+      const uid = 'a1111111-1111-4111-8111-1111111121bb';
+      const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-TPA-NOLINK-BED'`).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
+      };
+      await cleanup();
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9000019097', 'TPA Unlinked Policy Patient', 'PATIENT', true, NOW())`, uid);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO patient_consents (patient_uid, consent_type, granted, status)
+         VALUES ($1::uuid, 'treatment', true, 'active')`, uid);
+      const bed = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, ward_name, bed_number, status)
+         VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-TPA-NOLINK-BED', 'available') RETURNING id`, wardId);
+
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: uid,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'Elective lap cholecystectomy',
+        admitting_diagnosis: 'Symptomatic cholelithiasis',
+        admission_type: 'elective',
+        priority: 'routine',
+        bed_id: bed[0].id,
+        policy_number: 'NIA-SC-NOLINK-1',
+        estimated_cost: 90000,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/policy NIA-SC-NOLINK-1 is not linked/i);
+      const adm = await prisma.$queryRawUnsafe(
+        `SELECT id FROM admissions WHERE patient_uid = $1::uuid`, uid);
+      expect(adm).toHaveLength(0);
+
+      await cleanup();
+    });
+
+    it('admits an emergency with an unresolvable policy_number instead of blocking the bed', async () => {
+      // The linkage gate must never hold up an emergency admission on a
+      // billing prerequisite: admit without TPA linkage (policy_id stays
+      // NULL, automation skips) and let the TPA desk repair it post-hoc.
+      const uid = 'a1111111-1111-4111-8111-1111111122bb';
+      const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM insurance_preauth WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-TPA-ER-BED'`).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
+      };
+      await cleanup();
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9000019096', 'TPA ER Unlinked Policy Patient', 'PATIENT', true, NOW())`, uid);
+      const bed = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, ward_name, bed_number, status)
+         VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-TPA-ER-BED', 'available') RETURNING id`, wardId);
+
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: uid,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'NSTEMI',
+        admitting_diagnosis: 'NSTEMI requiring ICU admission',
+        admission_type: 'emergency',
+        priority: 'urgent',
+        bed_id: bed[0].id,
+        policy_number: 'NIA-SC-ER-NOLINK-1',
+        estimated_cost: 180000,
+        emergency_consent_bypass_reason: 'Test — emergency admit with unlinked TPA policy',
+      });
+      expect(res.statusCode).toBe(201);
+      const adm = await prisma.$queryRawUnsafe(
+        `SELECT policy_id FROM admissions WHERE id = $1`, res.body.data.admission.id);
+      expect(adm[0].policy_id).toBeNull();
+
+      await cleanup();
+    });
+
     it('creates admission and occupies the bed', async () => {
       const res = await admin.post('/api/v1/emr/admit').send({
         patient_uid: PATIENT_UID,

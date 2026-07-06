@@ -46,12 +46,12 @@ describe('Radiology order + report — deep integration', () => {
 
     const r = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9000110003', 'Dr. Radiologist', 'DOCTOR', true, NOW())
+       VALUES ($1::uuid, '9000110003', 'Dr. Radiologist', 'RADIOLOGIST', true, NOW())
        RETURNING id`, RADIOLOGIST_UID);
     radIntId = r[0].id;
 
     doctor = mkClient('DOCTOR', DOCTOR_UID, doctorIntId);
-    radiologist = mkClient('DOCTOR', RADIOLOGIST_UID, radIntId);
+    radiologist = mkClient('RADIOLOGIST', RADIOLOGIST_UID, radIntId);
   });
 
   afterAll(async () => {
@@ -145,6 +145,43 @@ describe('Radiology order + report — deep integration', () => {
       expect(row[0].status).toBe('completed');
       expect(row[0].radiologist).toBe(RADIOLOGIST_UID);
       expect(row[0].report_completed_at).not.toBeNull();
+    });
+
+    it('rejects report submission by a non-radiologist doctor', async () => {
+      const res = await doctor.put(`/api/v1/radiology/${orderId}/report`).send({
+        report: 'Referring-doctor wet read — must not be accepted as the report',
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.body.message).toMatch(/radiologist role/i);
+    });
+
+    it('rejects report sign-off by a non-radiologist doctor', async () => {
+      const res = await doctor.post(`/api/v1/radiology/${orderId}/sign-off`).send({});
+      expect(res.statusCode).toBe(403);
+      expect(res.body.message).toMatch(/radiologist role/i);
+    });
+
+    it('radiologist signs off the completed report (medico-legal lock)', async () => {
+      const res = await radiologist.post(`/api/v1/radiology/${orderId}/sign-off`).send({});
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.report_signed_off_by).toBe(RADIOLOGIST_UID);
+      expect(res.body.data.report_signed_off_at).toBeTruthy();
+    });
+
+    it('rejects an addendum by a non-radiologist doctor', async () => {
+      const res = await doctor.post(`/api/v1/radiology/${orderId}/addendum`).send({
+        addendum: 'Treating-team note — belongs in progress notes, not the report',
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.body.message).toMatch(/radiologist role/i);
+    });
+
+    it('radiologist appends an addendum to the signed report', async () => {
+      const res = await radiologist.post(`/api/v1/radiology/${orderId}/addendum`).send({
+        addendum: 'Addendum: small right pleural effusion on lateral view, missed on first read.',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.report).toMatch(/small right pleural effusion/);
     });
 
     it('refuses to cancel a completed order', async () => {
