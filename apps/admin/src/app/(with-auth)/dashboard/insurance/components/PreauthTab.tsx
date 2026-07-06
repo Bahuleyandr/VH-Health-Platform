@@ -1,10 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { fmtINR, fmtDate, STATUS_COLOURS, type Preauth } from "./types";
+import {
+  NhcxQueryResponsePanel,
+  type NhcxQueryTarget,
+} from "./NhcxQueryResponsePanel";
 
 function unwrap<T>(r: unknown): T {
   return ((r as { data?: T }).data ?? r) as T;
@@ -12,6 +17,7 @@ function unwrap<T>(r: unknown): T {
 
 export function PreauthTab() {
   const qc = useQueryClient();
+  const [nhcxTarget, setNhcxTarget] = useState<NhcxQueryTarget | null>(null);
   const {
     data: rows = [],
     error,
@@ -179,8 +185,16 @@ export function PreauthTab() {
       ) : rows.length === 0 ? (
         <EmptyState title="Inbox zero" description="No pending pre-auths." />
       ) : (
-        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
-          <table className="min-w-full text-sm">
+        <>
+          <NhcxQueryResponsePanel
+            target={nhcxTarget}
+            onClose={() => setNhcxTarget(null)}
+            onSubmitted={() =>
+              qc.invalidateQueries({ queryKey: ["insurance", "preauth"] })
+            }
+          />
+          <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
+            <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
                 <th className="px-3 py-2">Pre-auth #</th>
@@ -270,14 +284,30 @@ export function PreauthTab() {
                         >
                           Denied
                         </button>
+                        {p.status === "queried" && (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              setNhcxTarget({
+                                type: "preauth",
+                                id: p.id,
+                                label: p.preauth_number,
+                              })
+                            }
+                            className="px-2 py-1 rounded bg-amber-600 text-white disabled:opacity-40"
+                          >
+                            Respond to NHCX
+                          </button>
+                        )}
                       </>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

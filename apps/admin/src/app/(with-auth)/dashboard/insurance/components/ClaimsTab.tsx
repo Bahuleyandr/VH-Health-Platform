@@ -6,6 +6,10 @@ import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { fmtINR, STATUS_COLOURS, type Claim } from "./types";
+import {
+  NhcxQueryResponsePanel,
+  type NhcxQueryTarget,
+} from "./NhcxQueryResponsePanel";
 
 const AGING_COLOURS: Record<string, string> = {
   fresh: "bg-emerald-100 text-emerald-800",
@@ -23,6 +27,7 @@ export function ClaimsTab() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
   const [agingFilter, setAgingFilter] = useState("");
+  const [nhcxTarget, setNhcxTarget] = useState<NhcxQueryTarget | null>(null);
 
   const {
     data: rows = [],
@@ -216,8 +221,16 @@ export function ClaimsTab() {
           description="No claims match these filters."
         />
       ) : (
-        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
-          <table className="min-w-full text-sm">
+        <>
+          <NhcxQueryResponsePanel
+            target={nhcxTarget}
+            onClose={() => setNhcxTarget(null)}
+            onSubmitted={() =>
+              qc.invalidateQueries({ queryKey: ["insurance", "claims"] })
+            }
+          />
+          <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
+            <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
                 <th className="px-3 py-2">Claim #</th>
@@ -306,6 +319,21 @@ export function ClaimsTab() {
                         >
                           Deny
                         </button>
+                        {c.status === "queried" && (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              setNhcxTarget({
+                                type: "claim",
+                                id: c.id,
+                                label: c.claim_number,
+                              })
+                            }
+                            className="px-2 py-1 rounded bg-amber-600 text-white disabled:opacity-40"
+                          >
+                            Respond to NHCX
+                          </button>
+                        )}
                       </>
                     )}
                     {(c.status === "approved" ||
@@ -322,8 +350,9 @@ export function ClaimsTab() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
