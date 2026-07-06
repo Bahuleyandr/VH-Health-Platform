@@ -36,6 +36,11 @@ const OTP_HASH_ROUNDS = 6;
 // Once the cap is reached the row is marked used so the admin must request a
 // fresh OTP — blocks online guessing of the 6-digit code.
 const PASSWORD_RESET_OTP_MAX_ATTEMPTS = SECURITY_CONFIG.otp.maxAttemptsPerPhone;
+const SCIM_MANAGED_SOURCES = new Set(['scim', 'hybrid']);
+
+function scimOverrideReason(value) {
+  return String(value || '').trim();
+}
 
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */
@@ -705,6 +710,7 @@ export class AuthService {
           name,
           role: 'ADMIN',
           status: 'active',
+          identity_source: 'local',
           created_by: createdBy ?? null,
         },
         select: { uid: true, username: true, email: true, name: true },
@@ -791,6 +797,25 @@ export class AuthService {
 
   static async deactivateAdmin(adminId, reason, deactivatedBy) {
     try {
+      const existing = await prisma.admins.findUnique({
+        where: { uid: String(adminId) },
+        select: {
+          uid: true,
+          tenant_id: true,
+          username: true,
+          identity_source: true,
+          scim_provider_id: true,
+          status: true,
+        },
+      });
+      const source = String(existing?.identity_source || 'local').toLowerCase();
+      const scimManaged = Boolean(existing) && SCIM_MANAGED_SOURCES.has(source);
+      if (scimManaged && scimOverrideReason(reason).length < 8) {
+        const err = new Error('SCIM_OWNED_FIELD_OVERRIDE_REQUIRED');
+        err.statusCode = 409;
+        err.details = { fields: ['active', 'status'] };
+        throw err;
+      }
       const admin = await prisma.admins.updateMany({
         where: { uid: String(adminId), status: 'active' },
         data: {
@@ -804,6 +829,26 @@ export class AuthService {
       if (admin.count === 0) {
         throw new Error('Admin not found or already deactivated');
       }
+      if (scimManaged) {
+        await prisma.identity_audit_events.create({
+          data: {
+            tenant_id: existing.tenant_id,
+            realm: 'admin',
+            protocol: 'scim',
+            provider_id: existing.scim_provider_id ?? null,
+            event_type: 'SCIM_LOCAL_OVERRIDE',
+            outcome: 'accepted',
+            actor_uid: deactivatedBy ?? null,
+            local_uid: existing.uid,
+            details: {
+              fields: ['active', 'status'],
+              action: 'deactivate',
+              reason: scimOverrideReason(reason),
+              source,
+            },
+          },
+        });
+      }
 
       const updated = await prisma.admins.findUnique({
         where: { uid: String(adminId) },
@@ -816,8 +861,26 @@ export class AuthService {
     }
   }
 
-  static async reactivateAdmin(adminId) {
+  static async reactivateAdmin(adminId, reactivatedBy = null, overrideReason = null) {
     try {
+      const existing = await prisma.admins.findUnique({
+        where: { uid: String(adminId) },
+        select: {
+          uid: true,
+          tenant_id: true,
+          identity_source: true,
+          scim_provider_id: true,
+          status: true,
+        },
+      });
+      const source = String(existing?.identity_source || 'local').toLowerCase();
+      const scimManaged = Boolean(existing) && SCIM_MANAGED_SOURCES.has(source);
+      if (scimManaged && scimOverrideReason(overrideReason).length < 8) {
+        const err = new Error('SCIM_OWNED_FIELD_OVERRIDE_REQUIRED');
+        err.statusCode = 409;
+        err.details = { fields: ['active', 'status'] };
+        throw err;
+      }
       const admin = await prisma.admins.updateMany({
         where: { uid: String(adminId), status: 'inactive' },
         data: {
@@ -830,6 +893,26 @@ export class AuthService {
       });
       if (admin.count === 0) {
         throw new Error('Admin not found or already active');
+      }
+      if (scimManaged) {
+        await prisma.identity_audit_events.create({
+          data: {
+            tenant_id: existing.tenant_id,
+            realm: 'admin',
+            protocol: 'scim',
+            provider_id: existing.scim_provider_id ?? null,
+            event_type: 'SCIM_LOCAL_OVERRIDE',
+            outcome: 'accepted',
+            actor_uid: reactivatedBy ?? null,
+            local_uid: existing.uid,
+            details: {
+              fields: ['active', 'status'],
+              action: 'reactivate',
+              reason: scimOverrideReason(overrideReason),
+              source,
+            },
+          },
+        });
       }
 
       const updated = await prisma.admins.findUnique({

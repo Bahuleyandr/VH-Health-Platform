@@ -148,6 +148,7 @@ import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
 import housekeepingRoutes from './routes/housekeepingRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
+import scimRoutes from './routes/scimRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import staffPhoneRoutes from './routes/staff/phoneRoutes.js';
 import storageRoutes from './routes/storage/storageRoutes.js';
@@ -522,6 +523,9 @@ app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
 app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
+// SCIM is provisioning, not user authentication. It resolves the tenant/provider
+// from the URL and verifies its own bearer token before any API-key/JWT middleware.
+app.use('/api/v1/scim/v2', genericLimiter, scimRoutes);
 
 // ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
 app.use('/api/v1/abdm', abdmCallbackRoutes);

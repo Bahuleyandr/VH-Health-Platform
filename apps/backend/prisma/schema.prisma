@@ -342,35 +342,45 @@ model admin_activity_logs {
 }
 
 model admins {
-  uid                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username              String    @unique(map: "uniq_admins_platform_username", where: raw("(tenant_id IS NULL)")) @db.VarChar(255)
-  password_hash         String    @db.VarChar(255)
-  email                 String?   @db.VarChar(255)
-  name                  String?   @db.VarChar(255)
-  role                  String?   @default("ADMIN") @db.VarChar(50)
-  permissions           String[]
-  is_active             Boolean   @default(true)
-  status                String    @default("active") @db.VarChar(20)
-  failed_login_attempts Int       @default(0)
-  last_failed_login     DateTime? @db.Timestamp(6)
-  totp_enabled          Boolean   @default(false)
-  totp_secret_encrypted String?
-  totp_backup_codes     Json?
-  totp_enrolled_at      DateTime? @db.Timestamptz(6)
-  password_changed_at   DateTime? @db.Timestamp(6)
-  created_at            DateTime  @default(now()) @db.Timestamp(6)
-  updated_at            DateTime? @db.Timestamp(6)
-  last_login            DateTime? @db.Timestamp(6)
-  created_by            String?   @db.Uuid
-  deactivated_by        String?   @db.Uuid
-  deactivation_reason   String?
-  deactivated_at        DateTime? @db.Timestamp(6)
-  reactivated_by        String?   @db.Uuid
-  reactivated_at        DateTime? @db.Timestamp(6)
-  tenant_id             String?   @db.Uuid
-  tenants               tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admins_tenant")
+  uid                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username               String    @unique(map: "uniq_admins_platform_username", where: raw("(tenant_id IS NULL)")) @db.VarChar(255)
+  password_hash          String    @db.VarChar(255)
+  email                  String?   @db.VarChar(255)
+  name                   String?   @db.VarChar(255)
+  role                   String?   @default("ADMIN") @db.VarChar(50)
+  permissions            String[]
+  is_active              Boolean   @default(true)
+  status                 String    @default("active") @db.VarChar(20)
+  failed_login_attempts  Int       @default(0)
+  last_failed_login      DateTime? @db.Timestamp(6)
+  totp_enabled           Boolean   @default(false)
+  totp_secret_encrypted  String?
+  totp_backup_codes      Json?
+  totp_enrolled_at       DateTime? @db.Timestamptz(6)
+  password_changed_at    DateTime? @db.Timestamp(6)
+  created_at             DateTime  @default(now()) @db.Timestamp(6)
+  updated_at             DateTime? @db.Timestamp(6)
+  last_login             DateTime? @db.Timestamp(6)
+  created_by             String?   @db.Uuid
+  deactivated_by         String?   @db.Uuid
+  deactivation_reason    String?
+  deactivated_at         DateTime? @db.Timestamp(6)
+  reactivated_by         String?   @db.Uuid
+  reactivated_at         DateTime? @db.Timestamp(6)
+  tenant_id              String?   @db.Uuid
+  identity_source        String    @default("local") @db.VarChar(20)
+  scim_external_id       String?
+  scim_provider_id       BigInt?
+  scim_last_synced_at    DateTime? @db.Timestamptz(6)
+  identity_overrides     Json      @default("{}")
+  is_break_glass_account Boolean   @default(false)
+  break_glass_name       String?   @db.VarChar(160)
+  break_glass_reason     String?
+  tenants                tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admins_tenant")
 
   @@unique([tenant_id, username], map: "uniq_admins_tenant_username", where: raw("(tenant_id IS NOT NULL)"))
+  @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_admins_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
+  @@index([tenant_id, is_break_glass_account], map: "idx_admins_break_glass_accounts", where: raw("(is_break_glass_account = true)"))
   @@index([status])
   @@index([username])
   @@index([tenant_id], map: "idx_admins_tenant_id")
@@ -8593,10 +8603,17 @@ model staff {
   bank_details         Json?
   base_salary          Decimal?  @db.Decimal(12, 2)
   tenant_id            String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  identity_source      String    @default("local") @db.VarChar(20)
+  scim_external_id     String?
+  scim_provider_id     BigInt?
+  scim_last_synced_at  DateTime? @db.Timestamptz(6)
+  identity_overrides   Json      @default("{}")
+  pin_hash             String?
   tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_tenant")
   users                users?    @relation(fields: [user_id], references: [uid], onUpdate: NoAction)
 
   @@unique([tenant_id, employee_id], map: "uniq_staff_tenant_employee_id", where: raw("(employee_id IS NOT NULL)"))
+  @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_staff_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
   @@index([user_id], map: "idx_staff_user_id_fk")
   @@index([department])
   @@index([is_active])
@@ -8673,6 +8690,9 @@ model staff_devices {
   trust_expires_at    DateTime? @db.Timestamp(6)
   last_used           DateTime? @db.Timestamp(6)
   tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  pin_hash            String?
+  biometric_enabled   Boolean   @default(false)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
   tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_devices_tenant")
 
   @@index([device_id])
@@ -10190,6 +10210,14 @@ model users {
   is_deleted                                                                       Boolean                           @default(false)
   deleted_at                                                                       DateTime?                         @db.Timestamptz(6)
   deleted_reason                                                                   String?
+  identity_source                                                                  String                            @default("local") @db.VarChar(20)
+  scim_external_id                                                                 String?
+  scim_provider_id                                                                 BigInt?
+  scim_last_synced_at                                                              DateTime?                         @db.Timestamptz(6)
+  identity_overrides                                                               Json                              @default("{}")
+  is_break_glass_account                                                           Boolean                           @default(false)
+  break_glass_name                                                                 String?                           @db.VarChar(160)
+  break_glass_reason                                                               String?
   abdm_consents                                                                    abdm_consents[]
   abdm_data_requests                                                               abdm_data_requests[]
   annual_review_reminders                                                          annual_review_reminders[]
@@ -10290,6 +10318,8 @@ model users {
 
   @@unique([tenant_id, firebase_uid], map: "uniq_users_tenant_firebase_uid", where: raw("(firebase_uid IS NOT NULL)"))
   @@unique([tenant_id, phone], map: "uniq_users_tenant_phone")
+  @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_users_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
+  @@index([tenant_id, is_break_glass_account], map: "idx_users_break_glass_accounts", where: raw("(is_break_glass_account = true)"))
   @@index([preferred_language], map: "idx_users_preferred_language")
   @@index([status], map: "idx_users_status")
   @@index([tenant_id], map: "idx_users_tenant_id")
@@ -15367,6 +15397,12 @@ model tenant_identity_providers {
   updated_by                     String?                    @db.Uuid
   created_at                     DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at                     DateTime                   @default(now()) @db.Timestamptz(6)
+  scim_enabled                   Boolean                    @default(false)
+  scim_bearer_token_hash         String?                    @db.Char(64)
+  scim_bearer_token_hint         String?                    @db.VarChar(16)
+  scim_token_rotated_at          DateTime?                  @db.Timestamptz(6)
+  scim_last_authenticated_at     DateTime?                  @db.Timestamptz(6)
+  scim_config                    Json                       @default("{}")
   federated_identities           federated_identities[]
   identity_audit_events          identity_audit_events[]
   tenants                        tenants?                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_identity_providers_tenant")
@@ -15374,7 +15410,9 @@ model tenant_identity_providers {
 
   @@unique([realm, protocol, provider_key], map: "uniq_tenant_identity_providers_platform_key", where: raw("(tenant_id IS NULL)"))
   @@unique([tenant_id, realm, protocol, provider_key], map: "uniq_tenant_identity_providers_tenant_key", where: raw("(tenant_id IS NOT NULL)"))
+  @@unique([tenant_id, provider_key], map: "uniq_tenant_identity_providers_scim_endpoint", where: raw("((tenant_id IS NOT NULL) AND (scim_enabled = true))"))
   @@index([realm, protocol, status], map: "idx_tenant_identity_providers_platform_status", where: raw("(tenant_id IS NULL)"))
+  @@index([tenant_id, provider_key, status], map: "idx_tenant_identity_providers_scim_lookup", where: raw("(scim_enabled = true)"))
   @@index([tenant_id, realm, protocol, status], map: "idx_tenant_identity_providers_tenant_status")
 }
 

@@ -10,6 +10,7 @@ import { sha256Base64Url, verifyOidcIdToken } from '../../utils/oidcJwt.js';
 import { ALL_STAFF_ROLES } from '../../utils/roleHelpers.js';
 import { resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
+import { exposeScimProviderConfig } from './scimCredentialService.js';
 import { StaffAuthService } from './staffAuthService.js';
 
 const PROVIDER_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,78}[a-z0-9]$/;
@@ -179,6 +180,7 @@ function sanitizeStaffProvider(row, { includeSecretPresence = true } = {}) {
     allowed_domains: row.allowed_domains || [],
     required_claims: row.required_claims || {},
     policy: row.policy || {},
+    scim: exposeScimProviderConfig(row),
     created_by: row.created_by ? String(row.created_by) : null,
     updated_by: row.updated_by ? String(row.updated_by) : null,
     created_at: row.created_at,
