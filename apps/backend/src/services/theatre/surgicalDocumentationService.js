@@ -325,7 +325,8 @@ export async function upsertPreopChecklist({
   add('consent_witness', safeText(consentWitness, SHORT_MAX));
   add('npo_status_confirmed', normalizeBoolean(npoStatusConfirmed, false));
   add('npo_since', normalizeTimestamp(npoSince, 'npo_since'), '::timestamptz');
-  add('site_marked', normalizeBoolean(siteMarked, false));
+  const normalizedSiteMarked = normalizeBoolean(siteMarked, false);
+  add('site_marked', normalizedSiteMarked);
   add('site_marked_by', maybeUuid(siteMarkedBy, 'site_marked_by'), '::uuid');
   add('allergies_reviewed', normalizeBoolean(allergiesReviewed, false));
   add('allergies_summary', safeText(allergiesSummary));
@@ -349,11 +350,25 @@ export async function upsertPreopChecklist({
   add('pending_items', JSON.stringify(normalizeJsonArray(pendingItems, 'pending_items')), '::jsonb');
   add('ai_review_summary', safeText(aiReviewSummary));
   const normalizedStatus = normalizeEnum(status, PREOP_STATUSES, 'status') || 'in_progress';
+  const normalizedMetadata = normalizeJsonObject(metadata, 'metadata');
+  // WHO surgical-safety gate: the checklist cannot be completed, nor the
+  // patient flagged OT-ready, until the surgical site mark is confirmed.
+  // 'incomplete_with_override' remains the explicit, audited escape hatch.
+  // The theatre OT-ready checklist path has the same gate in
+  // theatreService.assertOtReadySiteMark.
+  if ((normalizedStatus === 'complete'
+        || normalizeBoolean(normalizedMetadata.ot_ready, false) === true)
+      && normalizedSiteMarked !== true) {
+    throw AppError.badRequest(
+      'Cannot complete pre-op checklist or set OT-ready until the surgical site mark is confirmed',
+      'SURGICAL_SITE_MARK_REQUIRED',
+    );
+  }
   add('status', normalizedStatus);
   add('completed_by', maybeUuid(completedBy, 'completed_by'), '::uuid');
   add('completed_at', normalizedStatus === 'complete' ? new Date().toISOString() : null, '::timestamptz');
   add('override_reason', safeText(overrideReason));
-  add('metadata', JSON.stringify(normalizeJsonObject(metadata, 'metadata')), '::jsonb');
+  add('metadata', JSON.stringify(normalizedMetadata), '::jsonb');
 
   const updateClauses = cols.slice(2).map((col) =>
     `${col} = EXCLUDED.${col}`).join(', ');

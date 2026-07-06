@@ -198,6 +198,7 @@ describe('upsertPreopChecklist', () => {
       tenantId: TENANT,
       otScheduleId: 42,
       status: 'complete',
+      siteMarked: true,
       completedBy: USER,
     });
     // The completed_at param is a non-null ISO timestamp. Find it among the
@@ -206,6 +207,42 @@ describe('upsertPreopChecklist', () => {
     const params = queryUnsafeMock.mock.calls[1].slice(1);
     const completedAt = params.find((p, idx, arr) => arr[idx - 1] === USER && typeof p === 'string' && /Z$/.test(p));
     expect(completedAt).toBeTruthy();
+  });
+
+  it('rejects completing the checklist without the surgical site mark', async () => {
+    mockSchedule();
+    await expect(upsertPreopChecklist({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      status: 'complete',
+      siteMarked: false,
+      completedBy: USER,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'SURGICAL_SITE_MARK_REQUIRED' });
+    // Gate fires before the INSERT — only ensureScheduleVisible ran.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects flagging OT-ready via metadata without the surgical site mark', async () => {
+    mockSchedule();
+    await expect(upsertPreopChecklist({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      status: 'in_progress',
+      metadata: { ot_ready: true },
+    })).rejects.toMatchObject({ statusCode: 400, code: 'SURGICAL_SITE_MARK_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows incomplete_with_override without the site mark (explicit escape hatch)', async () => {
+    mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 11, status: 'incomplete_with_override' }]);
+    const row = await upsertPreopChecklist({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      status: 'incomplete_with_override',
+      overrideReason: 'Site mark deferred — bilateral procedure documented in plan',
+    });
+    expect(row.id).toBe(11);
   });
 });
 
