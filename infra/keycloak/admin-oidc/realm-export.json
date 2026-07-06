@@ -1,0 +1,99 @@
+{
+  "realm": "vh-admin",
+  "enabled": true,
+  "displayName": "VH Health Admin SSO",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "clients": [
+    {
+      "clientId": "vh-admin",
+      "name": "VH Health Admin Portal",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-not-a-real-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "http://127.0.0.1:5206/api/v1/auth/admin/sso/oidc/keycloak/callback",
+        "http://localhost:5206/api/v1/auth/admin/sso/oidc/keycloak/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:3001",
+        "http://127.0.0.1:3001"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "profile",
+        "email",
+        "roles",
+        "vh-admin-groups"
+      ],
+      "optionalClientScopes": [
+        "address",
+        "phone",
+        "offline_access"
+      ]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "vh-admin-groups",
+      "description": "Adds Keycloak group names to the OIDC groups claim.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "vh-admins"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin.sso@example.com",
+      "email": "admin.sso@example.com",
+      "firstName": "Admin",
+      "lastName": "SSO",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [
+        "/vh-admins"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin-sso-dev-password",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}
