@@ -2,15 +2,17 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, RefreshCw, Save, ShieldCheck, UsersRound } from "lucide-react";
+import { FileKey2, KeyRound, Plus, RefreshCw, Save, ShieldCheck, UsersRound } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
 
 type OidcRealm = "admin" | "staff";
+type SsoProtocol = "oidc" | "saml";
 type ProviderStatus = "draft" | "active" | "disabled";
 
 interface OidcProvider {
   id?: number;
   realm?: OidcRealm;
+  protocol?: SsoProtocol;
   provider_key: string;
   display_name: string;
   status: ProviderStatus;
@@ -20,9 +22,24 @@ interface OidcProvider {
   oidc_authorization_endpoint?: string | null;
   oidc_token_endpoint?: string | null;
   oidc_client_id?: string | null;
+  saml_entity_id?: string | null;
+  saml_sp_entity_id?: string | null;
+  saml_metadata_url?: string | null;
+  saml_acs_url?: string | null;
+  saml_sso_url?: string | null;
+  saml_nameid_format?: string | null;
+  saml_require_signed_response?: boolean;
+  saml_require_signed_assertion?: boolean;
+  saml_encrypted_assertions?: boolean;
   group_claim_name?: string | null;
   allowed_domains?: string[];
   has_oidc_client_secret?: boolean;
+  has_saml_metadata_xml?: boolean;
+  has_saml_idp_signing_certs?: boolean;
+  has_saml_signing_key?: boolean;
+  has_saml_signing_cert?: boolean;
+  has_saml_decryption_key?: boolean;
+  has_saml_decryption_cert?: boolean;
   policy?: Record<string, unknown>;
 }
 
@@ -52,6 +69,21 @@ interface ProviderForm {
   oidc_token_endpoint: string;
   oidc_client_id: string;
   oidc_client_secret: string;
+  saml_entity_id: string;
+  saml_sp_entity_id: string;
+  saml_metadata_url: string;
+  saml_metadata_xml: string;
+  saml_acs_url: string;
+  saml_sso_url: string;
+  saml_idp_signing_certs: string;
+  saml_signing_key: string;
+  saml_signing_cert: string;
+  saml_decryption_key: string;
+  saml_decryption_cert: string;
+  saml_nameid_format: string;
+  saml_require_signed_response: boolean;
+  saml_require_signed_assertion: boolean;
+  saml_encrypted_assertions: boolean;
   group_claim_name: string;
   allowed_domains: string;
   mapping_groups: string;
@@ -125,10 +157,11 @@ const STAFF_ROLE_OPTIONS = [
 
 const STAFF_ROLE_SET = new Set(STAFF_ROLE_OPTIONS);
 
-function emptyForm(realm: OidcRealm): ProviderForm {
+function emptyForm(realm: OidcRealm, protocol: SsoProtocol): ProviderForm {
+  const saml = protocol === "saml";
   return {
-    provider_key: realm === "staff" ? "staff-okta" : "keycloak",
-    display_name: realm === "staff" ? "Staff Okta" : "Keycloak",
+    provider_key: realm === "staff" ? (saml ? "staff-saml" : "staff-okta") : saml ? "hospital-saml" : "keycloak",
+    display_name: realm === "staff" ? (saml ? "Staff SAML" : "Staff Okta") : saml ? "Hospital SAML" : "Keycloak",
     status: "draft",
     oidc_issuer: "",
     oidc_discovery_url: "",
@@ -137,6 +170,21 @@ function emptyForm(realm: OidcRealm): ProviderForm {
     oidc_token_endpoint: "",
     oidc_client_id: "",
     oidc_client_secret: "",
+    saml_entity_id: "",
+    saml_sp_entity_id: "",
+    saml_metadata_url: "",
+    saml_metadata_xml: "",
+    saml_acs_url: "",
+    saml_sso_url: "",
+    saml_idp_signing_certs: "",
+    saml_signing_key: "",
+    saml_signing_cert: "",
+    saml_decryption_key: "",
+    saml_decryption_cert: "",
+    saml_nameid_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+    saml_require_signed_response: false,
+    saml_require_signed_assertion: false,
+    saml_encrypted_assertions: false,
     group_claim_name: "groups",
     allowed_domains: "",
     mapping_groups: "",
@@ -174,6 +222,21 @@ function formFromProvider(provider: OidcProvider, realm: OidcRealm): ProviderFor
     oidc_token_endpoint: provider.oidc_token_endpoint || "",
     oidc_client_id: provider.oidc_client_id || "",
     oidc_client_secret: "",
+    saml_entity_id: provider.saml_entity_id || "",
+    saml_sp_entity_id: provider.saml_sp_entity_id || "",
+    saml_metadata_url: provider.saml_metadata_url || "",
+    saml_metadata_xml: "",
+    saml_acs_url: provider.saml_acs_url || "",
+    saml_sso_url: provider.saml_sso_url || "",
+    saml_idp_signing_certs: "",
+    saml_signing_key: "",
+    saml_signing_cert: "",
+    saml_decryption_key: "",
+    saml_decryption_cert: "",
+    saml_nameid_format: provider.saml_nameid_format || "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+    saml_require_signed_response: provider.saml_require_signed_response === true,
+    saml_require_signed_assertion: provider.saml_require_signed_assertion === true,
+    saml_encrypted_assertions: provider.saml_encrypted_assertions === true,
     group_claim_name: provider.group_claim_name || "groups",
     allowed_domains: (provider.allowed_domains || []).join(", "),
     mapping_groups: "",
@@ -238,15 +301,16 @@ function realmQuery(realm: OidcRealm) {
 export function AdminOidcSettingsPanel() {
   const queryClient = useQueryClient();
   const [realm, setRealm] = useState<OidcRealm>("admin");
+  const [protocol, setProtocol] = useState<SsoProtocol>("oidc");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [form, setForm] = useState<ProviderForm>(() => emptyForm("admin"));
+  const [form, setForm] = useState<ProviderForm>(() => emptyForm("admin", "oidc"));
   const [message, setMessage] = useState("");
 
   const providersQuery = useQuery({
-    queryKey: ["identity-oidc-providers", realm],
+    queryKey: ["identity-sso-providers", protocol, realm],
     queryFn: async () => {
       const response = await fetchAdminAPI<ProviderListResponse>(
-        `/admin/identity/sso/oidc/providers?${realmQuery(realm)}`,
+        `/admin/identity/sso/${protocol}/providers?${realmQuery(realm)}`,
         { method: "GET" },
       );
       return response.providers || [];
@@ -259,11 +323,11 @@ export function AdminOidcSettingsPanel() {
   );
 
   const mappingsQuery = useQuery({
-    queryKey: ["identity-oidc-mappings", realm, selectedKey],
+    queryKey: ["identity-sso-mappings", protocol, realm, selectedKey],
     enabled: Boolean(selectedKey),
     queryFn: async () => {
       const response = await fetchAdminAPI<MappingListResponse>(
-        `/admin/identity/sso/oidc/providers/${encodeURIComponent(selectedKey || "")}/mappings?${realmQuery(realm)}`,
+        `/admin/identity/sso/${protocol}/providers/${encodeURIComponent(selectedKey || "")}/mappings?${realmQuery(realm)}`,
         { method: "GET" },
       );
       return response.mappings || [];
@@ -272,9 +336,9 @@ export function AdminOidcSettingsPanel() {
 
   useEffect(() => {
     setSelectedKey(null);
-    setForm(emptyForm(realm));
+    setForm(emptyForm(realm, protocol));
     setMessage("");
-  }, [realm]);
+  }, [protocol, realm]);
 
   useEffect(() => {
     if (!selectedProvider) return;
@@ -294,38 +358,74 @@ export function AdminOidcSettingsPanel() {
     mutationFn: async () => {
       const providerKey = form.provider_key.trim().toLowerCase();
       if (!providerKey) throw new Error("Provider key is required");
-      const commonBody = {
-        realm,
-        display_name: form.display_name.trim() || providerKey,
-        status: form.status,
-        oidc_issuer: form.oidc_issuer.trim() || null,
-        oidc_discovery_url: form.oidc_discovery_url.trim() || null,
-        oidc_jwks_uri: form.oidc_jwks_uri.trim() || null,
-        oidc_authorization_endpoint: form.oidc_authorization_endpoint.trim() || null,
-        oidc_token_endpoint: form.oidc_token_endpoint.trim() || null,
-        oidc_client_id: form.oidc_client_id.trim() || null,
-        ...(form.oidc_client_secret.trim()
-          ? { oidc_client_secret: form.oidc_client_secret.trim() }
+      const commonBody =
+        protocol === "oidc"
+          ? {
+              realm,
+              display_name: form.display_name.trim() || providerKey,
+              status: form.status,
+              oidc_issuer: form.oidc_issuer.trim() || null,
+              oidc_discovery_url: form.oidc_discovery_url.trim() || null,
+              oidc_jwks_uri: form.oidc_jwks_uri.trim() || null,
+              oidc_authorization_endpoint: form.oidc_authorization_endpoint.trim() || null,
+              oidc_token_endpoint: form.oidc_token_endpoint.trim() || null,
+              oidc_client_id: form.oidc_client_id.trim() || null,
+              ...(form.oidc_client_secret.trim()
+                ? { oidc_client_secret: form.oidc_client_secret.trim() }
+                : {}),
+              group_claim_name: form.group_claim_name.trim() || "groups",
+              allowed_domains: splitList(form.allowed_domains),
+            }
+          : {
+              realm,
+              display_name: form.display_name.trim() || providerKey,
+              status: form.status,
+              saml_entity_id: form.saml_entity_id.trim() || null,
+              saml_sp_entity_id: form.saml_sp_entity_id.trim() || null,
+              saml_metadata_url: form.saml_metadata_url.trim() || null,
+              ...(form.saml_metadata_xml.trim() ? { saml_metadata_xml: form.saml_metadata_xml.trim() } : {}),
+              saml_acs_url: form.saml_acs_url.trim() || null,
+              saml_sso_url: form.saml_sso_url.trim() || null,
+              ...(form.saml_idp_signing_certs.trim()
+                ? { saml_idp_signing_certs: form.saml_idp_signing_certs.trim() }
+                : {}),
+              ...(form.saml_signing_key.trim() ? { saml_signing_key: form.saml_signing_key.trim() } : {}),
+              ...(form.saml_signing_cert.trim() ? { saml_signing_cert: form.saml_signing_cert.trim() } : {}),
+              ...(form.saml_decryption_key.trim()
+                ? { saml_decryption_key: form.saml_decryption_key.trim() }
+                : {}),
+              ...(form.saml_decryption_cert.trim()
+                ? { saml_decryption_cert: form.saml_decryption_cert.trim() }
+                : {}),
+              saml_nameid_format: form.saml_nameid_format.trim() || null,
+              saml_require_signed_response: form.saml_require_signed_response,
+              saml_require_signed_assertion: form.saml_require_signed_assertion,
+              saml_encrypted_assertions: form.saml_encrypted_assertions,
+              group_claim_name: form.group_claim_name.trim() || "groups",
+              allowed_domains: splitList(form.allowed_domains),
+            };
+      const body = {
+        ...commonBody,
+        ...(realm === "staff"
+          ? {
+              policy: {
+                ...(selectedProvider?.policy || {}),
+                ...(protocol === "oidc"
+                  ? {
+                      staff_redirect_uris: splitList(form.staff_redirect_uris),
+                      allow_https_app_links: form.allow_https_app_links,
+                    }
+                  : {}),
+                staff_employee_id_claim: form.staff_employee_id_claim.trim() || "employee_id",
+              },
+            }
           : {}),
-        group_claim_name: form.group_claim_name.trim() || "groups",
-        allowed_domains: splitList(form.allowed_domains),
       };
       await fetchAdminAPI(
-        `/admin/identity/sso/oidc/providers/${encodeURIComponent(providerKey)}?${realmQuery(realm)}`,
+        `/admin/identity/sso/${protocol}/providers/${encodeURIComponent(providerKey)}?${realmQuery(realm)}`,
         {
           method: "PUT",
-          body:
-            realm === "staff"
-              ? {
-                  ...commonBody,
-                  policy: {
-                    ...(selectedProvider?.policy || {}),
-                    staff_redirect_uris: splitList(form.staff_redirect_uris),
-                    staff_employee_id_claim: form.staff_employee_id_claim.trim() || "employee_id",
-                    allow_https_app_links: form.allow_https_app_links,
-                  },
-                }
-              : commonBody,
+          body,
         },
       );
       const mappings =
@@ -338,7 +438,7 @@ export function AdminOidcSettingsPanel() {
               priority: 100 + index,
             }));
       await fetchAdminAPI(
-        `/admin/identity/sso/oidc/providers/${encodeURIComponent(providerKey)}/mappings?${realmQuery(realm)}`,
+        `/admin/identity/sso/${protocol}/providers/${encodeURIComponent(providerKey)}/mappings?${realmQuery(realm)}`,
         {
           method: "PUT",
           body: {
@@ -351,10 +451,19 @@ export function AdminOidcSettingsPanel() {
     },
     onSuccess: async (providerKey) => {
       setSelectedKey(providerKey);
-      setForm((current) => ({ ...current, oidc_client_secret: "" }));
+      setForm((current) => ({
+        ...current,
+        oidc_client_secret: "",
+        saml_metadata_xml: "",
+        saml_idp_signing_certs: "",
+        saml_signing_key: "",
+        saml_signing_cert: "",
+        saml_decryption_key: "",
+        saml_decryption_cert: "",
+      }));
       setMessage("Identity provider saved");
-      await queryClient.invalidateQueries({ queryKey: ["identity-oidc-providers", realm] });
-      await queryClient.invalidateQueries({ queryKey: ["identity-oidc-mappings", realm, providerKey] });
+      await queryClient.invalidateQueries({ queryKey: ["identity-sso-providers", protocol, realm] });
+      await queryClient.invalidateQueries({ queryKey: ["identity-sso-mappings", protocol, realm, providerKey] });
     },
     onError: (error: Error) => {
       setMessage(error.message || "Failed to save identity provider");
@@ -377,7 +486,7 @@ export function AdminOidcSettingsPanel() {
             Identity SSO
           </h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure OIDC providers and group mappings for this tenant.
+            Configure enterprise identity providers and group mappings for this tenant.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -393,6 +502,20 @@ export function AdminOidcSettingsPanel() {
               icon={<UsersRound className="h-4 w-4" />}
               label="Staff"
               onClick={() => setRealm("staff")}
+            />
+          </div>
+          <div className="inline-flex rounded-md border border-border bg-background p-1">
+            <RealmButton
+              active={protocol === "oidc"}
+              icon={<KeyRound className="h-4 w-4" />}
+              label="OIDC"
+              onClick={() => setProtocol("oidc")}
+            />
+            <RealmButton
+              active={protocol === "saml"}
+              icon={<FileKey2 className="h-4 w-4" />}
+              label="SAML"
+              onClick={() => setProtocol("saml")}
             />
           </div>
           <span className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground">
@@ -411,7 +534,7 @@ export function AdminOidcSettingsPanel() {
             type="button"
             onClick={() => {
               setSelectedKey(null);
-              setForm(emptyForm(realm));
+              setForm(emptyForm(realm, protocol));
               setMessage("");
             }}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -437,7 +560,7 @@ export function AdminOidcSettingsPanel() {
           <div className="space-y-2">
             {providers.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                No {realm} OIDC providers configured.
+                No {realm} {protocol.toUpperCase()} providers configured.
               </div>
             ) : (
               providers.map((provider) => (
@@ -482,7 +605,7 @@ export function AdminOidcSettingsPanel() {
                   }
                   disabled={Boolean(selectedProvider)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
-                  placeholder={realm === "staff" ? "staff-okta" : "keycloak"}
+                  placeholder={realm === "staff" ? (protocol === "saml" ? "staff-saml" : "staff-okta") : protocol === "saml" ? "hospital-saml" : "keycloak"}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -493,7 +616,7 @@ export function AdminOidcSettingsPanel() {
                     setForm((current) => ({ ...current, display_name: event.target.value }))
                   }
                   className="w-full rounded-md border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder={realm === "staff" ? "Staff Okta" : "Keycloak"}
+                  placeholder={realm === "staff" ? (protocol === "saml" ? "Staff SAML" : "Staff Okta") : protocol === "saml" ? "Hospital SAML" : "Keycloak"}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -515,82 +638,204 @@ export function AdminOidcSettingsPanel() {
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <TextField
-                label="Issuer"
-                value={form.oidc_issuer}
-                onChange={(value) => setForm((current) => ({ ...current, oidc_issuer: value }))}
-                placeholder={`https://idp.example.com/realms/vh-${realm}`}
-              />
-              <TextField
-                label="Discovery URL"
-                value={form.oidc_discovery_url}
-                onChange={(value) =>
-                  setForm((current) => ({ ...current, oidc_discovery_url: value }))
-                }
-                placeholder={`https://idp.example.com/realms/vh-${realm}/.well-known/openid-configuration`}
-              />
-              <TextField
-                label="Authorization Endpoint"
-                value={form.oidc_authorization_endpoint}
-                onChange={(value) =>
-                  setForm((current) => ({ ...current, oidc_authorization_endpoint: value }))
-                }
-                placeholder="https://idp.example.com/protocol/openid-connect/auth"
-              />
-              <TextField
-                label="Token Endpoint"
-                value={form.oidc_token_endpoint}
-                onChange={(value) =>
-                  setForm((current) => ({ ...current, oidc_token_endpoint: value }))
-                }
-                placeholder="https://idp.example.com/protocol/openid-connect/token"
-              />
-              <TextField
-                label="JWKS URI"
-                value={form.oidc_jwks_uri}
-                onChange={(value) => setForm((current) => ({ ...current, oidc_jwks_uri: value }))}
-                placeholder="https://idp.example.com/protocol/openid-connect/certs"
-              />
-              <TextField
-                label="Client ID"
-                value={form.oidc_client_id}
-                onChange={(value) => setForm((current) => ({ ...current, oidc_client_id: value }))}
-                placeholder={realm === "staff" ? "vh-staff-mobile" : "vh-admin"}
-              />
-              <TextField
-                label="Client Secret"
-                type="password"
-                value={form.oidc_client_secret}
-                onChange={(value) =>
-                  setForm((current) => ({ ...current, oidc_client_secret: value }))
-                }
-                placeholder={
-                  selectedProvider?.has_oidc_client_secret
-                    ? "Stored; leave blank to keep"
-                    : "Paste client secret"
-                }
-              />
-              <TextField
-                label="Group Claim"
-                value={form.group_claim_name}
-                onChange={(value) =>
-                  setForm((current) => ({ ...current, group_claim_name: value }))
-                }
-                placeholder="groups"
-              />
-            </div>
+            {protocol === "oidc" ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextField
+                  label="Issuer"
+                  value={form.oidc_issuer}
+                  onChange={(value) => setForm((current) => ({ ...current, oidc_issuer: value }))}
+                  placeholder={`https://idp.example.com/realms/vh-${realm}`}
+                />
+                <TextField
+                  label="Discovery URL"
+                  value={form.oidc_discovery_url}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, oidc_discovery_url: value }))
+                  }
+                  placeholder={`https://idp.example.com/realms/vh-${realm}/.well-known/openid-configuration`}
+                />
+                <TextField
+                  label="Authorization Endpoint"
+                  value={form.oidc_authorization_endpoint}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, oidc_authorization_endpoint: value }))
+                  }
+                  placeholder="https://idp.example.com/protocol/openid-connect/auth"
+                />
+                <TextField
+                  label="Token Endpoint"
+                  value={form.oidc_token_endpoint}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, oidc_token_endpoint: value }))
+                  }
+                  placeholder="https://idp.example.com/protocol/openid-connect/token"
+                />
+                <TextField
+                  label="JWKS URI"
+                  value={form.oidc_jwks_uri}
+                  onChange={(value) => setForm((current) => ({ ...current, oidc_jwks_uri: value }))}
+                  placeholder="https://idp.example.com/protocol/openid-connect/certs"
+                />
+                <TextField
+                  label="Client ID"
+                  value={form.oidc_client_id}
+                  onChange={(value) => setForm((current) => ({ ...current, oidc_client_id: value }))}
+                  placeholder={realm === "staff" ? "vh-staff-mobile" : "vh-admin"}
+                />
+                <TextField
+                  label="Client Secret"
+                  type="password"
+                  value={form.oidc_client_secret}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, oidc_client_secret: value }))
+                  }
+                  placeholder={
+                    selectedProvider?.has_oidc_client_secret
+                      ? "Stored; leave blank to keep"
+                      : "Paste client secret"
+                  }
+                />
+                <TextField
+                  label="Group Claim"
+                  value={form.group_claim_name}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, group_claim_name: value }))
+                  }
+                  placeholder="groups"
+                />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <TextField
+                    label="IdP Entity ID"
+                    value={form.saml_entity_id}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_entity_id: value }))}
+                    placeholder="https://idp.example.com/saml/metadata"
+                  />
+                  <TextField
+                    label="SP Entity ID"
+                    value={form.saml_sp_entity_id}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_sp_entity_id: value }))}
+                    placeholder={`https://api.vhhealth.app/saml/${realm}`}
+                  />
+                  <TextField
+                    label="Metadata URL"
+                    value={form.saml_metadata_url}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_metadata_url: value }))}
+                    placeholder="https://idp.example.com/app/vh/sso/saml/metadata"
+                  />
+                  <TextField
+                    label="IdP SSO URL"
+                    value={form.saml_sso_url}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_sso_url: value }))}
+                    placeholder="https://idp.example.com/app/vh/sso/saml"
+                  />
+                  <TextField
+                    label="ACS URL"
+                    value={form.saml_acs_url}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_acs_url: value }))}
+                    placeholder={`/api/v1/auth/${realm}/sso/saml/${form.provider_key || "provider"}/acs`}
+                  />
+                  <TextField
+                    label="NameID Format"
+                    value={form.saml_nameid_format}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_nameid_format: value }))}
+                    placeholder="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+                  />
+                  <TextField
+                    label="Group Claim"
+                    value={form.group_claim_name}
+                    onChange={(value) =>
+                      setForm((current) => ({ ...current, group_claim_name: value }))
+                    }
+                    placeholder="groups"
+                  />
+                </div>
+                <TextAreaField
+                  label="Metadata XML"
+                  value={form.saml_metadata_xml}
+                  onChange={(value) => setForm((current) => ({ ...current, saml_metadata_xml: value }))}
+                  placeholder={
+                    selectedProvider?.has_saml_metadata_xml
+                      ? "Stored; paste new XML to replace"
+                      : "<EntityDescriptor ...>"
+                  }
+                />
+                <TextAreaField
+                  label="IdP Signing Certificates"
+                  value={form.saml_idp_signing_certs}
+                  onChange={(value) => setForm((current) => ({ ...current, saml_idp_signing_certs: value }))}
+                  placeholder={
+                    selectedProvider?.has_saml_idp_signing_certs
+                      ? "Stored; paste one or two certs to rotate"
+                      : "Paste one or two PEM certificates"
+                  }
+                />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <TextAreaField
+                    label="SP Signing Private Key"
+                    value={form.saml_signing_key}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_signing_key: value }))}
+                    placeholder={selectedProvider?.has_saml_signing_key ? "Stored; leave blank to keep" : "Optional PEM private key"}
+                  />
+                  <TextAreaField
+                    label="SP Signing Certificate"
+                    value={form.saml_signing_cert}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_signing_cert: value }))}
+                    placeholder={selectedProvider?.has_saml_signing_cert ? "Stored; leave blank to keep" : "Optional PEM certificate"}
+                  />
+                  <TextAreaField
+                    label="SP Decryption Private Key"
+                    value={form.saml_decryption_key}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_decryption_key: value }))}
+                    placeholder={selectedProvider?.has_saml_decryption_key ? "Stored; leave blank to keep" : "Required for encrypted assertions"}
+                  />
+                  <TextAreaField
+                    label="SP Decryption Certificate"
+                    value={form.saml_decryption_cert}
+                    onChange={(value) => setForm((current) => ({ ...current, saml_decryption_cert: value }))}
+                    placeholder={selectedProvider?.has_saml_decryption_cert ? "Stored; leave blank to keep" : "Optional PEM certificate"}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  <CheckboxField
+                    label="Require signed response"
+                    checked={form.saml_require_signed_response}
+                    onChange={(checked) =>
+                      setForm((current) => ({ ...current, saml_require_signed_response: checked }))
+                    }
+                  />
+                  <CheckboxField
+                    label="Require signed assertion"
+                    checked={form.saml_require_signed_assertion}
+                    onChange={(checked) =>
+                      setForm((current) => ({ ...current, saml_require_signed_assertion: checked }))
+                    }
+                  />
+                  <CheckboxField
+                    label="Encrypted assertions"
+                    checked={form.saml_encrypted_assertions}
+                    onChange={(checked) =>
+                      setForm((current) => ({ ...current, saml_encrypted_assertions: checked }))
+                    }
+                  />
+                </div>
+              </div>
+            )}
 
             {realm === "staff" && (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <TextAreaField
-                  label="Staff Redirect URIs"
-                  value={form.staff_redirect_uris}
-                  onChange={(value) =>
-                    setForm((current) => ({ ...current, staff_redirect_uris: value }))
-                  }
-                  placeholder="vhhealthstaff://sso/oidc/callback"
-                />
+                {protocol === "oidc" && (
+                  <TextAreaField
+                    label="Staff Redirect URIs"
+                    value={form.staff_redirect_uris}
+                    onChange={(value) =>
+                      setForm((current) => ({ ...current, staff_redirect_uris: value }))
+                    }
+                    placeholder="vhhealthstaff://sso/oidc/callback"
+                  />
+                )}
                 <div className="space-y-4">
                   <TextField
                     label="Employee ID Claim"
@@ -600,20 +845,18 @@ export function AdminOidcSettingsPanel() {
                     }
                     placeholder="employee_id"
                   />
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
+                  {protocol === "oidc" && (
+                    <CheckboxField
+                      label="Allow HTTPS app links"
                       checked={form.allow_https_app_links}
-                      onChange={(event) =>
+                      onChange={(checked) =>
                         setForm((current) => ({
                           ...current,
-                          allow_https_app_links: event.target.checked,
+                          allow_https_app_links: checked,
                         }))
                       }
-                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
                     />
-                    <span className="font-medium text-foreground">Allow HTTPS app links</span>
-                  </label>
+                  )}
                 </div>
               </div>
             )}
@@ -641,7 +884,7 @@ export function AdminOidcSettingsPanel() {
             <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <KeyRound className="h-4 w-4" />
-                <span>Secrets are write-only.</span>
+                <span>Secrets and certificates are write-only.</span>
               </div>
               <div className="flex items-center gap-3">
                 {message && (
@@ -718,6 +961,28 @@ function TextField({
         className="w-full rounded-md border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
         placeholder={placeholder}
       />
+    </label>
+  );
+}
+
+function CheckboxField({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+      />
+      <span className="font-medium text-foreground">{label}</span>
     </label>
   );
 }

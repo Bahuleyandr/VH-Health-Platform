@@ -9587,6 +9587,7 @@ model tenants {
   hr_activity_logs                           hr_activity_logs[]
   idempotency_keys                           idempotency_keys[]
   identity_audit_events                      identity_audit_events[]
+  identity_saml_replay_cache                 identity_saml_replay_cache[]
   incident_reports                           incident_reports[]
   india_compliance_evidence                  india_compliance_evidence[]
   infection_cases                            infection_cases[]
@@ -15376,46 +15377,77 @@ model identity_audit_events {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model identity_saml_replay_cache {
+  id                        BigInt                    @id @default(autoincrement())
+  tenant_id                 String?                   @db.Uuid
+  realm                     String                    @db.VarChar(20)
+  provider_id               BigInt
+  cache_kind                String                    @db.VarChar(24)
+  cache_key                 String
+  cache_value               String?
+  expires_at                DateTime                  @db.Timestamptz(6)
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  tenant_identity_providers tenant_identity_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_identity_saml_replay_cache_provider")
+  tenants                   tenants?                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_identity_saml_replay_cache_tenant")
+
+  @@unique([provider_id, cache_kind, cache_key], map: "uniq_identity_saml_replay_cache_key")
+  @@index([expires_at], map: "idx_identity_saml_replay_cache_expiry")
+  @@index([tenant_id, provider_id, cache_kind], map: "idx_identity_saml_replay_cache_tenant_provider")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model tenant_identity_providers {
-  id                             BigInt                     @id @default(autoincrement())
-  tenant_id                      String?                    @db.Uuid
-  is_platform_provider           Boolean                    @default(false)
-  realm                          String                     @db.VarChar(20)
-  protocol                       String                     @db.VarChar(20)
-  provider_key                   String                     @db.VarChar(80)
-  display_name                   String                     @db.VarChar(200)
-  status                         String                     @default("draft") @db.VarChar(20)
-  oidc_issuer                    String?
-  oidc_discovery_url             String?
-  oidc_jwks_uri                  String?
-  oidc_authorization_endpoint    String?
-  oidc_token_endpoint            String?
-  oidc_userinfo_endpoint         String?
-  oidc_client_id                 String?
-  oidc_client_secret_ciphertext  String?
-  saml_entity_id                 String?
-  saml_metadata_url              String?
-  saml_acs_url                   String?
-  saml_signing_key_ciphertext    String?
-  saml_decryption_key_ciphertext String?
-  group_claim_name               String                     @default("groups") @db.VarChar(120)
-  allowed_domains                String[]                   @default([])
-  required_claims                Json                       @default("{}")
-  policy                         Json                       @default("{}")
-  created_by                     String?                    @db.Uuid
-  updated_by                     String?                    @db.Uuid
-  created_at                     DateTime                   @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime                   @default(now()) @db.Timestamptz(6)
-  scim_enabled                   Boolean                    @default(false)
-  scim_bearer_token_hash         String?                    @db.Char(64)
-  scim_bearer_token_hint         String?                    @db.VarChar(16)
-  scim_token_rotated_at          DateTime?                  @db.Timestamptz(6)
-  scim_last_authenticated_at     DateTime?                  @db.Timestamptz(6)
-  scim_config                    Json                       @default("{}")
-  federated_identities           federated_identities[]
-  identity_audit_events          identity_audit_events[]
-  tenants                        tenants?                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_identity_providers_tenant")
-  tenant_idp_role_mappings       tenant_idp_role_mappings[]
+  id                                BigInt                       @id @default(autoincrement())
+  tenant_id                         String?                      @db.Uuid
+  is_platform_provider              Boolean                      @default(false)
+  realm                             String                       @db.VarChar(20)
+  protocol                          String                       @db.VarChar(20)
+  provider_key                      String                       @db.VarChar(80)
+  display_name                      String                       @db.VarChar(200)
+  status                            String                       @default("draft") @db.VarChar(20)
+  oidc_issuer                       String?
+  oidc_discovery_url                String?
+  oidc_jwks_uri                     String?
+  oidc_authorization_endpoint       String?
+  oidc_token_endpoint               String?
+  oidc_userinfo_endpoint            String?
+  oidc_client_id                    String?
+  oidc_client_secret_ciphertext     String?
+  saml_entity_id                    String?
+  saml_metadata_url                 String?
+  saml_acs_url                      String?
+  saml_signing_key_ciphertext       String?
+  saml_decryption_key_ciphertext    String?
+  group_claim_name                  String                       @default("groups") @db.VarChar(120)
+  allowed_domains                   String[]                     @default([])
+  required_claims                   Json                         @default("{}")
+  policy                            Json                         @default("{}")
+  created_by                        String?                      @db.Uuid
+  updated_by                        String?                      @db.Uuid
+  created_at                        DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                        DateTime                     @default(now()) @db.Timestamptz(6)
+  scim_enabled                      Boolean                      @default(false)
+  scim_bearer_token_hash            String?                      @db.Char(64)
+  scim_bearer_token_hint            String?                      @db.VarChar(16)
+  scim_token_rotated_at             DateTime?                    @db.Timestamptz(6)
+  scim_last_authenticated_at        DateTime?                    @db.Timestamptz(6)
+  scim_config                       Json                         @default("{}")
+  saml_sp_entity_id                 String?
+  saml_sso_url                      String?
+  saml_metadata_xml_ciphertext      String?
+  saml_idp_signing_certs_ciphertext String?
+  saml_signing_cert_ciphertext      String?
+  saml_decryption_cert_ciphertext   String?
+  saml_nameid_format                String?
+  saml_require_signed_response      Boolean                      @default(false)
+  saml_require_signed_assertion     Boolean                      @default(false)
+  saml_encrypted_assertions         Boolean                      @default(false)
+  federated_identities              federated_identities[]
+  identity_audit_events             identity_audit_events[]
+  identity_saml_replay_cache        identity_saml_replay_cache[]
+  tenants                           tenants?                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_identity_providers_tenant")
+  tenant_idp_role_mappings          tenant_idp_role_mappings[]
 
   @@unique([realm, protocol, provider_key], map: "uniq_tenant_identity_providers_platform_key", where: raw("(tenant_id IS NULL)"))
   @@unique([tenant_id, realm, protocol, provider_key], map: "uniq_tenant_identity_providers_tenant_key", where: raw("(tenant_id IS NOT NULL)"))
