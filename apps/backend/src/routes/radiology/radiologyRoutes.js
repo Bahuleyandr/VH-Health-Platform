@@ -8,11 +8,31 @@ import radiologyService from '../../services/radiology/radiologyService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import { emitRadiologyEvent } from '../../utils/websocket/realtimeEmitter.js';
+import { canSignRadiologyReport } from '../../utils/roleHelpers.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
   next();
+};
+
+// Report authorship, sign-off, and addenda are radiologist-only. The
+// mount-level RADIOLOGY_ROUTE_ROLES gate admits ordering clinicians and
+// nurses for order/worklist flows, so the report-write surface needs its
+// own narrower gate.
+const requireRadiologySigner = (req, res, next) => {
+  const candidates = [
+    req.user?.rawRole,
+    req.user?.role,
+    ...(Array.isArray(req.user?.roles) ? req.user.roles : []),
+  ];
+  const allowed = candidates.some(
+    (role) => canSignRadiologyReport(String(role || '').trim().toUpperCase()),
+  );
+  if (allowed) return next();
+  return error(res, 'Radiology report submission and sign-off require a radiologist role', 403, {
+    code: 'RADIOLOGY_SIGNER_REQUIRED',
+  });
 };
 
 const router = Router();
@@ -77,7 +97,7 @@ router.get('/worklist', async (req, res, next) => {
  * PUT /radiology/:id/report
  * Submit a radiology report
  */
-router.put('/:id/report', paramId(), validate, async (req, res, next) => {
+router.put('/:id/report', requireRadiologySigner, paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const reportData = {
@@ -163,7 +183,7 @@ router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
  * E-8 — POST /radiology/:id/sign-off
  * Radiologist signs off the report (locks it from further edits).
  */
-router.post('/:id/sign-off', paramId(), validate, async (req, res, next) => {
+router.post('/:id/sign-off', requireRadiologySigner, paramId(), validate, async (req, res, next) => {
   try {
     const result = await radiologyService.signOffReport(parseInt(req.params.id, 10), {
       signed_off_by: req.user?.uid,
@@ -184,7 +204,7 @@ router.post('/:id/sign-off', paramId(), validate, async (req, res, next) => {
  * report blob with a labelled header (timestamp + author) and a
  * matching audit_logs entry. Required body: { addendum: string }.
  */
-router.post('/:id/addendum', paramId(), validate, async (req, res, next) => {
+router.post('/:id/addendum', requireRadiologySigner, paramId(), validate, async (req, res, next) => {
   try {
     const result = await radiologyService.appendReportAddendum(
       parseInt(req.params.id, 10),

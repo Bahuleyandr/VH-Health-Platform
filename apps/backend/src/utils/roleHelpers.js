@@ -238,6 +238,13 @@ export const isDataProtectionOfficer = role => role === ROLES.DATA_PROTECTION_OF
 export const PATHOLOGIST_SIGN_ROLES = [ROLES.PATHOLOGIST, ROLES.LAB_INCHARGE, ROLES.ADMIN, 'SUPER_ADMIN'];
 export const canSignOffLabResults = role => PATHOLOGIST_SIGN_ROLES.includes(role);
 
+// Radiology report authorship/sign-off is a radiologist act (medico-legal
+// diagnostic interpretation). Deliberately narrower than PATHOLOGIST_SIGN_ROLES:
+// no ADMIN/SUPER_ADMIN override — a report no radiologist has signed stays
+// unsigned rather than being finalised by an operator role.
+export const RADIOLOGY_REPORT_SIGN_ROLES = [ROLES.RADIOLOGIST];
+export const canSignRadiologyReport = role => RADIOLOGY_REPORT_SIGN_ROLES.includes(role);
+
 export const canViewMedicalData = role =>
   isClinical(role) || isAdmin(role) || isMedicalRecords(role);
 export const canViewDischargeSummary = role => DISCHARGE_SUMMARY_VIEW_ROLES.includes(role);
