@@ -1,14 +1,14 @@
-# NHCX P1/P2/P3 Core Runbook
+# NHCX P1/P2/P3/P4 Core Runbook
 
-Status: P1 backend core is implemented and P2 claim-cycle plus P3
-communication/attachment support are in review, but the integration is still
-disabled by default. Treat all
+Status: P1 backend core, P2 claim-cycle, P3 communication/attachment support,
+and P4 payment-notice finance review are in review, but the integration is
+still disabled by default. Treat all
 gateway endpoint names, profile URLs, and JWE/signature details as design-target
 until the live NHCX/NRCeS sandbox package is locked by the operator.
 
 ## Scope
 
-Implemented P1/P2/P3 surfaces:
+Implemented P1/P2/P3/P4 surfaces:
 
 - Exchange envelope: `nhcx_messages` migration `359_nhcx_messages.sql`.
 - Tenant config: `tenants.settings.nhcx`.
@@ -41,6 +41,9 @@ Implemented P1/P2/P3 surfaces:
   - CommunicationRequest callbacks map to inbound `tpa_claim_correspondence`
     rows (`direction='inbound'`, `channel='nhcx'`) and move linked
     claim/preauth rows to `queried` only through allowed transitions.
+  - PaymentNotice/PaymentReconciliation callbacks are captured on the
+    `nhcx_messages` envelope as `cycle='payment_notice'` and
+    `status='manual_review'`; they do not mutate claim status or ledger state.
 - Local mock exchange and smoke script.
 
 P2 claim-cycle guardrails:
@@ -54,8 +57,9 @@ P2 claim-cycle guardrails:
   insert.
 - Ambiguous or unmappable ClaimResponses land in `manual_review`; no payer
   verdict is guessed.
-- PaymentNotice and settlement remain out of scope; NHCX P2 does not post
-  payments.
+- PaymentNotice is not a settlement command. P4 captures it as finance-review
+  evidence only; settlement still goes through `recordClaimPayment` after
+  explicit approval.
 
 P3 communication/attachment guardrails:
 
@@ -72,10 +76,28 @@ P3 communication/attachment guardrails:
 - Attachment MIME and size limits are env-configurable design-target seams; the
   operator must confirm final values against live NHCX docs before enablement.
 
-Not implemented in P3:
+P4 payment-notice finance SOP:
 
-- PaymentNotice/payment reconciliation.
-- Ledger mutation.
+- Queue: Finance-class roles (`FINANCE_INCHARGE`, `BILLING_INCHARGE`,
+  `CLAIMS_MANAGER`, `INSURANCE_COORDINATOR`, `ADMIN`, `SUPER_ADMIN`) review
+  `GET /api/v1/admin/nhcx/payment-notices`.
+- Linkage: notices link to `tpa_claims` by NHCX correlation/workflow ids or
+  claim identifiers. Unresolved or ambiguous notices stay in `manual_review`.
+- Review: the admin Insurance page shows notice amount, claim amount,
+  approved amount, paid amount, and discrepancy badges.
+- Approve: `POST /api/v1/admin/nhcx/payment-notices/:id/approve` sends the
+  prefilled draft to the existing `recordClaimPayment` path. Payer mismatch,
+  overpay, state-machine, and idempotency guards remain load-bearing there.
+- Short-pay: if the approved notice amount is below the claim/approved basis,
+  `recordClaimPayment` settles as `settled_partial` and preserves
+  `disallowed_amount`.
+- Reject: `POST /api/v1/admin/nhcx/payment-notices/:id/reject` requires a
+  reason, marks the envelope `rejected`, and leaves the claim untouched.
+- Absolute rule: a PaymentNotice alone must never change `tpa_claims.status`,
+  write settlement fields, post ledger entries, or move `INSURANCE_AR`.
+
+Not implemented after P4:
+
 - Tariff-master admin UI.
 - Live sandbox certification.
 
@@ -138,6 +160,10 @@ Admin NHCX endpoints:
 - `GET /api/v1/admin/nhcx/messages`
 - `GET /api/v1/admin/nhcx/messages/:id`
 - `POST /api/v1/admin/nhcx/messages/:id/redrive`
+- `GET /api/v1/admin/nhcx/payment-notices`
+- `GET /api/v1/admin/nhcx/payment-notices/:id`
+- `POST /api/v1/admin/nhcx/payment-notices/:id/approve`
+- `POST /api/v1/admin/nhcx/payment-notices/:id/reject`
 
 Public callback endpoints:
 
@@ -146,6 +172,7 @@ Public callback endpoints:
 - `POST /api/v1/integrations/nhcx/claim/on_submit`
 - `POST /api/v1/integrations/nhcx/claim/on_status`
 - `POST /api/v1/integrations/nhcx/communication/request`
+- `POST /api/v1/integrations/nhcx/paymentnotice/request`
 
 Callback authentication currently requires a tenant-scoped HMAC signature with
 headers:
@@ -180,6 +207,7 @@ The mock accepts:
 - `/v0.9/claim/submit`
 - `/v0.9/claim/status`
 - `/v0.9/communication/request`
+- `/v0.9/paymentnotice/request`
 - `/__admin/requests`
 
 For `claim/submit`, pass `x-nhcx-mock-outcome: approve`, `partial`, `deny`, or
@@ -187,6 +215,10 @@ For `claim/submit`, pass `x-nhcx-mock-outcome: approve`, `partial`, `deny`, or
 CommunicationRequest callback to `/communication/request`; the same mock endpoint
 accepts the provider's outbound Communication response and records correlation
 continuity.
+
+For `paymentnotice/request`, pass `x-nhcx-mock-outcome: full`, `short`, or
+`duplicate`. `short` emits a lower PaymentNotice amount. `duplicate` posts the
+same PaymentNotice callback twice to exercise idempotent capture.
 
 Set these optional env vars to make the mock post callbacks:
 
@@ -198,10 +230,10 @@ NHCX_MOCK_JWE_SECRET=test-jwe-secret-32-byte-minimum
 
 ## Verification
 
-Focused P1/P2/P3 unit/regression slice:
+Focused P1/P2/P3/P4 unit/regression slice:
 
 ```bash
-node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand --runTestsByPath src/tests/unit/nhcxFhirProfileService.test.js src/tests/unit/nhcxClaimFhirProfileService.test.js src/tests/unit/nhcxOutboundDispatcherService.test.js src/tests/unit/nhcxInboundCallbackService.test.js src/tests/unit/nhcxCommunicationP3.deep.test.js src/tests/unit/nhcxCallbackRoutes.test.js src/tests/unit/nhcxP1Regression.test.js
+node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand --runTestsByPath src/tests/unit/nhcxFhirProfileService.test.js src/tests/unit/nhcxClaimFhirProfileService.test.js src/tests/unit/nhcxOutboundDispatcherService.test.js src/tests/unit/nhcxInboundCallbackService.test.js src/tests/unit/nhcxPaymentNoticeService.test.js src/tests/unit/nhcxRoutes.test.js src/tests/unit/nhcxCommunicationP3.deep.test.js src/tests/unit/nhcxCallbackRoutes.test.js src/tests/unit/nhcxP1Regression.test.js src/tests/nhcx-payment-notice-p4.deep.test.js
 ```
 
 Mock smoke:

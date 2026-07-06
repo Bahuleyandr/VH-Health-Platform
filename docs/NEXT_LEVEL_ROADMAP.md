@@ -269,7 +269,7 @@ one-commit-per-item for bisectability.
 | Program | Wave | Status |
 |---|---|---|
 | NL-1 Enterprise identity | A | ◐ P2 staff OIDC SSO shipped — PR #439 ([P1 PR #436](https://github.com/Bahuleyandr/VH-Health-Platform/pull/436), [spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); admin/staff OIDC SSO held/default-off; P3 SCIM next |
-| NL-2 NHCX claims exchange | A | ◐ P3 communications shipped — [PR #442](https://github.com/Bahuleyandr/VH-Health-Platform/pull/442) (P1 #437, P2 #438, [spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement; P4 payment notice next |
+| NL-2 NHCX claims exchange | A | ◐ P4 payment-notice in review — NL-2 build COMPLETE pending live NHCX enablement (P1 #437, P2 #438, P3 #442, [spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement |
 | NL-3 Teleconsultation | A | ◐ P3 staff consult in review — [PR #440](https://github.com/Bahuleyandr/VH-Health-Platform/pull/440) covered P2 patient join + PR #441 shipped P4 ops (P1 #435, [spec](superpowers/specs/2026-07-05-nl3-teleconsultation-design.md), [runbook](../apps/backend/docs/RUNBOOKS/teleconsult-media-ops.md)); staff queue badges + clinician LiveKit consult surface + OP note/e-Rx deep-links now under review; deploy HELD, recording OFF, queue model remains badges |
 | NL-4 Demo-basics debt | A | ☑ shipped — PR #429 |
 | NL-5 Terminology + content studio | B | ☐ not started |
