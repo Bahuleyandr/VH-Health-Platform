@@ -20,6 +20,8 @@ import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
+import '../../teleconsult/models/staff_teleconsult_models.dart';
+import '../../teleconsult/widgets/staff_teleconsult_badge.dart';
 import '../widgets/billing_collect_button.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';

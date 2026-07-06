@@ -166,7 +166,7 @@ function tenantHash(tenantId) {
   return crypto.createHash('sha256').update(String(tenantId)).digest('hex').slice(0, 10);
 }
 
-function teleconsultPatientJoinState(consult) {
+export function teleconsultPatientJoinState(consult) {
   const status = String(consult?.status || '').trim().toLowerCase();
   if (['cancelled', 'canceled', 'no_show'].includes(status)) return 'cancelled';
   if (['completed', 'closed', 'ended', 'failed'].includes(status)) return 'ended';

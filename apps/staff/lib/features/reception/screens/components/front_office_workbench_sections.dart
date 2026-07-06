@@ -555,6 +555,7 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
     final doctor = _queueDoctorName(row);
     final department = _queueDepartment(row);
     final status = _appointmentStatus(row);
+    final teleconsultState = _teleconsultStateFromQueueRow(row);
     final dateTime = _queueAppointmentDateTimeLabel(row);
     final busy = id != null && _queueActionId == id;
     final selected = _queueRowMatchesSelectedPatient(row);
@@ -667,6 +668,13 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    if (teleconsultState != null) ...[
+                      StaffTeleconsultBadge(
+                        state: teleconsultState,
+                        compact: true,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     _StatusPill(
                       label: s.frontOfficeAppointmentStatusLabel(status),
                       color: _appointmentStatusColor(status),
@@ -706,6 +714,15 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
         ),
       ),
     );
+  }
+
+  StaffTeleconsultLobbyState? _teleconsultStateFromQueueRow(
+    Map<String, dynamic> row,
+  ) {
+    if (_text(row['visit_type'] ?? row['visitType']).toUpperCase() != 'TELE') {
+      return null;
+    }
+    return StaffTeleconsultLobbyState.fromJson(row);
   }
 
   Widget _buildBillingPanel() {

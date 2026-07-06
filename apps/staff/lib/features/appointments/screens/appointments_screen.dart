@@ -16,6 +16,8 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../appointment_calendar_helpers.dart';
 import '../models/staff_appointment.dart';
 import '../../opd/op_doctor_workspace_route.dart';
+import '../../teleconsult/models/staff_teleconsult_route_args.dart';
+import '../../teleconsult/widgets/staff_teleconsult_badge.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 export '../appointment_calendar_helpers.dart';
@@ -203,6 +205,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   late DateTime _selectedDate;
   String _scopeLabel = '';
   bool _doctorScoped = false;
+  int? _currentStaffId;
   bool _queuePanelCollapsed = false;
   bool _queuePanelManuallyToggled = false;
   late final ScrollController _queuePanelScrollController;
@@ -307,6 +310,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         setState(() {
           _appointmentsByDate = byDate;
           _doctorScoped = doctorScoped;
+          _currentStaffId = int.tryParse(doctorId ?? '');
           _scopeLabel = doctorScoped
               ? (widget.workspaceMode
                     ? s.lookup('s4.lib.appointments.my_op_workspace_queue')
@@ -418,6 +422,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   void _openAppointmentPatient(StaffAppointment appointment) {
+    if (appointment.canCurrentStaffJoinTeleconsult(_currentStaffId)) {
+      final teleconsultContext = appointment.toTeleconsultContext();
+      context.push(
+        teleconsultContext.consultRoute(),
+        extra: StaffTeleconsultRouteArgs(appointment: teleconsultContext),
+      );
+      return;
+    }
     context.push(_appointmentPatientRoute(appointment));
   }
 
@@ -1340,6 +1352,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   _InfoRow(Icons.person_outlined, appointment.doctorName),
                 if (appointment.reason.isNotEmpty)
                   _InfoRow(Icons.local_hospital_outlined, appointment.reason),
+                if (appointment.teleconsultBadgeVisible) ...[
+                  const SizedBox(height: 10),
+                  StaffTeleconsultBadge(state: appointment.teleconsultState),
+                ],
                 if (appointmentCanReschedule(appointment.status) &&
                     id.isNotEmpty) ...[
                   const SizedBox(height: 18),
@@ -2821,6 +2837,13 @@ class _CalendarAppointmentPill extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                 ),
               ),
+              if (appointment.teleconsultBadgeVisible) ...[
+                const SizedBox(height: 3),
+                StaffTeleconsultBadge(
+                  state: appointment.teleconsultState,
+                  compact: true,
+                ),
+              ],
               if (appointment.reason.isNotEmpty ||
                   appointment.doctorName.isNotEmpty)
                 Text(
@@ -2896,6 +2919,13 @@ class _SidebarAppointmentRow extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
+                    if (appointment.teleconsultBadgeVisible) ...[
+                      const SizedBox(height: 4),
+                      StaffTeleconsultBadge(
+                        state: appointment.teleconsultState,
+                        compact: true,
+                      ),
+                    ],
                     Text(
                       appointment.appointmentTime.isEmpty
                           ? statusLabel

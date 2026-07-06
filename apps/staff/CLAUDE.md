@@ -155,6 +155,19 @@ The five separate source repos these were merged from are archived on GitHub as 
 - `OfflineSyncBadge` is mounted in `StaffScaffold` app-bar actions; hidden when online + empty + no conflicts. Tap opens `SyncStatusSheet` with per-conflict Discard/Retry.
 - UI reads sync state via `ListenableBuilder(listenable: ConnectivitySyncService.instance, ...)` — the service is a `ChangeNotifier`.
 
+## Teleconsultation
+
+NL-3 staff teleconsults stay inside ordinary OP doctor/department queues:
+`visit_type = 'TELE'` rows may show teleconsult badges, but there is no separate
+queue kind. Clinician media joins must use backend-minted
+`/api/v1/teleconsult/*` tokens through the LiveKit staff room boundary; raw room
+names and client-minted media grants are not allowed.
+
+Teleconsult documentation deep-links back into the existing appointment-bound OP
+note editor with OP-compatible params. Do not add teleconsult note types, patient
+visible documentation surfaces, or recording affordances. Ending the consult only
+closes media; appointment completion remains the existing clinical action.
+
 ## Dictation
 
 Staff dictation is an editor-fill aid only. It must not submit, save, sign, or bypass any existing CDS, composition, signoff, offline queue, or double-submit guard. Current surfaces are OP doctor workspace note fields, clinical/ward progress-note editors, drug-chart draft/notes affordances, and vitals notes; each surface still relies on its existing save path after the clinician reviews inserted text.

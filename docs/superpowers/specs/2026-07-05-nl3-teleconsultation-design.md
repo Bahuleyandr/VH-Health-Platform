@@ -288,11 +288,19 @@ enable the LiveKit edge.
 
 ### P3 - Staff App Consult Surface
 
-- Add clinician consult room surface in the staff app.
-- Add queue badges/statuses for waiting/in-progress teleconsults.
-- Add OP note deep-link using the existing appointment-bound note flow.
-- Add e-Rx launch point using the existing prescription flow.
-- Add end-consult behavior that closes media without bypassing appointment completion rules.
+- [x] Add clinician consult room surface in the staff app.
+- [x] Add queue badges/statuses for waiting/in-progress teleconsults.
+- [x] Add OP note deep-link using the existing appointment-bound note flow.
+- [x] Add e-Rx launch point using the existing prescription flow.
+- [x] Add end-consult behavior that closes media without bypassing appointment completion rules.
+
+Status: implemented for review on `feat/nl3-p3-staff-consult`. The staff app
+now decorates ordinary `visit_type = 'TELE'` doctor/department queue items with
+waiting/in-progress badges, opens a clinician consult surface backed only by
+backend-minted `/api/v1/teleconsult/*` tokens, and closes media independently
+from appointment completion. Documentation remains bound to the existing
+appointment OP note editor deep-link, e-Rx reuses the existing prescribing
+surface, and no recording affordance is present.
 
 ### P4 - Scheduling, Queue, Billing, and Operations Integration (P4 Ops In Review)
 
