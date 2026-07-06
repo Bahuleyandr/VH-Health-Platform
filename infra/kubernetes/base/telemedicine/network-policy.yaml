@@ -1,0 +1,161 @@
+# HELD NL-3 LiveKit NetworkPolicies.
+#
+# These policies are additive to the existing backend default-deny posture. They
+# avoid generic public HTTPS egress from the media pod and do not configure any
+# third-party SFU/TURN relay. Public WebRTC/TURN ports remain operator-owned and
+# must be restricted at the hospital L4/firewall layer before this bundle is
+# referenced by an overlay.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: livekit-media-plane
+  namespace: vhhealth-telemedicine
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    vhhealth.app/deploy-state: held
+    vhhealth.app/third-party-media-relay-egress: denied
+  labels:
+    app.kubernetes.io/name: livekit
+    app.kubernetes.io/component: teleconsult-media
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: livekit
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Backend provisioning/token service -> LiveKit API.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - protocol: TCP
+          port: 7880
+
+    # ingress-nginx / Cloudflare Tunnel -> HTTPS/WSS signaling only.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+      ports:
+        - protocol: TCP
+          port: 7880
+
+    # Prometheus scrape.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 6789
+
+    # Hospital-approved L4 edge / public clients. Replace the open source CIDR
+    # with the approved edge CIDR(s) before activation if the CNI enforces
+    # source IP preservation. Cloudflare Tunnel is not part of this media path.
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: UDP
+          port: 3478
+        - protocol: TCP
+          port: 5349
+        - protocol: TCP
+          port: 7881
+        - protocol: UDP
+          port: 50000
+          endPort: 50100
+  egress:
+    # CoreDNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Redis Sentinel and Redis data pods.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 26379
+        - protocol: TCP
+          port: 6379
+
+    # WebRTC media/TURN to public patient and clinician endpoints only on the
+    # approved LiveKit media range. No generic HTTPS egress is granted here.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: UDP
+          port: 3478
+        - protocol: TCP
+          port: 5349
+        - protocol: TCP
+          port: 7881
+        - protocol: UDP
+          port: 50000
+          endPort: 50100
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-backend-livekit-egress
+  namespace: vhhealth
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    vhhealth.app/deploy-state: held
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-telemedicine
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: livekit
+      ports:
+        - protocol: TCP
+          port: 7880

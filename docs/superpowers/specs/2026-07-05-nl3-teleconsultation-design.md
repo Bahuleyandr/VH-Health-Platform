@@ -321,11 +321,11 @@ One manual media smoke should be documented before deploy:
 
 ## 10. Owner Decisions
 
-1. SFU pick sign-off: approve LiveKit as the self-hosted SFU for NL-3, or explicitly choose Jitsi/mediasoup with the tradeoffs above.
-2. TURN egress policy: decide public IP/L4 load balancer/NAT model, allowed UDP/TCP ports, domain/cert ownership, and whether to use LiveKit embedded TURN or dedicated coturn.
-3. Staff join surface timing: decide whether the clinician join surface belongs in P3 staff app work, or whether a desktop workbench join path is required before or during P4. Recommendation: P3 should include the staff app clinician consult surface because OP note and prescription workflows already live there.
-4. Recording governance: confirm recording remains off for MVP and name the governance owner for any future recording retention policy.
-5. Queue model: decide whether `visit_type = 'TELE'` remains a badge on existing doctor/department queues or gets a dedicated teleconsult queue kind in P4.
+1. SFU pick sign-off: LiveKit is approved as the self-hosted SFU for NL-3 P1. Do not use LiveKit Cloud, Daily, Twilio, Agora, Zoom, hosted Jitsi, or any other third-party SFU/TURN path for PHI media.
+2. TURN egress policy: use LiveKit embedded TURN first for the compact P1 deployment. Dedicated coturn is deferred until ops explicitly wants a DMZ TURN tier. Cloudflare Tunnel remains signaling-only; WebRTC media requires hospital-owned L4/public-IP routing and approved UDP/TCP ports before deploy.
+3. Staff join surface timing: P1 ships backend provisioning and manual browser smoke only. P2 owns the patient Flutter join/lobby/device-check flow. P3 owns the staff consult surface because OP note and prescription workflows already live there.
+4. Recording governance: recording remains off for MVP. Do not deploy Egress, Jibri, FFmpeg, or recorder workers, and do not issue recording grants. Any future recording policy needs governance approval, retention/deletion rules, and explicit in-room indication before implementation.
+5. Queue model: `visit_type = 'TELE'` remains an ordinary doctor/department queue appointment with a teleconsult badge/status. P1 does not add a new queue kind.
 
 ## 11. Source Notes
 
