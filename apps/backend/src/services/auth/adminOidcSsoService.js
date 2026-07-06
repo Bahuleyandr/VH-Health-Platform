@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { URLSearchParams } from 'url';
 
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
@@ -59,12 +59,6 @@ function timingSafeEqual(a, b) {
   const aa = Buffer.from(String(a || ''));
   const bb = Buffer.from(String(b || ''));
   return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
-}
-
-function boolEnv(name, defaultValue = false) {
-  const value = process.env[name];
-  if (value === undefined || value === '') return defaultValue;
-  return String(value).toLowerCase() === 'true';
 }
 
 function intEnv(name, defaultValue, min, max) {
