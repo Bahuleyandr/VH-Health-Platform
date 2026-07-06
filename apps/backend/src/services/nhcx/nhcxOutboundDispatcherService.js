@@ -14,11 +14,14 @@ import { AppError } from '../../utils/AppError.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
+  buildClaimRequestBundle,
+  buildClaimStatusTaskBundle,
   buildCoverageEligibilityRequestBundle,
   buildPreauthClaimRequestBundle,
   persistOutboundNHCXEnvelope,
 } from './nhcxFhirProfileService.js';
 import { loadNHCXRuntimeConfig } from './nhcxTenantConfigService.js';
+import { submitClaim } from '../insurance/claimsService.js';
 
 export const NHCX_RETRY_LIMIT = 7;
 export const NHCX_BACKOFF_SECONDS = [30, 120, 600, 1_800, 3_600, 14_400, 28_800];
@@ -315,6 +318,109 @@ export async function enqueuePreauthSubmit({
   });
 }
 
+export async function enqueueClaimSubmit({
+  tenantId,
+  claimId,
+  documentIds = null,
+  submittedBy = null,
+  hcxApiCallId = generateHcxId('claim'),
+  hcxCorrelationId = generateHcxId('corr'),
+  hcxWorkflowId = null,
+  runtimeResolver = null,
+  allowDisabled = false,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const safeClaimId = normalizePositiveInt(claimId, 'claimId');
+  assertNHCXGloballyEnabled({ allowDisabled });
+  const runtime = await loadRuntimeForTenant(tid, { runtimeResolver, allowDisabled });
+
+  // Strict profile check before the workflow mutation, then the existing
+  // claimsService submit path enforces packet, state, invoice, and discharge
+  // gates. The post-submit rebuild captures any standard docs that submitClaim
+  // auto-assembled before the envelope is queued.
+  await buildClaimRequestBundle({
+    tenantId: tid,
+    claimId: safeClaimId,
+    documentIds,
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+  });
+  await submitClaim({
+    tenantId: tid,
+    id: safeClaimId,
+    submitted_by: submittedBy,
+    submission_channel: 'nhcx',
+  });
+  const built = await buildClaimRequestBundle({
+    tenantId: tid,
+    claimId: safeClaimId,
+    documentIds,
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+  });
+  return persistOutboundNHCXEnvelope({
+    tenantId: tid,
+    environment: runtime.environment,
+    cycle: 'claim',
+    endpoint: 'claim/submit',
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+    hcxApiCallId,
+    hcxCorrelationId,
+    hcxWorkflowId: hcxWorkflowId || built.workflowId,
+    claimId: built.claimId,
+    preauthId: built.preauthId,
+    policyId: built.policyId,
+    patientUid: built.patientUid,
+    admissionId: built.admissionId,
+    domainResourceType: built.domainResourceType,
+    profileUrl: built.profileUrl,
+    profileVersion: built.profileVersion,
+    bundle: built.bundle,
+  });
+}
+
+export async function enqueueClaimStatusCheck({
+  tenantId,
+  claimId,
+  hcxApiCallId = generateHcxId('claim-status'),
+  hcxCorrelationId = generateHcxId('corr'),
+  hcxWorkflowId = null,
+  runtimeResolver = null,
+  allowDisabled = false,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const safeClaimId = normalizePositiveInt(claimId, 'claimId');
+  assertNHCXGloballyEnabled({ allowDisabled });
+  const runtime = await loadRuntimeForTenant(tid, { runtimeResolver, allowDisabled });
+  const built = await buildClaimStatusTaskBundle({
+    tenantId: tid,
+    claimId: safeClaimId,
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+  });
+  return persistOutboundNHCXEnvelope({
+    tenantId: tid,
+    environment: runtime.environment,
+    cycle: 'task',
+    endpoint: 'claim/status',
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+    hcxApiCallId,
+    hcxCorrelationId,
+    hcxWorkflowId: hcxWorkflowId || built.workflowId,
+    claimId: built.claimId,
+    preauthId: built.preauthId,
+    policyId: built.policyId,
+    patientUid: built.patientUid,
+    admissionId: built.admissionId,
+    domainResourceType: built.domainResourceType,
+    profileUrl: built.profileUrl,
+    profileVersion: built.profileVersion,
+    bundle: built.bundle,
+  });
+}
+
 async function buildCurrentBundleForEnvelope(row, runtime) {
   const participantCodeSelf = row.participant_code_self || runtime.participantCode;
   const participantCodeCounterparty = row.participant_code_counterparty || runtime.counterpartyParticipantCode;
@@ -332,6 +438,22 @@ async function buildCurrentBundleForEnvelope(row, runtime) {
     return buildPreauthClaimRequestBundle({
       tenantId: row.tenant_id,
       preauthId: row.preauth_id,
+      participantCodeSelf,
+      participantCodeCounterparty,
+    });
+  }
+  if (row.cycle === 'claim' && row.endpoint === 'claim/submit') {
+    return buildClaimRequestBundle({
+      tenantId: row.tenant_id,
+      claimId: row.claim_id,
+      participantCodeSelf,
+      participantCodeCounterparty,
+    });
+  }
+  if (row.cycle === 'task' && row.endpoint === 'claim/status') {
+    return buildClaimStatusTaskBundle({
+      tenantId: row.tenant_id,
+      claimId: row.claim_id,
       participantCodeSelf,
       participantCodeCounterparty,
     });
@@ -423,6 +545,30 @@ async function markFailed(row, {
 }
 
 async function applyGatewayAcceptance(row, { gatewayReference = null } = {}) {
+  if (row.cycle === 'claim' && row.claim_id) {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE tpa_claims
+          SET submission_channel = 'nhcx',
+              tpa_reference_id = COALESCE($3, tpa_reference_id),
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND status IN ('submitted', 'queried')
+        RETURNING id, status, submission_channel, tpa_reference_id, submitted_at`,
+      row.tenant_id,
+      Number(row.claim_id),
+      gatewayReference || null,
+    );
+    if (!rows[0]) {
+      logger.warn('NHCX claim acceptance did not update a workflow row', {
+        nhcx_message_id: String(row.id),
+        tenant_id: row.tenant_id,
+        claim_id: row.claim_id,
+      });
+    }
+    return rows[0] || null;
+  }
+
   if (row.cycle !== 'preauth' || !row.preauth_id) return null;
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE insurance_preauth
@@ -721,6 +867,8 @@ export const __testing__ = {
 
 export default {
   dispatchPendingNHCXMessages,
+  enqueueClaimStatusCheck,
+  enqueueClaimSubmit,
   enqueueCoverageEligibilityCheck,
   enqueuePreauthSubmit,
   getNHCXMessage,

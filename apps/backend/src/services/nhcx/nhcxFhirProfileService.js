@@ -16,15 +16,22 @@ export const NHCX_PROFILE_URLS = Object.freeze({
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/CoverageEligibilityRequestBundle',
   preauthClaimRequestBundle:
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimBundle',
+  claimRequestBundle:
+    'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimBundle',
+  taskBundle:
+    'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/TaskBundle',
 });
 
 const REQUIRED_BY_TYPE = {
   Bundle: ['id', 'type', 'entry'],
   CoverageEligibilityRequest: ['id', 'status', 'purpose', 'patient', 'created', 'insurer', 'insurance'],
   Claim: ['id', 'status', 'type', 'use', 'patient', 'created', 'provider', 'insurer', 'insurance', 'item'],
+  ClaimResponse: ['id', 'status', 'outcome'],
   Coverage: ['id', 'status', 'beneficiary', 'payor', 'identifier'],
+  DocumentReference: ['id', 'status', 'type', 'content'],
   Organization: ['id', 'identifier', 'name'],
   Encounter: ['id', 'status', 'class', 'subject'],
+  Task: ['id', 'status', 'intent', 'code', 'for', 'authoredOn'],
 };
 
 function clean(value) {
@@ -103,7 +110,7 @@ function ensurePresent(resource, path, issues) {
   }
 }
 
-function validateRequiredResources(bundle, expectedMainResourceType) {
+function validateRequiredResources(bundle, expectedMainResourceType, { expectedClaimUse = null } = {}) {
   const issues = [];
   if (!bundle || bundle.resourceType !== 'Bundle') {
     return [{ severity: 'error', code: 'structure', path: 'Bundle', message: 'NHCX payload must be a FHIR Bundle' }];
@@ -124,23 +131,24 @@ function validateRequiredResources(bundle, expectedMainResourceType) {
   }
   for (const resource of resources) {
     ensurePresent(resource, resource.resourceType, issues);
-    if (resource.resourceType === 'Claim' && resource.use !== 'preauthorization') {
+    if (resource.resourceType === 'Claim' && expectedClaimUse && resource.use !== expectedClaimUse) {
       issues.push({
         severity: 'error',
         code: 'code-invalid',
         path: 'Claim.use',
-        message: 'Preauth Claim Request must use Claim.use=preauthorization',
+        message: `NHCX Claim Request must use Claim.use=${expectedClaimUse}`,
       });
     }
   }
   return issues;
 }
 
-export function validateNHCXOutboundBundle(bundle, { expectedMainResourceType } = {}) {
+export function validateNHCXOutboundBundle(bundle, { expectedMainResourceType, expectedClaimUse = null } = {}) {
   const generic = validateBundle(bundle);
+  const claimUse = expectedClaimUse ?? (expectedMainResourceType === 'Claim' ? 'preauthorization' : null);
   const issues = [
     ...(generic.issues || []),
-    ...validateRequiredResources(bundle, expectedMainResourceType),
+    ...validateRequiredResources(bundle, expectedMainResourceType, { expectedClaimUse: claimUse }),
   ];
   const valid = issues.length === 0;
   return { valid, issues, entryCount: generic.entryCount || 0 };
@@ -261,6 +269,89 @@ async function fetchPreauthSnapshot({ tenantId, preauthId }) {
   return rows[0];
 }
 
+async function fetchClaimSnapshot({ tenantId, claimId }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT c.id AS claim_id,
+            c.claim_number,
+            c.policy_id,
+            c.preauth_id,
+            c.invoice_id,
+            c.patient_uid::text AS patient_uid,
+            c.admission_id,
+            c.claim_type,
+            c.status AS claim_status,
+            c.total_billed,
+            c.patient_copay,
+            c.non_payable_amount,
+            c.claimed_amount,
+            c.approved_amount,
+            c.disallowed_amount,
+            c.denial_reason,
+            c.submitted_at,
+            c.submission_channel,
+            c.notes AS claim_notes,
+            c.tenant_id::text AS tenant_id,
+            c.created_at AS claim_created_at,
+            c.updated_at AS claim_updated_at,
+            c.stage,
+            c.parent_claim_id,
+            p.policy_number,
+            p.member_id,
+            p.group_number,
+            p.insurer_name,
+            p.policy_type,
+            p.status AS policy_status,
+            p.valid_from,
+            p.valid_to,
+            payer.display_name AS payer_name,
+            payer.payer_code,
+            tpa.display_name AS tpa_name,
+            tpa.tpa_code,
+            u.uid::text AS uid,
+            u.id AS patient_id,
+            u.name,
+            u.phone,
+            u.email,
+            u.gender,
+            u.birthday,
+            u.address,
+            a.status AS admission_status,
+            a.admitted_at,
+            a.room_category
+       FROM tpa_claims c
+       JOIN insurance_policies p ON p.id = c.policy_id AND p.tenant_id = c.tenant_id
+       JOIN users u ON u.uid = c.patient_uid AND u.tenant_id = c.tenant_id
+       LEFT JOIN payers payer ON payer.id = p.payer_id
+       LEFT JOIN tpas tpa ON tpa.id = p.tpa_id
+       LEFT JOIN admissions a ON a.id = c.admission_id AND a.tenant_id = c.tenant_id
+      WHERE c.tenant_id = $1::uuid
+        AND c.id = $2::int
+      LIMIT 1`,
+    tenantId,
+    Number(claimId),
+  );
+  if (!rows[0]) throw AppError.notFound('TPA claim not found', 'NHCX_TPA_CLAIM_NOT_FOUND');
+  return rows[0];
+}
+
+async function fetchClaimDocuments({ claimId, documentIds = null }) {
+  const ids = Array.isArray(documentIds)
+    ? documentIds.map((id) => Number.parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+  const idFilter = ids.length
+    ? ` AND id IN (${ids.map((_, index) => `$${index + 2}::int`).join(', ')})`
+    : '';
+  return prisma.$queryRawUnsafe(
+    `SELECT id, claim_id, doc_type, file_name, file_size_bytes, mime_type,
+            uploaded_at, notes
+       FROM tpa_claim_documents
+      WHERE claim_id = $1::int${idFilter}
+      ORDER BY uploaded_at DESC, id DESC`,
+    Number(claimId),
+    ...ids,
+  );
+}
+
 function organization({ id, name, participantCode }) {
   return {
     resourceType: 'Organization',
@@ -323,6 +414,30 @@ function coverageFromPolicy(row, patient) {
       ...(row.valid_from ? { start: String(row.valid_from).slice(0, 10) } : {}),
       ...(row.valid_to ? { end: String(row.valid_to).slice(0, 10) } : {}),
     },
+  };
+}
+
+function documentReferenceFromRow(row, patient, encounter) {
+  return {
+    resourceType: 'DocumentReference',
+    id: `claim-document-${row.id}`,
+    status: 'current',
+    type: {
+      coding: [{ system: 'urn:vhhealth:tpa-claim-document-type', code: clean(row.doc_type) || 'other' }],
+      text: row.doc_type || 'supporting document',
+    },
+    subject: { reference: ref(patient) },
+    context: encounter ? { encounter: [{ reference: ref(encounter) }] } : undefined,
+    date: instantFrom(row.uploaded_at),
+    description: row.notes || row.file_name || null,
+    content: [{
+      attachment: {
+        contentType: row.mime_type || 'application/octet-stream',
+        title: row.file_name || `claim-document-${row.id}`,
+        size: row.file_size_bytes ? Number(row.file_size_bytes) : undefined,
+        url: `urn:vhhealth:tpa-claim-document:${row.id}`,
+      },
+    }],
   };
 }
 
@@ -435,6 +550,109 @@ function procedureItems(row) {
   }));
 }
 
+function claimRequestResourceFromSnapshot({
+  row,
+  patient,
+  provider,
+  insurer,
+  coverage,
+  encounter,
+  documentReferences = [],
+}) {
+  return {
+    resourceType: 'Claim',
+    id: `claim-${row.claim_id}`,
+    identifier: [
+      { system: 'urn:vhhealth:tpa-claim-id', value: String(row.claim_id) },
+      ...(row.claim_number ? [{ system: 'urn:vhhealth:tpa-claim-number', value: row.claim_number }] : []),
+    ],
+    status: 'active',
+    type: {
+      coding: [{ system: 'http://terminology.hl7.org/CodeSystem/claim-type', code: 'institutional' }],
+      text: row.claim_type || 'claim',
+    },
+    subType: row.stage ? { text: row.stage } : undefined,
+    use: 'claim',
+    patient: { reference: ref(patient) },
+    created: instantFrom(row.claim_updated_at || row.claim_created_at),
+    provider: { reference: ref(provider) },
+    insurer: { reference: ref(insurer) },
+    priority: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/processpriority', code: 'normal' }] },
+    related: row.parent_claim_id
+      ? [{ claim: { identifier: { system: 'urn:vhhealth:tpa-claim-id', value: String(row.parent_claim_id) } } }]
+      : undefined,
+    insurance: [{
+      sequence: 1,
+      focal: true,
+      coverage: { reference: ref(coverage) },
+    }],
+    item: [{
+      sequence: 1,
+      productOrService: {
+        coding: [{ system: 'urn:vhhealth:tpa-claim-kind', code: row.claim_type || 'cashless' }],
+        text: `${row.stage || 'final'} ${row.claim_type || 'cashless'} claim`,
+      },
+      unitPrice: { value: money(row.claimed_amount), currency: 'INR' },
+      net: { value: money(row.claimed_amount), currency: 'INR' },
+    }],
+    supportingInfo: [
+      ...(row.admission_id && encounter
+        ? [{
+          sequence: 1,
+          category: { text: 'admission' },
+          valueReference: { reference: ref(encounter) },
+        }]
+        : []),
+      {
+        sequence: 2,
+        category: { text: 'x-hcx-workflow_id' },
+        valueString: row.admission_id ? String(row.admission_id) : `claim-${row.claim_id}`,
+      },
+      ...documentReferences.map((documentReference, index) => ({
+        sequence: index + 3,
+        category: { text: 'supporting-document' },
+        valueReference: { reference: ref(documentReference) },
+      })),
+    ],
+    total: { value: money(row.claimed_amount), currency: 'INR' },
+  };
+}
+
+function buildClaimResources({ row, participantCodeSelf, participantCodeCounterparty, documents = [] }) {
+  const patient = patientFromSnapshot(row);
+  const encounter = encounterFromSnapshot(row);
+  const provider = organization({
+    id: 'vhhealth-provider',
+    name: 'VH Health',
+    participantCode: participantCodeSelf,
+  });
+  const insurer = organization({
+    id: stableId('payor', participantCodeCounterparty || row.payer_code || row.tpa_code || row.payer_name),
+    name: row.payer_name || row.tpa_name || row.insurer_name || 'NHCX counterparty',
+    participantCode: participantCodeCounterparty || row.payer_code || row.tpa_code,
+  });
+  const coverage = coverageFromPolicy(row, patient);
+  const documentReferences = documents.map((document) => documentReferenceFromRow(document, patient, encounter));
+  const claim = claimRequestResourceFromSnapshot({
+    row,
+    patient,
+    provider,
+    insurer,
+    coverage,
+    encounter,
+    documentReferences,
+  });
+  return {
+    patient,
+    encounter,
+    provider,
+    insurer,
+    coverage,
+    documentReferences,
+    claim,
+  };
+}
+
 export async function buildPreauthClaimRequestBundle({
   tenantId,
   preauthId,
@@ -532,6 +750,116 @@ export async function buildPreauthClaimRequestBundle({
   };
 }
 
+export async function buildClaimRequestBundle({
+  tenantId,
+  claimId,
+  documentIds = null,
+  participantCodeSelf,
+  participantCodeCounterparty,
+}) {
+  const row = await fetchClaimSnapshot({ tenantId, claimId });
+  const documents = await fetchClaimDocuments({ claimId: row.claim_id, documentIds });
+  const built = buildClaimResources({
+    row,
+    participantCodeSelf,
+    participantCodeCounterparty,
+    documents,
+  });
+  const out = bundle({
+    id: stableId('nhcx-claim-bundle', tenantId, claimId, documents.map((doc) => doc.id).join(',')),
+    profileUrl: NHCX_PROFILE_URLS.claimRequestBundle,
+    mainResourceType: 'Claim',
+    resources: [
+      built.patient,
+      built.encounter,
+      built.provider,
+      built.insurer,
+      built.coverage,
+      ...built.documentReferences,
+      built.claim,
+    ],
+    timestamp: row.claim_updated_at,
+  });
+  assertNHCXOutboundBundle(out, { expectedMainResourceType: 'Claim', expectedClaimUse: 'claim' });
+  return {
+    bundle: out,
+    payloadHash: payloadHash(out),
+    profileUrl: NHCX_PROFILE_URLS.claimRequestBundle,
+    profileVersion: NRCES_NHCX_PROFILE_VERSION,
+    domainResourceType: 'Claim',
+    patientUid: row.patient_uid,
+    admissionId: row.admission_id || null,
+    policyId: row.policy_id,
+    preauthId: row.preauth_id || null,
+    claimId: row.claim_id,
+    workflowId: row.admission_id ? String(row.admission_id) : `claim-${row.claim_id}`,
+    documentIds: documents.map((doc) => Number(doc.id)),
+  };
+}
+
+export async function buildClaimStatusTaskBundle({
+  tenantId,
+  claimId,
+  participantCodeSelf,
+  participantCodeCounterparty,
+}) {
+  const row = await fetchClaimSnapshot({ tenantId, claimId });
+  const built = buildClaimResources({
+    row,
+    participantCodeSelf,
+    participantCodeCounterparty,
+    documents: [],
+  });
+  const task = {
+    resourceType: 'Task',
+    id: `claim-status-${row.claim_id}`,
+    status: 'requested',
+    intent: 'order',
+    code: {
+      coding: [{ system: 'https://hcxprotocol.io/task-code', code: 'status-check' }],
+      text: 'NHCX claim status check',
+    },
+    for: { reference: ref(built.patient) },
+    focus: { reference: ref(built.claim) },
+    authoredOn: instantFrom(row.claim_updated_at),
+    requester: { reference: ref(built.provider) },
+    owner: { reference: ref(built.insurer) },
+    input: [{
+      type: { text: 'x-hcx-workflow_id' },
+      valueString: row.admission_id ? String(row.admission_id) : `claim-${row.claim_id}`,
+    }],
+  };
+  const out = bundle({
+    id: stableId('nhcx-claim-status-task-bundle', tenantId, claimId),
+    profileUrl: NHCX_PROFILE_URLS.taskBundle,
+    mainResourceType: 'Task',
+    resources: [
+      built.patient,
+      built.encounter,
+      built.provider,
+      built.insurer,
+      built.coverage,
+      built.claim,
+      task,
+    ],
+    timestamp: row.claim_updated_at,
+  });
+  assertNHCXOutboundBundle(out, { expectedMainResourceType: 'Task', expectedClaimUse: 'claim' });
+  return {
+    bundle: out,
+    payloadHash: payloadHash(out),
+    profileUrl: NHCX_PROFILE_URLS.taskBundle,
+    profileVersion: NRCES_NHCX_PROFILE_VERSION,
+    domainResourceType: 'Task',
+    patientUid: row.patient_uid,
+    admissionId: row.admission_id || null,
+    policyId: row.policy_id,
+    preauthId: row.preauth_id || null,
+    claimId: row.claim_id,
+    workflowId: row.admission_id ? String(row.admission_id) : `claim-${row.claim_id}`,
+  };
+}
+
 export async function persistOutboundNHCXEnvelope({
   tenantId,
   environment,
@@ -555,7 +883,8 @@ export async function persistOutboundNHCXEnvelope({
   const expectedMainResourceType = domainResourceType === 'CoverageEligibilityRequest'
     ? 'CoverageEligibilityRequest'
     : domainResourceType;
-  assertNHCXOutboundBundle(bundle, { expectedMainResourceType });
+  const expectedClaimUse = domainResourceType === 'Claim' && cycle === 'claim' ? 'claim' : null;
+  assertNHCXOutboundBundle(bundle, { expectedMainResourceType, expectedClaimUse });
   const hash = payloadHash(bundle);
   const protectedHeaders = {
     'x-hcx-api_call_id': hcxApiCallId,
@@ -606,6 +935,8 @@ export async function persistOutboundNHCXEnvelope({
 
 export default {
   assertNHCXOutboundBundle,
+  buildClaimRequestBundle,
+  buildClaimStatusTaskBundle,
   buildCoverageEligibilityRequestBundle,
   buildPreauthClaimRequestBundle,
   payloadHash,
