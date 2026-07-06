@@ -4041,5 +4041,233 @@
   "pharmacyPlacingOrderButton": "Placing order...",
   "@pharmacyPlacingOrderButton": {
     "description": "Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review."
+  },
+  "appointmentDetailTitle": "Appointment details",
+  "@appointmentDetailTitle": {
+    "description": "Patient app UI string. Teleconsult appointment detail screen title."
+  },
+  "appointmentDetailDate": "Date",
+  "@appointmentDetailDate": {
+    "description": "Patient app UI string. Appointment detail date label."
+  },
+  "appointmentDetailTime": "Time",
+  "@appointmentDetailTime": {
+    "description": "Patient app UI string. Appointment detail time label."
+  },
+  "appointmentDetailReason": "Reason",
+  "@appointmentDetailReason": {
+    "description": "Patient app UI string. Appointment detail reason label."
+  },
+  "teleconsultBadge": "TELE",
+  "@teleconsultBadge": {
+    "description": "Patient app UI string. Badge for teleconsult appointments."
+  },
+  "teleconsultJoinVideoConsult": "Join video consult",
+  "@teleconsultJoinVideoConsult": {
+    "description": "Patient app UI string. Primary join action for teleconsult appointments."
+  },
+  "teleconsultStateChecking": "Checking teleconsult status",
+  "@teleconsultStateChecking": {
+    "description": "Patient app UI string. Status while loading teleconsult lobby state."
+  },
+  "teleconsultNotYet": "Lobby opens closer to your visit",
+  "@teleconsultNotYet": {
+    "description": "Patient app UI string. Teleconsult state title before lobby opens."
+  },
+  "teleconsultLobbyOpen": "Lobby is open",
+  "@teleconsultLobbyOpen": {
+    "description": "Patient app UI string. Teleconsult state title when patient can join."
+  },
+  "teleconsultInProgress": "Consultation in progress",
+  "@teleconsultInProgress": {
+    "description": "Patient app UI string. Teleconsult state title while visit is active."
+  },
+  "teleconsultEnded": "Consultation ended",
+  "@teleconsultEnded": {
+    "description": "Patient app UI string. Teleconsult state title after the visit ends."
+  },
+  "teleconsultCancelled": "Consultation cancelled",
+  "@teleconsultCancelled": {
+    "description": "Patient app UI string. Teleconsult state title when cancelled."
+  },
+  "teleconsultUnavailableYet": "Teleconsultation is not available yet",
+  "@teleconsultUnavailableYet": {
+    "description": "Patient app UI string. Teleconsult unavailable state title."
+  },
+  "teleconsultStateUnknown": "Teleconsult status is unavailable",
+  "@teleconsultStateUnknown": {
+    "description": "Patient app UI string. Unknown teleconsult state title."
+  },
+  "teleconsultNotYetBody": "You can enter the lobby shortly before the scheduled time.",
+  "@teleconsultNotYetBody": {
+    "description": "Patient app UI string. Body for pre-lobby teleconsult status."
+  },
+  "teleconsultLobbyOpenBody": "Confirm consent and check your camera or microphone to continue.",
+  "@teleconsultLobbyOpenBody": {
+    "description": "Patient app UI string. Body for open teleconsult lobby status."
+  },
+  "teleconsultInProgressBody": "The consultation is active. You can rejoin while it remains open.",
+  "@teleconsultInProgressBody": {
+    "description": "Patient app UI string. Body for active teleconsult state."
+  },
+  "teleconsultEndedBody": "This video consultation is closed.",
+  "@teleconsultEndedBody": {
+    "description": "Patient app UI string. Body for ended teleconsult state."
+  },
+  "teleconsultCancelledBody": "This video consultation was cancelled.",
+  "@teleconsultCancelledBody": {
+    "description": "Patient app UI string. Body for cancelled teleconsult state."
+  },
+  "teleconsultUnavailableBody": "Video is not enabled for this visit right now. Secure messages remain available.",
+  "@teleconsultUnavailableBody": {
+    "description": "Patient app UI string. Body for unavailable teleconsult state."
+  },
+  "teleconsultStateUnknownBody": "Pull down or tap refresh to check again.",
+  "@teleconsultStateUnknownBody": {
+    "description": "Patient app UI string. Body for unknown teleconsult state."
+  },
+  "teleconsultRecordingOff": "Recording is off for this consultation.",
+  "@teleconsultRecordingOff": {
+    "description": "Patient app UI string. Recording-off disclosure."
+  },
+  "teleconsultLobbyTitle": "Video consult lobby",
+  "@teleconsultLobbyTitle": {
+    "description": "Patient app UI string. Teleconsult lobby screen title."
+  },
+  "teleconsultRefresh": "Refresh",
+  "@teleconsultRefresh": {
+    "description": "Patient app UI string. Teleconsult refresh tooltip."
+  },
+  "teleconsultDeviceNotChecked": "Camera and microphone have not been checked.",
+  "@teleconsultDeviceNotChecked": {
+    "description": "Patient app UI string. Device readiness state before checks."
+  },
+  "teleconsultCheckDevices": "Check devices",
+  "@teleconsultCheckDevices": {
+    "description": "Patient app UI string. Button to request camera and microphone permissions."
+  },
+  "teleconsultCheckingDevices": "Checking...",
+  "@teleconsultCheckingDevices": {
+    "description": "Patient app UI string. Device check in-progress label."
+  },
+  "teleconsultDeviceVideoReady": "Camera and microphone are ready.",
+  "@teleconsultDeviceVideoReady": {
+    "description": "Patient app UI string. Device ready state for video."
+  },
+  "teleconsultDeviceAudioOnly": "Microphone is ready. Video is unavailable, so audio-only is recommended.",
+  "@teleconsultDeviceAudioOnly": {
+    "description": "Patient app UI string. Device ready state for audio-only fallback."
+  },
+  "teleconsultDeviceUnavailable": "Microphone permission is required to join.",
+  "@teleconsultDeviceUnavailable": {
+    "description": "Patient app UI string. Device unavailable state."
+  },
+  "teleconsultDeviceRequired": "Please allow microphone access before joining.",
+  "@teleconsultDeviceRequired": {
+    "description": "Patient app UI string. Error shown when device readiness blocks joining."
+  },
+  "teleconsultConsentTitle": "Consent before joining",
+  "@teleconsultConsentTitle": {
+    "description": "Patient app UI string. Consent checklist title."
+  },
+  "teleconsultConsentIdentity": "I confirm this appointment is for me.",
+  "@teleconsultConsentIdentity": {
+    "description": "Patient app UI string. Consent checkbox for identity confirmation."
+  },
+  "teleconsultConsentRemote": "I agree to a remote video or audio consultation.",
+  "@teleconsultConsentRemote": {
+    "description": "Patient app UI string. Consent checkbox for remote consultation."
+  },
+  "teleconsultConsentDegradation": "I understand video may switch to audio-only or secure messages.",
+  "@teleconsultConsentDegradation": {
+    "description": "Patient app UI string. Consent checkbox for degradation fallback."
+  },
+  "teleconsultConsentEmergency": "I understand this is not for emergencies.",
+  "@teleconsultConsentEmergency": {
+    "description": "Patient app UI string. Consent checkbox for emergency limitation."
+  },
+  "teleconsultConsentRecordingOff": "I understand recording is off.",
+  "@teleconsultConsentRecordingOff": {
+    "description": "Patient app UI string. Consent checkbox for recording-off disclosure."
+  },
+  "teleconsultConsentRequired": "Please accept all consent items before joining.",
+  "@teleconsultConsentRequired": {
+    "description": "Patient app UI string. Error shown when consent is incomplete."
+  },
+  "teleconsultConsentFailed": "Could not record consent. Please try again.",
+  "@teleconsultConsentFailed": {
+    "description": "Patient app UI string. Error shown when consent submission fails."
+  },
+  "teleconsultContinueToCall": "Continue to call",
+  "@teleconsultContinueToCall": {
+    "description": "Patient app UI string. Button after consent and device checks."
+  },
+  "teleconsultConsultTitle": "Video consultation",
+  "@teleconsultConsultTitle": {
+    "description": "Patient app UI string. Active teleconsult screen title."
+  },
+  "teleconsultConnecting": "Connecting to the consultation...",
+  "@teleconsultConnecting": {
+    "description": "Patient app UI string. LiveKit connection progress label."
+  },
+  "teleconsultVideoUnavailableChatAvailable": "Video is unavailable. You can continue through secure messages.",
+  "@teleconsultVideoUnavailableChatAvailable": {
+    "description": "Patient app UI string. Fallback banner when media join fails."
+  },
+  "teleconsultAudioOnlyBanner": "Audio-only mode is active.",
+  "@teleconsultAudioOnlyBanner": {
+    "description": "Patient app UI string. Banner shown when video is disabled."
+  },
+  "teleconsultCallEnded": "The consultation has ended.",
+  "@teleconsultCallEnded": {
+    "description": "Patient app UI string. Banner shown when backend marks consult terminal."
+  },
+  "teleconsultRemoteVideo": "Doctor video",
+  "@teleconsultRemoteVideo": {
+    "description": "Patient app UI string. Accessibility label for remote video."
+  },
+  "teleconsultLocalVideo": "Your video",
+  "@teleconsultLocalVideo": {
+    "description": "Patient app UI string. Accessibility label for local preview."
+  },
+  "teleconsultMicrophoneOn": "Microphone on",
+  "@teleconsultMicrophoneOn": {
+    "description": "Patient app UI string. Tooltip for enabled microphone."
+  },
+  "teleconsultMicrophoneOff": "Microphone off",
+  "@teleconsultMicrophoneOff": {
+    "description": "Patient app UI string. Tooltip for disabled microphone."
+  },
+  "teleconsultCameraOn": "Camera on",
+  "@teleconsultCameraOn": {
+    "description": "Patient app UI string. Tooltip for enabled camera."
+  },
+  "teleconsultCameraOff": "Camera off",
+  "@teleconsultCameraOff": {
+    "description": "Patient app UI string. Tooltip for disabled camera."
+  },
+  "teleconsultSwitchAudioOnly": "Audio only",
+  "@teleconsultSwitchAudioOnly": {
+    "description": "Patient app UI string. Button to switch to audio-only mode."
+  },
+  "teleconsultOpenSecureMessages": "Secure messages",
+  "@teleconsultOpenSecureMessages": {
+    "description": "Patient app UI string. Button to open secure-message fallback."
+  },
+  "teleconsultSecureMessagesFailed": "Could not open secure messages. Please try again.",
+  "@teleconsultSecureMessagesFailed": {
+    "description": "Patient app UI string. Error when secure-message fallback fails."
+  },
+  "teleconsultSecureMessageSubject": "Video consult follow-up",
+  "@teleconsultSecureMessageSubject": {
+    "description": "Patient app UI string. Subject for secure-message fallback thread."
+  },
+  "teleconsultSecureMessageBody": "I need to continue my video consult in secure messages.",
+  "@teleconsultSecureMessageBody": {
+    "description": "Patient app UI string. Initial body for secure-message fallback thread."
+  },
+  "teleconsultEndCall": "End call",
+  "@teleconsultEndCall": {
+    "description": "Patient app UI string. Button to leave the teleconsult."
   }
 }
