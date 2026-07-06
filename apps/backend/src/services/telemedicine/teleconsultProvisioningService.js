@@ -8,6 +8,8 @@
 
 import crypto from 'node:crypto';
 
+import jwt from 'jsonwebtoken';
+
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -22,6 +24,9 @@ import {
 const HOSPITAL_TIME_ZONE = 'Asia/Kolkata';
 const LIVEKIT_PROVIDER = 'livekit';
 const TELE_VISIT_TYPE = 'TELE';
+const DEFAULT_TOKEN_TTL_SECONDS = 600;
+const MIN_TOKEN_TTL_SECONDS = 300;
+const MAX_TOKEN_TTL_SECONDS = 600;
 const TERMINAL_APPOINTMENT_STATUSES = new Set([
   'CANCELLED',
   'NO_SHOW',
@@ -70,6 +75,15 @@ function actorRole(value) {
   return String(value || '').trim().toUpperCase();
 }
 
+function normalizeParticipantRole(value) {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'doctor' || role === 'staff') return 'clinician';
+  if (!['patient', 'clinician', 'observer'].includes(role)) {
+    throw AppError.badRequest('role must be one of: patient, clinician, observer');
+  }
+  return role;
+}
+
 export function livekitEnabled() {
   return String(process.env.LIVEKIT_ENABLED || 'false').toLowerCase() === 'true';
 }
@@ -87,6 +101,41 @@ function requireLivekitEnabled() {
   if (!livekitEnabled()) {
     throw new AppError('Teleconsult media is disabled', 503, 'LIVEKIT_DISABLED');
   }
+}
+
+function livekitConfig() {
+  requireLivekitEnabled();
+  const serverUrl = safeText(process.env.LIVEKIT_SERVER_URL, 512);
+  const apiKey = safeText(process.env.LIVEKIT_API_KEY, 160);
+  const apiSecret = safeText(process.env.LIVEKIT_API_SECRET, 512);
+  if (!serverUrl || !apiKey || !apiSecret) {
+    throw new AppError('LiveKit server credentials are not configured', 503, 'LIVEKIT_CONFIG_MISSING');
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(serverUrl);
+  } catch {
+    throw new AppError('LIVEKIT_SERVER_URL must be a valid URL', 503, 'LIVEKIT_SERVER_URL_INVALID');
+  }
+  if (!['https:', 'wss:', 'http:', 'ws:'].includes(parsedUrl.protocol)) {
+    throw new AppError('LIVEKIT_SERVER_URL must be HTTP(S) or WS(S)', 503, 'LIVEKIT_SERVER_URL_INVALID');
+  }
+  return { serverUrl, apiKey, apiSecret };
+}
+
+function tokenTtlSeconds() {
+  const raw = process.env.TELECONSULT_TOKEN_TTL_SECONDS;
+  const value = raw === undefined || raw === ''
+    ? DEFAULT_TOKEN_TTL_SECONDS
+    : Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < MIN_TOKEN_TTL_SECONDS || value > MAX_TOKEN_TTL_SECONDS) {
+    throw new AppError(
+      `TELECONSULT_TOKEN_TTL_SECONDS must be between ${MIN_TOKEN_TTL_SECONDS} and ${MAX_TOKEN_TTL_SECONDS}`,
+      503,
+      'TELECONSULT_TOKEN_TTL_INVALID',
+    );
+  }
+  return value;
 }
 
 function tenantHash(tenantId) {
@@ -134,6 +183,52 @@ async function loadTeleAppointment({ tenantId, appointmentId }) {
     throw AppError.badRequest('Appointment is not a teleconsult appointment', 'TELECONSULT_VISIT_TYPE_REQUIRED');
   }
   return appointment;
+}
+
+async function hasActiveCareTeamMembership({ tenantId, patientUid, staffUid }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT 1
+       FROM care_team_members ctm
+       JOIN care_teams ct
+         ON ct.id = ctm.care_team_id
+        AND ct.tenant_id = ctm.tenant_id
+      WHERE ctm.tenant_id = $1::uuid
+        AND ctm.patient_uid = $2::uuid
+        AND ctm.staff_uid = $3::uuid
+        AND ctm.status = 'active'
+        AND ct.status = 'active'
+        AND ctm.active_from <= NOW()
+        AND (ctm.active_until IS NULL OR ctm.active_until >= NOW())
+      LIMIT 1`,
+    tenantId,
+    patientUid,
+    staffUid,
+  );
+  return Boolean(rows[0]);
+}
+
+async function assertParticipantAuthorized({
+  tenantId,
+  consult,
+  appointment,
+  participantUid,
+  role,
+}) {
+  const uid = normalizeUuid(participantUid, 'participant_uid', { required: true });
+  const patientUid = normalizeUuid(consult.patient_uid || appointment.patient_uid, 'patient_uid', { required: true });
+  const doctorUid = consult.doctor_uid || appointment.doctor_uid || null;
+
+  if (role === 'patient') {
+    if (uid !== patientUid) {
+      throw AppError.forbidden('Patient can only join their own teleconsultation', 'TELECONSULT_PATIENT_SCOPE_DENIED');
+    }
+    return;
+  }
+
+  if (doctorUid && uid === String(doctorUid)) return;
+  if (await hasActiveCareTeamMembership({ tenantId, patientUid, staffUid: uid })) return;
+
+  throw AppError.forbidden('Clinician is not assigned or authorized for this teleconsultation', 'TELECONSULT_CLINICIAN_SCOPE_DENIED');
 }
 
 function assertPatientAppointmentAccess({ appointment, actorUid, role }) {
@@ -311,17 +406,146 @@ export function assertTeleconsultCanIssueToken({ consult, appointment } = {}) {
   }
 }
 
-export async function issueJoinToken() {
-  throw new AppError('LiveKit token issuance is not implemented yet', 501, 'LIVEKIT_TOKEN_NOT_IMPLEMENTED');
+export function buildLivekitVideoGrant({ role, roomName }) {
+  const base = {
+    roomJoin: true,
+    room: roomName,
+    canSubscribe: true,
+  };
+  if (role === 'observer') {
+    return {
+      ...base,
+      canPublish: false,
+      canPublishData: false,
+    };
+  }
+  if (role === 'clinician') {
+    return {
+      ...base,
+      canPublish: true,
+      canPublishData: true,
+      canPublishSources: ['camera', 'microphone', 'screen_share'],
+      canUpdateOwnMetadata: true,
+      roomAdmin: true,
+    };
+  }
+  return {
+    ...base,
+    canPublish: true,
+    canPublishData: true,
+    canPublishSources: ['camera', 'microphone'],
+    canUpdateOwnMetadata: true,
+  };
+}
+
+export function buildParticipantMetadata({ tenantId, teleconsultationId, appointmentId, role }) {
+  return {
+    tenant_id: String(tenantId),
+    teleconsultation_id: Number(teleconsultationId),
+    appointment_id: Number(appointmentId),
+    role,
+  };
+}
+
+export function signLivekitToken({
+  apiKey,
+  apiSecret,
+  roomName,
+  identity,
+  role,
+  metadata,
+  ttlSeconds,
+}) {
+  const video = buildLivekitVideoGrant({ role, roomName });
+  const payload = {
+    video,
+    metadata: JSON.stringify(metadata),
+  };
+  return jwt.sign(payload, apiSecret, {
+    algorithm: 'HS256',
+    issuer: apiKey,
+    subject: identity,
+    expiresIn: ttlSeconds,
+  });
+}
+
+export async function issueJoinToken({
+  tenantId = null,
+  teleconsultationId,
+  participantUid,
+  role,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const normalizedRole = normalizeParticipantRole(role);
+  const uid = normalizeUuid(participantUid, 'participant_uid', { required: true });
+  const config = livekitConfig();
+  const ttlSeconds = tokenTtlSeconds();
+
+  const consult = await getTeleconsultation({ tenantId: tid, id: teleconsultationId });
+  if (!consult.appointment_id) {
+    throw AppError.badRequest('Teleconsultation must be appointment-bound', 'TELECONSULT_APPOINTMENT_REQUIRED');
+  }
+  const appointment = await loadTeleAppointment({
+    tenantId: tid,
+    appointmentId: consult.appointment_id,
+  });
+  assertTeleconsultCanIssueToken({ consult, appointment });
+  await assertParticipantAuthorized({
+    tenantId: tid,
+    consult,
+    appointment,
+    participantUid: uid,
+    role: normalizedRole,
+  });
+
+  const videoSession = await ensureVideoSession({
+    tenantId: tid,
+    teleconsultationId: consult.id,
+  });
+  const roomName = videoSession.external_session_id;
+  if (!roomName) throw AppError.internal('LiveKit room name missing', 'LIVEKIT_ROOM_MISSING');
+
+  const identity = `${normalizedRole}:${uid}`;
+  const metadata = buildParticipantMetadata({
+    tenantId: tid,
+    teleconsultationId: consult.id,
+    appointmentId: consult.appointment_id,
+    role: normalizedRole,
+  });
+  const participantToken = signLivekitToken({
+    ...config,
+    roomName,
+    identity,
+    role: normalizedRole,
+    metadata,
+    ttlSeconds,
+  });
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+
+  return {
+    server_url: config.serverUrl,
+    room_name: roomName,
+    participant_token: participantToken,
+    expires_at: expiresAt,
+  };
 }
 
 export const __testing__ = {
+  DEFAULT_TOKEN_TTL_SECONDS,
   HOSPITAL_TIME_ZONE,
   LIVEKIT_PROVIDER,
+  MAX_TOKEN_TTL_SECONDS,
+  MIN_TOKEN_TTL_SECONDS,
   TELE_VISIT_TYPE,
   TERMINAL_APPOINTMENT_STATUSES,
+  buildLivekitVideoGrant,
+  buildParticipantMetadata,
   generateRoomName,
+  livekitConfig,
   loadTeleAppointment,
+  normalizeParticipantRole,
+  signLivekitToken,
+  tokenTtlSeconds,
 };
 
 export default {
