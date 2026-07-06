@@ -37992,6 +37992,138 @@
         ]
       }
     },
+    "/api/v1/admin/nhcx/dispatch-now": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_dispatch_now",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/nhcx/eligibility/check": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_eligibility_check",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/nhcx/messages": {
+      "get": {
+        "operationId": "get_api_v1_admin_nhcx_messages",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/nhcx/messages/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_nhcx_messages_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/nhcx/messages/{id}/redrive": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_messages_by_id_redrive",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/nhcx/preauth/{preauthId}/submit": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_preauth_by_preauthId_submit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "preauthId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/notifications": {
       "post": {
         "operationId": "post_api_v1_admin_notifications",
@@ -40780,6 +40912,85 @@
           },
           {
             "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/tenants/{tenantId}/nhcx-config": {
+      "get": {
+        "operationId": "get_api_v1_admin_tenants_by_tenantId_nhcx_config",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_admin_tenants_by_tenantId_nhcx_config",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/tenants/{tenantId}/nhcx-secrets": {
+      "post": {
+        "operationId": "post_api_v1_admin_tenants_by_tenantId_nhcx_secrets",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
             "in": "path",
             "required": true,
             "schema": {
@@ -67454,6 +67665,40 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/integrations/nhcx/coverageeligibility/on_check": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_coverageeligibility_on_check",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/nhcx/preauth/on_submit": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_preauth_on_submit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/integrity/audit-chain/verify": {
