@@ -7,6 +7,7 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
+import { hospitalToday } from './journeys/_journeyHarness.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -35,6 +36,21 @@ function patientClient(patientId) {
 async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`,
+    PATIENT_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM video_sessions
+      WHERE teleconsultation_id IN (
+        SELECT id FROM teleconsultations WHERE patient_uid = $1::uuid
+      )`,
+    PATIENT_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM teleconsultations WHERE patient_uid = $1::uuid`,
+    PATIENT_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM patient_consents WHERE patient_uid = $1::uuid`,
     PATIENT_UID,
   );
   await prisma.$executeRawUnsafe(
@@ -73,23 +89,57 @@ async function seedUser(uid, phone, role, name) {
   return rows[0].id;
 }
 
-async function seedAppointment(patientId, doctorId) {
+async function seedAppointment(patientId, doctorId, { visitType = 'FOLLOW_UP', time = '09:47' } = {}) {
+  const today = await hospitalToday();
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO appointments
        (tenant_id, phone, patient_id, doctor_id, doctor_name,
         appointment_date, appointment_time, status, reason, department, visit_type,
         updated_at)
      VALUES ($1::uuid, $2, $3::int, $4::int, 'Dr Portal Demarcation',
-             (NOW() AT TIME ZONE 'Asia/Kolkata')::date, '09:47',
+             $5::date, $6,
              'COMPLETED', 'Portal OP note demarcation', 'General Medicine',
-             'FOLLOW_UP', NOW())
+             $7, NOW())
      RETURNING id`,
     TENANT,
     PATIENT_PHONE,
     patientId,
     doctorId,
+    today,
+    time,
+    visitType,
   );
   return rows[0].id;
+}
+
+async function seedTeleconsultation(appointmentId) {
+  const consultRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO teleconsultations
+       (tenant_id, appointment_id, patient_uid, doctor_uid, consult_type, status,
+        scheduled_start, remote_consent_id, remote_consent_signed_at,
+        recording_consent, metadata, created_by, created_at, updated_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, 'video', 'scheduled',
+             NOW(), 'patient_consent:portal-demarcation', NOW(),
+             false, '{"source":"portal-demarcation-regression"}'::jsonb,
+             $4::uuid, NOW(), NOW())
+     RETURNING id`,
+    TENANT,
+    appointmentId,
+    PATIENT_UID,
+    DOCTOR_UID,
+  );
+  const teleconsultationId = consultRows[0].id;
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO video_sessions
+       (tenant_id, teleconsultation_id, provider, external_session_id,
+        recording_status, status, metadata, created_at, updated_at)
+     VALUES ($1::uuid, $2::int, 'livekit', 'tc_portal_demarcation_room',
+             'disabled', 'created', '{"source":"portal-demarcation-regression"}'::jsonb,
+             NOW(), NOW())`,
+    TENANT,
+    teleconsultationId,
+  );
+  return teleconsultationId;
 }
 
 async function seedAdmission() {
@@ -128,7 +178,9 @@ d('patient portal clinical-notes demarcation', () => {
   let patientId;
   let doctorId;
   let appointmentId;
+  let teleAppointmentId;
   let opNoteId;
+  let teleOpNoteId;
   let ipProgressNoteId;
   let caseSheetNoteId;
   let patient;
@@ -146,6 +198,11 @@ d('patient portal clinical-notes demarcation', () => {
       doctorId,
     );
     appointmentId = await seedAppointment(patientId, doctorId);
+    teleAppointmentId = await seedAppointment(patientId, doctorId, {
+      visitType: 'TELE',
+      time: '10:47',
+    });
+    await seedTeleconsultation(teleAppointmentId);
     const admission = await seedAdmission();
 
     opNoteId = await seedSignedNote({
@@ -158,6 +215,18 @@ d('patient portal clinical-notes demarcation', () => {
         examination: 'Chest clear',
         diagnosis: 'Resolving URTI',
         plan: 'Continue fluids',
+      },
+    });
+    teleOpNoteId = await seedSignedNote({
+      noteType: 'op_consultation',
+      title: 'Signed TELE consultation',
+      appointmentId: teleAppointmentId,
+      content: {
+        chief_complaint: 'Teleconsult follow-up',
+        history: 'Video consult connected',
+        examination: 'Remote review only',
+        diagnosis: 'Stable',
+        plan: 'Continue current plan',
       },
     });
     ipProgressNoteId = await seedSignedNote({
@@ -192,11 +261,18 @@ d('patient portal clinical-notes demarcation', () => {
     const res = await patient.get('/api/v1/portal/clinical-notes');
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.data.map((row) => row.id)).toEqual([opNoteId]);
-    expect(res.body.data[0]).toMatchObject({
+    expect(res.body.data.map((row) => row.id).sort((a, b) => a - b))
+      .toEqual([opNoteId, teleOpNoteId].sort((a, b) => a - b));
+    const byId = new Map(res.body.data.map((row) => [row.id, row]));
+    expect(byId.get(opNoteId)).toMatchObject({
       id: opNoteId,
       note_type: 'op_consultation',
       title: 'Signed OP consultation',
+    });
+    expect(byId.get(teleOpNoteId)).toMatchObject({
+      id: teleOpNoteId,
+      note_type: 'op_consultation',
+      title: 'Signed TELE consultation',
     });
   });
 
@@ -224,5 +300,16 @@ d('patient portal clinical-notes demarcation', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.data.map((row) => row.id)).toEqual([opNoteId]);
     expect(res.body.data[0].note_type).toBe('op_consultation');
+  });
+
+  test('teleconsult notes use the same appointment-bound OP note path', async () => {
+    const res = await patient.get(`/api/v1/portal/clinical-notes/appointment/${teleAppointmentId}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.map((row) => row.id)).toEqual([teleOpNoteId]);
+    expect(res.body.data[0]).toMatchObject({
+      note_type: 'op_consultation',
+      title: 'Signed TELE consultation',
+    });
   });
 });

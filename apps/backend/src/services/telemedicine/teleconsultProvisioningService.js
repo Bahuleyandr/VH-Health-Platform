@@ -323,11 +323,11 @@ export async function recordTeleconsultConsent({
   tenantId = null,
   teleconsultationId,
   participantUid,
-  actorUid = null,
   actorRole: role = null,
   consentPayload = null,
   ipAddress = null,
 } = {}) {
+  requireLivekitEnabled();
   const tid = requireTenantId(tenantId);
   const consult = await getTeleconsultation({ tenantId: tid, id: teleconsultationId });
   const patientUid = normalizeUuid(consult.patient_uid, 'teleconsultation patient_uid', { required: true });
@@ -375,6 +375,7 @@ export async function getTeleconsultRoomState({
   tenantId = null,
   teleconsultationId,
 } = {}) {
+  requireLivekitEnabled();
   const tid = requireTenantId(tenantId);
   const consult = await getTeleconsultation({ tenantId: tid, id: teleconsultationId });
   const sessions = await listVideoSessions({
