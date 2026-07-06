@@ -285,6 +285,8 @@ Test strategy:
 
 ### P3 - SCIM 2.0 Provisioning
 
+Status (2026-07-06): P3 SCIM 2.0 provisioning is in review in PR #444. SCIM is the sanctioned staff/admin creation/reactivation/deactivation path; staff JIT remains off. Break-glass accounts are named local continuity accounts and are excluded from SCIM deactivation.
+
 Scope:
 
 - Tenant/provider-scoped SCIM 2.0 `/Users`, `/Groups`, and metadata endpoints.
