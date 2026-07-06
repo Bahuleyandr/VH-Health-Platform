@@ -24,6 +24,8 @@ callbackRouter.use(genericLimiter);
 const NHCX_CALLBACK_PATHS = new Set([
   '/coverageeligibility/on_check',
   '/preauth/on_submit',
+  '/claim/on_submit',
+  '/claim/on_status',
 ]);
 
 function nhcxEnabled() {
@@ -141,6 +143,8 @@ async function handleCallback(req, res, next) {
 
 callbackRouter.post('/coverageeligibility/on_check', handleCallback);
 callbackRouter.post('/preauth/on_submit', handleCallback);
+callbackRouter.post('/claim/on_submit', handleCallback);
+callbackRouter.post('/claim/on_status', handleCallback);
 
 export { callbackRouter };
 export default callbackRouter;

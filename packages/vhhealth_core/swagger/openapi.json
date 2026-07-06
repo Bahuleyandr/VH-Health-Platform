@@ -38113,6 +38113,60 @@
         ]
       }
     },
+    "/api/v1/admin/nhcx/claim/{claimId}/status": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_claim_by_claimId_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "claimId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/nhcx/claim/{claimId}/submit": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_claim_by_claimId_submit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "claimId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/nhcx/dispatch-now": {
       "post": {
         "operationId": "post_api_v1_admin_nhcx_dispatch_now",
@@ -67874,6 +67928,40 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/integrations/nhcx/claim/on_status": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_claim_on_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/nhcx/claim/on_submit": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_claim_on_submit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/integrations/nhcx/coverageeligibility/on_check": {

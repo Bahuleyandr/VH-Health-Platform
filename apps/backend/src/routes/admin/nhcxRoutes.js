@@ -5,6 +5,8 @@ import express from 'express';
 import { success } from '../../utils/responseHelper.js';
 import {
   dispatchPendingNHCXMessages,
+  enqueueClaimStatusCheck,
+  enqueueClaimSubmit,
   enqueueCoverageEligibilityCheck,
   enqueuePreauthSubmit,
   getNHCXMessage,
@@ -67,6 +69,38 @@ router.post('/preauth/:preauthId/submit', async (req, res, next) => {
       hcxWorkflowId: req.body?.hcx_workflow_id ?? req.body?.hcxWorkflowId,
     });
     return success(res, result, 'NHCX preauth request queued', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/claim/:claimId/submit', async (req, res, next) => {
+  try {
+    const result = await enqueueClaimSubmit({
+      tenantId: req.tenantId,
+      claimId: req.params.claimId,
+      documentIds: req.body?.document_ids ?? req.body?.documentIds ?? null,
+      submittedBy: req.body?.submitted_by ?? req.body?.submittedBy ?? req.user?.uid ?? null,
+      hcxApiCallId: req.body?.hcx_api_call_id ?? req.body?.hcxApiCallId,
+      hcxCorrelationId: req.body?.hcx_correlation_id ?? req.body?.hcxCorrelationId,
+      hcxWorkflowId: req.body?.hcx_workflow_id ?? req.body?.hcxWorkflowId,
+    });
+    return success(res, result, 'NHCX claim request queued', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/claim/:claimId/status', async (req, res, next) => {
+  try {
+    const result = await enqueueClaimStatusCheck({
+      tenantId: req.tenantId,
+      claimId: req.params.claimId,
+      hcxApiCallId: req.body?.hcx_api_call_id ?? req.body?.hcxApiCallId,
+      hcxCorrelationId: req.body?.hcx_correlation_id ?? req.body?.hcxCorrelationId,
+      hcxWorkflowId: req.body?.hcx_workflow_id ?? req.body?.hcxWorkflowId,
+    });
+    return success(res, result, 'NHCX claim status check queued', 201);
   } catch (err) {
     return next(err);
   }

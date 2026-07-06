@@ -6,7 +6,10 @@ const queryUnsafeMock = jest.fn();
 const runtimeMock = jest.fn();
 const buildEligibilityMock = jest.fn();
 const buildPreauthMock = jest.fn();
+const buildClaimMock = jest.fn();
+const buildTaskMock = jest.fn();
 const persistEnvelopeMock = jest.fn();
+const submitClaimMock = jest.fn();
 
 const prismaMock = { $queryRawUnsafe: queryUnsafeMock };
 
@@ -19,13 +22,21 @@ jest.unstable_mockModule('../../services/nhcx/nhcxTenantConfigService.js', () =>
 }));
 
 jest.unstable_mockModule('../../services/nhcx/nhcxFhirProfileService.js', () => ({
+  buildClaimRequestBundle: buildClaimMock,
+  buildClaimStatusTaskBundle: buildTaskMock,
   buildCoverageEligibilityRequestBundle: buildEligibilityMock,
   buildPreauthClaimRequestBundle: buildPreauthMock,
   persistOutboundNHCXEnvelope: persistEnvelopeMock,
 }));
 
+jest.unstable_mockModule('../../services/insurance/claimsService.js', () => ({
+  submitClaim: submitClaimMock,
+}));
+
 const {
   dispatchPendingNHCXMessages,
+  enqueueClaimStatusCheck,
+  enqueueClaimSubmit,
   redriveNHCXMessage,
   __testing__,
 } = await import('../../services/nhcx/nhcxOutboundDispatcherService.js');
@@ -71,6 +82,19 @@ function preauthRow(overrides = {}) {
   };
 }
 
+function claimRow(overrides = {}) {
+  return {
+    ...preauthRow({
+      cycle: 'claim',
+      endpoint: 'claim/submit',
+      hcx_api_call_id: 'claim-api-call-1',
+      claim_id: 88,
+      preauth_id: 77,
+      ...overrides,
+    }),
+  };
+}
+
 function builtPreauth() {
   return {
     bundle: {
@@ -92,14 +116,51 @@ function builtPreauth() {
   };
 }
 
+function builtClaim() {
+  return {
+    bundle: {
+      resourceType: 'Bundle',
+      id: 'claim-bundle-1',
+      type: 'collection',
+      meta: { profile: ['https://example.test/ClaimBundle'] },
+      entry: [],
+    },
+    payloadHash: 'hash-claim-current',
+    profileUrl: 'https://example.test/ClaimBundle',
+    profileVersion: '7.0.0-design-target',
+    domainResourceType: 'Claim',
+    patientUid: '11111111-1111-4111-8111-111111111111',
+    admissionId: 7001,
+    policyId: 55,
+    preauthId: 77,
+    claimId: 88,
+    workflowId: '7001',
+  };
+}
+
+function builtTask() {
+  return {
+    ...builtClaim(),
+    payloadHash: 'hash-task-current',
+    profileUrl: 'https://example.test/TaskBundle',
+    domainResourceType: 'Task',
+  };
+}
+
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   runtimeMock.mockReset();
   buildEligibilityMock.mockReset();
   buildPreauthMock.mockReset();
+  buildClaimMock.mockReset();
+  buildTaskMock.mockReset();
   persistEnvelopeMock.mockReset();
+  submitClaimMock.mockReset();
   runtimeMock.mockResolvedValue(runtime());
   buildPreauthMock.mockResolvedValue(builtPreauth());
+  buildClaimMock.mockResolvedValue(builtClaim());
+  buildTaskMock.mockResolvedValue(builtTask());
+  submitClaimMock.mockResolvedValue({ id: 88, status: 'submitted' });
 });
 
 describe('nhcxOutboundDispatcherService JWE helpers', () => {
@@ -183,6 +244,28 @@ describe('dispatchPendingNHCXMessages', () => {
     }));
   });
 
+  it('encrypts the current claim snapshot and marks gateway acceptance without posting ledger', async () => {
+    const row = claimRow();
+    queryUnsafeMock.mockResolvedValueOnce([row]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-claim-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 88, status: 'submitted', submission_channel: 'nhcx' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, status: 'accepted' }]);
+
+    const result = await dispatchPendingNHCXMessages({
+      tenantId: TENANT,
+      fetchImpl: jest.fn(async () => new Response(JSON.stringify({ status: 'accepted' }), { status: 202 })),
+      allowDisabled: true,
+    });
+
+    expect(result).toEqual({ dispatched: 1, accepted: 1, failed: 0, dead: 0 });
+    expect(buildClaimMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      claimId: 88,
+    }));
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('UPDATE tpa_claims');
+    expect(queryUnsafeMock.mock.calls[2][0]).not.toMatch(/ledger|INSURANCE_AR/i);
+  });
+
   it('backs off retryable gateway failures', async () => {
     const row = preauthRow();
     queryUnsafeMock.mockResolvedValueOnce([row]);
@@ -200,6 +283,74 @@ describe('dispatchPendingNHCXMessages', () => {
     expect(markFailedCall[2]).toBe('failed');
     expect(markFailedCall[3]).toBe('HTTP_503');
     expect(markFailedCall[5]).toBeInstanceOf(Date);
+  });
+});
+
+describe('enqueueClaimSubmit', () => {
+  it('validates the Claim bundle, reuses claimsService.submitClaim, then persists an outbound envelope', async () => {
+    persistEnvelopeMock.mockResolvedValue({ envelope: { id: '30', cycle: 'claim' }, payloadHash: 'hash-claim-current' });
+
+    const result = await enqueueClaimSubmit({
+      tenantId: TENANT,
+      claimId: 88,
+      documentIds: [10, 11],
+      submittedBy: '22222222-2222-4222-8222-222222222222',
+      hcxApiCallId: 'claim-api-1',
+      hcxCorrelationId: 'claim-corr-1',
+      allowDisabled: true,
+    });
+
+    expect(result.envelope.cycle).toBe('claim');
+    expect(buildClaimMock).toHaveBeenCalledTimes(2);
+    expect(submitClaimMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      id: 88,
+      submission_channel: 'nhcx',
+    }));
+    expect(persistEnvelopeMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      cycle: 'claim',
+      endpoint: 'claim/submit',
+      claimId: 88,
+      domainResourceType: 'Claim',
+    }));
+  });
+
+  it('does not submit or enqueue when strict Claim bundle validation fails', async () => {
+    buildClaimMock.mockRejectedValueOnce(Object.assign(new Error('invalid bundle'), { code: 'NHCX_FHIR_PROFILE_INVALID' }));
+
+    await expect(enqueueClaimSubmit({
+      tenantId: TENANT,
+      claimId: 88,
+      allowDisabled: true,
+    })).rejects.toMatchObject({ code: 'NHCX_FHIR_PROFILE_INVALID' });
+
+    expect(submitClaimMock).not.toHaveBeenCalled();
+    expect(persistEnvelopeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('enqueueClaimStatusCheck', () => {
+  it('queues a Task envelope and does not mutate claim workflow state', async () => {
+    persistEnvelopeMock.mockResolvedValue({ envelope: { id: '31', cycle: 'task' }, payloadHash: 'hash-task-current' });
+
+    await enqueueClaimStatusCheck({
+      tenantId: TENANT,
+      claimId: 88,
+      allowDisabled: true,
+    });
+
+    expect(buildTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      claimId: 88,
+    }));
+    expect(submitClaimMock).not.toHaveBeenCalled();
+    expect(persistEnvelopeMock).toHaveBeenCalledWith(expect.objectContaining({
+      cycle: 'task',
+      endpoint: 'claim/status',
+      claimId: 88,
+      domainResourceType: 'Task',
+    }));
   });
 });
 

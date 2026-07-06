@@ -26,6 +26,14 @@ const ENDPOINTS = Object.freeze({
     cycle: 'preauth',
     expectedMainResourceType: 'ClaimResponse',
   },
+  'claim/on_submit': {
+    cycle: 'claim',
+    expectedMainResourceType: 'ClaimResponse',
+  },
+  'claim/on_status': {
+    cycle: 'task',
+    expectedMainResourceType: 'Task',
+  },
 });
 
 function clean(value) {
@@ -156,6 +164,12 @@ function numberFromReference(value) {
   return raw ? Number(raw) : null;
 }
 
+function claimNumberFromReference(value) {
+  const match = clean(value).match(/claim-(\d+)|tpa-claim-id\D*(\d+)|^(\d+)$/i);
+  const raw = match?.[1] || match?.[2] || match?.[3];
+  return raw ? Number(raw) : null;
+}
+
 function extractPreauthIdFromClaimResponse(claimResponse) {
   if (!claimResponse) return null;
   const candidates = [
@@ -167,6 +181,22 @@ function extractPreauthIdFromClaimResponse(claimResponse) {
   ];
   for (const candidate of candidates) {
     const parsed = numberFromReference(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function extractClaimIdFromClaimResponse(claimResponse) {
+  if (!claimResponse) return null;
+  const candidates = [
+    claimResponse.request?.reference,
+    claimResponse.request?.identifier?.value,
+    ...(claimResponse.identifier || [])
+      .filter((item) => clean(item.system).includes('tpa-claim') || clean(item.system).includes('claim-id'))
+      .map((item) => item.value),
+  ];
+  for (const candidate of candidates) {
+    const parsed = claimNumberFromReference(candidate);
     if (parsed) return parsed;
   }
   return null;
@@ -234,6 +264,59 @@ export function mapClaimResponseToPreauthResponse(claimResponse, { participantCo
   };
 }
 
+export function mapClaimResponseToClaimDecision(claimResponse, {
+  participantCodeCounterparty = null,
+  claim = null,
+} = {}) {
+  if (!claimResponse || claimResponse.resourceType !== 'ClaimResponse') {
+    throw AppError.badRequest('NHCX claim callback must contain ClaimResponse', 'NHCX_CLAIM_RESPONSE_REQUIRED');
+  }
+  if (claimResponse.use && claimResponse.use !== 'claim') {
+    throw AppError.badRequest('NHCX claim callback ClaimResponse.use must be claim', 'NHCX_CLAIM_RESPONSE_USE_INVALID');
+  }
+
+  const combined = [
+    claimResponse.outcome,
+    claimResponse.status,
+    claimResponse.disposition,
+    notesText(claimResponse),
+  ].filter(Boolean).join(' ').toLowerCase();
+  const amount = sanctionedAmountFromClaimResponse(claimResponse);
+  const claimedAmount = claim ? Number(claim.claimed_amount || 0) : 0;
+  const details = notesText(claimResponse) || claimResponse.disposition || null;
+
+  let decision = null;
+  if (/query|additional|information|document|more\s+info|more-information/.test(combined)) {
+    decision = 'queried';
+  } else if (/den(y|ied|ial)|reject|error|declin/.test(combined)) {
+    decision = 'denied';
+  } else if (/partial|partially|shortfall|disallow/.test(combined)) {
+    decision = 'partially_approved';
+  } else if (/complete|approved|approve|benefit|adjudicat/.test(combined)) {
+    decision = claimedAmount > 0 && amount != null && amount + 0.01 < claimedAmount
+      ? 'partially_approved'
+      : 'approved';
+  }
+  if (!decision) {
+    throw AppError.badRequest('NHCX ClaimResponse outcome is not mappable', 'NHCX_CLAIM_RESPONSE_UNMAPPABLE');
+  }
+
+  const disallowedAmount = amount != null && claimedAmount > amount
+    ? Number((claimedAmount - amount).toFixed(2))
+    : null;
+  return {
+    decision,
+    approved_amount: ['approved', 'partially_approved'].includes(decision) ? amount : null,
+    disallowed_amount: decision === 'partially_approved' ? disallowedAmount : null,
+    denial_reason: decision === 'denied' ? details : null,
+    query_text: decision === 'queried' ? details : null,
+    raw_response: {
+      insurer: participantCodeCounterparty || null,
+      nhcx_claim_response: claimResponse,
+    },
+  };
+}
+
 async function findOutboundContext({ tenantId, cycle, hcxCorrelationId, hcxWorkflowId }) {
   if (!hcxCorrelationId && !hcxWorkflowId) return null;
   const filters = ['tenant_id = $1::uuid', "direction = 'outbound'", 'cycle = $2'];
@@ -247,7 +330,7 @@ async function findOutboundContext({ tenantId, cycle, hcxCorrelationId, hcxWorkf
     filters.push(`hcx_workflow_id = $${params.length}`);
   }
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, preauth_id, policy_id, patient_uid, admission_id,
+    `SELECT id, claim_id, preauth_id, policy_id, patient_uid, admission_id,
             participant_code_self, participant_code_counterparty
        FROM nhcx_messages
       WHERE ${filters.join(' AND ')}
@@ -383,6 +466,16 @@ async function defaultRecordPreauthResponse(args) {
   return recordPreauthResponse(args);
 }
 
+async function defaultRecordClaimDecision(args) {
+  const { recordClaimDecision } = await import('../insurance/claimsService.js');
+  return recordClaimDecision(args);
+}
+
+async function defaultGetClaim(args) {
+  const { getClaim } = await import('../insurance/claimsService.js');
+  return getClaim(args);
+}
+
 async function processPreauthCallback({
   tenantId,
   bundle,
@@ -415,6 +508,62 @@ async function processPreauthCallback({
   return { preauthId: Number(preauthId), result };
 }
 
+async function processClaimCallback({
+  tenantId,
+  bundle,
+  context,
+  outboundContext,
+  recordClaimDecisionImpl = defaultRecordClaimDecision,
+  getClaimImpl = defaultGetClaim,
+}) {
+  const claimResponse = firstResource(bundle, 'ClaimResponse');
+  const claimId = outboundContext?.claim_id || extractClaimIdFromClaimResponse(claimResponse);
+  if (!claimId) {
+    throw AppError.badRequest('NHCX ClaimResponse could not be linked to a TPA claim', 'NHCX_CLAIM_CONTEXT_MISSING');
+  }
+  const claim = await getClaimImpl({ tenantId, id: Number(claimId) });
+  const mapped = mapClaimResponseToClaimDecision(claimResponse, {
+    participantCodeCounterparty: context.participantCodeCounterparty,
+    claim,
+  });
+  const subject = mapped.decision === 'queried'
+    ? 'NHCX claim query'
+    : `NHCX claim decision: ${mapped.decision}`;
+  const body = [
+    `Decision: ${mapped.decision}`,
+    mapped.approved_amount != null ? `Approved: ${mapped.approved_amount}` : null,
+    mapped.disallowed_amount != null ? `Disallowed: ${mapped.disallowed_amount}` : null,
+    mapped.denial_reason ? `Reason: ${mapped.denial_reason}` : null,
+    mapped.query_text ? `Query: ${mapped.query_text}` : null,
+    context.hcxApiCallId ? `HCX API call: ${context.hcxApiCallId}` : null,
+    context.hcxCorrelationId ? `HCX correlation: ${context.hcxCorrelationId}` : null,
+  ].filter(Boolean).join('\n');
+
+  const result = await recordClaimDecisionImpl({
+    tenantId,
+    id: Number(claimId),
+    decision: mapped.decision,
+    approved_amount: mapped.approved_amount,
+    disallowed_amount: mapped.disallowed_amount,
+    denial_reason: mapped.denial_reason,
+    insurer: context.participantCodeCounterparty || null,
+    raw_response: {
+      ...mapped.raw_response,
+      hcx: {
+        api_call_id: context.hcxApiCallId,
+        correlation_id: context.hcxCorrelationId,
+        workflow_id: context.hcxWorkflowId,
+      },
+    },
+    recorded_by: null,
+    correspondence_channel: 'nhcx',
+    correspondence_subject: subject,
+    correspondence_body: body,
+    skip_ledger_shift: true,
+  });
+  return { claimId: Number(claimId), decision: mapped.decision, result };
+}
+
 export async function processNHCXCallback({
   tenantId,
   endpoint,
@@ -426,6 +575,8 @@ export async function processNHCXCallback({
   jweKeyResolver = null,
   decryptPayload = null,
   recordPreauthResponseImpl = defaultRecordPreauthResponse,
+  recordClaimDecisionImpl = defaultRecordClaimDecision,
+  getClaimImpl = defaultGetClaim,
 } = {}) {
   const definition = ENDPOINTS[endpoint];
   if (!definition) {
@@ -458,6 +609,7 @@ export async function processNHCXCallback({
     hcxWorkflowId: context.hcxWorkflowId,
   });
   const domainContext = {
+    claimId: outboundContext?.claim_id || null,
     preauthId: outboundContext?.preauth_id || null,
     policyId: outboundContext?.policy_id || null,
     patientUid: outboundContext?.patient_uid || null,
@@ -499,6 +651,17 @@ export async function processNHCXCallback({
         outboundContext,
         recordPreauthResponseImpl,
       });
+    } else if (endpoint === 'claim/on_submit') {
+      domainResult = await processClaimCallback({
+        tenantId,
+        bundle,
+        context,
+        outboundContext,
+        recordClaimDecisionImpl,
+        getClaimImpl,
+      });
+    } else if (endpoint === 'claim/on_status') {
+      domainResult = { statusOnly: true, workflowMutation: false };
     }
     const updated = await markEnvelope({ id: envelope.id, status: 'processed', issues: [] });
     return { duplicate: false, envelope: updated || envelope, processed: true, domainResult, validation: profileResult };
