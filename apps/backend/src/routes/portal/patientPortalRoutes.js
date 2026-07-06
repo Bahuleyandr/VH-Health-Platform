@@ -17,6 +17,12 @@ import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
 import * as portalAccess from '../../services/portal/portalAccessService.js';
 import { getPatientWhatsNext } from '../../services/carePlan/carePlanService.js';
+import {
+  ensureTeleconsultationForAppointment,
+  getTeleconsultRoomState,
+  issueJoinToken,
+  recordTeleconsultConsent,
+} from '../../services/telemedicine/teleconsultProvisioningService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
@@ -364,6 +370,44 @@ router.get('/clinical-notes/:id', requirePatient, wrap(async (req) => {
   logClinicalNoteAccess(req);
   return result;
 }));
+
+// -- Teleconsult lobby (patient self) ---------------------------------------
+// The patient app enters from an appointment card/detail. These routes derive
+// patient_uid from the authenticated token and never accept a body patient_uid.
+
+router.get('/teleconsult/appointments/:appointmentId/lobby-state', requirePatient, wrap(async (req) => {
+  const teleconsultation = await ensureTeleconsultationForAppointment({
+    tenantId: tenantOf(req),
+    appointmentId: req.params.appointmentId,
+    actorUid: patientUidOf(req),
+    role: 'PATIENT',
+  });
+  return getTeleconsultRoomState({
+    tenantId: tenantOf(req),
+    teleconsultationId: teleconsultation.id,
+  });
+}));
+
+router.post('/teleconsult/teleconsultations/:teleconsultationId/consent', requirePatient, wrap(async (req) =>
+  recordTeleconsultConsent({
+    tenantId: tenantOf(req),
+    teleconsultationId: req.params.teleconsultationId,
+    participantUid: patientUidOf(req),
+    actorUid: patientUidOf(req),
+    actorRole: 'PATIENT',
+    consentPayload: req.body?.consent_payload || req.body || {},
+    ipAddress: req.ip,
+  }),
+));
+
+router.post('/teleconsult/teleconsultations/:teleconsultationId/token', requirePatient, wrap(async (req) =>
+  issueJoinToken({
+    tenantId: tenantOf(req),
+    teleconsultationId: req.params.teleconsultationId,
+    participantUid: patientUidOf(req),
+    role: 'patient',
+  }),
+));
 
 // ── Clinical AI explainers (accepted human-review outputs only) ──────
 router.get('/explainers', requirePatient, attachPatientPhiContext, wrap(async (req) =>

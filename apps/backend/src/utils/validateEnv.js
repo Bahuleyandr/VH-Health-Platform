@@ -260,6 +260,36 @@ export const envSchema = Joi.object({
     .optional()
     .label('REVENUE_CYCLE_TRACKER_ENABLED'),
 
+  // NL-3 P1 teleconsult media. Disabled by default: deployments must
+  // explicitly provision self-hosted LiveKit inside hospital-owned infra before
+  // any room or token endpoint can mint access. Recording/Egress is not
+  // configured for MVP.
+  LIVEKIT_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('LIVEKIT_ENABLED'),
+  LIVEKIT_SERVER_URL: Joi.when('LIVEKIT_ENABLED', {
+    is: 'true',
+    then: Joi.string().uri({ scheme: ['http', 'https', 'ws', 'wss'] }).required(),
+    otherwise: Joi.string().uri({ scheme: ['http', 'https', 'ws', 'wss'] }).allow('').optional(),
+  }).label('LIVEKIT_SERVER_URL'),
+  LIVEKIT_API_KEY: Joi.when('LIVEKIT_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('LIVEKIT_API_KEY'),
+  LIVEKIT_API_SECRET: Joi.when('LIVEKIT_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(MIN_KEY_LENGTH).required(),
+    otherwise: Joi.string().min(MIN_KEY_LENGTH).allow('').optional(),
+  }).label('LIVEKIT_API_SECRET'),
+  TELECONSULT_TOKEN_TTL_SECONDS: Joi.number()
+    .integer()
+    .min(300)
+    .max(600)
+    .default(600)
+    .label('TELECONSULT_TOKEN_TTL_SECONDS'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',

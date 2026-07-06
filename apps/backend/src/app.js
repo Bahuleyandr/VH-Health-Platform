@@ -206,6 +206,7 @@ import productivityRoutes from './routes/productivity/productivityRoutes.js';
 import dashboardsRoutes from './routes/dashboards/dashboardsRoutes.js';
 import patientPortalRoutes from './routes/portal/patientPortalRoutes.js';
 import staffMessagingRoutes from './routes/portal/staffMessagingRoutes.js';
+import teleconsultProvisioningRoutes from './routes/telemedicine/teleconsultProvisioningRoutes.js';
 import dischargeRoutes from './routes/discharge/dischargeRoutes.js';
 import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
 import revenueCycleTrackerRoutes from './routes/billing/revenueCycleTrackerRoutes.js';
@@ -1150,6 +1151,7 @@ app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patien
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/clinical-alerts', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ALERTS'), clinicalAlertsRoutes);
+app.use('/api/v1/teleconsult', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('TELECONSULTATION'), teleconsultProvisioningRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
 app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
