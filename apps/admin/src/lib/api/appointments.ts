@@ -52,6 +52,7 @@ export function bookAppointmentAdmin(data: {
   appointment_time: string;
   reason: string;
   notes?: string;
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
 }) {
   return postJSON<BookAppointmentResult>(API_ENDPOINTS.appointments.book, data);
 }
@@ -96,6 +97,7 @@ export function overrideBookAppointment(data: {
   reason?: string;
   override_reason?: string;
   ignore_conflicts?: boolean;
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
 }) {
   return postJSON<OverrideBookResult>(
     API_ENDPOINTS.appointments.admin.overrideBook,

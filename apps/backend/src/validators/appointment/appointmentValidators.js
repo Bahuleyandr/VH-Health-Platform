@@ -131,6 +131,11 @@ export const createAppointmentValidators = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage('Notes cannot exceed 1000 characters'),
+  body('visit_type')
+    .optional({ values: 'falsy' })
+    .customSanitizer((value) => String(value || '').trim().toUpperCase())
+    .isIn(APPOINTMENT_CONFIG.VISIT_TYPES)
+    .withMessage(`Visit type must be one of: ${APPOINTMENT_CONFIG.VISIT_TYPES.join(', ')}`),
   handleValidationErrors
 ];
 
@@ -191,6 +196,11 @@ export const updateAppointmentValidators = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage('Notes cannot exceed 1000 characters'),
+  body('visit_type')
+    .optional({ values: 'falsy' })
+    .customSanitizer((value) => String(value || '').trim().toUpperCase())
+    .isIn(APPOINTMENT_CONFIG.VISIT_TYPES)
+    .withMessage(`Visit type must be one of: ${APPOINTMENT_CONFIG.VISIT_TYPES.join(', ')}`),
   handleValidationErrors
 ];
 

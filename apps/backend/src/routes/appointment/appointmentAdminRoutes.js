@@ -1,5 +1,6 @@
 // src/routes/appointment/appointmentAdminRoutes.js
 import express from 'express';
+import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import prisma from '../../lib/prisma.js';
@@ -585,8 +586,18 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
       try {
         const {
           patient_id, doctor_id, appointment_date,
-          reason, override_reason, ignore_conflicts = false
+          reason, override_reason, ignore_conflicts = false, visit_type
         } = req.body;
+        const normalizedVisitType = visit_type
+          ? String(visit_type).trim().toUpperCase()
+          : null;
+        if (normalizedVisitType && !APPOINTMENT_CONFIG.VISIT_TYPES.includes(normalizedVisitType)) {
+          return error(
+            res,
+            `Visit type must be one of: ${APPOINTMENT_CONFIG.VISIT_TYPES.join(', ')}`,
+            HTTP_STATUS.BAD_REQUEST,
+          );
+        }
 
         // Check for conflicts unless explicitly ignored
         if (!ignore_conflicts) {
@@ -622,20 +633,21 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             uid, patient_id, doctor_id, phone, doctor_name, patient_name,
             appointment_date, appointment_time, reason,
             status, created_at, updated_at, created_by,
-            notes, admin_override, override_reason
+            notes, admin_override, override_reason, visit_type
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, $5,
             $6::timestamp::date, to_char($6::timestamp, 'HH24:MI'), $7,
             'SCHEDULED', NOW(), NOW(), $8,
-            $9, true, $10
+            $9, true, $10, $11
           )
-          RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, created_at, created_by, updated_at
+          RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, visit_type, created_at, created_by, updated_at
         `,
           patient_id, doctor_id, patientPhone, doctorName, patientName,
           appointment_date, reason,
           req.user?.uid,
           `Admin override booking by ${req.user?.name}`,
-          override_reason
+          override_reason,
+          normalizedVisitType
         );
 
         logger.info(`Admin ${req.user?.name} override booked appointment ${result[0].id}`);

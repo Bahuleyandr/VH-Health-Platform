@@ -17,6 +17,14 @@ export const APPOINTMENT_CONFIG = {
   
   DATE_FORMAT: 'DD-MM-YYYY',
   TIME_FORMAT: 'HH:mm',
+  VISIT_TYPES: [
+    'NEW',
+    'FOLLOW_UP',
+    'EMERGENCY',
+    'TELE',
+    'LAB_ONLY',
+    'PAEDIATRIC_OPD',
+  ],
   
   ROLES: {
     ADMIN: 'ADMIN',

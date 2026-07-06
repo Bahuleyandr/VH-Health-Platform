@@ -38,6 +38,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
   DoctorInfo? _selectedDoctor;
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
+  String _visitType = 'NEW';
 
   // Slot picker state
   List<Map<String, dynamic>> _availableSlots = [];
@@ -167,6 +168,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
           'doctor_id': _selectedDoctor!.id,
           'appointment_date': dateStr,
           'appointment_time': timeStr,
+          'visit_type': _visitType,
           'reason': _reasonController.text.trim().isEmpty
               ? 'General consultation'
               : _reasonController.text.trim(),
@@ -458,6 +460,26 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
               dropdownColor: theme.cardColor,
               iconEnabledColor: cs.primary,
             ),
+          const SizedBox(height: 12),
+
+          DropdownButtonFormField<String>(
+            initialValue: _visitType,
+            decoration: const InputDecoration(labelText: 'Visit type'),
+            items: const [
+              DropdownMenuItem(
+                value: 'NEW',
+                child: Text('In-person consultation'),
+              ),
+              DropdownMenuItem(
+                value: 'TELE',
+                child: Text('Teleconsult (video visit)'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() => _visitType = value);
+            },
+          ),
           const SizedBox(height: 12),
 
           // Reason

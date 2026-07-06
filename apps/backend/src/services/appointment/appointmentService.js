@@ -114,14 +114,7 @@ export class AppointmentService {
     const visitType = visit_type
       ? String(visit_type).trim().toUpperCase()
       : null;
-    const allowedVisitTypes = new Set([
-      'NEW',
-      'FOLLOW_UP',
-      'EMERGENCY',
-      'TELE',
-      'LAB_ONLY',
-      'PAEDIATRIC_OPD',
-    ]);
+    const allowedVisitTypes = new Set(APPOINTMENT_CONFIG.VISIT_TYPES);
     const resolvedVisitType = allowedVisitTypes.has(visitType) ? visitType : null;
     const hasDoctorId = doctor_id !== undefined && doctor_id !== null && String(doctor_id).trim() !== '';
 

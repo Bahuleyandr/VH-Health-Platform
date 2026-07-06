@@ -90,6 +90,9 @@ export function BookAppointmentDialog({
   const [doctorId, setDoctorId] = useState("");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("10:00");
+  const [visitType, setVisitType] = useState<
+    "NEW" | "FOLLOW_UP" | "TELE"
+  >("NEW");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -167,6 +170,7 @@ export function BookAppointmentDialog({
         appointment_time: time,
         reason: reason.trim(),
         notes: notes.trim() || undefined,
+        visit_type: visitType,
       });
       toast.success("Appointment booked");
       onSuccess();
@@ -262,6 +266,21 @@ export function BookAppointmentDialog({
                 className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Visit Type</label>
+            <select
+              value={visitType}
+              onChange={(event) =>
+                setVisitType(event.target.value as "NEW" | "FOLLOW_UP" | "TELE")
+              }
+              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+            >
+              <option value="NEW">New consultation</option>
+              <option value="FOLLOW_UP">Follow-up</option>
+              <option value="TELE">Teleconsult - video visit</option>
+            </select>
           </div>
 
           <div>
