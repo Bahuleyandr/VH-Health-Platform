@@ -1,4 +1,6 @@
 import '../../../l10n/app_strings.dart';
+import '../../teleconsult/models/staff_teleconsult_models.dart';
+import '../../teleconsult/models/staff_teleconsult_route_args.dart';
 
 class StaffAppointment {
   final Map<String, dynamic> raw;
@@ -15,6 +17,8 @@ class StaffAppointment {
   final String appointmentDate;
   final String appointmentTime;
   final String tokenNumber;
+  final String visitType;
+  final StaffTeleconsultLobbyState? teleconsultState;
   final double minutesSinceBooking;
   final bool slaBreached;
 
@@ -33,6 +37,8 @@ class StaffAppointment {
     required this.appointmentDate,
     required this.appointmentTime,
     required this.tokenNumber,
+    required this.visitType,
+    required this.teleconsultState,
     required this.minutesSinceBooking,
     required this.slaBreached,
   });
@@ -111,6 +117,11 @@ class StaffAppointment {
       appointmentDate: date.contains('T') ? date.split('T').first : date,
       appointmentTime: _firstText([json['appointment_time'], json['time']]),
       tokenNumber: _firstText([json['token_number'], json['tokenNumber']]),
+      visitType: _firstText([
+        json['visit_type'],
+        json['visitType'],
+      ]).toUpperCase(),
+      teleconsultState: _teleconsultStateFrom(json),
       minutesSinceBooking: _doubleFrom(json['minutes_since_booking']),
       slaBreached: _boolFrom(json['sla_breached']),
     );
@@ -142,6 +153,38 @@ class StaffAppointment {
   }
 
   bool get isScheduled => status.toUpperCase() == 'SCHEDULED';
+
+  bool get isTeleconsult => visitType == 'TELE';
+
+  bool get teleconsultBadgeVisible => isTeleconsult;
+
+  bool get teleconsultCanOpen =>
+      isTeleconsult &&
+      teleconsultState?.joinable == true &&
+      teleconsultState?.teleconsultationId != null;
+
+  bool canCurrentStaffJoinTeleconsult(int? staffId) {
+    if (!teleconsultCanOpen) return false;
+    if (doctorId == null) return true;
+    return staffId != null && doctorId == staffId;
+  }
+
+  StaffTeleconsultAppointmentContext toTeleconsultContext() {
+    return StaffTeleconsultAppointmentContext(
+      appointmentId: id ?? 0,
+      teleconsultationId: teleconsultState?.teleconsultationId,
+      patientUid: patientUid,
+      patientName: patientName,
+      patientId: patientId,
+      doctorId: doctorId,
+      doctorName: doctorName,
+      department: department,
+      reason: reason,
+      appointmentDate: appointmentDate,
+      appointmentTime: appointmentTime,
+      status: status,
+    );
+  }
 
   String get reasonLabel => reason.isEmpty ? '-' : reason;
 
@@ -229,4 +272,13 @@ double _doubleFrom(dynamic value) {
 bool _boolFrom(dynamic value) {
   if (value is bool) return value;
   return value?.toString().toLowerCase() == 'true';
+}
+
+StaffTeleconsultLobbyState? _teleconsultStateFrom(Map<String, dynamic> json) {
+  final visitType = _firstText([
+    json['visit_type'],
+    json['visitType'],
+  ]).toUpperCase();
+  if (visitType != 'TELE') return null;
+  return StaffTeleconsultLobbyState.fromJson(json);
 }
