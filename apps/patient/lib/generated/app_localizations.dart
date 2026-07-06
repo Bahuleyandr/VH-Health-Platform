@@ -6733,6 +6733,348 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Placing order...'**
   String get pharmacyPlacingOrderButton;
+
+  /// Patient app UI string. Teleconsult appointment detail screen title.
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment details'**
+  String get appointmentDetailTitle;
+
+  /// Patient app UI string. Appointment detail date label.
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
+  String get appointmentDetailDate;
+
+  /// Patient app UI string. Appointment detail time label.
+  ///
+  /// In en, this message translates to:
+  /// **'Time'**
+  String get appointmentDetailTime;
+
+  /// Patient app UI string. Appointment detail reason label.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get appointmentDetailReason;
+
+  /// Patient app UI string. Badge for teleconsult appointments.
+  ///
+  /// In en, this message translates to:
+  /// **'TELE'**
+  String get teleconsultBadge;
+
+  /// Patient app UI string. Primary join action for teleconsult appointments.
+  ///
+  /// In en, this message translates to:
+  /// **'Join video consult'**
+  String get teleconsultJoinVideoConsult;
+
+  /// Patient app UI string. Status while loading teleconsult lobby state.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking teleconsult status'**
+  String get teleconsultStateChecking;
+
+  /// Patient app UI string. Teleconsult state title before lobby opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Lobby opens closer to your visit'**
+  String get teleconsultNotYet;
+
+  /// Patient app UI string. Teleconsult state title when patient can join.
+  ///
+  /// In en, this message translates to:
+  /// **'Lobby is open'**
+  String get teleconsultLobbyOpen;
+
+  /// Patient app UI string. Teleconsult state title while visit is active.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation in progress'**
+  String get teleconsultInProgress;
+
+  /// Patient app UI string. Teleconsult state title after the visit ends.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation ended'**
+  String get teleconsultEnded;
+
+  /// Patient app UI string. Teleconsult state title when cancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation cancelled'**
+  String get teleconsultCancelled;
+
+  /// Patient app UI string. Teleconsult unavailable state title.
+  ///
+  /// In en, this message translates to:
+  /// **'Teleconsultation is not available yet'**
+  String get teleconsultUnavailableYet;
+
+  /// Patient app UI string. Unknown teleconsult state title.
+  ///
+  /// In en, this message translates to:
+  /// **'Teleconsult status is unavailable'**
+  String get teleconsultStateUnknown;
+
+  /// Patient app UI string. Body for pre-lobby teleconsult status.
+  ///
+  /// In en, this message translates to:
+  /// **'You can enter the lobby shortly before the scheduled time.'**
+  String get teleconsultNotYetBody;
+
+  /// Patient app UI string. Body for open teleconsult lobby status.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm consent and check your camera or microphone to continue.'**
+  String get teleconsultLobbyOpenBody;
+
+  /// Patient app UI string. Body for active teleconsult state.
+  ///
+  /// In en, this message translates to:
+  /// **'The consultation is active. You can rejoin while it remains open.'**
+  String get teleconsultInProgressBody;
+
+  /// Patient app UI string. Body for ended teleconsult state.
+  ///
+  /// In en, this message translates to:
+  /// **'This video consultation is closed.'**
+  String get teleconsultEndedBody;
+
+  /// Patient app UI string. Body for cancelled teleconsult state.
+  ///
+  /// In en, this message translates to:
+  /// **'This video consultation was cancelled.'**
+  String get teleconsultCancelledBody;
+
+  /// Patient app UI string. Body for unavailable teleconsult state.
+  ///
+  /// In en, this message translates to:
+  /// **'Video is not enabled for this visit right now. Secure messages remain available.'**
+  String get teleconsultUnavailableBody;
+
+  /// Patient app UI string. Body for unknown teleconsult state.
+  ///
+  /// In en, this message translates to:
+  /// **'Pull down or tap refresh to check again.'**
+  String get teleconsultStateUnknownBody;
+
+  /// Patient app UI string. Recording-off disclosure.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording is off for this consultation.'**
+  String get teleconsultRecordingOff;
+
+  /// Patient app UI string. Teleconsult lobby screen title.
+  ///
+  /// In en, this message translates to:
+  /// **'Video consult lobby'**
+  String get teleconsultLobbyTitle;
+
+  /// Patient app UI string. Teleconsult refresh tooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get teleconsultRefresh;
+
+  /// Patient app UI string. Device readiness state before checks.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera and microphone have not been checked.'**
+  String get teleconsultDeviceNotChecked;
+
+  /// Patient app UI string. Button to request camera and microphone permissions.
+  ///
+  /// In en, this message translates to:
+  /// **'Check devices'**
+  String get teleconsultCheckDevices;
+
+  /// Patient app UI string. Device check in-progress label.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking...'**
+  String get teleconsultCheckingDevices;
+
+  /// Patient app UI string. Device ready state for video.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera and microphone are ready.'**
+  String get teleconsultDeviceVideoReady;
+
+  /// Patient app UI string. Device ready state for audio-only fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone is ready. Video is unavailable, so audio-only is recommended.'**
+  String get teleconsultDeviceAudioOnly;
+
+  /// Patient app UI string. Device unavailable state.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone permission is required to join.'**
+  String get teleconsultDeviceUnavailable;
+
+  /// Patient app UI string. Error shown when device readiness blocks joining.
+  ///
+  /// In en, this message translates to:
+  /// **'Please allow microphone access before joining.'**
+  String get teleconsultDeviceRequired;
+
+  /// Patient app UI string. Consent checklist title.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent before joining'**
+  String get teleconsultConsentTitle;
+
+  /// Patient app UI string. Consent checkbox for identity confirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'I confirm this appointment is for me.'**
+  String get teleconsultConsentIdentity;
+
+  /// Patient app UI string. Consent checkbox for remote consultation.
+  ///
+  /// In en, this message translates to:
+  /// **'I agree to a remote video or audio consultation.'**
+  String get teleconsultConsentRemote;
+
+  /// Patient app UI string. Consent checkbox for degradation fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand video may switch to audio-only or secure messages.'**
+  String get teleconsultConsentDegradation;
+
+  /// Patient app UI string. Consent checkbox for emergency limitation.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand this is not for emergencies.'**
+  String get teleconsultConsentEmergency;
+
+  /// Patient app UI string. Consent checkbox for recording-off disclosure.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand recording is off.'**
+  String get teleconsultConsentRecordingOff;
+
+  /// Patient app UI string. Error shown when consent is incomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Please accept all consent items before joining.'**
+  String get teleconsultConsentRequired;
+
+  /// Patient app UI string. Error shown when consent submission fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not record consent. Please try again.'**
+  String get teleconsultConsentFailed;
+
+  /// Patient app UI string. Button after consent and device checks.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue to call'**
+  String get teleconsultContinueToCall;
+
+  /// Patient app UI string. Active teleconsult screen title.
+  ///
+  /// In en, this message translates to:
+  /// **'Video consultation'**
+  String get teleconsultConsultTitle;
+
+  /// Patient app UI string. LiveKit connection progress label.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting to the consultation...'**
+  String get teleconsultConnecting;
+
+  /// Patient app UI string. Fallback banner when media join fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Video is unavailable. You can continue through secure messages.'**
+  String get teleconsultVideoUnavailableChatAvailable;
+
+  /// Patient app UI string. Banner shown when video is disabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio-only mode is active.'**
+  String get teleconsultAudioOnlyBanner;
+
+  /// Patient app UI string. Banner shown when backend marks consult terminal.
+  ///
+  /// In en, this message translates to:
+  /// **'The consultation has ended.'**
+  String get teleconsultCallEnded;
+
+  /// Patient app UI string. Accessibility label for remote video.
+  ///
+  /// In en, this message translates to:
+  /// **'Doctor video'**
+  String get teleconsultRemoteVideo;
+
+  /// Patient app UI string. Accessibility label for local preview.
+  ///
+  /// In en, this message translates to:
+  /// **'Your video'**
+  String get teleconsultLocalVideo;
+
+  /// Patient app UI string. Tooltip for enabled microphone.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone on'**
+  String get teleconsultMicrophoneOn;
+
+  /// Patient app UI string. Tooltip for disabled microphone.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone off'**
+  String get teleconsultMicrophoneOff;
+
+  /// Patient app UI string. Tooltip for enabled camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera on'**
+  String get teleconsultCameraOn;
+
+  /// Patient app UI string. Tooltip for disabled camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera off'**
+  String get teleconsultCameraOff;
+
+  /// Patient app UI string. Button to switch to audio-only mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio only'**
+  String get teleconsultSwitchAudioOnly;
+
+  /// Patient app UI string. Button to open secure-message fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Secure messages'**
+  String get teleconsultOpenSecureMessages;
+
+  /// Patient app UI string. Error when secure-message fallback fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open secure messages. Please try again.'**
+  String get teleconsultSecureMessagesFailed;
+
+  /// Patient app UI string. Subject for secure-message fallback thread.
+  ///
+  /// In en, this message translates to:
+  /// **'Video consult follow-up'**
+  String get teleconsultSecureMessageSubject;
+
+  /// Patient app UI string. Initial body for secure-message fallback thread.
+  ///
+  /// In en, this message translates to:
+  /// **'I need to continue my video consult in secure messages.'**
+  String get teleconsultSecureMessageBody;
+
+  /// Patient app UI string. Button to leave the teleconsult.
+  ///
+  /// In en, this message translates to:
+  /// **'End call'**
+  String get teleconsultEndCall;
 }
 
 class _AppLocalizationsDelegate

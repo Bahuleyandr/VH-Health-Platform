@@ -8,8 +8,10 @@ const buildEligibilityMock = jest.fn();
 const buildPreauthMock = jest.fn();
 const buildClaimMock = jest.fn();
 const buildTaskMock = jest.fn();
+const buildCommunicationMock = jest.fn();
 const persistEnvelopeMock = jest.fn();
 const submitClaimMock = jest.fn();
+const createCommunicationResponseMock = jest.fn();
 
 const prismaMock = { $queryRawUnsafe: queryUnsafeMock };
 
@@ -24,6 +26,7 @@ jest.unstable_mockModule('../../services/nhcx/nhcxTenantConfigService.js', () =>
 jest.unstable_mockModule('../../services/nhcx/nhcxFhirProfileService.js', () => ({
   buildClaimRequestBundle: buildClaimMock,
   buildClaimStatusTaskBundle: buildTaskMock,
+  buildCommunicationResponseBundle: buildCommunicationMock,
   buildCoverageEligibilityRequestBundle: buildEligibilityMock,
   buildPreauthClaimRequestBundle: buildPreauthMock,
   persistOutboundNHCXEnvelope: persistEnvelopeMock,
@@ -33,10 +36,15 @@ jest.unstable_mockModule('../../services/insurance/claimsService.js', () => ({
   submitClaim: submitClaimMock,
 }));
 
+jest.unstable_mockModule('../../services/nhcx/nhcxCommunicationService.js', () => ({
+  createOutboundCommunicationResponse: createCommunicationResponseMock,
+}));
+
 const {
   dispatchPendingNHCXMessages,
   enqueueClaimStatusCheck,
   enqueueClaimSubmit,
+  enqueueCommunicationResponse,
   redriveNHCXMessage,
   __testing__,
 } = await import('../../services/nhcx/nhcxOutboundDispatcherService.js');
@@ -147,6 +155,16 @@ function builtTask() {
   };
 }
 
+function builtCommunication() {
+  return {
+    ...builtClaim(),
+    payloadHash: 'hash-communication-current',
+    profileUrl: 'https://example.test/CommunicationBundle',
+    domainResourceType: 'Communication',
+    documentIds: [],
+  };
+}
+
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   runtimeMock.mockReset();
@@ -154,13 +172,27 @@ beforeEach(() => {
   buildPreauthMock.mockReset();
   buildClaimMock.mockReset();
   buildTaskMock.mockReset();
+  buildCommunicationMock.mockReset();
   persistEnvelopeMock.mockReset();
   submitClaimMock.mockReset();
+  createCommunicationResponseMock.mockReset();
   runtimeMock.mockResolvedValue(runtime());
   buildPreauthMock.mockResolvedValue(builtPreauth());
   buildClaimMock.mockResolvedValue(builtClaim());
   buildTaskMock.mockResolvedValue(builtTask());
+  buildCommunicationMock.mockResolvedValue(builtCommunication());
   submitClaimMock.mockResolvedValue({ id: 88, status: 'submitted' });
+  createCommunicationResponseMock.mockResolvedValue({
+    correspondence: { id: 501, claim_id: 88 },
+    documents: [],
+    claimId: 88,
+    preauthId: null,
+    hcx: {
+      apiCallId: 'communication-api-1',
+      correlationId: 'claim-corr-1',
+      workflowId: '7001',
+    },
+  });
 });
 
 describe('nhcxOutboundDispatcherService JWE helpers', () => {
@@ -284,6 +316,34 @@ describe('dispatchPendingNHCXMessages', () => {
     expect(markFailedCall[3]).toBe('HTTP_503');
     expect(markFailedCall[5]).toBeInstanceOf(Date);
   });
+
+  it('encrypts the current Communication response snapshot and dispatches through communication/request', async () => {
+    const row = claimRow({
+      cycle: 'communication',
+      endpoint: 'communication/request',
+      hcx_api_call_id: 'communication-api-1',
+    });
+    queryUnsafeMock.mockResolvedValueOnce([row]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-communication-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, status: 'accepted' }]);
+
+    const fetchMock = jest.fn(async () => new Response(JSON.stringify({ status: 'accepted' }), { status: 202 }));
+    const result = await dispatchPendingNHCXMessages({
+      tenantId: TENANT,
+      fetchImpl: fetchMock,
+      allowDisabled: true,
+    });
+
+    expect(result).toEqual({ dispatched: 1, accepted: 1, failed: 0, dead: 0 });
+    expect(buildCommunicationMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      hcxApiCallId: 'communication-api-1',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://nhcx.example.test/v0.9/communication/request',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });
 
 describe('enqueueClaimSubmit', () => {
@@ -350,6 +410,43 @@ describe('enqueueClaimStatusCheck', () => {
       endpoint: 'claim/status',
       claimId: 88,
       domainResourceType: 'Task',
+    }));
+  });
+});
+
+describe('enqueueCommunicationResponse', () => {
+  it('queues a text-only Communication response from inbound correspondence', async () => {
+    persistEnvelopeMock.mockResolvedValue({ envelope: { id: '50', cycle: 'communication' }, payloadHash: 'hash-communication-current' });
+
+    const result = await enqueueCommunicationResponse({
+      tenantId: TENANT,
+      inboundCorrespondenceId: 500,
+      responseText: 'Attached documents are not required; answer is text-only.',
+      documentIds: [],
+      recordedBy: '22222222-2222-4222-8222-222222222222',
+      hcxApiCallId: 'communication-api-1',
+      allowDisabled: true,
+    });
+
+    expect(result.envelope.cycle).toBe('communication');
+    expect(createCommunicationResponseMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      inboundCorrespondenceId: 500,
+      responseText: 'Attached documents are not required; answer is text-only.',
+      documentIds: [],
+      recordedBy: '22222222-2222-4222-8222-222222222222',
+      hcxApiCallId: 'communication-api-1',
+    }));
+    expect(buildCommunicationMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      hcxApiCallId: 'communication-api-1',
+    }));
+    expect(persistEnvelopeMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      cycle: 'communication',
+      endpoint: 'communication/request',
+      claimId: 88,
+      domainResourceType: 'Communication',
     }));
   });
 });

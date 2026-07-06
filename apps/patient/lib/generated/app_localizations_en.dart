@@ -3577,4 +3577,196 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pharmacyPlacingOrderButton => 'Placing order...';
+
+  @override
+  String get appointmentDetailTitle => 'Appointment details';
+
+  @override
+  String get appointmentDetailDate => 'Date';
+
+  @override
+  String get appointmentDetailTime => 'Time';
+
+  @override
+  String get appointmentDetailReason => 'Reason';
+
+  @override
+  String get teleconsultBadge => 'TELE';
+
+  @override
+  String get teleconsultJoinVideoConsult => 'Join video consult';
+
+  @override
+  String get teleconsultStateChecking => 'Checking teleconsult status';
+
+  @override
+  String get teleconsultNotYet => 'Lobby opens closer to your visit';
+
+  @override
+  String get teleconsultLobbyOpen => 'Lobby is open';
+
+  @override
+  String get teleconsultInProgress => 'Consultation in progress';
+
+  @override
+  String get teleconsultEnded => 'Consultation ended';
+
+  @override
+  String get teleconsultCancelled => 'Consultation cancelled';
+
+  @override
+  String get teleconsultUnavailableYet =>
+      'Teleconsultation is not available yet';
+
+  @override
+  String get teleconsultStateUnknown => 'Teleconsult status is unavailable';
+
+  @override
+  String get teleconsultNotYetBody =>
+      'You can enter the lobby shortly before the scheduled time.';
+
+  @override
+  String get teleconsultLobbyOpenBody =>
+      'Confirm consent and check your camera or microphone to continue.';
+
+  @override
+  String get teleconsultInProgressBody =>
+      'The consultation is active. You can rejoin while it remains open.';
+
+  @override
+  String get teleconsultEndedBody => 'This video consultation is closed.';
+
+  @override
+  String get teleconsultCancelledBody =>
+      'This video consultation was cancelled.';
+
+  @override
+  String get teleconsultUnavailableBody =>
+      'Video is not enabled for this visit right now. Secure messages remain available.';
+
+  @override
+  String get teleconsultStateUnknownBody =>
+      'Pull down or tap refresh to check again.';
+
+  @override
+  String get teleconsultRecordingOff =>
+      'Recording is off for this consultation.';
+
+  @override
+  String get teleconsultLobbyTitle => 'Video consult lobby';
+
+  @override
+  String get teleconsultRefresh => 'Refresh';
+
+  @override
+  String get teleconsultDeviceNotChecked =>
+      'Camera and microphone have not been checked.';
+
+  @override
+  String get teleconsultCheckDevices => 'Check devices';
+
+  @override
+  String get teleconsultCheckingDevices => 'Checking...';
+
+  @override
+  String get teleconsultDeviceVideoReady => 'Camera and microphone are ready.';
+
+  @override
+  String get teleconsultDeviceAudioOnly =>
+      'Microphone is ready. Video is unavailable, so audio-only is recommended.';
+
+  @override
+  String get teleconsultDeviceUnavailable =>
+      'Microphone permission is required to join.';
+
+  @override
+  String get teleconsultDeviceRequired =>
+      'Please allow microphone access before joining.';
+
+  @override
+  String get teleconsultConsentTitle => 'Consent before joining';
+
+  @override
+  String get teleconsultConsentIdentity =>
+      'I confirm this appointment is for me.';
+
+  @override
+  String get teleconsultConsentRemote =>
+      'I agree to a remote video or audio consultation.';
+
+  @override
+  String get teleconsultConsentDegradation =>
+      'I understand video may switch to audio-only or secure messages.';
+
+  @override
+  String get teleconsultConsentEmergency =>
+      'I understand this is not for emergencies.';
+
+  @override
+  String get teleconsultConsentRecordingOff => 'I understand recording is off.';
+
+  @override
+  String get teleconsultConsentRequired =>
+      'Please accept all consent items before joining.';
+
+  @override
+  String get teleconsultConsentFailed =>
+      'Could not record consent. Please try again.';
+
+  @override
+  String get teleconsultContinueToCall => 'Continue to call';
+
+  @override
+  String get teleconsultConsultTitle => 'Video consultation';
+
+  @override
+  String get teleconsultConnecting => 'Connecting to the consultation...';
+
+  @override
+  String get teleconsultVideoUnavailableChatAvailable =>
+      'Video is unavailable. You can continue through secure messages.';
+
+  @override
+  String get teleconsultAudioOnlyBanner => 'Audio-only mode is active.';
+
+  @override
+  String get teleconsultCallEnded => 'The consultation has ended.';
+
+  @override
+  String get teleconsultRemoteVideo => 'Doctor video';
+
+  @override
+  String get teleconsultLocalVideo => 'Your video';
+
+  @override
+  String get teleconsultMicrophoneOn => 'Microphone on';
+
+  @override
+  String get teleconsultMicrophoneOff => 'Microphone off';
+
+  @override
+  String get teleconsultCameraOn => 'Camera on';
+
+  @override
+  String get teleconsultCameraOff => 'Camera off';
+
+  @override
+  String get teleconsultSwitchAudioOnly => 'Audio only';
+
+  @override
+  String get teleconsultOpenSecureMessages => 'Secure messages';
+
+  @override
+  String get teleconsultSecureMessagesFailed =>
+      'Could not open secure messages. Please try again.';
+
+  @override
+  String get teleconsultSecureMessageSubject => 'Video consult follow-up';
+
+  @override
+  String get teleconsultSecureMessageBody =>
+      'I need to continue my video consult in secure messages.';
+
+  @override
+  String get teleconsultEndCall => 'End call';
 }

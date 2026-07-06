@@ -15,6 +15,8 @@ class ApiConfig {
 
   // All credential reads/writes route through the centralized encrypted store.
   static final _storage = VHSecureStorage.instance;
+  static const _staffJwtKey = 'staff_jwt';
+  static const _coreJwtKey = 'jwt';
 
   // ── Delegate shared config to core ─────────────────────────────────────
   static String get baseUrl => core.ApiConfig.baseUrl;
@@ -23,7 +25,9 @@ class ApiConfig {
 
   // ── Staff-specific authenticated headers (uses staff_jwt key) ──────────
   static Future<Map<String, String>> authenticatedHeaders() async {
-    final jwt = await _storage.read(key: 'jwt');
+    final jwt =
+        await _storage.read(key: _staffJwtKey) ??
+        await _storage.read(key: _coreJwtKey);
     return {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
@@ -33,7 +37,8 @@ class ApiConfig {
 
   // ── Staff credential storage ───────────────────────────────────────────
   static Future<void> saveJwt(String jwt) async {
-    await _storage.write(key: 'jwt', value: jwt);
+    await _storage.write(key: _staffJwtKey, value: jwt);
+    await _storage.write(key: _coreJwtKey, value: jwt);
   }
 
   static Future<void> saveStaffId(String staffId) async {
@@ -52,7 +57,9 @@ class ApiConfig {
     final stored = await _storage.read(key: 'staff_uid');
     if (stored != null && stored.trim().isNotEmpty) return stored.trim();
 
-    final jwt = await _storage.read(key: 'jwt');
+    final jwt =
+        await _storage.read(key: _staffJwtKey) ??
+        await _storage.read(key: _coreJwtKey);
     final decoded = _staffUidFromJwt(jwt);
     if (decoded != null && decoded.isNotEmpty) {
       await saveStaffUid(decoded);
@@ -88,7 +95,8 @@ class ApiConfig {
   static Future<void> clearSessionIdentity() async {
     const keys = [
       // Shared core auth keys.
-      'jwt',
+      _coreJwtKey,
+      _staffJwtKey,
       'refreshToken',
       'userPhone',
       'userRole',
@@ -112,7 +120,9 @@ class ApiConfig {
 
   static Future<bool> isLoggedIn() async {
     try {
-      final jwt = await _storage.read(key: 'jwt');
+      final jwt =
+          await _storage.read(key: _staffJwtKey) ??
+          await _storage.read(key: _coreJwtKey);
       if (jwt == null || jwt.isEmpty) return false;
       // Basic JWT shape: header.payload.signature with non-empty parts.
       // Without this, any non-empty garbage in storage (e.g. after a
@@ -121,14 +131,16 @@ class ApiConfig {
       // user ever signed in.
       final parts = jwt.split('.');
       if (parts.length != 3 || parts.any((p) => p.isEmpty)) {
-        await _storage.delete(key: 'jwt');
+        await _storage.delete(key: _staffJwtKey);
+        await _storage.delete(key: _coreJwtKey);
         return false;
       }
       return true;
     } catch (_) {
       // SecureStorage corruption / keystore error → log out for safety.
       try {
-        await _storage.delete(key: 'jwt');
+        await _storage.delete(key: _staffJwtKey);
+        await _storage.delete(key: _coreJwtKey);
       } catch (_) {}
       return false;
     }

@@ -3588,4 +3588,195 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get pharmacyPlacingOrderButton => 'ऑर्डर दिया जा रहा है...';
+
+  @override
+  String get appointmentDetailTitle => 'अपॉइंटमेंट विवरण';
+
+  @override
+  String get appointmentDetailDate => 'तारीख';
+
+  @override
+  String get appointmentDetailTime => 'समय';
+
+  @override
+  String get appointmentDetailReason => 'कारण';
+
+  @override
+  String get teleconsultBadge => 'TELE';
+
+  @override
+  String get teleconsultJoinVideoConsult => 'वीडियो कंसल्ट में जुड़ें';
+
+  @override
+  String get teleconsultStateChecking => 'टेलीकंसल्ट स्थिति जांची जा रही है';
+
+  @override
+  String get teleconsultNotYet => 'लॉबी आपकी विज़िट के करीब खुलेगी';
+
+  @override
+  String get teleconsultLobbyOpen => 'लॉबी खुली है';
+
+  @override
+  String get teleconsultInProgress => 'परामर्श चल रहा है';
+
+  @override
+  String get teleconsultEnded => 'परामर्श समाप्त हुआ';
+
+  @override
+  String get teleconsultCancelled => 'परामर्श रद्द हुआ';
+
+  @override
+  String get teleconsultUnavailableYet => 'टेलीकंसल्टेशन अभी उपलब्ध नहीं है';
+
+  @override
+  String get teleconsultStateUnknown => 'टेलीकंसल्ट स्थिति उपलब्ध नहीं है';
+
+  @override
+  String get teleconsultNotYetBody =>
+      'आप निर्धारित समय से थोड़ी देर पहले लॉबी में प्रवेश कर सकते हैं।';
+
+  @override
+  String get teleconsultLobbyOpenBody =>
+      'जारी रखने के लिए सहमति दें और कैमरा या माइक्रोफोन जांचें।';
+
+  @override
+  String get teleconsultInProgressBody =>
+      'परामर्श सक्रिय है। खुला रहने तक आप फिर से जुड़ सकते हैं।';
+
+  @override
+  String get teleconsultEndedBody => 'यह वीडियो परामर्श बंद हो चुका है।';
+
+  @override
+  String get teleconsultCancelledBody =>
+      'यह वीडियो परामर्श रद्द कर दिया गया था।';
+
+  @override
+  String get teleconsultUnavailableBody =>
+      'इस विज़िट के लिए वीडियो अभी सक्षम नहीं है। सुरक्षित संदेश उपलब्ध हैं।';
+
+  @override
+  String get teleconsultStateUnknownBody =>
+      'फिर से जांचने के लिए नीचे खींचें या रिफ्रेश टैप करें।';
+
+  @override
+  String get teleconsultRecordingOff => 'इस परामर्श के लिए रिकॉर्डिंग बंद है।';
+
+  @override
+  String get teleconsultLobbyTitle => 'वीडियो कंसल्ट लॉबी';
+
+  @override
+  String get teleconsultRefresh => 'रिफ्रेश';
+
+  @override
+  String get teleconsultDeviceNotChecked =>
+      'कैमरा और माइक्रोफोन की जांच नहीं हुई है।';
+
+  @override
+  String get teleconsultCheckDevices => 'डिवाइस जांचें';
+
+  @override
+  String get teleconsultCheckingDevices => 'जांच हो रही है...';
+
+  @override
+  String get teleconsultDeviceVideoReady => 'कैमरा और माइक्रोफोन तैयार हैं।';
+
+  @override
+  String get teleconsultDeviceAudioOnly =>
+      'माइक्रोफोन तैयार है। वीडियो उपलब्ध नहीं है, इसलिए ऑडियो-ओनली सुझाया गया है।';
+
+  @override
+  String get teleconsultDeviceUnavailable =>
+      'जुड़ने के लिए माइक्रोफोन अनुमति जरूरी है।';
+
+  @override
+  String get teleconsultDeviceRequired =>
+      'जुड़ने से पहले माइक्रोफोन एक्सेस दें।';
+
+  @override
+  String get teleconsultConsentTitle => 'जुड़ने से पहले सहमति';
+
+  @override
+  String get teleconsultConsentIdentity =>
+      'मैं पुष्टि करता/करती हूं कि यह अपॉइंटमेंट मेरे लिए है।';
+
+  @override
+  String get teleconsultConsentRemote =>
+      'मैं रिमोट वीडियो या ऑडियो परामर्श से सहमत हूं।';
+
+  @override
+  String get teleconsultConsentDegradation =>
+      'मैं समझता/समझती हूं कि वीडियो ऑडियो-ओनली या सुरक्षित संदेशों में बदल सकता है।';
+
+  @override
+  String get teleconsultConsentEmergency =>
+      'मैं समझता/समझती हूं कि यह आपात स्थिति के लिए नहीं है।';
+
+  @override
+  String get teleconsultConsentRecordingOff =>
+      'मैं समझता/समझती हूं कि रिकॉर्डिंग बंद है।';
+
+  @override
+  String get teleconsultConsentRequired =>
+      'जुड़ने से पहले सभी सहमति आइटम स्वीकार करें।';
+
+  @override
+  String get teleconsultConsentFailed =>
+      'सहमति रिकॉर्ड नहीं हो सकी। कृपया फिर कोशिश करें।';
+
+  @override
+  String get teleconsultContinueToCall => 'कॉल पर जाएं';
+
+  @override
+  String get teleconsultConsultTitle => 'वीडियो परामर्श';
+
+  @override
+  String get teleconsultConnecting => 'परामर्श से कनेक्ट हो रहा है...';
+
+  @override
+  String get teleconsultVideoUnavailableChatAvailable =>
+      'वीडियो उपलब्ध नहीं है। आप सुरक्षित संदेशों से जारी रख सकते हैं।';
+
+  @override
+  String get teleconsultAudioOnlyBanner => 'ऑडियो-ओनली मोड सक्रिय है।';
+
+  @override
+  String get teleconsultCallEnded => 'परामर्श समाप्त हो गया है।';
+
+  @override
+  String get teleconsultRemoteVideo => 'डॉक्टर वीडियो';
+
+  @override
+  String get teleconsultLocalVideo => 'आपका वीडियो';
+
+  @override
+  String get teleconsultMicrophoneOn => 'माइक्रोफोन चालू';
+
+  @override
+  String get teleconsultMicrophoneOff => 'माइक्रोफोन बंद';
+
+  @override
+  String get teleconsultCameraOn => 'कैमरा चालू';
+
+  @override
+  String get teleconsultCameraOff => 'कैमरा बंद';
+
+  @override
+  String get teleconsultSwitchAudioOnly => 'सिर्फ ऑडियो';
+
+  @override
+  String get teleconsultOpenSecureMessages => 'सुरक्षित संदेश';
+
+  @override
+  String get teleconsultSecureMessagesFailed =>
+      'सुरक्षित संदेश नहीं खुल सके। कृपया फिर कोशिश करें।';
+
+  @override
+  String get teleconsultSecureMessageSubject => 'वीडियो कंसल्ट फॉलो-अप';
+
+  @override
+  String get teleconsultSecureMessageBody =>
+      'मुझे अपना वीडियो कंसल्ट सुरक्षित संदेशों में जारी रखना है।';
+
+  @override
+  String get teleconsultEndCall => 'कॉल समाप्त करें';
 }

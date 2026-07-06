@@ -22,6 +22,13 @@ import 'package:vhhealth/features/notifications/screens/notifications_screen.dar
 import 'package:vhhealth/features/settings/screens/settings_screen.dart';
 import 'package:vhhealth/features/settings/screens/record_access_screen.dart';
 import 'package:vhhealth/features/appointments/screens/appointments_screen.dart';
+import 'package:vhhealth/features/teleconsult/models/teleconsult_route_args.dart';
+import 'package:vhhealth/features/teleconsult/screens/appointment_detail_screen.dart';
+import 'package:vhhealth/features/teleconsult/screens/teleconsult_consult_screen.dart';
+import 'package:vhhealth/features/teleconsult/screens/teleconsult_lobby_screen.dart';
+import 'package:vhhealth/features/teleconsult/services/teleconsult_device_service.dart';
+import 'package:vhhealth/features/teleconsult/services/teleconsult_repository.dart';
+import 'package:vhhealth/features/teleconsult/services/teleconsult_room_client.dart';
 import 'package:vhhealth/features/pharmacy/screens/pharmacy_screen.dart';
 import 'package:vhhealth/features/investigations/screens/investigations_screen.dart';
 import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
@@ -306,6 +313,63 @@ class AppRouter {
       GoRoute(
         path: '/appointments',
         builder: (context, state) => const AppointmentsScreen(),
+      ),
+      GoRoute(
+        path: '/appointments/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null || state.extra is! TeleconsultRouteArgs
+              ? '/appointments'
+              : null;
+        },
+        builder: (context, state) {
+          final args = state.extra! as TeleconsultRouteArgs;
+          return AppointmentDetailScreen(
+            appointment: args.appointment,
+            initialTeleconsultState: args.initialState,
+            repository: args.repository ?? const TeleconsultRepository(),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/teleconsult/appointments/:appointmentId/lobby',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['appointmentId'] ?? '');
+          return id == null || state.extra is! TeleconsultRouteArgs
+              ? '/appointments'
+              : null;
+        },
+        builder: (context, state) {
+          final args = state.extra! as TeleconsultRouteArgs;
+          return TeleconsultLobbyScreen(
+            appointment: args.appointment,
+            initialState: args.initialState,
+            repository: args.repository ?? const TeleconsultRepository(),
+            deviceService:
+                args.deviceService ??
+                const PermissionHandlerTeleconsultDeviceService(),
+            roomClient: args.roomClient ?? const LiveKitTeleconsultRoomClient(),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/teleconsult/appointments/:appointmentId/consult',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['appointmentId'] ?? '');
+          return id == null || state.extra is! TeleconsultConsultArgs
+              ? '/appointments'
+              : null;
+        },
+        builder: (context, state) {
+          final args = state.extra! as TeleconsultConsultArgs;
+          return TeleconsultConsultScreen(
+            appointment: args.appointment,
+            lobbyState: args.lobbyState,
+            readiness: args.readiness,
+            repository: args.repository ?? const TeleconsultRepository(),
+            roomClient: args.roomClient ?? const LiveKitTeleconsultRoomClient(),
+          );
+        },
       ),
       GoRoute(
         path: '/pharmacy',

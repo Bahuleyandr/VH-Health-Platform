@@ -65,5 +65,15 @@ class LoginService {
     );
   }
 
+  static Future<List<StaffSsoProvider>> discoverStaffSsoProviders() {
+    return AuthService.discoverStaffSsoProviders();
+  }
+
+  static Future<Map<String, dynamic>> loginWithStaffSso(
+    StaffSsoProvider provider,
+  ) {
+    return AuthService.loginWithStaffSso(provider);
+  }
+
   static Future<void> logout() => AuthService.logout();
 }

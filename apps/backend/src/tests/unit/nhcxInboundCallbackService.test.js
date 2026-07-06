@@ -1,13 +1,14 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const executeUnsafeMock = jest.fn();
 const loadNHCXRuntimeConfigMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: queryUnsafeMock },
+  default: { $queryRawUnsafe: queryUnsafeMock, $executeRawUnsafe: executeUnsafeMock },
   prismaReadOnly: { $queryRawUnsafe: queryUnsafeMock },
-  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock }),
-  setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock }),
+  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock, $executeRawUnsafe: executeUnsafeMock }),
+  setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock, $executeRawUnsafe: executeUnsafeMock }),
 }));
 
 jest.unstable_mockModule('../../services/nhcx/nhcxTenantConfigService.js', () => ({
@@ -120,8 +121,51 @@ function taskStatusBundle() {
   };
 }
 
+function communicationRequestBundle(overrides = {}) {
+  return {
+    resourceType: 'Bundle',
+    id: 'nhcx-communication-request-bundle',
+    meta: {
+      profile: ['https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationRequestBundle'],
+      versionId: '7.0.0-design-target',
+    },
+    type: 'collection',
+    entry: [{
+      resource: {
+        resourceType: 'CommunicationRequest',
+        id: 'communication-request-1',
+        status: 'active',
+        subject: { reference: 'Patient/11111111-1111-4111-8111-111111111111' },
+        reasonCode: [{ text: 'Need itemized bill and discharge summary' }],
+        payload: [{ contentString: 'Please upload the itemized final bill.' }],
+        ...overrides,
+      },
+    }],
+  };
+}
+
+function communicationArgs(bundle = communicationRequestBundle()) {
+  return {
+    tenantId: TENANT,
+    endpoint: 'communication/request',
+    body: { payload: 'compact-jwe' },
+    headers: {
+      'x-hcx-recipient_code': 'VH-NHCX-PROVIDER',
+      'x-hcx-sender_code': 'PAYER-NHCX-SAMPLE',
+      'x-hcx-api_call_id': 'communication-request-1',
+      'x-hcx-correlation_id': 'claim-corr-1',
+      'x-hcx-workflow_id': '7001',
+    },
+    participantCodeSelf: 'VH-NHCX-PROVIDER',
+    signatureVerified: true,
+    runtimeResolver: jest.fn(async () => ({ environment: 'sandbox' })),
+    decryptPayload: jest.fn(async () => ({ bundle, protectedHeaders: {} })),
+  };
+}
+
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  executeUnsafeMock.mockReset();
   loadNHCXRuntimeConfigMock.mockReset();
 });
 
@@ -318,5 +362,80 @@ describe('processNHCXCallback', () => {
     });
     expect(args.getClaimImpl).not.toHaveBeenCalled();
     expect(args.recordClaimDecisionImpl).not.toHaveBeenCalled();
+  });
+
+  it('records inbound CommunicationRequest correspondence and moves the claim to queried through the legal transition', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      claim_id: 88,
+      preauth_id: 77,
+      policy_id: 55,
+      patient_uid: '11111111-1111-4111-8111-111111111111',
+      admission_id: 7001,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '40', inserted: true, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 88, status: 'submitted' }]);
+    executeUnsafeMock.mockResolvedValueOnce(1);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 501, claim_id: 88, direction: 'inbound', channel: 'nhcx' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '40', status: 'processed' }]);
+
+    const result = await processNHCXCallback(communicationArgs());
+
+    expect(result).toMatchObject({
+      duplicate: false,
+      processed: true,
+      domainResult: {
+        claimId: 88,
+        preauthId: null,
+        status: 'queried',
+      },
+    });
+    expect(executeUnsafeMock.mock.calls[0][0]).toContain('UPDATE tpa_claims');
+    const insertCall = queryUnsafeMock.mock.calls.find((call) => String(call[0]).includes('INSERT INTO tpa_claim_correspondence'));
+    expect(insertCall).toBeTruthy();
+    expect(insertCall[4]).toBe('Need itemized bill and discharge summary');
+    expect(insertCall[5]).toContain('Please upload the itemized final bill.');
+  });
+
+  it('treats duplicate CommunicationRequest callbacks as no-op callbacks', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ claim_id: 88 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '41', inserted: false, status: 'processed' }]);
+
+    const result = await processNHCXCallback(communicationArgs());
+
+    expect(result).toMatchObject({ duplicate: true, processed: false });
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+    expect(queryUnsafeMock.mock.calls.some((call) => String(call[0]).includes('INSERT INTO tpa_claim_correspondence'))).toBe(false);
+  });
+
+  it('routes unmappable CommunicationRequest callbacks to manual review', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '42', inserted: true, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '42', status: 'manual_review' }]);
+
+    const result = await processNHCXCallback(communicationArgs());
+
+    expect(result).toMatchObject({ duplicate: false, processed: false });
+    expect(result.envelope.status).toBe('manual_review');
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('routes unsupported inbound CommunicationRequest attachments to manual review', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ claim_id: 88 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '43', inserted: true, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '43', status: 'manual_review' }]);
+
+    const result = await processNHCXCallback(communicationArgs(communicationRequestBundle({
+      payload: [{
+        contentAttachment: {
+          contentType: 'application/x-msdownload',
+          title: 'payer-tool.exe',
+          size: 100,
+        },
+      }],
+    })));
+
+    expect(result).toMatchObject({ duplicate: false, processed: false });
+    expect(result.envelope.status).toBe('manual_review');
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -58,10 +58,11 @@ class OfflineQueue {
         : 'offline_queue_${TenantConfig.cacheNamespace}.db';
   }
 
-  static encrypt.Key? _aesKey;
+  static SecretKey? _aesKey;
+  static final AesGcm _aesGcm = AesGcm.with256bits();
 
   /// Retrieve or generate the 256-bit AES key from secure storage.
-  static Future<encrypt.Key> _getEncryptionKey() async {
+  static Future<SecretKey> _getEncryptionKey() async {
     if (_aesKey != null) return _aesKey!;
     final storage = VHSecureStorage.instance;
     var keyBase64 = await storage.read(key: _keyName);
@@ -74,7 +75,7 @@ class OfflineQueue {
       keyBase64 = base64Encode(keyBytes);
       await storage.write(key: _keyName, value: keyBase64);
     }
-    _aesKey = encrypt.Key.fromBase64(keyBase64);
+    _aesKey = SecretKey(base64Decode(keyBase64));
     return _aesKey!;
   }
 
@@ -82,12 +83,14 @@ class OfflineQueue {
   /// Returns `iv_base64:ciphertext_base64`.
   static Future<String> _encrypt(String plaintext) async {
     final key = await _getEncryptionKey();
-    final iv = encrypt.IV.fromSecureRandom(12);
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    final nonce = _secureRandomBytes(12);
+    final box = await _aesGcm.encrypt(
+      utf8.encode(plaintext),
+      secretKey: key,
+      nonce: nonce,
     );
-    final encrypted = encrypter.encrypt(plaintext, iv: iv);
-    return '${iv.base64}:${encrypted.base64}';
+    final combined = Uint8List.fromList([...box.cipherText, ...box.mac.bytes]);
+    return '${base64Encode(nonce)}:${base64Encode(combined)}';
   }
 
   /// Decrypt a string produced by [_encrypt].
@@ -97,11 +100,27 @@ class OfflineQueue {
     if (parts.length != 2) {
       throw const FormatException('Invalid encrypted data');
     }
-    final iv = encrypt.IV.fromBase64(parts[0]);
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    final nonce = base64Decode(parts[0]);
+    final combined = base64Decode(parts[1]);
+    if (combined.length < 16) {
+      throw const FormatException('Invalid encrypted data');
+    }
+    final cipherText = combined.sublist(0, combined.length - 16);
+    final mac = Mac(combined.sublist(combined.length - 16));
+    final plain = await _aesGcm.decrypt(
+      SecretBox(cipherText, nonce: nonce, mac: mac),
+      secretKey: key,
     );
-    return encrypter.decrypt(encrypt.Encrypted.fromBase64(parts[1]), iv: iv);
+    return utf8.decode(plain);
+  }
+
+  static Uint8List _secureRandomBytes(int length) {
+    final random = Random.secure();
+    final bytes = Uint8List(length);
+    for (var i = 0; i < length; i++) {
+      bytes[i] = random.nextInt(256);
+    }
+    return bytes;
   }
 
   /// Decode a stored `body` value into the original request map.

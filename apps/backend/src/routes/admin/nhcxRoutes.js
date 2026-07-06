@@ -7,12 +7,14 @@ import {
   dispatchPendingNHCXMessages,
   enqueueClaimStatusCheck,
   enqueueClaimSubmit,
+  enqueueCommunicationResponse,
   enqueueCoverageEligibilityCheck,
   enqueuePreauthSubmit,
   getNHCXMessage,
   listNHCXMessages,
   redriveNHCXMessage,
 } from '../../services/nhcx/nhcxOutboundDispatcherService.js';
+import { getCommunicationWorkbench } from '../../services/nhcx/nhcxCommunicationService.js';
 
 const router = express.Router();
 
@@ -101,6 +103,37 @@ router.post('/claim/:claimId/status', async (req, res, next) => {
       hcxWorkflowId: req.body?.hcx_workflow_id ?? req.body?.hcxWorkflowId,
     });
     return success(res, result, 'NHCX claim status check queued', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/communication/workbench', async (req, res, next) => {
+  try {
+    const result = await getCommunicationWorkbench({
+      tenantId: req.tenantId,
+      claimId: req.query.claim_id ?? req.query.claimId ?? null,
+      preauthId: req.query.preauth_id ?? req.query.preauthId ?? null,
+    });
+    return success(res, result, 'NHCX communication workbench retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/communication/:correspondenceId/respond', async (req, res, next) => {
+  try {
+    const result = await enqueueCommunicationResponse({
+      tenantId: req.tenantId,
+      inboundCorrespondenceId: req.params.correspondenceId,
+      responseText: req.body?.response_text ?? req.body?.responseText,
+      documentIds: req.body?.document_ids ?? req.body?.documentIds ?? [],
+      recordedBy: req.user?.uid ?? null,
+      hcxApiCallId: req.body?.hcx_api_call_id ?? req.body?.hcxApiCallId,
+      hcxCorrelationId: req.body?.hcx_correlation_id ?? req.body?.hcxCorrelationId,
+      hcxWorkflowId: req.body?.hcx_workflow_id ?? req.body?.hcxWorkflowId,
+    });
+    return success(res, result, 'NHCX communication response queued', 201);
   } catch (err) {
     return next(err);
   }

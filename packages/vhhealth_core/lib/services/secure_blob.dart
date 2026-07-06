@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:encrypt/encrypt.dart' as encrypt;
+
+import 'package:cryptography/cryptography.dart';
 import 'secure_storage.dart';
 
 /// AES-256-GCM seal/open codec for a named secure-storage key. Mirrors the
@@ -16,9 +17,10 @@ import 'secure_storage.dart';
 class SecureBlobCodec {
   SecureBlobCodec(this.keyName);
   final String keyName;
-  encrypt.Key? _cached;
+  SecretKey? _cached;
+  final AesGcm _aesGcm = AesGcm.with256bits();
 
-  Future<encrypt.Key> _key() async {
+  Future<SecretKey> _key() async {
     if (_cached != null) return _cached!;
     final storage = VHSecureStorage.instance;
     var b64 = await storage.read(key: keyName);
@@ -31,7 +33,7 @@ class SecureBlobCodec {
       b64 = base64Encode(bytes);
       await storage.write(key: keyName, value: b64);
     }
-    _cached = encrypt.Key.fromBase64(b64);
+    _cached = SecretKey(base64Decode(b64));
     return _cached!;
   }
 
@@ -39,10 +41,14 @@ class SecureBlobCodec {
   /// Returns `iv_base64:ciphertext_base64`.
   Future<String> seal(String plaintext) async {
     final key = await _key();
-    final iv = encrypt.IV.fromSecureRandom(12);
-    final enc = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.gcm));
-    final ct = enc.encrypt(plaintext, iv: iv);
-    return '${iv.base64}:${ct.base64}';
+    final nonce = _secureRandomBytes(12);
+    final box = await _aesGcm.encrypt(
+      utf8.encode(plaintext),
+      secretKey: key,
+      nonce: nonce,
+    );
+    final combined = Uint8List.fromList([...box.cipherText, ...box.mac.bytes]);
+    return '${base64Encode(nonce)}:${base64Encode(combined)}';
   }
 
   /// Decrypt an envelope produced by [seal]. Throws on GCM authentication
@@ -53,8 +59,26 @@ class SecureBlobCodec {
     if (parts.length != 2) {
       throw const FormatException('Invalid encrypted data');
     }
-    final iv = encrypt.IV.fromBase64(parts[0]);
-    final enc = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.gcm));
-    return enc.decrypt(encrypt.Encrypted.fromBase64(parts[1]), iv: iv);
+    final nonce = base64Decode(parts[0]);
+    final combined = base64Decode(parts[1]);
+    if (combined.length < 16) {
+      throw const FormatException('Invalid encrypted data');
+    }
+    final cipherText = combined.sublist(0, combined.length - 16);
+    final mac = Mac(combined.sublist(combined.length - 16));
+    final plain = await _aesGcm.decrypt(
+      SecretBox(cipherText, nonce: nonce, mac: mac),
+      secretKey: key,
+    );
+    return utf8.decode(plain);
+  }
+
+  Uint8List _secureRandomBytes(int length) {
+    final random = Random.secure();
+    final bytes = Uint8List(length);
+    for (var i = 0; i < length; i++) {
+      bytes[i] = random.nextInt(256);
+    }
+    return bytes;
   }
 }

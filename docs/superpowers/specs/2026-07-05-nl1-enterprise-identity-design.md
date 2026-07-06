@@ -267,11 +267,13 @@ Test strategy:
 
 ### P2 - Staff App OIDC via System Browser PKCE
 
+Status (2026-07-06): P2 is in review behind tenant/provider config. The shipped path is existing-staff-link only; no staff JIT creation is enabled. The Flutter staff app uses the system browser and registered app deep links, exchanges the authorization code through the backend broker, stores only VH Health tokens locally, and leaves password, PIN, quick-login, and local refresh behavior intact.
+
 Scope:
 
 - STAFF realm OIDC provider config.
 - Flutter staff app starts system-browser PKCE login, receives app/deep-link callback, and exchanges code with backend broker.
-- Staff identity links to existing `users`/`staff`; optional JIT staff creation only when SCIM is not enabled and tenant policy allows it.
+- Staff identity links to existing `users`/`staff`; unmatched principals fail closed with audit records.
 - Preserve staff password/PIN/quick-login and device registration.
 
 Test strategy:

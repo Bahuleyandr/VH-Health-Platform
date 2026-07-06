@@ -268,9 +268,9 @@ one-commit-per-item for bisectability.
 
 | Program | Wave | Status |
 |---|---|---|
-| NL-1 Enterprise identity | A | ◐ P1 shipped — PR #436 ([spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); Keycloak-first admin OIDC SSO held/default-off |
-| NL-2 NHCX claims exchange | A | ◐ P2 claim cycle in review — PR #438 ([P1 PR #437](https://github.com/Bahuleyandr/VH-Health-Platform/pull/437), [spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement |
-| NL-3 Teleconsultation | A | ◐ P4 ops in review — NL-3 build COMPLETE pending media-edge activation ([spec](superpowers/specs/2026-07-05-nl3-teleconsultation-design.md), [runbook](../apps/backend/docs/RUNBOOKS/teleconsult-media-ops.md)); deploy HELD, recording OFF, queue model remains badges |
+| NL-1 Enterprise identity | A | ◐ P2 staff OIDC SSO shipped — PR #439 ([P1 PR #436](https://github.com/Bahuleyandr/VH-Health-Platform/pull/436), [spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); admin/staff OIDC SSO held/default-off; P3 SCIM next |
+| NL-2 NHCX claims exchange | A | ◐ P3 communications shipped — [PR #442](https://github.com/Bahuleyandr/VH-Health-Platform/pull/442) (P1 #437, P2 #438, [spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement; P4 payment notice next |
+| NL-3 Teleconsultation | A | ◐ P2 shipped — [PR #440](https://github.com/Bahuleyandr/VH-Health-Platform/pull/440) + P4 ops in review — PR #441 (P1 #435, [spec](superpowers/specs/2026-07-05-nl3-teleconsultation-design.md), [runbook](../apps/backend/docs/RUNBOOKS/teleconsult-media-ops.md)); patient join live behind `LIVEKIT_ENABLED=false`; ★ P3 staff consult surface NOT yet built (run next); deploy HELD, recording OFF, queue model remains badges |
 | NL-4 Demo-basics debt | A | ☑ shipped — PR #429 |
 | NL-5 Terminology + content studio | B | ☐ not started |
 | NL-6 Departmental completion | B | ☐ not started |

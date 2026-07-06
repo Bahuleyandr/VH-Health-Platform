@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { KeyRound, Plus, RefreshCw, Save, ShieldCheck, UsersRound } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
 
+type OidcRealm = "admin" | "staff";
 type ProviderStatus = "draft" | "active" | "disabled";
 
-interface AdminOidcProvider {
+interface OidcProvider {
   id?: number;
+  realm?: OidcRealm;
   provider_key: string;
   display_name: string;
   status: ProviderStatus;
@@ -21,21 +23,22 @@ interface AdminOidcProvider {
   group_claim_name?: string | null;
   allowed_domains?: string[];
   has_oidc_client_secret?: boolean;
+  policy?: Record<string, unknown>;
 }
 
-interface AdminOidcMapping {
+interface OidcMapping {
   idp_group: string;
-  vh_role: "ADMIN";
+  vh_role: string;
   status: "active" | "disabled";
   priority: number;
 }
 
 interface ProviderListResponse {
-  providers: AdminOidcProvider[];
+  providers: OidcProvider[];
 }
 
 interface MappingListResponse {
-  mappings: AdminOidcMapping[];
+  mappings: OidcMapping[];
 }
 
 interface ProviderForm {
@@ -52,12 +55,80 @@ interface ProviderForm {
   group_claim_name: string;
   allowed_domains: string;
   mapping_groups: string;
+  staff_redirect_uris: string;
+  staff_employee_id_claim: string;
+  allow_https_app_links: boolean;
 }
 
-function emptyForm(): ProviderForm {
+const STAFF_ROLE_OPTIONS = [
+  "DOCTOR",
+  "CONSULTANT",
+  "JUNIOR_DOCTOR",
+  "RESIDENT",
+  "DUTY_DOCTOR",
+  "NURSING_STAFF",
+  "NURSING_INCHARGE",
+  "OP_STAFF_NURSE",
+  "OP_INCHARGE",
+  "IP_STAFF_NURSE",
+  "IP_INCHARGE",
+  "OT_NURSE",
+  "OT_INCHARGE",
+  "CATH_LAB_STAFF",
+  "CATH_LAB_INCHARGE",
+  "RADIOLOGIST",
+  "ANESTHETIST",
+  "PHYSIOTHERAPIST",
+  "DIETITIAN",
+  "COUNSELLOR",
+  "PHARMACY_STAFF",
+  "PHARMACY_INCHARGE",
+  "STORES_PURCHASE_INCHARGE",
+  "LAB_STAFF",
+  "LAB_INCHARGE",
+  "PATHOLOGIST",
+  "HR_STAFF",
+  "GENERAL_STAFF",
+  "DELIVERY_STAFF",
+  "DRIVER",
+  "HOUSEKEEPING_STAFF",
+  "HOUSEKEEPING_INCHARGE",
+  "MAINTENANCE",
+  "RECEPTIONIST",
+  "RECEPTION_INCHARGE",
+  "MEDICAL_RECORDS",
+  "OT_STAFF",
+  "BLOOD_BANK_TECHNICIAN",
+  "RADIOLOGY_STAFF",
+  "EMERGENCY_RESPONDER",
+  "SOCIAL_WORKER",
+  "SECURITY",
+  "BILLING_STAFF",
+  "BILLING_INCHARGE",
+  "FINANCE_INCHARGE",
+  "INSURANCE_COORDINATOR",
+  "ADMISSION_OFFICER",
+  "IPD_COUNSELLOR",
+  "QUALITY_OFFICER",
+  "INFECTION_CONTROL_OFFICER",
+  "CARE_COORDINATOR",
+  "CLAIMS_MANAGER",
+  "AMBULANCE_COORDINATOR",
+  "CMO",
+  "CNO",
+  "DEPARTMENT_HEAD",
+  "MEDICAL_SUPERINTENDENT",
+  "INTEGRATION_ADMIN",
+  "AI_GOVERNANCE_ADMIN",
+  "DATA_PROTECTION_OFFICER",
+];
+
+const STAFF_ROLE_SET = new Set(STAFF_ROLE_OPTIONS);
+
+function emptyForm(realm: OidcRealm): ProviderForm {
   return {
-    provider_key: "keycloak",
-    display_name: "Keycloak",
+    provider_key: realm === "staff" ? "staff-okta" : "keycloak",
+    display_name: realm === "staff" ? "Staff Okta" : "Keycloak",
     status: "draft",
     oidc_issuer: "",
     oidc_discovery_url: "",
@@ -69,10 +140,29 @@ function emptyForm(): ProviderForm {
     group_claim_name: "groups",
     allowed_domains: "",
     mapping_groups: "",
+    staff_redirect_uris: "vhhealthstaff://sso/oidc/callback",
+    staff_employee_id_claim: "employee_id",
+    allow_https_app_links: false,
   };
 }
 
-function formFromProvider(provider: AdminOidcProvider): ProviderForm {
+function policyStringList(policy: Record<string, unknown> | undefined, keys: string[]) {
+  for (const key of keys) {
+    const value = policy?.[key];
+    if (Array.isArray(value)) return value.map((entry) => String(entry)).join("\n");
+  }
+  return "";
+}
+
+function policyString(policy: Record<string, unknown> | undefined, keys: string[], fallback = "") {
+  for (const key of keys) {
+    const value = policy?.[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return fallback;
+}
+
+function formFromProvider(provider: OidcProvider, realm: OidcRealm): ProviderForm {
   return {
     provider_key: provider.provider_key,
     display_name: provider.display_name,
@@ -87,6 +177,20 @@ function formFromProvider(provider: AdminOidcProvider): ProviderForm {
     group_claim_name: provider.group_claim_name || "groups",
     allowed_domains: (provider.allowed_domains || []).join(", "),
     mapping_groups: "",
+    staff_redirect_uris:
+      policyStringList(provider.policy, [
+        "staff_redirect_uris",
+        "staffRedirectUris",
+        "allowed_staff_redirect_uris",
+        "allowedStaffRedirectUris",
+      ]) || (realm === "staff" ? "vhhealthstaff://sso/oidc/callback" : ""),
+    staff_employee_id_claim: policyString(
+      provider.policy,
+      ["staff_employee_id_claim", "staffEmployeeIdClaim", "employee_id_claim", "employeeIdClaim"],
+      "employee_id",
+    ),
+    allow_https_app_links:
+      provider.policy?.allow_https_app_links === true || provider.policy?.allowHttpsAppLinks === true,
   };
 }
 
@@ -97,17 +201,52 @@ function splitList(value: string) {
     .filter(Boolean);
 }
 
+function parseStaffMappingLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const match = line.match(/^(.+?)(?:\s*=\s*|\s*,\s*)([A-Z0-9_]+)$/i);
+      if (!match) throw new Error("Staff mappings must use group=ROLE");
+      const role = match[2].trim().toUpperCase();
+      if (!STAFF_ROLE_SET.has(role)) throw new Error(`Invalid staff role: ${role}`);
+      return {
+        idp_group: match[1].trim(),
+        vh_role: role,
+        status: "active",
+        priority: 100 + index,
+      };
+    });
+}
+
+function mappingText(mappings: OidcMapping[], realm: OidcRealm) {
+  const active = mappings.filter((mapping) => mapping.status === "active");
+  if (realm === "staff") {
+    return active.map((mapping) => `${mapping.idp_group}=${mapping.vh_role}`).join("\n");
+  }
+  return active
+    .filter((mapping) => mapping.vh_role === "ADMIN")
+    .map((mapping) => mapping.idp_group)
+    .join("\n");
+}
+
+function realmQuery(realm: OidcRealm) {
+  return `realm=${encodeURIComponent(realm)}`;
+}
+
 export function AdminOidcSettingsPanel() {
   const queryClient = useQueryClient();
+  const [realm, setRealm] = useState<OidcRealm>("admin");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [form, setForm] = useState<ProviderForm>(() => emptyForm());
+  const [form, setForm] = useState<ProviderForm>(() => emptyForm("admin"));
   const [message, setMessage] = useState("");
 
   const providersQuery = useQuery({
-    queryKey: ["admin-oidc-providers"],
+    queryKey: ["identity-oidc-providers", realm],
     queryFn: async () => {
       const response = await fetchAdminAPI<ProviderListResponse>(
-        "/admin/identity/sso/oidc/providers",
+        `/admin/identity/sso/oidc/providers?${realmQuery(realm)}`,
         { method: "GET" },
       );
       return response.providers || [];
@@ -120,11 +259,11 @@ export function AdminOidcSettingsPanel() {
   );
 
   const mappingsQuery = useQuery({
-    queryKey: ["admin-oidc-mappings", selectedKey],
+    queryKey: ["identity-oidc-mappings", realm, selectedKey],
     enabled: Boolean(selectedKey),
     queryFn: async () => {
       const response = await fetchAdminAPI<MappingListResponse>(
-        `/admin/identity/sso/oidc/providers/${encodeURIComponent(selectedKey || "")}/mappings`,
+        `/admin/identity/sso/oidc/providers/${encodeURIComponent(selectedKey || "")}/mappings?${realmQuery(realm)}`,
         { method: "GET" },
       );
       return response.mappings || [];
@@ -132,59 +271,79 @@ export function AdminOidcSettingsPanel() {
   });
 
   useEffect(() => {
-    if (!selectedProvider) return;
-    setForm(formFromProvider(selectedProvider));
+    setSelectedKey(null);
+    setForm(emptyForm(realm));
     setMessage("");
-  }, [selectedProvider]);
+  }, [realm]);
+
+  useEffect(() => {
+    if (!selectedProvider) return;
+    setForm(formFromProvider(selectedProvider, realm));
+    setMessage("");
+  }, [realm, selectedProvider]);
 
   useEffect(() => {
     if (!selectedKey || !mappingsQuery.data) return;
     setForm((current) => ({
       ...current,
-      mapping_groups: mappingsQuery.data
-        .filter((mapping) => mapping.status === "active" && mapping.vh_role === "ADMIN")
-        .map((mapping) => mapping.idp_group)
-        .join("\n"),
+      mapping_groups: mappingText(mappingsQuery.data, realm),
     }));
-  }, [mappingsQuery.data, selectedKey]);
+  }, [mappingsQuery.data, realm, selectedKey]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const providerKey = form.provider_key.trim().toLowerCase();
-      const groups = splitList(form.mapping_groups);
       if (!providerKey) throw new Error("Provider key is required");
+      const commonBody = {
+        realm,
+        display_name: form.display_name.trim() || providerKey,
+        status: form.status,
+        oidc_issuer: form.oidc_issuer.trim() || null,
+        oidc_discovery_url: form.oidc_discovery_url.trim() || null,
+        oidc_jwks_uri: form.oidc_jwks_uri.trim() || null,
+        oidc_authorization_endpoint: form.oidc_authorization_endpoint.trim() || null,
+        oidc_token_endpoint: form.oidc_token_endpoint.trim() || null,
+        oidc_client_id: form.oidc_client_id.trim() || null,
+        ...(form.oidc_client_secret.trim()
+          ? { oidc_client_secret: form.oidc_client_secret.trim() }
+          : {}),
+        group_claim_name: form.group_claim_name.trim() || "groups",
+        allowed_domains: splitList(form.allowed_domains),
+      };
       await fetchAdminAPI(
-        `/admin/identity/sso/oidc/providers/${encodeURIComponent(providerKey)}`,
+        `/admin/identity/sso/oidc/providers/${encodeURIComponent(providerKey)}?${realmQuery(realm)}`,
         {
           method: "PUT",
-          body: {
-            display_name: form.display_name.trim() || providerKey,
-            status: form.status,
-            oidc_issuer: form.oidc_issuer.trim() || null,
-            oidc_discovery_url: form.oidc_discovery_url.trim() || null,
-            oidc_jwks_uri: form.oidc_jwks_uri.trim() || null,
-            oidc_authorization_endpoint: form.oidc_authorization_endpoint.trim() || null,
-            oidc_token_endpoint: form.oidc_token_endpoint.trim() || null,
-            oidc_client_id: form.oidc_client_id.trim() || null,
-            ...(form.oidc_client_secret.trim()
-              ? { oidc_client_secret: form.oidc_client_secret.trim() }
-              : {}),
-            group_claim_name: form.group_claim_name.trim() || "groups",
-            allowed_domains: splitList(form.allowed_domains),
-          },
+          body:
+            realm === "staff"
+              ? {
+                  ...commonBody,
+                  policy: {
+                    ...(selectedProvider?.policy || {}),
+                    staff_redirect_uris: splitList(form.staff_redirect_uris),
+                    staff_employee_id_claim: form.staff_employee_id_claim.trim() || "employee_id",
+                    allow_https_app_links: form.allow_https_app_links,
+                  },
+                }
+              : commonBody,
         },
       );
-      await fetchAdminAPI(
-        `/admin/identity/sso/oidc/providers/${encodeURIComponent(providerKey)}/mappings`,
-        {
-          method: "PUT",
-          body: {
-            mappings: groups.map((group, index) => ({
+      const mappings =
+        realm === "staff"
+          ? parseStaffMappingLines(form.mapping_groups)
+          : splitList(form.mapping_groups).map((group, index) => ({
               idp_group: group,
               vh_role: "ADMIN",
               status: "active",
               priority: 100 + index,
-            })),
+            }));
+      await fetchAdminAPI(
+        `/admin/identity/sso/oidc/providers/${encodeURIComponent(providerKey)}/mappings?${realmQuery(realm)}`,
+        {
+          method: "PUT",
+          body: {
+            realm,
+            mappings,
           },
         },
       );
@@ -194,8 +353,8 @@ export function AdminOidcSettingsPanel() {
       setSelectedKey(providerKey);
       setForm((current) => ({ ...current, oidc_client_secret: "" }));
       setMessage("Identity provider saved");
-      await queryClient.invalidateQueries({ queryKey: ["admin-oidc-providers"] });
-      await queryClient.invalidateQueries({ queryKey: ["admin-oidc-mappings", providerKey] });
+      await queryClient.invalidateQueries({ queryKey: ["identity-oidc-providers", realm] });
+      await queryClient.invalidateQueries({ queryKey: ["identity-oidc-mappings", realm, providerKey] });
     },
     onError: (error: Error) => {
       setMessage(error.message || "Failed to save identity provider");
@@ -218,10 +377,24 @@ export function AdminOidcSettingsPanel() {
             Identity SSO
           </h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure admin OIDC providers and group mappings for this tenant.
+            Configure OIDC providers and group mappings for this tenant.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-md border border-border bg-background p-1">
+            <RealmButton
+              active={realm === "admin"}
+              icon={<ShieldCheck className="h-4 w-4" />}
+              label="Admin"
+              onClick={() => setRealm("admin")}
+            />
+            <RealmButton
+              active={realm === "staff"}
+              icon={<UsersRound className="h-4 w-4" />}
+              label="Staff"
+              onClick={() => setRealm("staff")}
+            />
+          </div>
           <span className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground">
             {activeCount} active
           </span>
@@ -238,7 +411,7 @@ export function AdminOidcSettingsPanel() {
             type="button"
             onClick={() => {
               setSelectedKey(null);
-              setForm(emptyForm());
+              setForm(emptyForm(realm));
               setMessage("");
             }}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -264,7 +437,7 @@ export function AdminOidcSettingsPanel() {
           <div className="space-y-2">
             {providers.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                No admin OIDC providers configured.
+                No {realm} OIDC providers configured.
               </div>
             ) : (
               providers.map((provider) => (
@@ -309,7 +482,7 @@ export function AdminOidcSettingsPanel() {
                   }
                   disabled={Boolean(selectedProvider)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
-                  placeholder="keycloak"
+                  placeholder={realm === "staff" ? "staff-okta" : "keycloak"}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -320,7 +493,7 @@ export function AdminOidcSettingsPanel() {
                     setForm((current) => ({ ...current, display_name: event.target.value }))
                   }
                   className="w-full rounded-md border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Keycloak"
+                  placeholder={realm === "staff" ? "Staff Okta" : "Keycloak"}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -347,7 +520,7 @@ export function AdminOidcSettingsPanel() {
                 label="Issuer"
                 value={form.oidc_issuer}
                 onChange={(value) => setForm((current) => ({ ...current, oidc_issuer: value }))}
-                placeholder="https://idp.example.com/realms/vh-admin"
+                placeholder={`https://idp.example.com/realms/vh-${realm}`}
               />
               <TextField
                 label="Discovery URL"
@@ -355,7 +528,7 @@ export function AdminOidcSettingsPanel() {
                 onChange={(value) =>
                   setForm((current) => ({ ...current, oidc_discovery_url: value }))
                 }
-                placeholder="https://idp.example.com/realms/vh-admin/.well-known/openid-configuration"
+                placeholder={`https://idp.example.com/realms/vh-${realm}/.well-known/openid-configuration`}
               />
               <TextField
                 label="Authorization Endpoint"
@@ -383,7 +556,7 @@ export function AdminOidcSettingsPanel() {
                 label="Client ID"
                 value={form.oidc_client_id}
                 onChange={(value) => setForm((current) => ({ ...current, oidc_client_id: value }))}
-                placeholder="vh-admin"
+                placeholder={realm === "staff" ? "vh-staff-mobile" : "vh-admin"}
               />
               <TextField
                 label="Client Secret"
@@ -408,6 +581,43 @@ export function AdminOidcSettingsPanel() {
               />
             </div>
 
+            {realm === "staff" && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextAreaField
+                  label="Staff Redirect URIs"
+                  value={form.staff_redirect_uris}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, staff_redirect_uris: value }))
+                  }
+                  placeholder="vhhealthstaff://sso/oidc/callback"
+                />
+                <div className="space-y-4">
+                  <TextField
+                    label="Employee ID Claim"
+                    value={form.staff_employee_id_claim}
+                    onChange={(value) =>
+                      setForm((current) => ({ ...current, staff_employee_id_claim: value }))
+                    }
+                    placeholder="employee_id"
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.allow_https_app_links}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          allow_https_app_links: event.target.checked,
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                    />
+                    <span className="font-medium text-foreground">Allow HTTPS app links</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <TextAreaField
                 label="Allowed Domains"
@@ -418,12 +628,12 @@ export function AdminOidcSettingsPanel() {
                 placeholder="vhhealth.app, hospital.example"
               />
               <TextAreaField
-                label="IdP Groups Mapped To ADMIN"
+                label={realm === "staff" ? "Staff Group Role Mappings" : "IdP Groups Mapped To ADMIN"}
                 value={form.mapping_groups}
                 onChange={(value) =>
                   setForm((current) => ({ ...current, mapping_groups: value }))
                 }
-                placeholder="vh-admins"
+                placeholder={realm === "staff" ? "vh-nursing=NURSING_STAFF" : "vh-admins"}
                 loading={mappingsQuery.isFetching}
               />
             </div>
@@ -457,6 +667,31 @@ export function AdminOidcSettingsPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+function RealmButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

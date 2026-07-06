@@ -16,12 +16,14 @@ import { requireTenantId } from '../tenant/tenantService.js';
 import {
   buildClaimRequestBundle,
   buildClaimStatusTaskBundle,
+  buildCommunicationResponseBundle,
   buildCoverageEligibilityRequestBundle,
   buildPreauthClaimRequestBundle,
   persistOutboundNHCXEnvelope,
 } from './nhcxFhirProfileService.js';
 import { loadNHCXRuntimeConfig } from './nhcxTenantConfigService.js';
 import { submitClaim } from '../insurance/claimsService.js';
+import { createOutboundCommunicationResponse } from './nhcxCommunicationService.js';
 
 export const NHCX_RETRY_LIMIT = 7;
 export const NHCX_BACKOFF_SECONDS = [30, 120, 600, 1_800, 3_600, 14_400, 28_800];
@@ -421,6 +423,65 @@ export async function enqueueClaimStatusCheck({
   });
 }
 
+export async function enqueueCommunicationResponse({
+  tenantId,
+  inboundCorrespondenceId,
+  responseText,
+  documentIds = [],
+  recordedBy = null,
+  hcxApiCallId = null,
+  hcxCorrelationId = null,
+  hcxWorkflowId = null,
+  runtimeResolver = null,
+  allowDisabled = false,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  assertNHCXGloballyEnabled({ allowDisabled });
+  const runtime = await loadRuntimeForTenant(tid, { runtimeResolver, allowDisabled });
+
+  const response = await createOutboundCommunicationResponse({
+    tenantId: tid,
+    inboundCorrespondenceId,
+    responseText,
+    documentIds,
+    recordedBy,
+    hcxApiCallId: hcxApiCallId || generateHcxId('communication'),
+    hcxCorrelationId,
+    hcxWorkflowId,
+  });
+  const built = await buildCommunicationResponseBundle({
+    tenantId: tid,
+    hcxApiCallId: response.hcx.apiCallId,
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+  });
+  const queued = await persistOutboundNHCXEnvelope({
+    tenantId: tid,
+    environment: runtime.environment,
+    cycle: 'communication',
+    endpoint: 'communication/request',
+    participantCodeSelf: runtime.participantCode,
+    participantCodeCounterparty: runtime.counterpartyParticipantCode,
+    hcxApiCallId: response.hcx.apiCallId,
+    hcxCorrelationId: response.hcx.correlationId,
+    hcxWorkflowId: response.hcx.workflowId || built.workflowId,
+    claimId: built.claimId,
+    preauthId: built.preauthId,
+    policyId: built.policyId,
+    patientUid: built.patientUid,
+    admissionId: built.admissionId,
+    domainResourceType: built.domainResourceType,
+    profileUrl: built.profileUrl,
+    profileVersion: built.profileVersion,
+    bundle: built.bundle,
+  });
+  return {
+    ...queued,
+    correspondence: response.correspondence,
+    documentIds: built.documentIds,
+  };
+}
+
 async function buildCurrentBundleForEnvelope(row, runtime) {
   const participantCodeSelf = row.participant_code_self || runtime.participantCode;
   const participantCodeCounterparty = row.participant_code_counterparty || runtime.counterpartyParticipantCode;
@@ -454,6 +515,17 @@ async function buildCurrentBundleForEnvelope(row, runtime) {
     return buildClaimStatusTaskBundle({
       tenantId: row.tenant_id,
       claimId: row.claim_id,
+      participantCodeSelf,
+      participantCodeCounterparty,
+    });
+  }
+  if (row.cycle === 'communication' && row.endpoint === 'communication/request') {
+    // Version-lock banner: live NHCX may split request/response actions or
+    // require binary packaging changes. P3 remains inert/mock-first until the
+    // live gateway contract is locked.
+    return buildCommunicationResponseBundle({
+      tenantId: row.tenant_id,
+      hcxApiCallId: row.hcx_api_call_id,
       participantCodeSelf,
       participantCodeCounterparty,
     });
@@ -869,6 +941,7 @@ export default {
   dispatchPendingNHCXMessages,
   enqueueClaimStatusCheck,
   enqueueClaimSubmit,
+  enqueueCommunicationResponse,
   enqueueCoverageEligibilityCheck,
   enqueuePreauthSubmit,
   getNHCXMessage,
