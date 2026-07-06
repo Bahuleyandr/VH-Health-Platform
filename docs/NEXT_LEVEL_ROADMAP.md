@@ -264,7 +264,7 @@ one-commit-per-item for bisectability.
 
 | Program | Wave | Status |
 |---|---|---|
-| NL-1 Enterprise identity | A | ◐ design merged — PR #432 ([spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); build gated on owner decisions (spec §13) |
+| NL-1 Enterprise identity | A | ◐ P1 in review — PR #436 ([spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); Keycloak-first admin OIDC SSO held/default-off |
 | NL-2 NHCX claims exchange | A | ◐ design merged — PR #430 ([spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md)); build gated on NHCX version lock + sandbox enrolment |
 | NL-3 Teleconsultation | A | ◐ design merged — PR #431 ([spec](superpowers/specs/2026-07-05-nl3-teleconsultation-design.md)); build gated on SFU pick + TURN edge sign-off |
 | NL-4 Demo-basics debt | A | ☑ shipped — PR #429 |
