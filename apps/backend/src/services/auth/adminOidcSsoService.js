@@ -11,6 +11,7 @@ import { ADMIN_ROLES } from '../../utils/roleHelpers.js';
 import { JWT_AUDIENCES, JWT_ISSUER } from '../../utils/jwtUtils.js';
 import { getTenantBySlug } from '../tenant/tenantService.js';
 import { generateRefreshToken, issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
+import { exposeScimProviderConfig } from './scimCredentialService.js';
 
 export const OIDC_STATE_COOKIE = 'vh_admin_oidc_state';
 export const OIDC_HANDOFF_COOKIE = 'vh_admin_sso_handoff';
@@ -224,6 +225,7 @@ function sanitizeProvider(row, { includeSecretPresence = true } = {}) {
     allowed_domains: row.allowed_domains || [],
     required_claims: row.required_claims || {},
     policy: row.policy || {},
+    scim: exposeScimProviderConfig(row),
     created_by: row.created_by ? String(row.created_by) : null,
     updated_by: row.updated_by ? String(row.updated_by) : null,
     created_at: row.created_at,
