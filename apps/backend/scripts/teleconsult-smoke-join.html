@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VH Health Teleconsult Smoke Join</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.4;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #f7f8fa;
+      color: #121417;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 24px;
+      margin: 0 0 16px;
+    }
+    section {
+      background: #fff;
+      border: 1px solid #d9dee7;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-weight: 650;
+      margin: 12px 0 6px;
+    }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #aeb7c5;
+      border-radius: 6px;
+      padding: 10px;
+      font: inherit;
+      background: #fff;
+      color: #121417;
+    }
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      background: #1769aa;
+      color: #fff;
+      margin: 12px 8px 0 0;
+    }
+    button.secondary {
+      background: #344052;
+    }
+    button.danger {
+      background: #a33131;
+    }
+    pre {
+      overflow: auto;
+      background: #111827;
+      color: #e7eefb;
+      padding: 12px;
+      border-radius: 6px;
+      min-height: 96px;
+    }
+    .videos {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    video {
+      width: 100%;
+      min-height: 200px;
+      background: #0b1020;
+      border-radius: 6px;
+    }
+    .warning {
+      border-left: 4px solid #b7791f;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>VH Health Teleconsult Smoke Join</h1>
+
+    <section class="warning">
+      <strong>Operator smoke only.</strong>
+      Use synthetic/staging users and the self-hosted LiveKit URL. Do not paste
+      patient names, diagnoses, raw appointment notes, or production PHI into
+      this page. Place a locally approved `livekit-client.umd.min.js` beside
+      this file, or provide a hospital-hosted SDK URL below.
+    </section>
+
+    <section>
+      <label for="sdkUrl">LiveKit browser SDK URL</label>
+      <input id="sdkUrl" value="./livekit-client.umd.min.js">
+
+      <label for="serverUrl">Server URL</label>
+      <input id="serverUrl" placeholder="https://teleconsult.vhhealth.app">
+
+      <label for="token">Participant token</label>
+      <textarea id="token" spellcheck="false" placeholder="Paste one smoke token"></textarea>
+
+      <button id="connect">Connect</button>
+      <button id="publishAudio" class="secondary">Publish Audio</button>
+      <button id="publishVideo" class="secondary">Publish Camera</button>
+      <button id="disconnect" class="danger">Disconnect</button>
+    </section>
+
+    <section>
+      <div class="videos" id="videos"></div>
+    </section>
+
+    <section>
+      <pre id="log">Ready.</pre>
+    </section>
+  </main>
+
+  <script>
+    let room;
+    let sdkLoaded = false;
+
+    const logEl = document.getElementById('log');
+    const videosEl = document.getElementById('videos');
+
+    function log(message, data) {
+      const line = data ? `${message} ${JSON.stringify(data)}` : message;
+      logEl.textContent += `\n${new Date().toISOString()} ${line}`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function livekit() {
+      const sdk = window.LivekitClient || window.LiveKit;
+      if (!sdk) throw new Error('LiveKit browser SDK not loaded');
+      return sdk;
+    }
+
+    function loadSdk() {
+      if (sdkLoaded) return Promise.resolve();
+      const src = document.getElementById('sdkUrl').value.trim();
+      if (!src) return Promise.reject(new Error('SDK URL is required'));
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => {
+          sdkLoaded = true;
+          resolve();
+        };
+        script.onerror = () => reject(new Error(`Failed to load SDK: ${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    function attachTrack(track, participantIdentity) {
+      const element = track.attach();
+      if (element.tagName === 'VIDEO') {
+        element.autoplay = true;
+        element.playsInline = true;
+        element.muted = participantIdentity === room.localParticipant.identity;
+      }
+      element.dataset.participant = participantIdentity;
+      videosEl.appendChild(element);
+    }
+
+    document.getElementById('connect').addEventListener('click', async () => {
+      try {
+        await loadSdk();
+        const LK = livekit();
+        const serverUrl = document.getElementById('serverUrl').value.trim();
+        const token = document.getElementById('token').value.trim();
+        if (!serverUrl || !token) throw new Error('Server URL and token are required');
+
+        room = new LK.Room({ adaptiveStream: true, dynacast: true });
+        room.on(LK.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+          attachTrack(track, participant.identity);
+          log('track subscribed', { participant: participant.identity, source: publication.source });
+        });
+        room.on(LK.RoomEvent.ParticipantConnected, (participant) => {
+          log('participant connected', { participant: participant.identity });
+        });
+        room.on(LK.RoomEvent.ParticipantDisconnected, (participant) => {
+          log('participant disconnected', { participant: participant.identity });
+        });
+        room.on(LK.RoomEvent.Disconnected, (reason) => {
+          log('room disconnected', { reason });
+        });
+
+        await room.connect(serverUrl, token);
+        log('connected', {
+          room: room.name,
+          identity: room.localParticipant.identity,
+        });
+      } catch (err) {
+        log('connect failed', { error: err.message });
+      }
+    });
+
+    document.getElementById('publishAudio').addEventListener('click', async () => {
+      try {
+        if (!room) throw new Error('connect first');
+        const LK = livekit();
+        const track = await LK.createLocalAudioTrack();
+        await room.localParticipant.publishTrack(track);
+        log('audio published');
+      } catch (err) {
+        log('audio publish failed', { error: err.message });
+      }
+    });
+
+    document.getElementById('publishVideo').addEventListener('click', async () => {
+      try {
+        if (!room) throw new Error('connect first');
+        const LK = livekit();
+        const track = await LK.createLocalVideoTrack();
+        await room.localParticipant.publishTrack(track);
+        attachTrack(track, room.localParticipant.identity);
+        log('camera published');
+      } catch (err) {
+        log('camera publish failed', { error: err.message });
+      }
+    });
+
+    document.getElementById('disconnect').addEventListener('click', async () => {
+      if (room) {
+        room.disconnect();
+        room = null;
+        videosEl.innerHTML = '';
+      }
+    });
+  </script>
+</body>
+</html>
