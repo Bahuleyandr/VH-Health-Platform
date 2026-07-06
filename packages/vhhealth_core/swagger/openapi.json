@@ -18376,6 +18376,18 @@
             "type": "string",
             "nullable": true
           },
+          "visit_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "NEW",
+              "FOLLOW_UP",
+              "EMERGENCY",
+              "TELE",
+              "LAB_ONLY",
+              "PAEDIATRIC_OPD"
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -48186,6 +48198,23 @@
         }
       }
     },
+    "/api/v1/billing/v2/payment-links/teleconsult-post-consult": {
+      "post": {
+        "operationId": "post_api_v1_billing_v2_payment_links_teleconsult_post_consult",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/billing/v2/payment-links/{token}": {
       "get": {
         "operationId": "get_api_v1_billing_v2_payment_links_by_token",
@@ -58534,6 +58563,23 @@
     "/api/v1/dashboards/snapshot/payer-mix": {
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_payer_mix",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboards/snapshot/teleconsult-ops": {
+      "get": {
+        "operationId": "get_api_v1_dashboards_snapshot_teleconsult_ops",
         "responses": {
           "200": {
             "description": "Successful response",

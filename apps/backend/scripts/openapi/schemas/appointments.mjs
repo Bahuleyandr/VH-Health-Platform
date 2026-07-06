@@ -1169,7 +1169,7 @@ export const schemas = {
 
   // ---- POST /admin/override-book -----------------------------------------
   // data = { appointment:<RETURNING row>, override:true, bookedBy }. RETURNING
-  // is a fixed column list incl admin_override/override_reason/created_by.
+  // is a fixed column list incl admin_override/override_reason/visit_type/created_by.
   OverrideBookedAppointment: {
     type: 'object',
     additionalProperties: false,
@@ -1184,6 +1184,7 @@ export const schemas = {
       notes: { type: 'string', nullable: true },
       admin_override: { type: 'boolean', nullable: true },
       override_reason: { type: 'string', nullable: true },
+      visit_type: { type: 'string', nullable: true, enum: [...VISIT_TYPE] },
       created_at: { type: 'string', format: 'date-time', nullable: true },
       created_by: { type: 'string', format: 'uuid', nullable: true },
       updated_at: { type: 'string', format: 'date-time', nullable: true },
