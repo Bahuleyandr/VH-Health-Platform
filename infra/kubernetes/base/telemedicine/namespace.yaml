@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-telemedicine
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    vhhealth.app/deploy-state: held
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Held NL-3 teleconsultation media plane; self-hosted LiveKit only."
+    vhhealth.app/deploy-hold: "not referenced by root base until L4/TURN edge and manual smoke are approved"

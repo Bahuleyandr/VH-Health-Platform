@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# NL-3 P1 LiveKit teleconsultation media plane.
+#
+# HELD: this directory is deliberately NOT referenced by
+# infra/kubernetes/base/kustomization.yaml. Apply only after owner approval for
+# the hospital L4/public-IP media edge, embedded TURN ports, and manual media
+# smoke evidence.
+metadata:
+  name: vhhealth-telemedicine-livekit-held
+
+resources:
+  - namespace.yaml
+  - livekit-config.yaml
+  - livekit-secret.sealed-secret.yaml.example
+  - livekit-deployment.yaml
+  - livekit-service.yaml
+  - livekit-ingress.yaml
+  - network-policy.yaml
+  - servicemonitor.yaml

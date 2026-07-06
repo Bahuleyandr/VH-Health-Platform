@@ -1,0 +1,33 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: livekit
+  namespace: vhhealth-telemedicine
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    vhhealth.app/deploy-state: held
+  labels:
+    app.kubernetes.io/name: livekit
+    app.kubernetes.io/component: teleconsult-media
+    app.kubernetes.io/part-of: vhhealth
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit
+  namespaceSelector:
+    matchNames:
+      - vhhealth-telemedicine
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
