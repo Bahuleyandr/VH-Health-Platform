@@ -753,6 +753,26 @@ async function admitPatient(data) {
     if (policyByNum) resolvedPolicyId = policyByNum.id;
   }
 
+  // A raw policy_number that resolves to no policy master means every
+  // downstream TPA step (preauth auto-draft, discharge final claim) silently
+  // skips — the cashless workflow never starts and the desk only finds out at
+  // discharge. Planned admits have time to create/select the policy master, so
+  // fail closed. Emergency admits must never be blocked on billing linkage:
+  // admit with the linkage warning and let the TPA desk repair it.
+  if (!resolvedPolicyId && policy_number) {
+    if (admission_type === 'emergency') {
+      logger.warn(
+        `admitPatient: policy_number ${String(policy_number)} has no policy master for patient ${patient_uid}; ` +
+        'admitting (emergency) without TPA linkage — preauth/final-claim automation will skip',
+      );
+    } else {
+      throw AppError.badRequest(
+        `TPA policy ${String(policy_number)} is not linked to this patient. ` +
+        'Create or select the insurance policy master before admitting with cashless TPA details.',
+      );
+    }
+  }
+
   let resolvedPackageId = null;
   let resolvedPackageCode = packageCodeArg ?? null;
   let resolvedPackageEstMinor = packageEstimatedCostMinorArg != null
@@ -1859,7 +1879,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
   const phase1 = await scopedTx(tenantId, async (tx) => {
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, patient_uid, status, encounter_id, insurance_info,
-             discharge_initiated_at, billing_closed_at
+             policy_id, discharge_initiated_at, billing_closed_at
         FROM admissions
        WHERE id = ${admissionId}
          AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
@@ -1935,6 +1955,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
       encounter_id: admission.encounter_id,
       patient_uid: admission.patient_uid,
       insurance_info: admission.insurance_info,
+      policy_id: admission.policy_id,
       consults,
       now,
     };
@@ -1962,6 +1983,11 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
     }
 
     if (!finalClaim) {
+      // Anchor to the admission's selected policy first: a mid-stay preauth
+      // raised against a different policy (wrong payer, second insurer) must
+      // not steal the final claim from the policy the admission was actually
+      // admitted under. Ported from swarm 83385ac0.
+      const admissionPolicyId = phase1.policy_id ? Number(phase1.policy_id) : null;
       const activePreauthRows = await prisma.$queryRawUnsafe(
         `SELECT id, tenant_id, policy_id, patient_uid, admission_id,
                 request_type, parent_preauth_id, status
@@ -1969,12 +1995,14 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
           WHERE admission_id = $1::int
             AND status NOT IN ('cancelled','lapsed','denied')
           ORDER BY
+            CASE WHEN $2::int IS NOT NULL AND policy_id = $2::int THEN 0 ELSE 1 END,
             CASE WHEN status IN ('approved','partially_approved') THEN 0 ELSE 1 END,
             CASE WHEN request_type = 'enhancement' THEN 0 ELSE 1 END,
             created_at DESC,
             id DESC
           LIMIT 1`,
         Number(admissionId),
+        admissionPolicyId,
       );
       const activePreauth = activePreauthRows[0];
       if (activePreauth) {
@@ -1984,7 +2012,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
             WHERE admission_id = $1::int
               AND patient_uid = $2::uuid
               AND status IN ('ISSUED','PARTIAL','PAID')
-            ORDER BY issued_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+            ORDER BY total_amount DESC, issued_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
             LIMIT 1`,
           Number(admissionId),
           activePreauth.patient_uid,
