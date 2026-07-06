@@ -194,6 +194,70 @@ export const updateAppointmentValidators = [
   handleValidationErrors
 ];
 
+// Dedicated NL-4 reschedule endpoint: in-place date/time change that keeps the
+// appointment active and returns it to SCHEDULED if it had already been confirmed.
+export const rescheduleAppointmentValidators = [
+  param('id').isInt({ min: 1 }).withMessage('Appointment ID must be a valid integer'),
+  body('doctor_uid')
+    .optional({ values: 'falsy' })
+    .isUUID()
+    .withMessage('Doctor UID must be a valid UUID'),
+  body('doctor_id')
+    .optional({ values: 'falsy' })
+    .isInt({ min: 1 })
+    .withMessage('Doctor ID must be a valid integer'),
+  body('appointment_date')
+    .custom((value) => {
+      let appointmentDate;
+
+      const ddmmyyyyRegex = /^(\d{2})-(\d{2})-(\d{4})$/;
+      if (ddmmyyyyRegex.test(value)) {
+        const [, day, month, year] = value.match(ddmmyyyyRegex);
+        appointmentDate = new Date(`${year}-${month}-${day}`);
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        appointmentDate = new Date(value);
+      } else {
+        throw new Error('Date must be in DD-MM-YYYY format');
+      }
+
+      if (isNaN(appointmentDate.getTime())) {
+        throw new Error('Invalid date');
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      appointmentDate.setHours(0, 0, 0, 0);
+
+      if (appointmentDate < today) {
+        throw new Error('Appointment date cannot be in the past');
+      }
+
+      return true;
+    })
+    .customSanitizer((value) => {
+      const ddmmyyyyRegex = /^(\d{2})-(\d{2})-(\d{4})$/;
+      if (ddmmyyyyRegex.test(value)) {
+        const [, day, month, year] = value.match(ddmmyyyyRegex);
+        return `${year}-${month}-${day}`;
+      }
+      return value;
+    }),
+  body('appointment_time')
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Appointment time must be in HH:mm format'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Notes cannot exceed 1000 characters'),
+  body('confirmation_notes')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Confirmation notes cannot exceed 1000 characters'),
+  handleValidationErrors
+];
+
 // Status update validators
 export const updateStatusValidators = [
   param('id').isInt().withMessage('Appointment ID must be a valid integer'),

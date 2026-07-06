@@ -13,6 +13,13 @@
 //       appointment_reminder?: ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
 //       results_ready?:        ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
 //     },
+//     biometricCapture?: {
+//       frontDeskRegistration?: {
+//         enabled?: boolean,
+//         modes?: ('face'|'fingerprint'|'iris')[],
+//         provider?: string,
+//       },
+//     },
 //   }
 import { getTenantById } from './tenantService.js';
 
@@ -32,4 +39,22 @@ export async function getRateLimitOverride(tenantId, profile) {
 export async function getBranding(tenantId) {
   const settings = await getTenantSettings(tenantId);
   return settings.branding && typeof settings.branding === 'object' ? settings.branding : {};
+}
+
+export async function getFrontDeskBiometricCaptureSettings(tenantId) {
+  const settings = await getTenantSettings(tenantId);
+  const raw = settings.biometricCapture?.frontDeskRegistration;
+  if (!raw || typeof raw !== 'object') {
+    return { enabled: false, modes: [], provider: null };
+  }
+  const modes = Array.isArray(raw.modes)
+    ? raw.modes
+      .map((mode) => String(mode || '').trim().toLowerCase())
+      .filter((mode) => ['face', 'fingerprint', 'iris'].includes(mode))
+    : [];
+  return {
+    enabled: raw.enabled === true,
+    modes,
+    provider: raw.provider ? String(raw.provider).trim() || null : null,
+  };
 }

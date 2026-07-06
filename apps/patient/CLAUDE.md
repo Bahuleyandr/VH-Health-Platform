@@ -218,6 +218,7 @@ Builders are param-free unless noted.
 | Appointment slots | `/appointments/slots?doctor_id=&date=` | GET |
 | Appointment docs | `/appointments/:id/documents` | GET |
 | Cancel/update appt | `/appointments/:id` | PUT/DELETE |
+| Reschedule appt | `/appointments/:id/reschedule` | PATCH |
 | **Records** | | |
 | Health records | `/records/health-records/:phone` | GET |
 | Consultations | `/records/consultations/:phone` | GET |
@@ -293,7 +294,7 @@ Builders are param-free unless noted.
 | Delete reminder | `/reminders/medication/:id` | DELETE |
 | **Record access** | | |
 | List proxy grants | `/portal/proxy/grants` | GET |
-| Grant record access | `/portal/proxy/grants` | POST |
+| Grant record access | `/portal/proxy/grants` | POST (JSON or multipart signature) |
 | Revoke record access | `/portal/proxy/grants/:id/revoke` | POST |
 | **Devices** | | |
 | Register device | `/devices/register` | POST |
@@ -301,6 +302,12 @@ Builders are param-free unless noted.
 | Heartbeat | `/devices/heartbeat` | POST |
 | Update token | `/devices/update-token` | POST |
 | Unregister | `/devices/unregister` | DELETE |
+
+NL-4 record-access grants may attach a `SignaturePadField` PNG as multipart
+signature evidence. Keep this scoped to proxy-grant consent; patient-facing
+record surfaces must not expose in-hospital/IP notes, and the patient-safe label
+remains `Consultation notes`.
+
 | **Patient portal** (Sprint 10) | | |
 | Bills list / detail | `/portal/bills`, `/portal/bills/:id` | GET |
 | Lab orders | `/portal/lab-orders` | GET |

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show SignaturePadController, SignaturePadField;
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
@@ -31,6 +33,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   final _bedCtrl = TextEditingController();
   final _doctorSearchCtrl = TextEditingController();
   final _doctorSearchFocus = FocusNode();
+  final _patientSignatureController = SignaturePadController();
+  final _staffWitnessSignatureController = SignaturePadController();
 
   late final Future<List<Map<String, dynamic>>> _doctorsFuture;
   late final Future<List<Map<String, dynamic>>> _wardOptionsFuture;
@@ -95,6 +99,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     _bedCtrl.dispose();
     _doctorSearchCtrl.dispose();
     _doctorSearchFocus.dispose();
+    _patientSignatureController.dispose();
+    _staffWitnessSignatureController.dispose();
     super.dispose();
   }
 
@@ -355,6 +361,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
       _showError(s.receptionCounterValidatePatientName);
       return;
     }
+    if (_ipConsentCaptured &&
+        (_patientSignatureController.isEmpty ||
+            _staffWitnessSignatureController.isEmpty)) {
+      _showError(s.receptionCounterIpSignatureRequired);
+      return;
+    }
 
     setState(() => _ipSubmitting = true);
     try {
@@ -374,8 +386,18 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         'code_status': _apiCodeStatus(_codeStatus),
         'counter_consent_captured': _ipConsentCaptured,
       });
+      final consentId = _intFrom(result['counter_treatment_consent_id']);
+      if (_ipConsentCaptured) {
+        if (consentId == null) {
+          throw Exception(s.receptionCounterIpSignatureUploadFailed);
+        }
+        await _uploadIpConsentSignatures(
+          consentId,
+          signatureRequiredMessage: s.receptionCounterIpSignatureRequired,
+        );
+      }
       if (!mounted) return;
-      final s = AppStrings.of(context);
+      final strings = AppStrings.of(context);
       final admission = _admissionFromResponse(result);
       final ipNumber = _text(admission['ip_number']);
       final hospitalNumber = _text(
@@ -384,16 +406,18 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
       _showSuccess(
         [
           if (ipNumber.isEmpty)
-            '${s.receptionCounterIpCreatedPrefix} created'
+            '${strings.receptionCounterIpCreatedPrefix} created'
           else
-            '${s.receptionCounterIpCreatedPrefix} $ipNumber created',
+            '${strings.receptionCounterIpCreatedPrefix} $ipNumber created',
           if (hospitalNumber.isNotEmpty)
-            '${s.receptionCounterIpHospitalIdPrefix} $hospitalNumber',
+            '${strings.receptionCounterIpHospitalIdPrefix} $hospitalNumber',
         ].join(' - '),
       );
       _chiefComplaintCtrl.clear();
       _diagnosisCtrl.clear();
       _bedCtrl.clear();
+      _patientSignatureController.clear();
+      _staffWitnessSignatureController.clear();
       setState(() {
         _admissionLookup = null;
         _ipConsentCaptured = false;
@@ -406,6 +430,29 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     } finally {
       if (mounted) setState(() => _ipSubmitting = false);
     }
+  }
+
+  Future<void> _uploadIpConsentSignatures(
+    int consentId, {
+    required String signatureRequiredMessage,
+  }) async {
+    final patientBytes = await _patientSignatureController.toPngBytes();
+    final witnessBytes = await _staffWitnessSignatureController.toPngBytes();
+    if (patientBytes == null || witnessBytes == null) {
+      throw Exception(signatureRequiredMessage);
+    }
+    await MedicalApiService.uploadConsentSignature(
+      consentId: consentId,
+      signatureRole: 'patient',
+      pngBytes: patientBytes,
+      signerName: _patientNameCtrl.text.trim(),
+    );
+    await MedicalApiService.uploadConsentSignature(
+      consentId: consentId,
+      signatureRole: 'staff_witness',
+      pngBytes: witnessBytes,
+      signerName: 'Staff witness',
+    );
   }
 
   String _apiPriority(String priority) {
@@ -990,8 +1037,13 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           const SizedBox(height: 12),
           CheckboxListTile(
             value: _ipConsentCaptured,
-            onChanged: (value) =>
-                setState(() => _ipConsentCaptured = value ?? false),
+            onChanged: (value) {
+              setState(() => _ipConsentCaptured = value ?? false);
+              if (value != true) {
+                _patientSignatureController.clear();
+                _staffWitnessSignatureController.clear();
+              }
+            },
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             title: Text(s.receptionCounterIpConsentTitle),
@@ -1000,6 +1052,22 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ),
+          if (_ipConsentCaptured) ...[
+            const SizedBox(height: 8),
+            SignaturePadField(
+              controller: _patientSignatureController,
+              label: s.receptionCounterIpPatientSignatureLabel,
+              clearLabel: s.receptionCounterIpSignatureClear,
+              emptyHint: s.receptionCounterIpSignatureHint,
+            ),
+            const SizedBox(height: 12),
+            SignaturePadField(
+              controller: _staffWitnessSignatureController,
+              label: s.receptionCounterIpStaffWitnessSignatureLabel,
+              clearLabel: s.receptionCounterIpSignatureClear,
+              emptyHint: s.receptionCounterIpSignatureHint,
+            ),
+          ],
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _ipSubmitting ? null : _submitIpAdmission,

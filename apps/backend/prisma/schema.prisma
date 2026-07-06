@@ -6895,34 +6895,62 @@ model patient_chat_messages {
 }
 
 model patient_consents {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  consent_type    String    @db.VarChar(100)
-  granted         Boolean?  @default(false)
-  status          String?   @default("active") @db.VarChar(50)
-  created_at      DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
-  granted_at      DateTime? @db.Timestamptz(6)
-  revoked_at      DateTime? @db.Timestamptz(6)
-  expires_at      DateTime? @db.Timestamptz(6)
-  granted_by      String?   @db.VarChar(100)
-  revoked_by      String?   @db.VarChar(100)
-  ip_address      String?   @db.VarChar(45)
-  notes           String?
-  purpose         String?
-  data_categories Json      @default("[]")
-  version         String    @default("v1") @db.VarChar(30)
-  source          String    @default("portal") @db.VarChar(50)
-  consent_method  String?   @db.VarChar(20)
-  witness_name    String?   @db.VarChar(160)
-  witness_uid     String?   @db.Uuid
-  form_language   String?   @db.VarChar(20)
-  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
+  id                 Int                  @id @default(autoincrement())
+  patient_uid        String               @db.Uuid
+  consent_type       String               @db.VarChar(100)
+  granted            Boolean?             @default(false)
+  status             String?              @default("active") @db.VarChar(50)
+  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  granted_at         DateTime?            @db.Timestamptz(6)
+  revoked_at         DateTime?            @db.Timestamptz(6)
+  expires_at         DateTime?            @db.Timestamptz(6)
+  granted_by         String?              @db.VarChar(100)
+  revoked_by         String?              @db.VarChar(100)
+  ip_address         String?              @db.VarChar(45)
+  notes              String?
+  purpose            String?
+  data_categories    Json                 @default("[]")
+  version            String               @default("v1") @db.VarChar(30)
+  source             String               @default("portal") @db.VarChar(50)
+  consent_method     String?              @db.VarChar(20)
+  witness_name       String?              @db.VarChar(160)
+  witness_uid        String?              @db.Uuid
+  form_language      String?              @db.VarChar(20)
+  tenant_id          String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consent_signatures consent_signatures[]
+  tenants            tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_patient_consents_patient_created")
   @@index([consent_type, status], map: "idx_patient_consents_type_status")
   @@index([tenant_id], map: "idx_patient_consents_tenant_id")
+}
+
+model consent_signatures {
+  id               BigInt           @id @default(autoincrement())
+  tenant_id        String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consent_id       Int
+  patient_uid      String           @db.Uuid
+  signature_role   String           @db.VarChar(30)
+  version          Int              @default(1)
+  storage_key      String
+  storage_url      String?
+  mime_type        String           @db.VarChar(100)
+  file_size        Int
+  sha256_hash      String           @db.VarChar(64)
+  captured_by      String?          @db.Uuid
+  captured_by_role String?          @db.VarChar(60)
+  signer_name      String?          @db.VarChar(160)
+  signer_uid       String?          @db.Uuid
+  captured_at      DateTime         @default(now()) @db.Timestamptz(6)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  metadata         Json             @default("{}")
+  patient_consents patient_consents @relation(fields: [consent_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_consent_signatures_consent")
+  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_consent_signatures_tenant")
+
+  @@unique([tenant_id, consent_id, signature_role, version], map: "ux_consent_signatures_version")
+  @@index([tenant_id, consent_id, signature_role, version(sort: Desc)], map: "idx_consent_signatures_consent_latest")
+  @@index([tenant_id, patient_uid, captured_at(sort: Desc)], map: "idx_consent_signatures_patient")
 }
 
 model patient_data_rights_requests {
@@ -9476,6 +9504,7 @@ model tenants {
   clinical_trials_catalog                    clinical_trials_catalog[]
   clinical_voice_notes                       clinical_voice_notes[]
   composition_search_settings                composition_search_settings?
+  consent_signatures                         consent_signatures[]
   consultations                              consultations[]
   data_breaches                              data_breaches[]
   data_processing_activities                 data_processing_activities[]
@@ -14778,24 +14807,30 @@ model ophthalmic_refractions {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model portal_proxy_grants {
-  id             Int       @id @default(autoincrement())
-  tenant_id      String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid    String    @db.Uuid
-  proxy_uid      String    @db.Uuid
-  relationship   String?   @db.VarChar(40)
-  scope          String[]  @default(["results"])
-  status         String    @default("active") @db.VarChar(12)
-  consent_method String    @db.VarChar(20)
-  consent_ref    String?   @db.VarChar(200)
-  granted_by     String?   @db.Uuid
-  granted_at     DateTime  @default(now()) @db.Timestamptz(6)
-  expires_at     DateTime? @db.Timestamptz(6)
-  revoked_at     DateTime? @db.Timestamptz(6)
-  revoked_by     String?   @db.Uuid
-  revoked_reason String?
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
-  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_portal_proxy_grants_tenant")
+  id                    Int       @id @default(autoincrement())
+  tenant_id             String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid           String    @db.Uuid
+  proxy_uid             String    @db.Uuid
+  relationship          String?   @db.VarChar(40)
+  scope                 String[]  @default(["results"])
+  status                String    @default("active") @db.VarChar(12)
+  consent_method        String    @db.VarChar(20)
+  consent_ref           String?   @db.VarChar(200)
+  granted_by            String?   @db.Uuid
+  granted_at            DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at            DateTime? @db.Timestamptz(6)
+  revoked_at            DateTime? @db.Timestamptz(6)
+  revoked_by            String?   @db.Uuid
+  revoked_reason        String?
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+  signature_storage_key String?
+  signature_storage_url String?
+  signature_mime_type   String?   @db.VarChar(100)
+  signature_file_size   Int?
+  signature_sha256_hash String?   @db.VarChar(64)
+  signature_captured_at DateTime? @db.Timestamptz(6)
+  tenants               tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_portal_proxy_grants_tenant")
 
   @@unique([patient_uid, proxy_uid], map: "uq_portal_proxy_grants_active", where: raw("((status)::text = 'active'::text)"))
   @@index([proxy_uid, status], map: "idx_portal_proxy_grants_proxy")

@@ -14604,6 +14604,95 @@
           }
         }
       },
+      "InPlaceRescheduleAppointmentRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointment_date",
+          "appointment_time"
+        ],
+        "description": "PATCH /api/v1/appointments/{id}/reschedule.",
+        "properties": {
+          "appointment_date": {
+            "type": "string"
+          },
+          "appointment_time": {
+            "type": "string"
+          },
+          "doctor_id": {
+            "type": "integer"
+          },
+          "doctor_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "confirmation_notes": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "InPlaceRescheduleResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InPlaceRescheduleResult"
+          }
+        }
+      },
+      "InPlaceRescheduleResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "appointment"
+        ],
+        "properties": {
+          "appointment": {
+            "$ref": "#/components/schemas/Appointment"
+          },
+          "previous": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true,
+            "properties": {
+              "appointment_date": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "appointment_time": {
+                "type": "string",
+                "nullable": true
+              },
+              "doctor_id": {
+                "type": "integer",
+                "nullable": true
+              },
+              "status": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "updated_by": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "InsuranceClaim": {
         "type": "object",
         "additionalProperties": false,
@@ -44656,6 +44745,41 @@
       }
     },
     "/api/v1/appointments/{id}/reschedule": {
+      "patch": {
+        "operationId": "patch_api_v1_appointments_by_id_reschedule",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InPlaceRescheduleResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InPlaceRescheduleAppointmentRequest"
+              }
+            }
+          }
+        }
+      },
       "post": {
         "operationId": "post_api_v1_appointments_by_id_reschedule",
         "responses": {
@@ -57574,6 +57698,60 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/consent/{id}/pdf": {
+      "get": {
+        "operationId": "get_api_v1_consent_by_id_pdf",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/consent/{id}/signatures": {
+      "post": {
+        "operationId": "post_api_v1_consent_by_id_signatures",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/consent/{patientUid}": {

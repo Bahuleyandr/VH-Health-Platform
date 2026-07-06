@@ -7,54 +7,89 @@ extension _FrontOfficeWorkbenchPatientDialogs
   Future<Map<String, dynamic>?> _showDuplicatePatientDialog(
     List<Map<String, dynamic>> matches,
   ) {
+    final reasonCtrl = TextEditingController();
+    String? reasonError;
     return showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const AppText(
-          's4.lib.front_office_workbench.possible_existing_patient',
-        ),
-        content: SizedBox(
-          width: 560,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppText(
-                's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis',
-                style: TextStyle(color: AppTheme.textSecondary),
-              ),
-              const SizedBox(height: 12),
-              ...matches
-                  .take(5)
-                  .map(
-                    (patient) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: _PatientCard(
-                        patient: patient,
-                        onTap: () => Navigator.pop(dialogContext, patient),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const AppText(
+              's4.lib.front_office_workbench.possible_existing_patient',
+            ),
+            content: SizedBox(
+              width: 600,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppText(
+                      's4.lib.front_office_workbench.a_similar_patient_already_exists_select_the_exis',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    ...matches
+                        .take(5)
+                        .map(
+                          (patient) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: _PatientCard(
+                              patient: patient,
+                              onTap: () =>
+                                  Navigator.pop(dialogContext, patient),
+                            ),
+                          ),
+                        ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: reasonCtrl,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(context).lookup(
+                          's4.lib.front_office_workbench.create_anyway_reason',
+                        ),
+                        prefixIcon: const Icon(Icons.fact_check_outlined),
+                        errorText: reasonError,
                       ),
                     ),
-                  ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, {'_action': 'cancel'}),
-            child: const AppText('action.cancel'),
-          ),
-          FilledButton.tonalIcon(
-            onPressed: () =>
-                Navigator.pop(dialogContext, {'_action': 'create'}),
-            icon: const Icon(Icons.person_add_alt_1),
-            label: const AppText(
-              's4.lib.front_office_workbench.create_separate_record',
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(dialogContext, {'_action': 'cancel'}),
+                child: const AppText('action.cancel'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: () {
+                  final reason = reasonCtrl.text.trim();
+                  if (reason.length < 10) {
+                    setDialogState(() {
+                      reasonError = AppStrings.of(context).lookup(
+                        's4.lib.front_office_workbench.create_anyway_reason_required',
+                      );
+                    });
+                    return;
+                  }
+                  Navigator.pop(dialogContext, {
+                    '_action': 'create',
+                    '_reason': reason,
+                  });
+                },
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const AppText(
+                  's4.lib.front_office_workbench.create_anyway',
+                ),
+              ),
+            ],
+          );
+        },
       ),
-    );
+    ).whenComplete(reasonCtrl.dispose);
   }
 
   Future<void> _showPatientDialog({
@@ -76,6 +111,7 @@ extension _FrontOfficeWorkbenchPatientDialogs
     );
     var saving = false;
     String? dialogError;
+    File? patientPhoto;
 
     final saved = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -83,6 +119,60 @@ extension _FrontOfficeWorkbenchPatientDialogs
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final s = AppStrings.of(context);
+            Future<void> pickPatientPhoto() async {
+              final picked = await ImagePicker().pickImage(
+                source: ImageSource.camera,
+                maxWidth: 1200,
+                imageQuality: 86,
+              );
+              if (picked == null || !dialogContext.mounted) return;
+              setDialogState(() {
+                patientPhoto = File(picked.path);
+              });
+            }
+
+            Future<Map<String, dynamic>?> createPatientWithReview(
+              String? duplicateOverrideReason,
+            ) async {
+              var overrideReason = duplicateOverrideReason;
+              while (true) {
+                try {
+                  return await PatientApiService.createPatient(
+                    name: nameCtrl.text,
+                    phone: phoneCtrl.text,
+                    gender: genderCtrl.text,
+                    birthday: birthdayCtrl.text,
+                    address: addressCtrl.text,
+                    duplicateOverrideReason: overrideReason,
+                    photoPath: patientPhoto?.path,
+                  );
+                } on PatientDuplicateReviewException catch (e) {
+                  if (!dialogContext.mounted) return null;
+                  setDialogState(() {
+                    saving = false;
+                    dialogError = null;
+                  });
+                  final decision = await _showDuplicatePatientDialog(
+                    e.candidates,
+                  );
+                  final action = decision?['_action']?.toString();
+                  if (action == 'cancel' || decision == null) return null;
+                  if (action != 'create') {
+                    if (dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop(decision);
+                    }
+                    return null;
+                  }
+                  overrideReason = decision['_reason']?.toString();
+                  if (!dialogContext.mounted) return null;
+                  setDialogState(() {
+                    saving = true;
+                    dialogError = null;
+                  });
+                }
+              }
+            }
+
             Future<void> save() async {
               if (!frontOfficePhoneMeetsMinimum(phoneCtrl.text)) {
                 setDialogState(() {
@@ -92,6 +182,7 @@ extension _FrontOfficeWorkbenchPatientDialogs
                 });
                 return;
               }
+              String? duplicateOverrideReason;
               if (patient == null) {
                 setDialogState(() {
                   saving = true;
@@ -122,6 +213,9 @@ extension _FrontOfficeWorkbenchPatientDialogs
                       }
                       return;
                     }
+                    duplicateOverrideReason = decision['_reason']
+                        ?.toString()
+                        .trim();
                   }
                 } catch (_) {
                   if (!dialogContext.mounted) return;
@@ -137,13 +231,7 @@ extension _FrontOfficeWorkbenchPatientDialogs
               });
               try {
                 final result = patient == null
-                    ? await PatientApiService.createPatient(
-                        name: nameCtrl.text,
-                        phone: phoneCtrl.text,
-                        gender: genderCtrl.text,
-                        birthday: birthdayCtrl.text,
-                        address: addressCtrl.text,
-                      )
+                    ? await createPatientWithReview(duplicateOverrideReason)
                     : await PatientApiService.updatePatient(
                         uid: patient['uid'].toString(),
                         name: nameCtrl.text,
@@ -152,6 +240,7 @@ extension _FrontOfficeWorkbenchPatientDialogs
                         birthday: birthdayCtrl.text,
                         address: addressCtrl.text,
                       );
+                if (result == null) return;
                 if (dialogContext.mounted) {
                   Navigator.of(dialogContext).pop(result);
                 }
@@ -243,6 +332,65 @@ extension _FrontOfficeWorkbenchPatientDialogs
                           prefixIcon: const Icon(Icons.home_outlined),
                         ),
                       ),
+                      if (patient == null) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.divider),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 28,
+                                backgroundColor: AppTheme.primaryBlue
+                                    .withValues(alpha: 0.12),
+                                backgroundImage: patientPhoto == null
+                                    ? null
+                                    : FileImage(patientPhoto!),
+                                child: patientPhoto == null
+                                    ? const Icon(Icons.person_outline)
+                                    : null,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  s.lookup(
+                                    's4.lib.front_office_workbench.patient_photo',
+                                  ),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: saving ? null : pickPatientPhoto,
+                                icon: const Icon(Icons.camera_alt_outlined),
+                                label: AppText(
+                                  patientPhoto == null
+                                      ? 's4.lib.front_office_workbench.take_photo'
+                                      : 's4.lib.front_office_workbench.retake_photo',
+                                ),
+                              ),
+                              if (patientPhoto != null) ...[
+                                const SizedBox(width: 8),
+                                IconButton.filledTonal(
+                                  tooltip: s.lookup(
+                                    's4.lib.front_office_workbench.remove_photo',
+                                  ),
+                                  onPressed: saving
+                                      ? null
+                                      : () => setDialogState(() {
+                                          patientPhoto = null;
+                                        }),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                       if (dialogError != null) ...[
                         const SizedBox(height: 10),
                         Align(

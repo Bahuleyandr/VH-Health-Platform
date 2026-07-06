@@ -50,6 +50,24 @@ DateTime _dateOnly(DateTime value) =>
 
 String _dateParam(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
 
+String _timeParam(TimeOfDay value) =>
+    '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+TimeOfDay _appointmentTimeFromText(String value) {
+  final minutes = appointmentMinuteOfDayFromText(value);
+  if (minutes == null) {
+    return TimeOfDay.fromDateTime(DateTime.now().add(const Duration(hours: 1)));
+  }
+  return TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60);
+}
+
+bool appointmentCanReschedule(String status) {
+  return switch (status.trim().toUpperCase()) {
+    'SCHEDULED' || 'CONFIRMED' || 'PENDING' => true,
+    _ => false,
+  };
+}
+
 List<DateTime> _appointmentWeekDays(DateTime value) {
   final start = appointmentWeekStart(value);
   return List.generate(7, (index) => start.add(Duration(days: index)));
@@ -343,6 +361,50 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         s.format('s4.dynamic.appointments.status_updated_successfully', {
           'status': appointmentStatusFilterLabel(status, strings: s),
         }),
+      );
+      _load();
+    } catch (e) {
+      if (!mounted) return;
+      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _rescheduleAppointment(StaffAppointment appointment) async {
+    final id = appointment.id;
+    final s = AppStrings.of(context);
+    if (id == null) {
+      ErrorToast.show(
+        context,
+        s.lookup('s4.lib.front_office_workbench.appointment_id_is_missing'),
+      );
+      return;
+    }
+
+    final initialDate =
+        DateTime.tryParse(appointment.appointmentDate) ?? _selectedDate;
+    final request = await showDialog<StaffAppointmentRescheduleRequest>(
+      context: context,
+      builder: (dialogContext) => StaffAppointmentRescheduleDialog(
+        patientName: appointment.patientName,
+        initialDate: initialDate,
+        initialTime: _appointmentTimeFromText(appointment.appointmentTime),
+      ),
+    );
+    if (request == null) return;
+
+    try {
+      await ScheduleApiService.rescheduleAppointmentInPlace(
+        id,
+        appointmentDate: _dateParam(request.appointmentDate),
+        appointmentTime: _timeParam(request.appointmentTime),
+        notes: request.notes?.trim().isEmpty == false
+            ? request.notes!.trim()
+            : 'Rescheduled from Appointments screen',
+      );
+      if (!mounted) return;
+      SuccessToast.show(
+        context,
+        s.lookup('s4.lib.front_office_workbench.appointment_rescheduled'),
       );
       _load();
     } catch (e) {
@@ -1238,37 +1300,54 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   _InfoRow(Icons.person_outlined, appointment.doctorName),
                 if (appointment.reason.isNotEmpty)
                   _InfoRow(Icons.local_hospital_outlined, appointment.reason),
-                if (appointment.isScheduled && id.isNotEmpty) ...[
+                if (appointmentCanReschedule(appointment.status) &&
+                    id.isNotEmpty) ...[
                   const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(sheetContext);
-                            _updateStatus(id, 'cancelled');
-                          },
-                          icon: const Icon(Icons.close, size: 18),
-                          label: const AppText('action.cancel'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.errorOnSurface,
-                            side: BorderSide(color: AppTheme.errorOnSurface),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _rescheduleAppointment(appointment);
+                      },
+                      icon: const Icon(Icons.event_repeat_outlined, size: 18),
+                      label: const AppText(
+                        's4.lib.front_office_workbench.reschedule',
+                      ),
+                    ),
+                  ),
+                  if (appointment.isScheduled) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _updateStatus(id, 'cancelled');
+                            },
+                            icon: const Icon(Icons.close, size: 18),
+                            label: const AppText('action.cancel'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.errorOnSurface,
+                              side: BorderSide(color: AppTheme.errorOnSurface),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            Navigator.pop(sheetContext);
-                            _updateStatus(id, 'confirmed');
-                          },
-                          icon: const Icon(Icons.check, size: 18),
-                          label: const AppText('action.confirm'),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _updateStatus(id, 'confirmed');
+                            },
+                            icon: const Icon(Icons.check, size: 18),
+                            label: const AppText('action.confirm'),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
                 ],
               ],
             ),
@@ -1387,6 +1466,162 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class StaffAppointmentRescheduleRequest {
+  final DateTime appointmentDate;
+  final TimeOfDay appointmentTime;
+  final String? notes;
+
+  const StaffAppointmentRescheduleRequest({
+    required this.appointmentDate,
+    required this.appointmentTime,
+    this.notes,
+  });
+}
+
+class StaffAppointmentRescheduleDialog extends StatefulWidget {
+  final String patientName;
+  final DateTime initialDate;
+  final TimeOfDay initialTime;
+  final DateTime? firstDate;
+
+  const StaffAppointmentRescheduleDialog({
+    super.key,
+    required this.patientName,
+    required this.initialDate,
+    required this.initialTime,
+    this.firstDate,
+  });
+
+  @override
+  State<StaffAppointmentRescheduleDialog> createState() =>
+      _StaffAppointmentRescheduleDialogState();
+}
+
+class _StaffAppointmentRescheduleDialogState
+    extends State<StaffAppointmentRescheduleDialog> {
+  late DateTime _appointmentDate;
+  late TimeOfDay _appointmentTime;
+  late final TextEditingController _notesCtrl;
+
+  DateTime get _firstDate => _dateOnly(widget.firstDate ?? DateTime.now());
+
+  @override
+  void initState() {
+    super.initState();
+    final initialDate = _dateOnly(widget.initialDate);
+    final firstDate = _firstDate;
+    _appointmentDate = initialDate.isBefore(firstDate)
+        ? firstDate
+        : initialDate;
+    _appointmentTime = widget.initialTime;
+    _notesCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final firstDate = _firstDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _appointmentDate.isBefore(firstDate)
+          ? firstDate
+          : _appointmentDate,
+      firstDate: firstDate,
+      lastDate: DateTime(firstDate.year + 1, firstDate.month, firstDate.day),
+    );
+    if (picked != null) setState(() => _appointmentDate = picked);
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _appointmentTime,
+    );
+    if (picked != null) setState(() => _appointmentTime = picked);
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(
+      StaffAppointmentRescheduleRequest(
+        appointmentDate: _appointmentDate,
+        appointmentTime: _appointmentTime,
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const AppText(
+        's4.lib.front_office_workbench.reschedule_appointment',
+      ),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.patientName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_today_outlined),
+                    label: Text(
+                      DateFormat('dd MMM yyyy').format(_appointmentDate),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickTime,
+                    icon: const Icon(Icons.schedule_outlined),
+                    label: Text(_appointmentTime.format(context)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesCtrl,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: AppStrings.of(
+                  context,
+                ).lookup('s4.lib.front_office_workbench.reschedule_note'),
+                prefixIcon: const Icon(Icons.notes_outlined),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const AppText('action.cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.event_repeat_outlined),
+          label: const AppText('s4.lib.front_office_workbench.reschedule'),
+        ),
+      ],
     );
   }
 }

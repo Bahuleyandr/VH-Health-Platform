@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/settings/models/record_access_grant.dart';
 
@@ -9,6 +14,7 @@ abstract class RecordAccessRepository {
     required String relationship,
     required List<String> scope,
     required String consentMethod,
+    Uint8List? signaturePngBytes,
   });
 
   Future<void> revokeGrant(int id, {String? reason});
@@ -45,16 +51,35 @@ class ApiRecordAccessRepository implements RecordAccessRepository {
     required String relationship,
     required List<String> scope,
     required String consentMethod,
+    Uint8List? signaturePngBytes,
   }) async {
-    final response = await ApiClient.post(
-      '/portal/proxy/grants',
-      body: {
-        'proxy_uid': proxyUid,
-        'relationship': relationship,
-        'scope': scope,
-        'consent_method': consentMethod,
-      },
-    );
+    final response = signaturePngBytes == null
+        ? await ApiClient.post(
+            '/portal/proxy/grants',
+            body: {
+              'proxy_uid': proxyUid,
+              'relationship': relationship,
+              'scope': scope,
+              'consent_method': consentMethod,
+            },
+          )
+        : await ApiClient.multipart(
+            '/portal/proxy/grants',
+            fields: {
+              'proxy_uid': proxyUid,
+              'relationship': relationship,
+              'scope': jsonEncode(scope),
+              'consent_method': consentMethod,
+            },
+            files: [
+              http.MultipartFile.fromBytes(
+                'file',
+                signaturePngBytes,
+                filename: 'record-access-signature.png',
+                contentType: MediaType('image', 'png'),
+              ),
+            ],
+          );
     if (!response.isSuccess) {
       throw Exception(response.failureMessage('Could not grant record access'));
     }

@@ -102,6 +102,9 @@ lib/
 | Clinical AI panels | `/staff/clinical-ai/*` | GET, POST |
 | Staff profile | `/staff/:identifier` (GET), `/staff/:id` (PUT) | GET, PUT |
 | Appointments list | `/appointments/list` | GET |
+| Appointment reschedule | `/appointments/:id/reschedule` | PATCH |
+| Consent signatures | `/consent/:id/signatures` | POST |
+| Patient registration | `/patients` | POST (JSON or multipart photo) |
 
 ## Running
 Requires Flutter SDK:
@@ -116,6 +119,12 @@ flutter create . --org com.vhhealth.staff
 
 ## Shared Core Package
 Depends on `vhhealth_core` (at `packages/vhhealth_core/`) via the root Dart pub workspace — `vhhealth_core: any` in this app's `pubspec.yaml` resolves to the local package. Shared code: ApiConfig, AuthService, HttpClient, Theme, SOS widget, offline queue, connectivity sync, version gate, crash reporter adapter.
+
+Front-office registration follows backend duplicate-review semantics: a 409
+`PATIENT_DUPLICATE_REVIEW_REQUIRED` opens the review dialog, and create-anyway
+must send an audited reason. Optional profile photos use multipart upload. NL-4
+front-office strings live in `app_strings.dart` for en/hi/ta/te; keep new copy in
+that map with the existing i18n guard.
 
 ## Sibling apps (same monorepo)
 

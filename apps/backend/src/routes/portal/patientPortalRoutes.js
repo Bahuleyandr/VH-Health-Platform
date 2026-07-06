@@ -7,6 +7,7 @@
 //
 // Bill payment, lab results, secure messaging.
 
+import crypto from 'crypto';
 import { Router } from 'express';
 import { getPatientAppointments } from '../../controllers/appointment/appointmentListController.js';
 import { getMyPrescriptions } from '../../controllers/prescription/ePrescriptionController.js';
@@ -19,6 +20,8 @@ import { getPatientWhatsNext } from '../../services/carePlan/carePlanService.js'
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
+import { singleUpload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+import { uploadFileToR2 } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
@@ -52,6 +55,54 @@ function requirePatient(req, res, next) {
   }
   if (!patientUidOf(req)) return error(res, 'Patient UID missing from token', 401);
   next();
+}
+
+const PROXY_SIGNATURE_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/jpg'];
+
+function parseProxyGrantScope(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return ['results'];
+  const trimmed = value.trim();
+  if (!trimmed) return ['results'];
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [String(parsed)];
+  } catch {
+    return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function normalizeSignatureMime(value) {
+  const mime = String(value || '').trim().toLowerCase();
+  return mime === 'image/jpg' ? 'image/jpeg' : mime;
+}
+
+function signatureExtension(mime) {
+  return normalizeSignatureMime(mime) === 'image/png' ? 'png' : 'jpg';
+}
+
+async function buildProxyGrantSignatureProof(req) {
+  if (!req.file) return null;
+  const mimeType = normalizeSignatureMime(req.file.mimetype);
+  if (!PROXY_SIGNATURE_IMAGE_MIMES.includes(mimeType)) {
+    throw AppError.badRequest('Proxy grant signature must be a PNG or JPEG image', 'PORTAL_PROXY_SIGNATURE_IMAGE_REQUIRED');
+  }
+  const hash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+  const tenantId = tenantOf(req);
+  const storageKey = [
+    'portal-proxy-grant-signatures',
+    tenantId,
+    patientUidOf(req),
+    `${Date.now()}_${hash.slice(0, 12)}.${signatureExtension(mimeType)}`,
+  ].join('/');
+  const storageUrl = await uploadFileToR2(req.file.buffer, storageKey, mimeType);
+  return {
+    storageKey,
+    storageUrl,
+    mimeType,
+    fileSize: req.file.size,
+    sha256Hash: hash,
+  };
 }
 
 async function requireActivePregnancy(req) {
@@ -438,15 +489,16 @@ router.get('/lab-results/:id', requirePatient, wrap(async (req) =>
 ));
 
 // ── Proxy access grants (E6 — consent trail) ────────────────────────
-router.post('/proxy/grants', requirePatient, wrap(async (req) =>
+router.post('/proxy/grants', requirePatient, singleUpload, validatePatientUpload, validateFileContent, wrap(async (req) =>
   portalAccess.createProxyGrant({
     patientUid: patientUidOf(req),
     proxyUid: req.body.proxy_uid,
     relationship: req.body.relationship || null,
-    scope: req.body.scope || ['results'],
+    scope: parseProxyGrantScope(req.body.scope),
     consentMethod: req.body.consent_method,
     consentRef: req.body.consent_ref || null,
     expiresAt: req.body.expires_at || null,
+    signatureProof: await buildProxyGrantSignatureProof(req),
   }, { actorUid: patientUidOf(req), actorRole: null }),
 ));
 

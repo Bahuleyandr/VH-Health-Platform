@@ -2295,6 +2295,19 @@ class AppLocalizationsHi extends AppLocalizations {
   String get recordAccessConsentMethodGuardian => 'नाबालिग के अभिभावक';
 
   @override
+  String get recordAccessSignatureLabel => 'आपके हस्ताक्षर';
+
+  @override
+  String get recordAccessSignatureHint => 'इस बॉक्स में हस्ताक्षर करें';
+
+  @override
+  String get recordAccessSignatureClear => 'साफ़ करें';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'जारी रखने से पहले अपने हस्ताक्षर जोड़ें।';
+
+  @override
   String get recordAccessContinueButton => 'जारी रखें';
 
   @override
@@ -3514,6 +3527,40 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get appointmentsCancelFailed =>
       'अपॉइंटमेंट रद्द नहीं हो सका। कृपया फिर कोशिश करें।';
+
+  @override
+  String get appointmentsReschedule => 'रीशेड्यूल करें';
+
+  @override
+  String get appointmentsRescheduleTitle => 'नया स्लॉट चुनें';
+
+  @override
+  String get appointmentsRescheduleDate => 'नई तारीख';
+
+  @override
+  String get appointmentsRescheduleTime => 'नया समय';
+
+  @override
+  String get appointmentsRescheduleNote => 'केयर टीम के लिए नोट';
+
+  @override
+  String get appointmentsRescheduleReview => 'समीक्षा करें';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return '$doctor के साथ अपॉइंटमेंट $date को $time बजे रीशेड्यूल करें?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast => 'अपॉइंटमेंट रीशेड्यूल किया गया';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'अपॉइंटमेंट रीशेड्यूल नहीं हो सका। कृपया दूसरा स्लॉट आज़माएं।';
 
   @override
   String get appointmentsEmptyHint =>

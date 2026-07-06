@@ -2289,6 +2289,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recordAccessConsentMethodGuardian => 'Guardian for minor';
 
   @override
+  String get recordAccessSignatureLabel => 'Your signature';
+
+  @override
+  String get recordAccessSignatureHint => 'Sign inside this box';
+
+  @override
+  String get recordAccessSignatureClear => 'Clear';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'Add your signature before continuing.';
+
+  @override
   String get recordAccessContinueButton => 'Continue';
 
   @override
@@ -3503,6 +3516,40 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get appointmentsCancelFailed =>
       'Unable to cancel appointment. Please try again.';
+
+  @override
+  String get appointmentsReschedule => 'Reschedule';
+
+  @override
+  String get appointmentsRescheduleTitle => 'Choose a new slot';
+
+  @override
+  String get appointmentsRescheduleDate => 'New date';
+
+  @override
+  String get appointmentsRescheduleTime => 'New time';
+
+  @override
+  String get appointmentsRescheduleNote => 'Note for the care team';
+
+  @override
+  String get appointmentsRescheduleReview => 'Review';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return 'Reschedule appointment with $doctor to $date at $time?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast => 'Appointment rescheduled';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'Unable to reschedule appointment. Please try another slot.';
 
   @override
   String get appointmentsEmptyHint =>

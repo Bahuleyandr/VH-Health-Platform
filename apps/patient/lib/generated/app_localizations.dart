@@ -4436,6 +4436,30 @@ abstract class AppLocalizations {
   /// **'Guardian for minor'**
   String get recordAccessConsentMethodGuardian;
 
+  /// No description provided for @recordAccessSignatureLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Your signature'**
+  String get recordAccessSignatureLabel;
+
+  /// No description provided for @recordAccessSignatureHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign inside this box'**
+  String get recordAccessSignatureHint;
+
+  /// No description provided for @recordAccessSignatureClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get recordAccessSignatureClear;
+
+  /// No description provided for @recordAccessSignatureRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Add your signature before continuing.'**
+  String get recordAccessSignatureRequired;
+
   /// No description provided for @recordAccessContinueButton.
   ///
   /// In en, this message translates to:
@@ -6607,6 +6631,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unable to cancel appointment. Please try again.'**
   String get appointmentsCancelFailed;
+
+  /// Patient app UI string. Button label for rescheduling an upcoming appointment.
+  ///
+  /// In en, this message translates to:
+  /// **'Reschedule'**
+  String get appointmentsReschedule;
+
+  /// Patient app UI string. Bottom sheet title for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a new slot'**
+  String get appointmentsRescheduleTitle;
+
+  /// Patient app UI string. Date picker label for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'New date'**
+  String get appointmentsRescheduleDate;
+
+  /// Patient app UI string. Time picker label for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'New time'**
+  String get appointmentsRescheduleTime;
+
+  /// Patient app UI string. Optional note field for appointment rescheduling.
+  ///
+  /// In en, this message translates to:
+  /// **'Note for the care team'**
+  String get appointmentsRescheduleNote;
+
+  /// Patient app UI string. Button label to review a reschedule choice before submitting.
+  ///
+  /// In en, this message translates to:
+  /// **'Review'**
+  String get appointmentsRescheduleReview;
+
+  /// Patient app UI string. Confirmation text before rescheduling an appointment.
+  ///
+  /// In en, this message translates to:
+  /// **'Reschedule appointment with {doctor} to {date} at {time}?'**
+  String appointmentsRescheduleConfirm(String doctor, String date, String time);
+
+  /// Patient app UI string. Toast after successful appointment reschedule.
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment rescheduled'**
+  String get appointmentsRescheduledToast;
+
+  /// Patient app UI string. Error shown when appointment rescheduling fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to reschedule appointment. Please try another slot.'**
+  String get appointmentsRescheduleFailed;
 
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///

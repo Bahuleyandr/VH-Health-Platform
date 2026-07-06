@@ -10,6 +10,7 @@ import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -328,6 +329,106 @@ export const updateAppointment = async (req, res) => {
   } catch (err) {
     logger.error('Error updating appointment:', err);
     error(res, 'Failed to update appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+function conflictDetailsFromError(err) {
+  const code = err?.meta?.driverAdapterError?.cause?.code
+    || err?.meta?.driverAdapterError?.cause?.originalCode
+    || err?.code;
+  if (String(code) === '23505') {
+    return { statusCode: HTTP_STATUS.CONFLICT, details: { code: 'APPOINTMENT_SLOT_CONFLICT' } };
+  }
+  if (err?.statusCode === HTTP_STATUS.CONFLICT) {
+    return {
+      statusCode: HTTP_STATUS.CONFLICT,
+      details: {
+        code: 'APPOINTMENT_SLOT_CONFLICT',
+        conflicting_appointment_id: err.conflictingId,
+        conflicting_appointment_time: err.conflictingTime,
+      },
+    };
+  }
+  return null;
+}
+
+export const rescheduleAppointment = async (req, res) => {
+  try {
+    const tenantId = tenantOf(req);
+    const { id } = req.params;
+
+    const appointment = await appointmentService.getAppointmentById(id, tenantId);
+    if (!appointment) {
+      return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+    if (!checkAppointmentPermission(req.user, appointment, 'update')) {
+      return error(res, 'Insufficient permissions to reschedule this appointment', HTTP_STATUS.FORBIDDEN);
+    }
+
+    let doctorId = req.body.doctor_id;
+    if (req.body.doctor_uid) {
+      doctorId = await resolveDoctorIdFromUid(req.body.doctor_uid, tenantId);
+      if (!doctorId) {
+        return error(res, 'Doctor not found', HTTP_STATUS.BAD_REQUEST);
+      }
+    }
+
+    const note = req.body.confirmation_notes || req.body.notes || null;
+    const result = await appointmentService.rescheduleAppointmentInPlace(
+      id,
+      {
+        appointment_date: req.body.appointment_date,
+        appointment_time: req.body.appointment_time,
+        doctor_id: doctorId,
+        notes: note,
+      },
+      {
+        tenantId,
+        actorUid: req.user?.uid || null,
+        actorId: req.user?.id || null,
+        actorRole: req.user?.role || null,
+      },
+    );
+
+    await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_RESCHEDULED', {
+      appointment_id: Number(id),
+      appointment_uid: appointment.uid || result.appointment?.uid || null,
+      patient_id: appointment.patient_id ?? null,
+      patient_uid: appointment.patient_uid ?? null,
+      doctor_id: result.appointment?.doctor_id ?? appointment.doctor_id ?? null,
+      from_status: result.from_status,
+      to_status: result.to_status,
+      prior_appointment_date: appointment.appointment_date,
+      prior_appointment_time: appointment.appointment_time,
+      appointment_date: result.appointment?.appointment_date,
+      appointment_time: result.appointment?.appointment_time,
+      reschedule_note: note,
+    }, {
+      resource: 'appointment',
+      resourceId: id,
+    });
+
+    emitAppointmentEvent('reschedule', { tenantId });
+    success(res, {
+      appointment: result.appointment,
+      previous: {
+        appointment_date: result.previous?.appointment_date,
+        appointment_time: result.previous?.appointment_time,
+        doctor_id: result.previous?.doctor_id,
+        status: result.previous?.status,
+      },
+      updated_by: req.user?.name,
+    }, 'Appointment rescheduled');
+  } catch (err) {
+    const conflict = conflictDetailsFromError(err);
+    if (conflict) {
+      return error(res, 'Time slot already booked', conflict.statusCode, conflict.details);
+    }
+    if (err.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Error rescheduling appointment:', err);
+    error(res, 'Failed to reschedule appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

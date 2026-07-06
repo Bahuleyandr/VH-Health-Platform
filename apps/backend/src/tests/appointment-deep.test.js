@@ -28,6 +28,7 @@ function mkClient(role, uid, intId, phone) {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    patch: (p) => request(app).patch(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     delete: (p) => request(app).delete(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
@@ -559,6 +560,141 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       );
       expect(futureRow?.status).toBe('SCHEDULED');
       expect(futureRow?.parent_appointment_id).toBe(originalId);
+    });
+  });
+
+  describe('NL-4 appointment reschedule patch', () => {
+    it('reschedules the same appointment row, returns it to SCHEDULED, emits audit history', async () => {
+      const book = await receptionist.post('/api/v1/appointments/book').send({
+        patient_id: patientIntId,
+        doctor_id: doctorIntId,
+        appointment_date: futureDateISO(92),
+        appointment_time: '09:00',
+        reason: 'NL-4 patch reschedule happy path',
+        confirm_duplicate: true,
+      });
+      expect(book.statusCode).toBe(201);
+      const apptId = book.body.data.appointment.id;
+
+      const confirm = await receptionist.post(`/api/v1/appointments/${apptId}/confirm`).send({
+        confirmation_notes: 'Patient confirmed the original slot',
+      });
+      expect(confirm.statusCode).toBe(200);
+      expect(confirm.body.data.status).toBe('CONFIRMED');
+
+      const targetDate = futureDateISO(93);
+      const res = await receptionist
+        .patch(`/api/v1/appointments/${apptId}/reschedule`)
+        .send({
+          appointment_date: targetDate,
+          appointment_time: '11:30',
+          confirmation_notes: 'Patient requested a morning slot',
+        });
+
+      expect(res.statusCode).toBe(200);
+      assertResponse('PATCH', '/api/v1/appointments/{id}/reschedule', res.body);
+      expect(res.body.data.appointment.id).toBe(apptId);
+      expect(res.body.data.appointment.status).toBe('SCHEDULED');
+      expect(res.body.data.appointment.appointment_time).toBe('11:30');
+      expect(res.body.data.appointment.appointment_date.slice(0, 10)).toBe(targetDate);
+      expect(res.body.data.previous.status).toBe('CONFIRMED');
+
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT id, status, appointment_date, appointment_time, token_number, confirmed_at, visit_no
+           FROM appointments WHERE id = $1::int`,
+        apptId,
+      );
+      expect(row[0].id).toBe(apptId);
+      expect(row[0].status).toBe('SCHEDULED');
+      expect(row[0].appointment_time).toBe('11:30');
+      expect(row[0].token_number).toBeNull();
+      expect(row[0].confirmed_at).toBeNull();
+      expect(row[0].visit_no).toBeNull();
+
+      const history = await prisma.$queryRawUnsafe(
+        `SELECT from_status, to_status, reason
+           FROM appointment_status_history
+          WHERE appointment_id = $1::int
+          ORDER BY id DESC
+          LIMIT 1`,
+        apptId,
+      );
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        from_status: 'CONFIRMED',
+        to_status: 'SCHEDULED',
+      });
+      expect(history[0].reason).toMatch(/Patient requested a morning slot/);
+
+      const audit = await prisma.$queryRawUnsafe(
+        `SELECT action, resource, resource_id, metadata
+           FROM audit_logs
+          WHERE resource = 'appointment' AND resource_id = $1
+            AND action = 'FRONT_OFFICE_APPOINTMENT_RESCHEDULED'
+          ORDER BY id DESC
+          LIMIT 1`,
+        String(apptId),
+      );
+      expect(audit).toHaveLength(1);
+      expect(audit[0].metadata).toMatchObject({
+        appointment_id: apptId,
+        patient_id: patientIntId,
+        from_status: 'CONFIRMED',
+        to_status: 'SCHEDULED',
+        appointment_time: '11:30',
+        reschedule_note: 'Patient requested a morning slot',
+      });
+    });
+
+    it('rejects near-slot conflicts with 409', async () => {
+      const conflictDate = futureDateISO(94);
+      const occupying = await receptionist.post('/api/v1/appointments/book').send({
+        patient_id: patientIntId,
+        doctor_id: doctorIntId,
+        appointment_date: conflictDate,
+        appointment_time: '13:00',
+        reason: 'NL-4 occupied near slot',
+        confirm_duplicate: true,
+      });
+      expect(occupying.statusCode).toBe(201);
+
+      const movable = await otherPatient.post('/api/v1/appointments/book').send({
+        patient_id: otherPatientIntId,
+        doctor_id: doctorIntId,
+        appointment_date: conflictDate,
+        appointment_time: '14:00',
+        reason: 'NL-4 movable slot',
+      });
+      expect(movable.statusCode).toBe(201);
+
+      const res = await otherPatient
+        .patch(`/api/v1/appointments/${movable.body.data.appointment.id}/reschedule`)
+        .send({
+          appointment_date: conflictDate,
+          appointment_time: '13:15',
+        });
+      expect(res.statusCode).toBe(409);
+      expect(res.body.details?.conflicting_appointment_id).toBe(occupying.body.data.appointment.id);
+    });
+
+    it('blocks a patient from rescheduling another patient appointment', async () => {
+      const book = await patient.post('/api/v1/appointments/book').send({
+        patient_id: patientIntId,
+        doctor_id: doctorIntId,
+        appointment_date: futureDateISO(95),
+        appointment_time: '15:00',
+        reason: 'NL-4 patient IDOR owner slot',
+        confirm_duplicate: true,
+      });
+      expect(book.statusCode).toBe(201);
+
+      const res = await otherPatient
+        .patch(`/api/v1/appointments/${book.body.data.appointment.id}/reschedule`)
+        .send({
+          appointment_date: futureDateISO(96),
+          appointment_time: '15:30',
+        });
+      expect(res.statusCode).toBe(403);
     });
   });
 

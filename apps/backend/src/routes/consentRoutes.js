@@ -1,12 +1,18 @@
 // src/routes/consentRoutes.js
 // HIPAA Patient Consent Management Routes
 
+import crypto from 'crypto';
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
+import PDFDocument from 'pdfkit';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { singleUpload, validateFileContent, validatePatientUpload } from '../middleware/uploadMiddleware.js';
 import { publishEvent } from '../services/events/eventOutboxService.js';
+import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
+import { logAudit } from '../utils/logAudit.js';
+import { getFileFromR2, uploadFileToR2 } from '../utils/r2Storage.js';
 import { success, error } from '../utils/responseHelper.js';
 import { requiredUUID, requiredString } from '../validators/sharedValidators.js';
 
@@ -56,6 +62,9 @@ const VALID_CONSENT_METHODS = ['signature', 'thumbprint', 'verbal'];
 
 const VALID_DATA_RIGHT_TYPES = ['export', 'erasure', 'correction', 'restriction', 'consent_review'];
 const VALID_DATA_RIGHT_STATUSES = ['submitted', 'in_review', 'completed', 'rejected', 'cancelled'];
+const VALID_SIGNATURE_ROLES = ['patient', 'staff_witness'];
+const SIGNATURE_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/jpg'];
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * IDOR guard: patients can only manage their own consents.
@@ -79,6 +88,126 @@ function normalizeConsentStatus(row) {
   if (row.expires_at && new Date(row.expires_at) < new Date()) return 'expired';
   if (row.granted === true || row.status === 'active') return 'granted';
   return row.status || 'pending';
+}
+
+function normalizeSignatureRole(value) {
+  const role = String(value || '').trim().toLowerCase();
+  return VALID_SIGNATURE_ROLES.includes(role) ? role : null;
+}
+
+function normalizeImageMime(mime) {
+  const normalized = String(mime || '').trim().toLowerCase();
+  return normalized === 'image/jpg' ? 'image/jpeg' : normalized;
+}
+
+function signatureExtension(mime) {
+  return normalizeImageMime(mime) === 'image/png' ? 'png' : 'jpg';
+}
+
+function signatureDto(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    consent_id: row.consent_id,
+    patient_uid: row.patient_uid,
+    signature_role: row.signature_role,
+    version: row.version,
+    storage_key: row.storage_key,
+    mime_type: row.mime_type,
+    file_size: row.file_size,
+    sha256_hash: row.sha256_hash,
+    captured_by: row.captured_by,
+    captured_by_role: row.captured_by_role,
+    signer_name: row.signer_name,
+    signer_uid: row.signer_uid,
+    captured_at: row.captured_at,
+  };
+}
+
+async function getConsentById(consentId, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, consent_type, granted, status, granted_at, revoked_at,
+            expires_at, granted_by, notes, purpose, data_categories, version,
+            source, consent_method, witness_name, witness_uid, form_language,
+            tenant_id, created_at
+       FROM patient_consents
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    consentId,
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
+async function latestConsentSignatures(consentId, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT ON (signature_role)
+            id, consent_id, patient_uid, signature_role, version, storage_key,
+            mime_type, file_size, sha256_hash, captured_by, captured_by_role,
+            signer_name, signer_uid, captured_at
+       FROM consent_signatures
+      WHERE consent_id = $1::int
+        AND tenant_id = $2::uuid
+      ORDER BY signature_role, version DESC`,
+    consentId,
+    tenantId,
+  );
+  return rows.map(signatureDto);
+}
+
+async function renderConsentPdf(consent, signatures) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const render = async () => {
+      doc.fontSize(18).text('Patient Consent Record', { underline: true });
+      doc.moveDown();
+      doc.fontSize(11);
+      doc.text(`Consent ID: ${consent.id}`);
+      doc.text(`Patient UID: ${consent.patient_uid}`);
+      doc.text(`Consent type: ${consent.consent_type}`);
+      doc.text(`Status: ${normalizeConsentStatus(consent)}`);
+      doc.text(`Method: ${consent.consent_method || 'signature'}`);
+      if (consent.form_language) doc.text(`Form language: ${consent.form_language}`);
+      if (consent.witness_name) doc.text(`Witness: ${consent.witness_name}`);
+      if (consent.purpose) doc.text(`Purpose: ${consent.purpose}`);
+      if (consent.notes) doc.text(`Notes: ${consent.notes}`);
+      doc.moveDown();
+
+      doc.fontSize(13).text('Captured Signatures', { underline: true });
+      doc.moveDown(0.5);
+      if (!signatures.length) {
+        doc.fontSize(10).text('No signature images captured.');
+      }
+      for (const sig of signatures) {
+        doc.fontSize(10).text(
+          `${sig.signature_role === 'patient' ? 'Patient' : 'Staff witness'} signature` +
+            ` | version ${sig.version} | captured ${new Date(sig.captured_at).toISOString()}`,
+        );
+        try {
+          const bytes = await getFileFromR2(sig.storage_key);
+          doc.image(Buffer.from(bytes), { fit: [220, 80] });
+        } catch (imgErr) {
+          logger.warn('Consent signature PDF image embed failed', {
+            consent_id: consent.id,
+            signature_id: sig.id,
+            error: imgErr.message,
+          });
+          doc.text('[signature image unavailable]');
+        }
+        doc.moveDown();
+      }
+
+      doc.end();
+    };
+
+    render().catch(reject);
+  });
 }
 
 /**
@@ -404,6 +533,176 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
     return success(res, result[0], 'Consent granted successfully', 201);
   } catch (err) {
     logger.error('Failed to grant consent:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * POST /consent/:id/signatures
+ * Multipart field: file. Body: signature_role = patient | staff_witness.
+ * Signature capture is immutable: a repeat upload inserts version N+1.
+ */
+router.post('/:id/signatures', singleUpload, validatePatientUpload, validateFileContent, async (req, res, next) => {
+  try {
+    const consentId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(consentId) || consentId <= 0) {
+      return error(res, 'Consent id must be a positive integer', 400);
+    }
+    if (!req.file) {
+      return error(res, 'Signature image is required', 400);
+    }
+
+    const signatureRole = normalizeSignatureRole(req.body.signature_role);
+    if (!signatureRole) {
+      return error(res, `signature_role must be one of: ${VALID_SIGNATURE_ROLES.join(', ')}`, 400);
+    }
+
+    const mimeType = normalizeImageMime(req.file.mimetype);
+    if (!SIGNATURE_IMAGE_MIMES.includes(mimeType)) {
+      return error(res, 'Signature must be a PNG or JPEG image', 400);
+    }
+
+    const tenantId = resolveTenantOrThrow(req);
+    const consent = await getConsentById(consentId, tenantId);
+    if (!consent) {
+      return error(res, 'Consent record not found', 404);
+    }
+    if (!enforceConsentOwnership(req, consent.patient_uid)) {
+      return error(res, 'Access denied: You can only sign your own consents', 403);
+    }
+
+    const versionRows = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(MAX(version), 0) + 1 AS version
+         FROM consent_signatures
+        WHERE tenant_id = $1::uuid
+          AND consent_id = $2::int
+          AND signature_role = $3`,
+      tenantId,
+      consentId,
+      signatureRole,
+    );
+    const version = Number(versionRows[0]?.version || 1);
+    const hash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const storageKey = [
+      'consent-signatures',
+      tenantId,
+      String(consentId),
+      signatureRole,
+      `v${version}_${Date.now()}.${signatureExtension(mimeType)}`,
+    ].join('/');
+    const storageUrl = await uploadFileToR2(req.file.buffer, storageKey, mimeType);
+
+    const signerUid = req.body.signer_uid
+      ? String(req.body.signer_uid).trim()
+      : signatureRole === 'staff_witness'
+        ? req.user?.uid || null
+        : consent.patient_uid;
+    if (signerUid && !UUID_PATTERN.test(signerUid)) {
+      return error(res, 'signer_uid must be a valid UUID', 400);
+    }
+    const signerName = req.body.signer_name
+      ? String(req.body.signer_name).trim().slice(0, 160)
+      : null;
+
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO consent_signatures
+         (tenant_id, consent_id, patient_uid, signature_role, version,
+          storage_key, storage_url, mime_type, file_size, sha256_hash,
+          captured_by, captured_by_role, signer_name, signer_uid, metadata)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4, $5::int,
+               $6, $7, $8, $9::int, $10,
+               $11::uuid, $12, $13, $14::uuid, $15::jsonb)
+       RETURNING id, consent_id, patient_uid, signature_role, version, storage_key,
+                 mime_type, file_size, sha256_hash, captured_by, captured_by_role,
+                 signer_name, signer_uid, captured_at`,
+      tenantId,
+      consentId,
+      consent.patient_uid,
+      signatureRole,
+      version,
+      storageKey,
+      storageUrl,
+      mimeType,
+      req.file.size,
+      hash,
+      req.user?.uid || null,
+      req.user?.role || null,
+      signerName,
+      signerUid,
+      JSON.stringify({
+        original_name: req.file.originalname || null,
+        consent_type: consent.consent_type,
+      }),
+    );
+
+    await logAudit(req, 'CONSENT_SIGNATURE_CAPTURED', {
+      consent_id: consentId,
+      patient_uid: consent.patient_uid,
+      consent_type: consent.consent_type,
+      signature_role: signatureRole,
+      version,
+      storage_key: storageKey,
+      sha256_hash: hash,
+    }, {
+      resource: 'patient_consent',
+      resourceId: consentId,
+    });
+
+    await publishEvent({
+      eventType: 'privacy.consent.signature_captured',
+      aggregateType: 'patient_consent',
+      aggregateId: consentId,
+      patientUid: consent.patient_uid,
+      payload: {
+        signature_role: signatureRole,
+        version,
+        captured_by: req.user?.uid || null,
+      },
+    });
+
+    return success(res, signatureDto(rows[0]), 'Consent signature captured', 201);
+  } catch (err) {
+    logger.error('Failed to capture consent signature:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /consent/:id/pdf
+ * Render a patient consent record with latest captured signatures embedded.
+ */
+router.get('/:id/pdf', async (req, res, next) => {
+  try {
+    const consentId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(consentId) || consentId <= 0) {
+      return error(res, 'Consent id must be a positive integer', 400);
+    }
+    const tenantId = resolveTenantOrThrow(req);
+    const consent = await getConsentById(consentId, tenantId);
+    if (!consent) {
+      return error(res, 'Consent record not found', 404);
+    }
+    if (!enforceConsentOwnership(req, consent.patient_uid)) {
+      return error(res, 'Access denied: You can only view your own consents', 403);
+    }
+
+    const signatures = await latestConsentSignatures(consentId, tenantId);
+    const pdfBuffer = await renderConsentPdf(consent, signatures);
+
+    await logAudit(req, 'CONSENT_PDF_RENDERED', {
+      consent_id: consentId,
+      patient_uid: consent.patient_uid,
+      signature_count: signatures.length,
+    }, {
+      resource: 'patient_consent',
+      resourceId: consentId,
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="consent_${consentId}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    logger.error('Failed to render consent PDF:', { error: err.message });
     next(err);
   }
 });

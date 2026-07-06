@@ -264,8 +264,9 @@ router.post(
       resolved.admitting_doctor = req.user?.uid;
     }
 
+    let counterTreatmentConsent = null;
     if (resolved.patient_uid && body.counter_consent_captured === true) {
-      await admissionService.ensureCounterTreatmentConsent({
+      counterTreatmentConsent = await admissionService.ensureCounterTreatmentConsent({
         patientUid: resolved.patient_uid,
         grantedBy: req.user?.uid,
         tenantId: tenantOptions(req).tenantId,
@@ -288,7 +289,10 @@ router.post(
     };
 
     const admission = await admissionService.admitPatient(data);
-    success(res, { admission }, 'Patient admitted successfully', HTTP_STATUS.CREATED);
+    success(res, {
+      admission,
+      counter_treatment_consent_id: counterTreatmentConsent?.id ?? null,
+    }, 'Patient admitted successfully', HTTP_STATUS.CREATED);
   })
 );
 

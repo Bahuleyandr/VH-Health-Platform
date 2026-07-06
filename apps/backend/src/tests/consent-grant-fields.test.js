@@ -26,6 +26,7 @@ const PATIENT_PHONE = '9666100001';
 function adminClient() {
   const token = generateTestToken('ADMIN');
   return {
+    get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
@@ -45,6 +46,10 @@ async function cleanupFixtures() {
 
 describe('POST /consent/grant — Stage-5 consent method + witness + form language', () => {
   const admin = adminClient();
+  const pngSignature = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+    'base64',
+  );
 
   beforeAll(async () => {
     await cleanupFixtures();
@@ -138,5 +143,97 @@ describe('POST /consent/grant — Stage-5 consent method + witness + form langua
     });
     expect(res.statusCode).toBe(400);
     expect(String(res.body.message || '')).toMatch(/witness_uid/i);
+  });
+
+  it('captures consent signature uploads as immutable version rows and audits capture', async () => {
+    const grant = await admin.post('/api/v1/consent/grant').send({
+      patient_uid: PATIENT_UID,
+      consent_type: 'telehealth',
+      consent_method: 'signature',
+      notes: 'Telehealth signature capture test',
+    });
+    expect(grant.statusCode).toBe(201);
+    const consentId = grant.body.data.id;
+
+    const first = await admin
+      .post(`/api/v1/consent/${consentId}/signatures`)
+      .field('signature_role', 'patient')
+      .field('signer_name', 'Consent Test Patient')
+      .attach('file', pngSignature, {
+        filename: 'patient-signature.png',
+        contentType: 'image/png',
+      });
+    expect(first.statusCode).toBe(201);
+    expect(first.body.data).toMatchObject({
+      consent_id: consentId,
+      patient_uid: PATIENT_UID,
+      signature_role: 'patient',
+      version: 1,
+      mime_type: 'image/png',
+    });
+
+    const second = await admin
+      .post(`/api/v1/consent/${consentId}/signatures`)
+      .field('signature_role', 'patient')
+      .attach('file', pngSignature, {
+        filename: 'patient-signature-v2.png',
+        contentType: 'image/png',
+      });
+    expect(second.statusCode).toBe(201);
+    expect(second.body.data.version).toBe(2);
+    expect(second.body.data.storage_key).not.toBe(first.body.data.storage_key);
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT signature_role, version, sha256_hash
+         FROM consent_signatures
+        WHERE consent_id = $1::int
+        ORDER BY version ASC`,
+      consentId,
+    );
+    expect(rows.map((row) => row.version)).toEqual([1, 2]);
+    expect(rows.every((row) => row.signature_role === 'patient')).toBe(true);
+    expect(rows.every((row) => String(row.sha256_hash || '').length === 64)).toBe(true);
+
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT action, resource, resource_id, metadata
+         FROM audit_logs
+        WHERE resource = 'patient_consent'
+          AND resource_id = $1
+          AND action = 'CONSENT_SIGNATURE_CAPTURED'
+        ORDER BY id DESC
+        LIMIT 1`,
+      String(consentId),
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0].metadata).toMatchObject({
+      consent_id: consentId,
+      patient_uid: PATIENT_UID,
+      signature_role: 'patient',
+      version: 2,
+    });
+
+    const pdf = await admin.get(`/api/v1/consent/${consentId}/pdf`);
+    expect(pdf.statusCode).toBe(200);
+    expect(pdf.headers['content-type']).toMatch(/application\/pdf/);
+    expect(pdf.body.slice(0, 4).toString()).toBe('%PDF');
+  });
+
+  it('rejects signature uploads whose bytes do not match their image type', async () => {
+    const grant = await admin.post('/api/v1/consent/grant').send({
+      patient_uid: PATIENT_UID,
+      consent_type: 'research',
+      consent_method: 'signature',
+    });
+    expect(grant.statusCode).toBe(201);
+
+    const res = await admin
+      .post(`/api/v1/consent/${grant.body.data.id}/signatures`)
+      .field('signature_role', 'patient')
+      .attach('file', Buffer.from('not a png'), {
+        filename: 'not-a-signature.png',
+        contentType: 'image/png',
+      });
+    expect(res.statusCode).toBe(400);
+    expect(String(res.body.message || '')).toMatch(/content does not match/i);
   });
 });

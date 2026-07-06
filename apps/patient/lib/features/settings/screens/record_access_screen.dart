@@ -1,7 +1,10 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show SignaturePadController, SignaturePadField;
 
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -129,6 +132,7 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
         relationship: request.relationship,
         scope: request.scope,
         consentMethod: request.consentMethod,
+        signaturePngBytes: request.signaturePngBytes,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -533,13 +537,15 @@ class _GrantAccessSheetState extends State<_GrantAccessSheet> {
   final _formKey = GlobalKey<FormState>();
   final _proxyUidController = TextEditingController();
   final _relationshipController = TextEditingController();
-  String _consentMethod = 'otp';
+  final _signatureController = SignaturePadController();
+  String _consentMethod = 'written';
   final Set<String> _scope = {'results', 'claim_documents'};
 
   @override
   void dispose() {
     _proxyUidController.dispose();
     _relationshipController.dispose();
+    _signatureController.dispose();
     super.dispose();
   }
 
@@ -652,6 +658,13 @@ class _GrantAccessSheetState extends State<_GrantAccessSheet> {
                     if (value != null) setState(() => _consentMethod = value);
                   },
                 ),
+                const SizedBox(height: 16),
+                SignaturePadField(
+                  controller: _signatureController,
+                  label: l10n.recordAccessSignatureLabel,
+                  clearLabel: l10n.recordAccessSignatureClear,
+                  emptyHint: l10n.recordAccessSignatureHint,
+                ),
                 const SizedBox(height: 20),
                 Row(
                   children: [
@@ -678,14 +691,25 @@ class _GrantAccessSheetState extends State<_GrantAccessSheet> {
     );
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    final l10n = AppLocalizations.of(context)!;
+    final signaturePngBytes = await _signatureController.toPngBytes();
+    if (signaturePngBytes == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.recordAccessSignatureRequired)),
+      );
+      return;
+    }
+    if (!mounted) return;
     Navigator.of(context).pop(
       _GrantRequest(
         proxyUid: _proxyUidController.text.trim(),
         relationship: _relationshipController.text.trim(),
         scope: _scope.toList(growable: false),
         consentMethod: _consentMethod,
+        signaturePngBytes: signaturePngBytes,
       ),
     );
   }
@@ -697,12 +721,14 @@ class _GrantRequest {
     required this.relationship,
     required this.scope,
     required this.consentMethod,
+    required this.signaturePngBytes,
   });
 
   final String proxyUid;
   final String relationship;
   final List<String> scope;
   final String consentMethod;
+  final Uint8List signaturePngBytes;
 }
 
 class _RecordAccessSection {

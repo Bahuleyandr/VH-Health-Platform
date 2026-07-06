@@ -208,6 +208,32 @@ export const schemas = {
   },
   RescheduleResponse: envelope('RescheduleResult'),
 
+  // ---- In-place reschedule result (PATCH /{id}/reschedule) ----------------
+  // appointmentCrudController.rescheduleAppointment wraps:
+  // data: { appointment: <same row, SCHEDULED>, previous: <old slot summary>,
+  //         updated_by }.
+  InPlaceRescheduleResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointment'],
+    properties: {
+      appointment: { $ref: '#/components/schemas/Appointment' },
+      previous: {
+        type: 'object',
+        additionalProperties: true,
+        nullable: true,
+        properties: {
+          appointment_date: { type: 'string', format: 'date-time', nullable: true },
+          appointment_time: { type: 'string', nullable: true },
+          doctor_id: { type: 'integer', nullable: true },
+          status: { type: 'string', nullable: true },
+        },
+      },
+      updated_by: { type: 'string', nullable: true },
+    },
+  },
+  InPlaceRescheduleResponse: envelope('InPlaceRescheduleResult'),
+
   // ======================================================================
   // T3 — LIST / QUEUE / AVAILABILITY / WAIT-TIME / WORKFLOW payloads.
   // Every shape below is authored from the EXACT controller/service return,
@@ -720,6 +746,20 @@ export const schemas = {
     properties: {
       appointment_date: { type: 'string' },
       appointment_time: { type: 'string' },
+      confirmation_notes: { type: 'string' },
+      notes: { type: 'string' },
+    },
+  },
+  InPlaceRescheduleAppointmentRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['appointment_date', 'appointment_time'],
+    description: 'PATCH /api/v1/appointments/{id}/reschedule.',
+    properties: {
+      appointment_date: { type: 'string' },
+      appointment_time: { type: 'string' },
+      doctor_id: { type: 'integer' },
+      doctor_uid: { type: 'string', format: 'uuid' },
       confirmation_notes: { type: 'string' },
       notes: { type: 'string' },
     },
@@ -1600,6 +1640,11 @@ export const operations = {
   // PUT /{id} → update wrapper (data.appointment + updated_by + addendum).
   'PUT /api/v1/appointments/{id}': {
     response: 'UpdateAppointmentResponse',
+  },
+  // PATCH /{id}/reschedule → same row remains active/SCHEDULED.
+  'PATCH /api/v1/appointments/{id}/reschedule': {
+    request: 'InPlaceRescheduleAppointmentRequest',
+    response: 'InPlaceRescheduleResponse',
   },
   // PUT /{id}/status → status wrapper + typed status request.
   'PUT /api/v1/appointments/{id}/status': {

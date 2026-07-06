@@ -6,13 +6,42 @@
 // row to render and route to /emr/timeline/:uid?name=… on tap. `id` is also
 // returned for staff workflows that need to create orders or appointments.
 
+import 'package:http/http.dart' as http;
+
 import 'api_client.dart';
+
+class PatientDuplicateReviewException implements Exception {
+  final String message;
+  final List<Map<String, dynamic>> candidates;
+
+  const PatientDuplicateReviewException(this.message, this.candidates);
+
+  @override
+  String toString() => message;
+}
 
 class PatientApiService {
   PatientApiService._();
 
   static Map<String, dynamic> _patientFromResponse(ApiResponse response) {
     if (!response.isSuccess) {
+      final raw = response.raw;
+      if (raw is Map<String, dynamic>) {
+        final details = raw['details'];
+        final candidates = details is Map ? details['candidates'] : null;
+        if (response.code == 'PATIENT_DUPLICATE_REVIEW_REQUIRED' &&
+            candidates is List) {
+          throw PatientDuplicateReviewException(
+            response.failureMessage(
+              'Potential duplicate patient requires review',
+            ),
+            candidates
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList(growable: false),
+          );
+        }
+      }
       throw Exception(response.failureMessage('Patient request failed'));
     }
     final raw = response.raw;
@@ -70,19 +99,30 @@ class PatientApiService {
     String? gender,
     String? birthday,
     String? address,
+    String? duplicateOverrideReason,
+    String? photoPath,
   }) async {
-    final response = await ApiClient.post(
-      '/patients',
-      body: {
-        'name': name.trim(),
-        'phone': phone.trim(),
-        if (gender != null && gender.trim().isNotEmpty) 'gender': gender.trim(),
-        if (birthday != null && birthday.trim().isNotEmpty)
-          'birthday': birthday.trim(),
-        if (address != null && address.trim().isNotEmpty)
-          'address': address.trim(),
-      },
-    );
+    final fields = {
+      'name': name.trim(),
+      'phone': phone.trim(),
+      if (gender != null && gender.trim().isNotEmpty) 'gender': gender.trim(),
+      if (birthday != null && birthday.trim().isNotEmpty)
+        'birthday': birthday.trim(),
+      if (address != null && address.trim().isNotEmpty)
+        'address': address.trim(),
+      if (duplicateOverrideReason != null &&
+          duplicateOverrideReason.trim().isNotEmpty)
+        'duplicate_override_reason': duplicateOverrideReason.trim(),
+    };
+    final response = photoPath == null || photoPath.trim().isEmpty
+        ? await ApiClient.post('/patients', body: fields)
+        : await ApiClient.multipart(
+            '/patients',
+            fields: fields.map((key, value) => MapEntry(key, value.toString())),
+            fileBuilder: () async => <http.MultipartFile>[
+              await ApiClient.multipartFileFromPath('file', photoPath),
+            ],
+          );
     return _patientFromResponse(response);
   }
 

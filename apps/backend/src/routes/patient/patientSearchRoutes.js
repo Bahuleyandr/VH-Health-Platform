@@ -13,6 +13,7 @@ import {
 } from '../../controllers/patient/patientSearchController.js';
 import { patientAccessGuard, phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { singleUpload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { PATIENT_REGISTRY_WRITE_ROLES } from '../../config/patientAccessRoles.js';
 import { readCanonicalPatientTimeline } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -67,6 +68,9 @@ router.get(
 router.post(
   '/',
   requireRole(...PATIENT_REGISTRY_WRITE_ROLES),
+  singleUpload,
+  validatePatientUpload,
+  validateFileContent,
   phiAccessLogger('PATIENT_CREATE'),
   createPatient,
 );

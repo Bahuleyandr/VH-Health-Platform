@@ -67,6 +67,37 @@ export class AppointmentService {
     }
   }
 
+  async checkNearSlotConflict(doctorId, appointmentDate, appointmentTime, excludeId = null, tenantId = null) {
+    try {
+      if (!doctorId || !appointmentDate || !appointmentTime) return null;
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id, appointment_time
+           FROM appointments
+          WHERE doctor_id = $1::int
+            AND DATE(appointment_date) = DATE($2::date)
+            AND ($5::uuid IS NULL OR tenant_id = $5::uuid)
+            AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
+            AND id <> COALESCE($4::int, 0)
+            AND appointment_time ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+            AND $3::text ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+            AND appointment_time::time < ($3::time + ($6::int * INTERVAL '1 minute'))
+            AND (appointment_time::time + ($6::int * INTERVAL '1 minute')) > $3::time
+          ORDER BY appointment_time::time ASC
+          LIMIT 1`,
+        parseInt(doctorId, 10),
+        appointmentDate,
+        appointmentTime,
+        excludeId ? parseInt(excludeId, 10) : null,
+        tenantId,
+        APPOINTMENT_CONFIG.APPOINTMENT_DURATION,
+      );
+      return rows.length > 0 ? rows[0] : null;
+    } catch (error) {
+      logger.error('Error checking near-slot appointment conflict:', error);
+      throw error;
+    }
+  }
+
   async createAppointment(appointmentData) {
     const {
       patient_id,
@@ -240,6 +271,202 @@ export class AppointmentService {
       return rows[0];
     } catch (error) {
       logger.error('Error updating appointment:', error);
+      throw error;
+    }
+  }
+
+  async rescheduleAppointmentInPlace(id, rescheduleData, options = {}) {
+    const {
+      appointment_date,
+      appointment_time,
+      doctor_id,
+      notes = null,
+    } = rescheduleData;
+    const {
+      tenantId = null,
+      actorUid = null,
+      actorId = null,
+      actorRole = null,
+    } = options;
+    const apptId = parseInt(id, 10);
+    const targetTenantId = requireTenantId(tenantId);
+    let updatedPatientUid = null;
+    let updatedDoctorUid = null;
+    let updatedDoctorId = null;
+
+    try {
+      const updated = await setTenantTx(targetTenantId, async (tx) => {
+        const currentRows = await tx.$queryRawUnsafe(
+          `SELECT a.id, a.uid, a.phone, a.patient_id, p.uid AS patient_uid,
+                  COALESCE(NULLIF(a.patient_name, ''), p.name) AS patient_name,
+                  a.doctor_id, d.uid AS doctor_uid,
+                  COALESCE(NULLIF(a.doctor_name, ''), d.name) AS doctor_name,
+                  a.appointment_date, a.appointment_time, a.status, a.reason,
+                  a.notes, a.department, a.visit_type, a.tenant_id
+             FROM appointments a
+             LEFT JOIN users p ON p.id = a.patient_id
+            LEFT JOIN users d ON d.id = a.doctor_id
+           WHERE a.id = $1::int
+             AND a.tenant_id = $2::uuid
+           FOR UPDATE OF a`,
+          apptId,
+          targetTenantId,
+        );
+        if (!currentRows.length) {
+          const err = new Error('Appointment not found');
+          err.statusCode = 404;
+          throw err;
+        }
+
+        const current = currentRows[0];
+        const prevStatus = String(current.status || 'SCHEDULED').toUpperCase();
+        if (['CANCELLED', 'NO_SHOW', 'COMPLETED', 'RESCHEDULED', 'IN_PROGRESS'].includes(prevStatus)) {
+          const err = new Error(`Cannot reschedule an appointment with status ${prevStatus}`);
+          err.statusCode = 400;
+          throw err;
+        }
+
+        let resolvedDoctor = null;
+        if (doctor_id !== undefined && doctor_id !== null && String(doctor_id).trim() !== '') {
+          resolvedDoctor = await resolveDoctorRef(tx, doctor_id, { tenantId: targetTenantId });
+          if (!resolvedDoctor?.id) {
+            const err = new Error('Doctor not found');
+            err.statusCode = 400;
+            throw err;
+          }
+        }
+
+        const targetDoctorId = resolvedDoctor?.id ?? current.doctor_id ?? null;
+        const targetDoctorName = resolvedDoctor?.name ?? current.doctor_name ?? null;
+        const targetDepartment = resolvedDoctor?.department ?? current.department ?? null;
+
+        if (targetDoctorId) {
+          const conflictRows = await tx.$queryRawUnsafe(
+            `SELECT id, appointment_time
+               FROM appointments
+              WHERE doctor_id = $1::int
+                AND DATE(appointment_date) = DATE($2::date)
+                AND tenant_id = $5::uuid
+                AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
+                AND id <> $4::int
+                AND appointment_time ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+                AND $3::text ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+                AND appointment_time::time < ($3::time + ($6::int * INTERVAL '1 minute'))
+                AND (appointment_time::time + ($6::int * INTERVAL '1 minute')) > $3::time
+              ORDER BY appointment_time::time ASC
+              LIMIT 1
+              FOR UPDATE`,
+            parseInt(targetDoctorId, 10),
+            appointment_date,
+            appointment_time,
+            apptId,
+            targetTenantId,
+            APPOINTMENT_CONFIG.APPOINTMENT_DURATION,
+          );
+          if (conflictRows.length) {
+            const err = new Error('Time slot already booked');
+            err.statusCode = 409;
+            err.conflictingId = conflictRows[0].id;
+            err.conflictingTime = conflictRows[0].appointment_time;
+            throw err;
+          }
+        }
+
+        const auditReason = notes
+          ? `Rescheduled to ${appointment_date} ${appointment_time}: ${notes}`
+          : `Rescheduled to ${appointment_date} ${appointment_time}`;
+
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE appointments
+              SET doctor_id = $2::int,
+                  doctor_name = $3,
+                  department = COALESCE($4, department),
+                  appointment_date = $5::date,
+                  appointment_time = $6,
+                  status = 'SCHEDULED',
+                  token_number = NULL,
+                  confirmed_at = NULL,
+                  visit_no = NULL,
+                  notes = CASE
+                            WHEN $7::text IS NOT NULL
+                            THEN COALESCE(notes || ' | ', '') || $7::text
+                            ELSE notes
+                          END,
+                  updated_by = COALESCE($8::uuid, updated_by),
+                  updated_at = NOW()
+            WHERE id = $1::int
+              AND tenant_id = $9::uuid
+            RETURNING id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
+                      appointment_date, appointment_time, status, reason, notes,
+                      token_number, visit_no, confirmed_at, department, visit_type,
+                      tenant_id, created_at, updated_at`,
+          apptId,
+          targetDoctorId ? parseInt(targetDoctorId, 10) : null,
+          targetDoctorName,
+          targetDepartment,
+          appointment_date,
+          appointment_time,
+          notes || null,
+          actorUid,
+          targetTenantId,
+        );
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO appointment_status_history
+             (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+           VALUES ($1::int, $2, 'SCHEDULED', $3::int, $4, $5)`,
+          apptId,
+          prevStatus,
+          actorId ? parseInt(actorId, 10) : null,
+          actorRole || null,
+          auditReason,
+        );
+
+        const queue = await ensureAppointmentQueueForAppointment(tx, rows[0], {
+          actorUid,
+          source: 'reschedule_patch',
+        });
+
+        updatedPatientUid = current.patient_uid ?? null;
+        updatedDoctorUid = resolvedDoctor?.uid ?? current.doctor_uid ?? null;
+        updatedDoctorId = targetDoctorId ? parseInt(targetDoctorId, 10) : null;
+
+        return {
+          previous: current,
+          appointment: {
+            ...rows[0],
+            queue_id: queue?.id ?? rows[0]?.queue_id ?? null,
+            appointment_queue: queue ?? null,
+          },
+          from_status: prevStatus,
+          to_status: 'SCHEDULED',
+        };
+      });
+
+      if (updatedPatientUid && (updatedDoctorUid || updatedDoctorId)) {
+        await populateAppointmentCareTeam({
+          appointment: updated.appointment,
+          appointmentId: updated.appointment?.id ?? null,
+          tenantId: targetTenantId,
+          patientUid: updatedPatientUid,
+          doctorUid: updatedDoctorUid,
+          doctorId: updatedDoctorId,
+          doctorRole: 'DOCTOR',
+          createdBy: actorUid,
+        });
+      }
+
+      return updated;
+    } catch (error) {
+      if (error?.statusCode && error.statusCode < 500) {
+        logger.warn('Appointment reschedule rejected:', {
+          statusCode: error.statusCode,
+          message: error.message,
+          conflictingId: error.conflictingId,
+        });
+      } else {
+        logger.error('Error rescheduling appointment in place:', error);
+      }
       throw error;
     }
   }

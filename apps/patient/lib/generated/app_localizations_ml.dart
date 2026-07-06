@@ -2332,6 +2332,19 @@ class AppLocalizationsMl extends AppLocalizations {
       'പ്രായപൂർത്തിയാകാത്തവർക്കുള്ള രക്ഷിതാവ്';
 
   @override
+  String get recordAccessSignatureLabel => 'നിങ്ങളുടെ ഒപ്പ്';
+
+  @override
+  String get recordAccessSignatureHint => 'ഈ ബോക്സിനുള്ളിൽ ഒപ്പിടുക';
+
+  @override
+  String get recordAccessSignatureClear => 'മായ്ക്കുക';
+
+  @override
+  String get recordAccessSignatureRequired =>
+      'തുടരുന്നതിന് മുമ്പ് നിങ്ങളുടെ ഒപ്പ് ചേർക്കുക.';
+
+  @override
   String get recordAccessContinueButton => 'തുടരുക';
 
   @override
@@ -3563,6 +3576,41 @@ class AppLocalizationsMl extends AppLocalizations {
   @override
   String get appointmentsCancelFailed =>
       'അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get appointmentsReschedule => 'റീഷെഡ്യൂൾ ചെയ്യുക';
+
+  @override
+  String get appointmentsRescheduleTitle => 'പുതിയ സ്ലോട്ട് തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String get appointmentsRescheduleDate => 'പുതിയ തീയതി';
+
+  @override
+  String get appointmentsRescheduleTime => 'പുതിയ സമയം';
+
+  @override
+  String get appointmentsRescheduleNote => 'കെയർ ടീമിനുള്ള കുറിപ്പ്';
+
+  @override
+  String get appointmentsRescheduleReview => 'പരിശോധിക്കുക';
+
+  @override
+  String appointmentsRescheduleConfirm(
+    String doctor,
+    String date,
+    String time,
+  ) {
+    return '$doctor യോടുള്ള അപ്പോയിന്റ്മെന്റ് $date ന് $time മണിക്ക് റീഷെഡ്യൂൾ ചെയ്യണോ?';
+  }
+
+  @override
+  String get appointmentsRescheduledToast =>
+      'അപ്പോയിന്റ്മെന്റ് റീഷെഡ്യൂൾ ചെയ്തു';
+
+  @override
+  String get appointmentsRescheduleFailed =>
+      'അപ്പോയിന്റ്മെന്റ് റീഷെഡ്യൂൾ ചെയ്യാൻ കഴിഞ്ഞില്ല. മറ്റൊരു സ്ലോട്ട് ശ്രമിക്കുക.';
 
   @override
   String get appointmentsEmptyHint =>

@@ -3009,6 +3009,18 @@ class AppStrings {
       _t('reception_counter.ip.consent_title');
   String get receptionCounterIpConsentSubtitle =>
       _t('reception_counter.ip.consent_subtitle');
+  String get receptionCounterIpPatientSignatureLabel =>
+      _t('reception_counter.ip.patient_signature_label');
+  String get receptionCounterIpStaffWitnessSignatureLabel =>
+      _t('reception_counter.ip.staff_witness_signature_label');
+  String get receptionCounterIpSignatureHint =>
+      _t('reception_counter.ip.signature_hint');
+  String get receptionCounterIpSignatureClear =>
+      _t('reception_counter.ip.signature_clear');
+  String get receptionCounterIpSignatureRequired =>
+      _t('reception_counter.ip.signature_required');
+  String get receptionCounterIpSignatureUploadFailed =>
+      _t('reception_counter.ip.signature_upload_failed');
   String get receptionCounterIpCreateButton =>
       _t('reception_counter.ip.create_button');
   String get receptionCounterWardFloor => _t('reception_counter.ward.floor');
@@ -5535,6 +5547,15 @@ class AppStrings {
           'Treatment consent captured at counter',
       'reception_counter.ip.consent_subtitle':
           'Required for routine IP admissions before the chart is opened.',
+      'reception_counter.ip.patient_signature_label': 'Patient signature',
+      'reception_counter.ip.staff_witness_signature_label':
+          'Staff witness signature',
+      'reception_counter.ip.signature_hint': 'Sign inside this box',
+      'reception_counter.ip.signature_clear': 'Clear',
+      'reception_counter.ip.signature_required':
+          'Capture both patient and staff witness signatures.',
+      'reception_counter.ip.signature_upload_failed':
+          'Admission was created, but consent signatures could not be attached.',
       'reception_counter.ip.create_button': 'Create IP admission',
       'reception_counter.ward.floor': 'Ward / floor',
       'reception_counter.bed': 'Bed',
@@ -6161,6 +6182,7 @@ class AppStrings {
           "Patient needs a saved record or a valid phone number.",
       's4.lib.front_office_workbench.patient_phone_min_digits':
           "Patient phone must be at least 10 digits.",
+      's4.lib.front_office_workbench.patient_photo': "Patient photo",
       's4.lib.front_office_workbench.patient_selected_from_queue':
           "Patient selected from queue.",
       's4.lib.front_office_workbench.patient_updated': "Patient updated",
@@ -6206,6 +6228,11 @@ class AppStrings {
       's4.lib.front_office_workbench.create_ip_admission':
           "Create IP Admission",
       's4.lib.front_office_workbench.create_new_patient': "Create New Patient",
+      's4.lib.front_office_workbench.create_anyway': "Create anyway",
+      's4.lib.front_office_workbench.create_anyway_reason':
+          "Reason to create anyway",
+      's4.lib.front_office_workbench.create_anyway_reason_required':
+          "Enter a reason of at least 10 characters.",
       's4.lib.front_office_workbench.create_separate_record':
           "Create separate record",
       's4.lib.front_office_workbench.current_medicines': "Current medicines",
@@ -6255,6 +6282,8 @@ class AppStrings {
       's4.lib.front_office_workbench.reschedule_appointment':
           "Reschedule appointment",
       's4.lib.front_office_workbench.reschedule_note': "Reschedule note",
+      's4.lib.front_office_workbench.remove_photo': "Remove photo",
+      's4.lib.front_office_workbench.retake_photo': "Retake photo",
       's4.lib.front_office_workbench.scheme_name': "Scheme name",
       's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
           "Select a patient before admitting IP.",
@@ -6265,6 +6294,7 @@ class AppStrings {
       's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
           "Select a patient before registering a walk-in.",
       's4.lib.front_office_workbench.teleconsult': "Teleconsult",
+      's4.lib.front_office_workbench.take_photo': "Take photo",
       's4.lib.front_office_workbench.tpa': "TPA",
       's4.lib.front_office_workbench.view_advice': "View advice",
       's4.lib.front_office_workbench.visit_notes_optional':
@@ -8109,6 +8139,15 @@ class AppStrings {
       'label.no_matches_for': 'कोई मेल नहीं मिला:',
       'label.optional': 'वैकल्पिक',
       'label.required': 'आवश्यक',
+      'reception_counter.ip.patient_signature_label': 'रोगी के हस्ताक्षर',
+      'reception_counter.ip.staff_witness_signature_label':
+          'स्टाफ गवाह के हस्ताक्षर',
+      'reception_counter.ip.signature_hint': 'इस बॉक्स में हस्ताक्षर करें',
+      'reception_counter.ip.signature_clear': 'साफ़ करें',
+      'reception_counter.ip.signature_required':
+          'रोगी और स्टाफ गवाह दोनों के हस्ताक्षर कैप्चर करें।',
+      'reception_counter.ip.signature_upload_failed':
+          'भर्ती बन गई, लेकिन सहमति हस्ताक्षर जोड़े नहीं जा सके।',
       'offline.recorded_pending_sync': 'दर्ज किया गया — सिंक लंबित',
       // Greetings
       'dashboard.greeting.morning': 'सुप्रभात',
@@ -11194,6 +11233,7 @@ class AppStrings {
           "मरीज को सहेजे गए रिकॉर्ड या मान्य फोन नंबर की आवश्यकता है।",
       's4.lib.front_office_workbench.patient_phone_min_digits':
           "मरीज का फोन कम से कम 10 अंकों का होना चाहिए।",
+      's4.lib.front_office_workbench.patient_photo': "मरीज की फोटो",
       's4.lib.front_office_workbench.patient_selected_from_queue':
           "कतार से मरीज चुना गया।",
       's4.lib.front_office_workbench.patient_updated': "मरीज अपडेट किया गया",
@@ -11239,6 +11279,11 @@ class AppStrings {
       's4.lib.front_office_workbench.create_ip_admission':
           "आईपी ​​प्रवेश बनाएँ",
       's4.lib.front_office_workbench.create_new_patient': "नया मरीज बनाएं",
+      's4.lib.front_office_workbench.create_anyway': "फिर भी बनाएं",
+      's4.lib.front_office_workbench.create_anyway_reason':
+          "फिर भी बनाने का कारण",
+      's4.lib.front_office_workbench.create_anyway_reason_required':
+          "कम से कम 10 अक्षरों का कारण दर्ज करें।",
       's4.lib.front_office_workbench.create_separate_record':
           "अलग रिकॉर्ड बनाएं",
       's4.lib.front_office_workbench.current_medicines': "वर्तमान औषधियाँ",
@@ -11289,6 +11334,8 @@ class AppStrings {
           "नियुक्ति पुनः निर्धारित करें",
       's4.lib.front_office_workbench.reschedule_note':
           "नोट को पुनर्निर्धारित करें",
+      's4.lib.front_office_workbench.remove_photo': "फोटो हटाएं",
+      's4.lib.front_office_workbench.retake_photo': "फिर फोटो लें",
       's4.lib.front_office_workbench.scheme_name': "योजना का नाम",
       's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
           "आईपी ​​को भर्ती करने से पहले एक मरीज का चयन करें।",
@@ -11299,6 +11346,7 @@ class AppStrings {
       's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
           "वॉक-इन पंजीकृत करने से पहले एक मरीज का चयन करें।",
       's4.lib.front_office_workbench.teleconsult': "टेलीकंसल्ट",
+      's4.lib.front_office_workbench.take_photo': "फोटो लें",
       's4.lib.front_office_workbench.tpa': "TPA",
       's4.lib.front_office_workbench.view_advice': "सलाह देखें",
       's4.lib.front_office_workbench.visit_notes_optional':
@@ -13161,6 +13209,15 @@ class AppStrings {
       'label.no_matches_for': 'பொருத்தம் இல்லை',
       'label.optional': 'விருப்பம்',
       'label.required': 'தேவை',
+      'reception_counter.ip.patient_signature_label': 'நோயாளர் கையொப்பம்',
+      'reception_counter.ip.staff_witness_signature_label':
+          'பணியாளர் சாட்சி கையொப்பம்',
+      'reception_counter.ip.signature_hint': 'இந்த பெட்டிக்குள் கையொப்பமிடவும்',
+      'reception_counter.ip.signature_clear': 'அழி',
+      'reception_counter.ip.signature_required':
+          'நோயாளர் மற்றும் பணியாளர் சாட்சி கையொப்பங்களை இரண்டையும் பதிவு செய்யவும்.',
+      'reception_counter.ip.signature_upload_failed':
+          'அனுமதி உருவாக்கப்பட்டது, ஆனால் ஒப்புதல் கையொப்பங்களை இணைக்க முடியவில்லை.',
       'offline.recorded_pending_sync':
           'பதிவு செய்யப்பட்டது — சிங்க் நிலுவையில்',
       'dashboard.greeting.morning': 'காலை வணக்கம்',
@@ -16805,6 +16862,7 @@ class AppStrings {
           "நோயாளிக்கு சேமித்த பதிவு அல்லது செல்லுபடியாகும் தொலைபேசி எண் தேவை.",
       's4.lib.front_office_workbench.patient_phone_min_digits':
           "நோயாளியின் தொலைபேசி குறைந்தது 10 இலக்கங்கள் இருக்க வேண்டும்.",
+      's4.lib.front_office_workbench.patient_photo': "நோயாளி புகைப்படம்",
       's4.lib.front_office_workbench.patient_selected_from_queue':
           "வரிசையிலிருந்து நோயாளி தேர்ந்தெடுக்கப்பட்டார்.",
       's4.lib.front_office_workbench.patient_updated':
@@ -16853,6 +16911,11 @@ class AppStrings {
           "ஐபி சேர்க்கையை உருவாக்கவும்",
       's4.lib.front_office_workbench.create_new_patient':
           "புதிய நோயாளியை உருவாக்குங்கள்",
+      's4.lib.front_office_workbench.create_anyway': "இருப்பினும் உருவாக்கவும்",
+      's4.lib.front_office_workbench.create_anyway_reason':
+          "இருப்பினும் உருவாக்கும் காரணம்",
+      's4.lib.front_office_workbench.create_anyway_reason_required':
+          "குறைந்தது 10 எழுத்துகளான காரணத்தை உள்ளிடவும்.",
       's4.lib.front_office_workbench.create_separate_record':
           "தனி பதிவை உருவாக்கவும்",
       's4.lib.front_office_workbench.current_medicines': "தற்போதைய மருந்துகள்",
@@ -16904,6 +16967,8 @@ class AppStrings {
       's4.lib.front_office_workbench.reschedule_appointment':
           "சந்திப்பை மீண்டும் திட்டமிடுங்கள்",
       's4.lib.front_office_workbench.reschedule_note': "மறு அட்டவணை குறிப்பு",
+      's4.lib.front_office_workbench.remove_photo': "புகைப்படத்தை அகற்று",
+      's4.lib.front_office_workbench.retake_photo': "மீண்டும் புகைப்படம் எடு",
       's4.lib.front_office_workbench.scheme_name': "திட்டத்தின் பெயர்",
       's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
           "ஐபியை அனுமதிக்கும் முன் நோயாளியைத் தேர்ந்தெடுக்கவும்.",
@@ -16914,6 +16979,7 @@ class AppStrings {
       's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
           "வாக்-இன் பதிவு செய்வதற்கு முன் ஒரு நோயாளியைத் தேர்ந்தெடுக்கவும்.",
       's4.lib.front_office_workbench.teleconsult': "தொலைத் தொடர்பு",
+      's4.lib.front_office_workbench.take_photo': "புகைப்படம் எடு",
       's4.lib.front_office_workbench.tpa': "TPA",
       's4.lib.front_office_workbench.view_advice': "ஆலோசனையைப் பார்க்கவும்",
       's4.lib.front_office_workbench.visit_notes_optional':
@@ -18873,6 +18939,15 @@ class AppStrings {
       'label.no_matches_for': 'సరిపోలికలు లేవు',
       'label.optional': 'ఐచ్ఛికం',
       'label.required': 'అవసరం',
+      'reception_counter.ip.patient_signature_label': 'రోగి సంతకం',
+      'reception_counter.ip.staff_witness_signature_label':
+          'సిబ్బంది సాక్షి సంతకం',
+      'reception_counter.ip.signature_hint': 'ఈ పెట్టెలో సంతకం చేయండి',
+      'reception_counter.ip.signature_clear': 'క్లియర్',
+      'reception_counter.ip.signature_required':
+          'రోగి మరియు సిబ్బంది సాక్షి సంతకాలు రెండూ నమోదు చేయండి.',
+      'reception_counter.ip.signature_upload_failed':
+          'అడ్మిషన్ సృష్టించబడింది, కానీ సమ్మతి సంతకాలు జోడించలేకపోయాము.',
       'offline.recorded_pending_sync':
           'రికార్డ్ అయింది — సింక్ పెండింగ్‌లో ఉంది',
       'dashboard.greeting.morning': 'శుభోదయం',
@@ -22464,6 +22539,7 @@ class AppStrings {
           "రోగికి సేవ్ చేసిన రికార్డు లేదా చెల్లుబాటు అయ్యే ఫోన్ నంబర్ అవసరం.",
       's4.lib.front_office_workbench.patient_phone_min_digits':
           "రోగి ఫోన్ కనీసం 10 అంకెలు ఉండాలి.",
+      's4.lib.front_office_workbench.patient_photo': "రోగి ఫోటో",
       's4.lib.front_office_workbench.patient_selected_from_queue':
           "క్యూ నుండి రోగి ఎంపికయ్యారు.",
       's4.lib.front_office_workbench.patient_updated': "రోగి నవీకరించబడ్డారు",
@@ -22513,6 +22589,11 @@ class AppStrings {
           "IP ప్రవేశాన్ని సృష్టించండి",
       's4.lib.front_office_workbench.create_new_patient':
           "కొత్త రోగిని సృష్టించండి",
+      's4.lib.front_office_workbench.create_anyway': "ఏమైనప్పటికీ సృష్టించండి",
+      's4.lib.front_office_workbench.create_anyway_reason':
+          "ఏమైనప్పటికీ సృష్టించడానికి కారణం",
+      's4.lib.front_office_workbench.create_anyway_reason_required':
+          "కనీసం 10 అక్షరాల కారణాన్ని నమోదు చేయండి.",
       's4.lib.front_office_workbench.create_separate_record':
           "ప్రత్యేక రికార్డును సృష్టించండి",
       's4.lib.front_office_workbench.current_medicines': "ప్రస్తుత మందులు",
@@ -22562,6 +22643,8 @@ class AppStrings {
           "అపాయింట్‌మెంట్ రీషెడ్యూల్ చేయండి",
       's4.lib.front_office_workbench.reschedule_note':
           "గమనికను రీషెడ్యూల్ చేయండి",
+      's4.lib.front_office_workbench.remove_photo': "ఫోటోను తీసివేయండి",
+      's4.lib.front_office_workbench.retake_photo': "మళ్లీ ఫోటో తీయండి",
       's4.lib.front_office_workbench.scheme_name': "పథకం పేరు",
       's4.lib.front_office_workbench.select_a_patient_before_admitting_ip':
           "IP అడ్మిట్ చేయడానికి ముందు రోగిని ఎంచుకోండి.",
@@ -22572,6 +22655,7 @@ class AppStrings {
       's4.lib.front_office_workbench.select_a_patient_before_registering_a_walk_in':
           "వాక్-ఇన్ నమోదు చేయడానికి ముందు రోగిని ఎంచుకోండి.",
       's4.lib.front_office_workbench.teleconsult': "టెలికన్సల్ట్",
+      's4.lib.front_office_workbench.take_photo': "ఫోటో తీయండి",
       's4.lib.front_office_workbench.tpa': "TPA",
       's4.lib.front_office_workbench.view_advice': "సలహా చూడండి",
       's4.lib.front_office_workbench.visit_notes_optional':

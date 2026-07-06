@@ -4,6 +4,7 @@ import { isDoctor, isAdmin, isLeadership, isMedicalRecords } from '../roleHelper
 
 const APPOINTMENT_OPERATIONS_ROLES = new Set([
   'ADMIN',
+  'SUPER_ADMIN',
   'NURSE',
   'NURSING_STAFF',
   'OP_STAFF_NURSE',
