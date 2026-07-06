@@ -1,7 +1,7 @@
 # NL-2 NHCX Claims Exchange Design
 
 **Date:** 2026-07-05
-**Status:** Design-only proposal for owner review before implementation
+**Status:** P1 shipped; P2 claim cycle in review as inert/mock-first design-target implementation
 **Program:** NL-2 NHCX claims exchange
 **Surface:** backend insurance/TPA workflow, FHIR/profile tooling, admin tariff master
 
@@ -441,6 +441,25 @@ Deep tests:
 - invalid transition is rejected and recorded on `nhcx_messages`
 - partial approval and denial preserve `approved_amount`,
   `disallowed_amount`, and denial reason semantics
+
+Implementation note 2026-07-06:
+
+- P2 backend claim-cycle support is implemented for review behind
+  `NHCX_ENABLED=false`.
+- Outbound `/claim/submit` builds Claim Request bundles with `Claim.use =
+  claim` from deterministic `tpa_claims` snapshots and selected
+  `tpa_claim_documents` as DocumentReference stubs.
+- Claim submit reuses `claimsService.submitClaim`, so cashless-final packet,
+  final-bill, room-cap, and signed-discharge-summary gates remain mandatory.
+- Inbound `/claim/on_submit` inserts the `nhcx_messages` envelope before
+  workflow mutation, maps true ClaimResponse adjudications through
+  `recordClaimDecision`, maps information requests to `queried`, and sends
+  ambiguous responses to `manual_review`.
+- Task-based claim status check/response is present as a mock-target seam and
+  does not mutate `tpa_claims`.
+- PaymentNotice, settlements, and ledger posting remain out of scope for P2.
+- Operator must still lock the live NHCX/NRCeS version, sandbox OpenAPI,
+  callback auth, and certificate/JWE requirements before enabling the flag.
 
 ### P3 - Communications and Attachments
 

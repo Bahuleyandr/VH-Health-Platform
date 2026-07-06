@@ -91,10 +91,11 @@ Every ✗ below was verified against the repo (grep/read), not assumed.
 
 ### B. India money rails
 - [ ] ◐ **NHCX** (National Health Claims Exchange) — P1 backend core exists
-      behind `NHCX_ENABLED=false`: exchange envelope, tenant credentials,
-      eligibility/preauth FHIR builders, outbound dispatcher, callbacks, and
-      mock exchange. Live version lock, sandbox enrolment, claim cycle,
-      communications, payment notice, and tariff UI remain.
+      and P2 claim cycle is in review behind `NHCX_ENABLED=false`: exchange
+      envelope, tenant credentials, eligibility/preauth/claim FHIR builders,
+      Task status checks, outbound dispatcher, callbacks, and mock exchange.
+      Live version lock, sandbox enrolment, communications, payment notice, and
+      tariff UI remain.
 - [ ] ✗ Tariff / rate-card master admin UI (entities exist; no editor).
 - [ ] ✗ Statutory register/report pack (OPD/IPD registers, birth/death, MLC
       registers as printable statutory formats).
@@ -268,7 +269,7 @@ one-commit-per-item for bisectability.
 | Program | Wave | Status |
 |---|---|---|
 | NL-1 Enterprise identity | A | ◐ P1 shipped — PR #436 ([spec](superpowers/specs/2026-07-05-nl1-enterprise-identity-design.md)); Keycloak-first admin OIDC SSO held/default-off |
-| NL-2 NHCX claims exchange | A | ◐ P1 shipped — [PR #437](https://github.com/Bahuleyandr/VH-Health-Platform/pull/437) ([spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement |
+| NL-2 NHCX claims exchange | A | ◐ P2 claim cycle in review — PR #438 ([P1 PR #437](https://github.com/Bahuleyandr/VH-Health-Platform/pull/437), [spec](superpowers/specs/2026-07-05-nl2-nhcx-claims-design.md), [runbook](../apps/backend/docs/RUNBOOKS/nhcx-p1-core.md)); live NHCX version lock + sandbox enrolment still gate enablement |
 | NL-3 Teleconsultation | A | ◐ P1 in review — PR #435 ([spec](superpowers/specs/2026-07-05-nl3-teleconsultation-design.md)); backend provisioning + held LiveKit infra only; P2 patient Flutter join and P3 staff consult surface next |
 | NL-4 Demo-basics debt | A | ☑ shipped — PR #429 |
 | NL-5 Terminology + content studio | B | ☐ not started |
