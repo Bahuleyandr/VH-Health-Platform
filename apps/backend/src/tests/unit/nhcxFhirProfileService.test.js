@@ -92,4 +92,33 @@ describe('nhcxFhirProfileService', () => {
       }),
     ]));
   });
+
+  it('accepts inbound PaymentNotice bundles for finance review capture', () => {
+    const bundle = {
+      resourceType: 'Bundle',
+      id: 'payment-notice-bundle',
+      meta: {
+        profile: ['https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/PaymentNoticeBundle'],
+      },
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'PaymentNotice',
+          id: 'payment-notice-1',
+          status: 'active',
+          created: '2026-07-06T12:00:00.000Z',
+          request: { reference: 'Claim/claim-88' },
+          payment: { identifier: { value: 'UTR-1' } },
+          amount: { value: 42000, currency: 'INR' },
+        },
+      }],
+    };
+
+    const result = validateNHCXInboundBundle(bundle, {
+      expectedMainResourceType: 'PaymentNotice',
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
 });

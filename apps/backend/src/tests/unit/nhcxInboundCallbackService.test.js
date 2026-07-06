@@ -144,6 +144,66 @@ function communicationRequestBundle(overrides = {}) {
   };
 }
 
+function paymentNoticeBundle(overrides = {}) {
+  return {
+    resourceType: 'Bundle',
+    id: 'nhcx-payment-notice-bundle',
+    meta: {
+      profile: ['https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/PaymentNoticeBundle'],
+      versionId: '7.0.0-design-target',
+    },
+    type: 'collection',
+    entry: [
+      {
+        resource: {
+          resourceType: 'PaymentNotice',
+          id: 'payment-notice-1',
+          status: 'active',
+          created: '2026-07-06T12:00:00.000Z',
+          request: { reference: 'Claim/claim-88' },
+          response: { reference: 'ClaimResponse/claim-response-88' },
+          payment: { identifier: { value: 'STAR-UTR-9001' } },
+          amount: { value: 42000, currency: 'INR' },
+          ...overrides,
+        },
+      },
+      {
+        resource: {
+          resourceType: 'PaymentReconciliation',
+          id: 'payment-reconciliation-1',
+          status: 'active',
+          created: '2026-07-06T12:00:00.000Z',
+          paymentAmount: { value: 42000, currency: 'INR' },
+          detail: [{
+            request: { reference: 'Claim/claim-88' },
+            response: { reference: 'ClaimResponse/claim-response-88' },
+            amount: { value: 42000, currency: 'INR' },
+          }],
+        },
+      },
+    ],
+  };
+}
+
+function paymentNoticeArgs(bundle = paymentNoticeBundle()) {
+  return {
+    tenantId: TENANT,
+    endpoint: 'paymentnotice/request',
+    body: { payload: 'compact-jwe' },
+    headers: {
+      'x-hcx-recipient_code': 'VH-NHCX-PROVIDER',
+      'x-hcx-sender_code': 'PAYER-NHCX-SAMPLE',
+      'x-hcx-api_call_id': 'payment-notice-1',
+      'x-hcx-correlation_id': 'claim-corr-1',
+      'x-hcx-workflow_id': '7001',
+    },
+    participantCodeSelf: 'VH-NHCX-PROVIDER',
+    signatureVerified: true,
+    runtimeResolver: jest.fn(async () => ({ environment: 'sandbox' })),
+    decryptPayload: jest.fn(async () => ({ bundle, protectedHeaders: {} })),
+  };
+}
+
 function communicationArgs(bundle = communicationRequestBundle()) {
   return {
     tenantId: TENANT,
@@ -432,6 +492,68 @@ describe('processNHCXCallback', () => {
           size: 100,
         },
       }],
+    })));
+
+    expect(result).toMatchObject({ duplicate: false, processed: false });
+    expect(result.envelope.status).toBe('manual_review');
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('captures PaymentNotice as review evidence without changing claim status or ledger state', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      claim_id: 88,
+      preauth_id: 77,
+      policy_id: 55,
+      patient_uid: '11111111-1111-4111-8111-111111111111',
+      admission_id: 7001,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '50', inserted: true, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88,
+      claim_number: 'CLM-88',
+      status: 'approved',
+      claimed_amount: '50000',
+      approved_amount: '50000',
+      paid_amount: null,
+      patient_uid: '11111111-1111-4111-8111-111111111111',
+      policy_id: 55,
+      preauth_id: 77,
+      invoice_id: 900,
+      admission_id: 7001,
+      policy_number: 'POL-1',
+      payer_name: 'Star Health',
+      tpa_name: 'Mock TPA',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '50', status: 'manual_review', validation_issues: [] }]);
+
+    const result = await processNHCXCallback(paymentNoticeArgs());
+
+    expect(result).toMatchObject({ duplicate: false, processed: false });
+    expect(result.envelope.status).toBe('manual_review');
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+    expect(queryUnsafeMock.mock.calls.some((call) => /UPDATE\s+tpa_claims/i.test(String(call[0])))).toBe(false);
+    expect(queryUnsafeMock.mock.calls.some((call) => /ledger_entries|ledger_postings/i.test(String(call[0])))).toBe(false);
+  });
+
+  it('treats duplicate PaymentNotice callbacks as idempotent no-ops', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ claim_id: 88 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '51', inserted: false, status: 'manual_review' }]);
+
+    const result = await processNHCXCallback(paymentNoticeArgs());
+
+    expect(result).toMatchObject({ duplicate: true, processed: false });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps unresolvable PaymentNotice callbacks in manual review', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '52', inserted: true, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: '52', status: 'manual_review', validation_issues: [] }]);
+
+    const result = await processNHCXCallback(paymentNoticeArgs(paymentNoticeBundle({
+      request: { reference: 'Claim/claim-999' },
     })));
 
     expect(result).toMatchObject({ duplicate: false, processed: false });
