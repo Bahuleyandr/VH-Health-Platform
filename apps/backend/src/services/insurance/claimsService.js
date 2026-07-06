@@ -1874,7 +1874,9 @@ export async function submitClaim({
 
 export async function recordClaimDecision({
   tenantId, id, decision, approved_amount, denial_reason, recorded_by,
-  insurer, raw_response,
+  insurer, raw_response, disallowed_amount,
+  correspondence_channel = 'portal', correspondence_subject = null,
+  correspondence_body = null, skip_ledger_shift = false,
 }) {
   const cl = await getClaim({ tenantId, id });
   const allowedDecisions = ['approved', 'partially_approved', 'queried', 'denied'];
@@ -1912,8 +1914,9 @@ export async function recordClaimDecision({
     references: [cl.tpa_reference_id],
   });
 
-  if (approved_amount != null) {
-    const approvedNum = Number(approved_amount);
+  const approvedProvided = approved_amount !== undefined && approved_amount !== null && approved_amount !== '';
+  const approvedNum = approvedProvided ? Number(approved_amount) : null;
+  if (approvedProvided) {
     const claimedNum = Number(cl.claimed_amount || 0);
     if (claimedNum > 0 && approvedNum > claimedNum) {
       throw AppError.badRequest(
@@ -1924,13 +1927,24 @@ export async function recordClaimDecision({
       );
     }
   }
+  const disallowedProvided = disallowed_amount !== undefined && disallowed_amount !== null && disallowed_amount !== '';
+  let disallowedNum = disallowedProvided ? Number(disallowed_amount) : null;
+  if (!disallowedProvided && decision === 'partially_approved' && approvedNum != null) {
+    const claimedNum = Number(cl.claimed_amount || 0);
+    disallowedNum = claimedNum > approvedNum ? Number((claimedNum - approvedNum).toFixed(2)) : 0;
+  }
+  if (disallowedNum != null && (!Number.isFinite(disallowedNum) || disallowedNum < 0)) {
+    throw AppError.badRequest('disallowed_amount must be a non-negative number', 'CLAIM_DISALLOWED_AMOUNT_INVALID');
+  }
 
   // M4 (audit 2026-06-22): lock the claim row and re-validate the transition
   // against the COMMITTED status inside the tx. The checks above are fast-fail UX
   // on a no-lock read; without this lock two concurrent decisions both read the
   // old status, both pass, and both write (distinct-ref last-writer-wins).
   const tid = requireTenantId(tenantId);
-  const wiring = await resolveLedgerWiring(tid);
+  const wiring = skip_ledger_shift === true
+    ? { sameTx: false, postCommit: false }
+    : await resolveLedgerWiring(tid);
   await setTenantTx(tid, async (tx) => {
     const lockedRows = await tx.$queryRawUnsafe(
       `SELECT id, status FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1 FOR UPDATE`,
@@ -1951,28 +1965,34 @@ export async function recordClaimDecision({
       `UPDATE tpa_claims
           SET status = $1::varchar,
               approved_amount = COALESCE($2::numeric, approved_amount),
-              denial_reason = CASE WHEN $1::varchar = 'denied' THEN $3::text ELSE denial_reason END,
+              disallowed_amount = COALESCE($3::numeric, disallowed_amount),
+              denial_reason = CASE WHEN $1::varchar = 'denied' THEN $4::text ELSE denial_reason END,
               updated_at = NOW()
-        WHERE id = $4::int`,
+        WHERE id = $5::int`,
       decision,
-      approved_amount ? Number(approved_amount) : null,
+      approvedProvided ? approvedNum : null,
+      disallowedNum,
       denial_reason || null,
       cl.id,
     );
 
     // Drop a correspondence row for the audit trail.
+    const subject = correspondence_subject || `Decision: ${decision}`;
+    const body = correspondence_body || [
+      `Decision: ${decision}`,
+      approvedProvided ? `Approved: ${approvedNum}` : null,
+      disallowedNum != null ? `Disallowed: ${disallowedNum}` : null,
+      denial_reason ? `Reason: ${denial_reason}` : null,
+    ].filter(Boolean).join('\n');
     await tx.$executeRawUnsafe(
       `INSERT INTO tpa_claim_correspondence
          (claim_id, direction, channel, subject, body, recorded_by)
-       VALUES ($1::int, 'inbound', 'portal',
-               $2, $3, $4::uuid)`,
+       VALUES ($1::int, 'inbound', $2,
+               $3, $4, $5::uuid)`,
       cl.id,
-      `Decision: ${decision}`,
-      [
-        `Decision: ${decision}`,
-        approved_amount ? `Approved: ${approved_amount}` : null,
-        denial_reason ? `Reason: ${denial_reason}` : null,
-      ].filter(Boolean).join('\n'),
+      correspondence_channel || 'portal',
+      subject,
+      body,
       recorded_by ? String(recorded_by) : null,
     );
 
