@@ -8,7 +8,7 @@ Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA 
 - **State**: Provider (`ThemeProvider`, `LocaleProvider`, `NotificationProvider`, `RealtimeProvider`, `WebSocketProvider`, `MessageUnreadProvider`, `ClinicalInboxProvider`, `SessionTimeoutProvider`)
 - **Navigation**: GoRouter with auth redirect guard
 - **HTTP**: `package:http`
-- **Auth**: Employee ID + password/PIN → backend JWT
+- **Auth**: Employee ID + password/PIN or tenant-enabled OIDC SSO → backend JWT
 - **Storage**: flutter_secure_storage (JWT, staff data)
 - **UI**: Material 3, professional blue/teal theme
 - **Desktop**: Windows runner with 1100x700 minimum size, persistent desktop scrollbars/hover polish, bed-board split view, OS toasts for Code Blue/messages, and an MSIX release channel on `staff-v*` tags
@@ -29,7 +29,7 @@ lib/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
       sos_button.dart                # Emergency SOS FAB
   features/                          # 41 feature modules (226 Dart files total)
-    auth/                            # Employee ID + password/PIN login
+    auth/                            # Employee ID + password/PIN login plus tenant-enabled OIDC SSO
     dashboard/                       # Home: check-in status, stats, feature grid
     attendance/                      # Check in/out + history
     leave/                           # Apply leave form + balance + history
@@ -72,18 +72,22 @@ lib/
 ```
 
 ## Auth Flow
-1. Staff enters Employee ID + password (or PIN)
+1. Staff enters Employee ID + password/PIN, or taps SSO when tenant discovery returns an active staff OIDC provider.
 2. App calls `POST /api/v1/auth/staff/login` with `{ employeeId, password }`
-3. Backend returns `{ data: { accessToken, refreshToken, staff: { id, name, role, department, ... } } }`
-4. JWT stored in flutter_secure_storage under key `staff_jwt`
-5. All subsequent calls include `Authorization: Bearer <jwt>`
-6. PIN login: `POST /api/v1/auth/staff/login-pin` with `{ employeeId, pin }`
+3. SSO uses `GET /api/v1/auth/staff/sso/oidc/providers`, launches the backend `start` URL in the system browser, receives `vhhealthstaff://sso/oidc/callback`, then posts code/state to the backend callback broker.
+4. Backend returns `{ data: { accessToken, refreshToken, staff: { id, name, role, department, ... } } }`
+5. JWT stored in flutter_secure_storage under key `staff_jwt` and mirrored to the shared `jwt` key for existing HTTP/realtime helpers.
+6. All subsequent calls include `Authorization: Bearer <jwt>`
+7. PIN login: `POST /api/v1/auth/staff/login-pin` with `{ employeeId, pin }`
 
 ## API Endpoints Used (representative — not exhaustive)
 | Feature | Endpoint | Method |
 |---------|----------|--------|
 | Login (password) | `/auth/staff/login` | POST |
 | Login (PIN) | `/auth/staff/login-pin` | POST |
+| Staff SSO discovery | `/auth/staff/sso/oidc/providers` | GET |
+| Staff SSO start | `/auth/staff/sso/oidc/:provider/start` | GET |
+| Staff SSO callback exchange | `/auth/staff/sso/oidc/:provider/callback` | POST |
 | Dashboard/HR | `/staff/hr/dashboard` | GET |
 | Mark attendance | `/staff/attendance` | POST |
 | Attendance history | `/staff/attendance/:staffId` | GET |
