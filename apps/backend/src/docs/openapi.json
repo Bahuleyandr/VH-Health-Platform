@@ -38167,6 +38167,50 @@
         ]
       }
     },
+    "/api/v1/admin/nhcx/communication/workbench": {
+      "get": {
+        "operationId": "get_api_v1_admin_nhcx_communication_workbench",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/nhcx/communication/{correspondenceId}/respond": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_communication_by_correspondenceId_respond",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "correspondenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/nhcx/dispatch-now": {
       "post": {
         "operationId": "post_api_v1_admin_nhcx_dispatch_now",
@@ -68046,6 +68090,23 @@
     "/api/v1/integrations/nhcx/claim/on_submit": {
       "post": {
         "operationId": "post_api_v1_integrations_nhcx_claim_on_submit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/nhcx/communication/request": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_communication_request",
         "responses": {
           "200": {
             "description": "Successful response",

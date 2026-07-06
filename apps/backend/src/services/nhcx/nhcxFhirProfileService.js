@@ -9,6 +9,7 @@ import prisma from '../../lib/prisma.js';
 import { toFhirPatient } from '../fhir/fhirAdapter.js';
 import { validateBundle } from '../fhir/fhirValidator.js';
 import { AppError } from '../../utils/AppError.js';
+import { loadCommunicationResponseContext } from './nhcxCommunicationService.js';
 
 export const NRCES_NHCX_PROFILE_VERSION = '7.0.0-design-target';
 export const NHCX_PROFILE_URLS = Object.freeze({
@@ -18,6 +19,10 @@ export const NHCX_PROFILE_URLS = Object.freeze({
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimBundle',
   claimRequestBundle:
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimBundle',
+  communicationRequestBundle:
+    'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationRequestBundle',
+  communicationBundle:
+    'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationBundle',
   taskBundle:
     'https://www.nrces.in/ndhm/fhir/r4/StructureDefinition/TaskBundle',
 });
@@ -27,6 +32,8 @@ const REQUIRED_BY_TYPE = {
   CoverageEligibilityRequest: ['id', 'status', 'purpose', 'patient', 'created', 'insurer', 'insurance'],
   Claim: ['id', 'status', 'type', 'use', 'patient', 'created', 'provider', 'insurer', 'insurance', 'item'],
   ClaimResponse: ['id', 'status', 'outcome'],
+  CommunicationRequest: ['id', 'status', 'subject'],
+  Communication: ['id', 'status', 'subject', 'payload'],
   Coverage: ['id', 'status', 'beneficiary', 'payor', 'identifier'],
   DocumentReference: ['id', 'status', 'type', 'content'],
   Organization: ['id', 'identifier', 'name'],
@@ -860,6 +867,100 @@ export async function buildClaimStatusTaskBundle({
   };
 }
 
+function communicationAttachmentPayload(document) {
+  return {
+    contentAttachment: {
+      contentType: document.mime_type || 'application/octet-stream',
+      title: document.file_name || `claim-document-${document.id}`,
+      size: document.file_size_bytes ? Number(document.file_size_bytes) : undefined,
+      url: `urn:vhhealth:tpa-claim-document:${document.id}`,
+    },
+  };
+}
+
+export async function buildCommunicationResponseBundle({
+  tenantId,
+  hcxApiCallId,
+  participantCodeSelf,
+  participantCodeCounterparty,
+}) {
+  const context = await loadCommunicationResponseContext({ tenantId, hcxApiCallId });
+  const row = context.claimId
+    ? await fetchClaimSnapshot({ tenantId, claimId: context.claimId })
+    : await fetchPreauthSnapshot({ tenantId, preauthId: context.preauthId });
+  const patient = patientFromSnapshot(row);
+  const encounter = encounterFromSnapshot(row);
+  const provider = organization({
+    id: 'vhhealth-provider',
+    name: 'VH Health',
+    participantCode: participantCodeSelf,
+  });
+  const insurer = organization({
+    id: stableId('payor', participantCodeCounterparty || row.payer_code || row.tpa_code || row.payer_name),
+    name: row.payer_name || row.tpa_name || row.insurer_name || 'NHCX counterparty',
+    participantCode: participantCodeCounterparty || row.payer_code || row.tpa_code,
+  });
+  const coverage = coverageFromPolicy(row, patient);
+  const documentReferences = context.documents.map((document) => documentReferenceFromRow(document, patient, encounter));
+  const targetIdentifier = context.claimId
+    ? { system: 'urn:vhhealth:tpa-claim-id', value: String(context.claimId) }
+    : { system: 'urn:vhhealth:insurance-preauth-id', value: String(context.preauthId) };
+  const communication = {
+    resourceType: 'Communication',
+    id: `nhcx-communication-${context.correspondence.id}`,
+    identifier: [{ system: 'urn:vhhealth:nhcx-communication-api-call-id', value: hcxApiCallId }],
+    status: 'completed',
+    category: [{ text: 'NHCX query response' }],
+    subject: { reference: ref(patient) },
+    about: [{ identifier: targetIdentifier }],
+    sent: instantFrom(context.correspondence.recorded_at),
+    sender: { reference: ref(provider) },
+    recipient: [{ reference: ref(insurer) }],
+    inResponseTo: context.nhcx?.in_response_to_api_call_id
+      ? [{
+        identifier: {
+          system: 'urn:vhhealth:nhcx-communication-request-api-call-id',
+          value: context.nhcx.in_response_to_api_call_id,
+        },
+      }]
+      : undefined,
+    payload: [
+      { contentString: context.correspondence.body || 'NHCX query response' },
+      ...context.documents.map(communicationAttachmentPayload),
+    ],
+  };
+  const out = bundle({
+    id: stableId('nhcx-communication-bundle', tenantId, hcxApiCallId),
+    profileUrl: NHCX_PROFILE_URLS.communicationBundle,
+    mainResourceType: 'Communication',
+    resources: [
+      patient,
+      encounter,
+      provider,
+      insurer,
+      coverage,
+      ...documentReferences,
+      communication,
+    ],
+    timestamp: context.correspondence.recorded_at || row.claim_updated_at || row.preauth_updated_at,
+  });
+  assertNHCXOutboundBundle(out, { expectedMainResourceType: 'Communication' });
+  return {
+    bundle: out,
+    payloadHash: payloadHash(out),
+    profileUrl: NHCX_PROFILE_URLS.communicationBundle,
+    profileVersion: NRCES_NHCX_PROFILE_VERSION,
+    domainResourceType: 'Communication',
+    patientUid: row.patient_uid,
+    admissionId: row.admission_id || null,
+    policyId: row.policy_id,
+    preauthId: context.preauthId || row.preauth_id || null,
+    claimId: context.claimId || null,
+    workflowId: context.nhcx?.workflow_id || (row.admission_id ? String(row.admission_id) : null),
+    documentIds: context.documents.map((doc) => Number(doc.id)),
+  };
+}
+
 export async function persistOutboundNHCXEnvelope({
   tenantId,
   environment,
@@ -937,6 +1038,7 @@ export default {
   assertNHCXOutboundBundle,
   buildClaimRequestBundle,
   buildClaimStatusTaskBundle,
+  buildCommunicationResponseBundle,
   buildCoverageEligibilityRequestBundle,
   buildPreauthClaimRequestBundle,
   payloadHash,
