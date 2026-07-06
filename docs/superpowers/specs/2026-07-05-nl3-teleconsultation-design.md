@@ -278,6 +278,14 @@ Port and edge notes:
 - Ensure no patient can join by raw room name or stale URL.
 - Exercise patient portal note visibility after a signed OP note.
 
+Status: implemented for review on `feat/nl3-p2-patient-join` ([PR #440](https://github.com/Bahuleyandr/VH-Health-Platform/pull/440)).
+The patient app now surfaces `visit_type = 'TELE'` appointments with a TELE
+badge, appointment-detail entry, lobby state refresh, microphone/camera
+readiness, consent-before-token gating, LiveKit join, audio-only fallback, and
+secure-message fallback linked by `related_appointment_id`. Recording remains
+off and deploy remains held behind `LIVEKIT_ENABLED=false` unless operators
+enable the LiveKit edge.
+
 ### P3 - Staff App Consult Surface
 
 - Add clinician consult room surface in the staff app.

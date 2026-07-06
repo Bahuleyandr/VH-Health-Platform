@@ -73755,6 +73755,33 @@
         }
       }
     },
+    "/api/v1/patient/messages/appointment/{appointmentId}/teleconsult-fallback": {
+      "post": {
+        "operationId": "post_api_v1_patient_messages_appointment_by_appointmentId_teleconsult_fallback",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "appointmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/patient/messages/{threadId}": {
       "get": {
         "operationId": "get_api_v1_patient_messages_by_threadId",
@@ -79034,6 +79061,33 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/portal/messages/appointment/{appointmentId}/teleconsult-fallback": {
+      "post": {
+        "operationId": "post_api_v1_portal_messages_appointment_by_appointmentId_teleconsult_fallback",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "appointmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/portal/messages/{threadId}": {

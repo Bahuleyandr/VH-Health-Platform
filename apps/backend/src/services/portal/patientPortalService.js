@@ -2141,6 +2141,63 @@ export async function startThread({
   return tRows[0];
 }
 
+export async function ensureAppointmentThread({
+  tenantId,
+  patient_uid,
+  appointment_id,
+  subject = 'Video consult follow-up',
+  body = 'I need to continue my video consult in secure messages.',
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const appointmentId = Number.parseInt(appointment_id, 10);
+  if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+    throw AppError.badRequest('appointment_id must be a positive integer');
+  }
+
+  const appointmentRows = await prisma.$queryRawUnsafe(
+    `SELECT a.id
+       FROM appointments a
+       JOIN users p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+      WHERE a.id = $1::int
+        AND a.tenant_id = $2::uuid
+        AND p.uid = $3::uuid
+      LIMIT 1`,
+    appointmentId,
+    tenantId,
+    String(patient_uid),
+  );
+  if (!appointmentRows.length) throw AppError.notFound('Appointment not found');
+
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT *
+       FROM patient_message_threads
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND related_appointment_id = $3::int
+        AND category = 'appointment'
+        AND status <> 'closed'
+      ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+      LIMIT 1`,
+    tenantId,
+    String(patient_uid),
+    appointmentId,
+  );
+  if (existing[0]) return existing[0];
+
+  const threadSubject = String(subject || '').trim() || 'Video consult follow-up';
+  const threadBody = String(body || '').trim() || 'I need to continue my video consult in secure messages.';
+
+  return startThread({
+    tenantId,
+    patient_uid,
+    subject: threadSubject,
+    category: 'appointment',
+    body: threadBody,
+    attachments: [],
+    related_appointment_id: appointmentId,
+  });
+}
+
 /**
  * Append a message to an existing thread. sender_kind drives the
  * unread-counter and last-message bookkeeping.

@@ -119,6 +119,12 @@ lib/
 - **Dashboard polling** uses exponential backoff on consecutive failures (30s base → capped at 16x) to avoid hammering the backend
 - **Local plugins** (`local_plugins/`) contain forked `geolocator_android` and `flutter_plugin_android_lifecycle` with manual build.gradle lint fixes
 
+## Teleconsult Join Flow
+- `visit_type = 'TELE'` appointments stay ordinary appointment cards with a TELE badge; no patient note allowlist or in-hospital/IP note exposure changes are part of teleconsult.
+- The join path is appointment-bound: appointment card/detail → lobby state → device readiness → consent submission → backend join-token request → LiveKit room.
+- Recording stays off in the app copy and backend contract. Secure-message fallback uses the existing patient portal messages thread with `related_appointment_id`.
+- Android already uses `minSdk = 26`; NL-3 P2 did not raise minSdk and did not add a ProGuard/R8 minification path. Android microphone permissions and iOS microphone usage strings are required for LiveKit joins.
+
 ## Making API Calls
 Use `ApiClient` for all new API calls:
 ```dart
@@ -165,6 +171,9 @@ Builders are param-free unless noted.
 | `/notifications` | NotificationsScreen | Yes (bottom nav) |
 | `/settings` | SettingsScreen | Yes (bottom nav) |
 | `/appointments` | AppointmentsScreen | No |
+| `/appointments/:id` | AppointmentDetailScreen (teleconsult route args via `state.extra`) | No |
+| `/teleconsult/appointments/:appointmentId/lobby` | TeleconsultLobbyScreen (appointment + services via `state.extra`) | No |
+| `/teleconsult/appointments/:appointmentId/consult` | TeleconsultConsultScreen (consented lobby state via `state.extra`) | No |
 | `/pharmacy` | PharmacyScreen | No |
 | `/investigations` | InvestigationsScreen | No |
 | `/book-investigation` | BookInvestigationScreen | No |
@@ -219,6 +228,11 @@ Builders are param-free unless noted.
 | Appointment docs | `/appointments/:id/documents` | GET |
 | Cancel/update appt | `/appointments/:id` | PUT/DELETE |
 | Reschedule appt | `/appointments/:id/reschedule` | PATCH |
+| **Teleconsult** | | |
+| Lobby state | `/portal/teleconsult/appointments/:appointmentId/lobby-state` | GET |
+| Record consent | `/portal/teleconsult/teleconsultations/:teleconsultationId/consent` | POST |
+| Join token | `/portal/teleconsult/teleconsultations/:teleconsultationId/token` | POST |
+| Secure-message fallback | `/portal/messages/appointment/:appointmentId/teleconsult-fallback` | POST |
 | **Records** | | |
 | Health records | `/records/health-records/:phone` | GET |
 | Consultations | `/records/consultations/:phone` | GET |
