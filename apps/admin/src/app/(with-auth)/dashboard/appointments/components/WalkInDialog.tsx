@@ -99,7 +99,9 @@ export function WalkInDialog({
   const [department, setDepartment] = useState("");
   const [reason, setReason] = useState("");
   const [time, setTime] = useState("");
-  const [visitType, setVisitType] = useState("NEW");
+  const [visitType, setVisitType] = useState<
+    "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD"
+  >("NEW");
   // Wave-3 batch-2 — guardian section, surfaced when the DOB indicates
   // the patient is a minor. Findings:
   //   2026-05-08-pediatric-opd-receptionist-no-guardian-model
@@ -471,7 +473,7 @@ export function WalkInDialog({
             <label className="text-sm font-medium">Visit Type</label>
             <select
               value={visitType}
-              onChange={(e) => setVisitType(e.target.value)}
+              onChange={(e) => setVisitType(e.target.value as typeof visitType)}
               className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
             >
               <option value="NEW">New consultation</option>

@@ -386,7 +386,7 @@ export interface WalkInPayload {
   reason?: string;
   notes?: string;
   appointment_time?: string;
-  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE";
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
   // Guardian fields — required when DOB indicates the patient is a minor.
   // Closes findings 2026-05-08-pediatric-opd-receptionist-no-guardian-model,
   // 2026-05-10-pediatric-opd-receptionist-minor-guardian-id-not-structured,

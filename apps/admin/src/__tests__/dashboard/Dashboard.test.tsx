@@ -116,7 +116,7 @@ describe("<Dashboard /> realtime KPI row", () => {
         denied: null,
         lastEventAt: null,
       },
-    } as ReturnType<typeof useTeleconsultOpsSnapshot>);
+    } as unknown as ReturnType<typeof useTeleconsultOpsSnapshot>);
     mockRealtime.mockReturnValue({
       connected: false,
       subscribed: false,
