@@ -653,7 +653,7 @@ function safeReturnTo(raw, req) {
 }
 
 export async function startAdminOidcLogin({ req, providerKey }) {
-  const tenant = await resolveCallbackTenant(req, statePayload);
+  const tenant = await resolveAdminSsoTenant(req);
   const key = validateProviderKey(providerKey);
   const provider = await getAdminOidcProvider({
     tenantId: tenant.tenantId,
@@ -895,7 +895,7 @@ export async function completeAdminOidcCallback({ req, providerKey, code, state 
     throw AppError.unauthorized('Invalid SSO state', 'SSO_STATE_PROVIDER_MISMATCH');
   }
 
-  const tenant = await resolveAdminSsoTenant(req);
+  const tenant = await resolveCallbackTenant(req, statePayload);
   if ((tenant.tenantId || null) !== (statePayload.tenantId || null)) {
     await recordIdentityAuditEvent({
       tenantId: statePayload.tenantId || tenant.tenantId,
