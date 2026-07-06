@@ -31,7 +31,7 @@ export const CONSULT_TYPES = ['video', 'chat', 'audio', 'hybrid'];
 export const CONSULT_STATUSES = [
   'scheduled', 'waiting', 'in_progress', 'completed', 'cancelled', 'no_show', 'failed',
 ];
-export const VIDEO_PROVIDERS = ['zoom', 'daily', 'jitsi', 'twilio', 'agora', 'webrtc_native', 'other'];
+export const VIDEO_PROVIDERS = ['zoom', 'daily', 'jitsi', 'twilio', 'agora', 'webrtc_native', 'livekit', 'other'];
 export const VIDEO_STATUSES = ['created', 'active', 'ended', 'cancelled', 'failed'];
 export const RECORDING_STATUSES = ['disabled', 'pending', 'available', 'failed', 'deleted'];
 export const CHAT_STATUSES = ['active', 'closed', 'archived'];
