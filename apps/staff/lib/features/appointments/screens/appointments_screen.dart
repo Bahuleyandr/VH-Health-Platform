@@ -438,6 +438,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     var appointmentTime = TimeOfDay.fromDateTime(
       DateTime.now().add(const Duration(hours: 1)),
     );
+    var selectedVisitType = 'NEW';
     var submitting = false;
     var lookupMessage = s.lookup(
       's4.lib.appointments.enter_phone_to_check_registered_patient',
@@ -562,6 +563,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   notes: notesCtrl.text.trim().isEmpty
                       ? null
                       : notesCtrl.text.trim(),
+                  visitType: selectedVisitType,
                 );
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx, true);
@@ -1025,6 +1027,44 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedVisitType,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.front_office_workbench.visit_type'),
+                          prefixIcon: const ExcludeSemantics(
+                            child: Icon(Icons.assignment_outlined),
+                          ),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'NEW',
+                            child: AppText(
+                              's4.lib.front_office_workbench.new_consultation',
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'FOLLOW_UP',
+                            child: AppText(
+                              's4.lib.front_office_workbench.follow_up',
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'TELE',
+                            child: AppText(
+                              's4.lib.front_office_workbench.teleconsult',
+                            ),
+                          ),
+                        ],
+                        onChanged: submitting
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setSheetState(() => selectedVisitType = value);
+                              },
                       ),
                       const SizedBox(height: 12),
                       TextFormField(

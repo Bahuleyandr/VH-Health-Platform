@@ -248,6 +248,12 @@ extension _FrontOfficeWorkbenchWalkInDialog
                                       child: AppText('department.emergency'),
                                     ),
                                     DropdownMenuItem(
+                                      value: 'TELE',
+                                      child: AppText(
+                                        's4.lib.front_office_workbench.teleconsult',
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
                                       value: 'LAB_ONLY',
                                       child: AppText(
                                         's4.lib.front_office_workbench.lab_only',

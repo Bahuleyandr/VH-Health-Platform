@@ -13,6 +13,11 @@
 //       appointment_reminder?: ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
 //       results_ready?:        ('push'|'sms'|'whatsapp'|'voice'|'email'|'inapp'|'print')[],
 //     },
+//     teleconsultPayments?: {
+//       enabled?: boolean,
+//       channels?: ('sms'|'whatsapp'|'email')[],
+//       expiresInHours?: number,
+//     },
 //     biometricCapture?: {
 //       frontDeskRegistration?: {
 //         enabled?: boolean,

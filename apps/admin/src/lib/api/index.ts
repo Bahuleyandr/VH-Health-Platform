@@ -38,6 +38,7 @@ import {
   getEmergencyStats,
   getStaffStats,
   getAppointmentSummary,
+  getTeleconsultOpsSnapshot,
   getRecentActivity,
   getSystemAlerts,
   getModuleHealth,
@@ -49,10 +50,11 @@ export {
   getDashboardData, getUserAnalytics, getSystemInfo, getActivityAudit,
   getRecentActivities, getAdminDashboard, getQuickStats, getUserStats,
   getDoctorStats, getDepartmentStats, getAppointmentStats, getRecordStats,
-  getEmergencyStats, getStaffStats, getAppointmentSummary, getRecentActivity,
+  getEmergencyStats, getStaffStats, getAppointmentSummary, getTeleconsultOpsSnapshot, getRecentActivity,
   getSystemAlerts, getModuleHealth, getSystemHealth, refreshDashboardCache,
   generateDashboardReport,
 };
+export type { TeleconsultOpsSnapshot } from "./dashboard";
 
 // Attendance
 import {

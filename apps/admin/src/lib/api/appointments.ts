@@ -52,6 +52,7 @@ export function bookAppointmentAdmin(data: {
   appointment_time: string;
   reason: string;
   notes?: string;
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
 }) {
   return postJSON<BookAppointmentResult>(API_ENDPOINTS.appointments.book, data);
 }
@@ -96,6 +97,7 @@ export function overrideBookAppointment(data: {
   reason?: string;
   override_reason?: string;
   ignore_conflicts?: boolean;
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
 }) {
   return postJSON<OverrideBookResult>(
     API_ENDPOINTS.appointments.admin.overrideBook,
@@ -384,7 +386,7 @@ export interface WalkInPayload {
   reason?: string;
   notes?: string;
   appointment_time?: string;
-  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE";
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD";
   // Guardian fields — required when DOB indicates the patient is a minor.
   // Closes findings 2026-05-08-pediatric-opd-receptionist-no-guardian-model,
   // 2026-05-10-pediatric-opd-receptionist-minor-guardian-id-not-structured,

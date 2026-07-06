@@ -2,7 +2,7 @@
 
 - Date: 2026-07-05
 - Program: NL-3 Teleconsultation
-- Status: Design proposal, deploy held
+- Status: P4 ops in review, deploy held
 - Scope: Specification only. This document does not implement application code, database migrations, Kubernetes manifests, or client screens.
 - Recommendation: Self-host LiveKit on the hospital-owned RKE2 footprint, with Cloudflare Tunnel/ingress used for HTTPS/WSS signaling only and hospital-operated TURN/SFU media paths exposed through an approved L4 edge.
 
@@ -294,13 +294,13 @@ enable the LiveKit edge.
 - Add e-Rx launch point using the existing prescription flow.
 - Add end-consult behavior that closes media without bypassing appointment completion rules.
 
-### P4 - Scheduling, Queue, Billing, and Operations Integration
+### P4 - Scheduling, Queue, Billing, and Operations Integration (P4 Ops In Review)
 
-- Add teleconsult-specific scheduling templates if required.
-- Decide whether teleconsult appointments need a dedicated queue kind or remain doctor/department queue items with badges.
-- Add operational dashboards for join failures, TURN use, final modality, and consent/recording status.
-- Integrate post-consult payment-link workflow where applicable.
-- Add runbooks for TURN/firewall failures and manual media smoke.
+- [x] Booking integration complete: `visit_type = 'TELE'` is a first-class booking choice on staff, admin, and patient appointment surfaces, with existing slot and double-booking guards unchanged.
+- [x] Queue decision recorded: teleconsult appointments remain ordinary doctor/department queue items with teleconsult badges/status. No dedicated teleconsult queue kind is added.
+- [x] Operations dashboard added: join failures, TURN usage, final modality distribution, consent-recorded rate, recording-disabled posture, and active/waiting counts are sourced from non-PHI technical metadata and exposed through the existing `/metrics` plus admin realtime fabric.
+- [x] Post-consult payment hook integrated: configured tenants can issue invoice-linked teleconsult payment links through the existing billing/payment-link services and SMS/WhatsApp/email rails; the telemedicine service remains outside billing ownership.
+- [x] Runbooks added: TURN/firewall failure triage, the manual two-device media smoke checklist, and held LiveKit activation steps are documented while deploy remains HELD.
 
 ### Test Strategy
 

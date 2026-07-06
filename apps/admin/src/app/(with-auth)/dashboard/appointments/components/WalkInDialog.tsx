@@ -99,6 +99,9 @@ export function WalkInDialog({
   const [department, setDepartment] = useState("");
   const [reason, setReason] = useState("");
   const [time, setTime] = useState("");
+  const [visitType, setVisitType] = useState<
+    "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE" | "LAB_ONLY" | "PAEDIATRIC_OPD"
+  >("NEW");
   // Wave-3 batch-2 — guardian section, surfaced when the DOB indicates
   // the patient is a minor. Findings:
   //   2026-05-08-pediatric-opd-receptionist-no-guardian-model
@@ -262,6 +265,7 @@ export function WalkInDialog({
         department: department || undefined,
         reason: reason || "Walk-in consultation",
         appointment_time: time || "Walk-in",
+        visit_type: visitType,
       };
       // doctorId carries the canonical users.id (assignable mode populates
       // option.value with d.user_id) — that's what appointments.doctor_id
@@ -463,6 +467,21 @@ export function WalkInDialog({
                   {d.name}
                 </option>
               ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Visit Type</label>
+            <select
+              value={visitType}
+              onChange={(e) => setVisitType(e.target.value as typeof visitType)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
+            >
+              <option value="NEW">New consultation</option>
+              <option value="FOLLOW_UP">Follow-up</option>
+              <option value="EMERGENCY">Emergency</option>
+              <option value="TELE">Teleconsult - video visit</option>
+              <option value="LAB_ONLY">Lab-only visit</option>
+              <option value="PAEDIATRIC_OPD">Paediatric OPD</option>
             </select>
           </div>
           {isMinor && (
