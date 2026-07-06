@@ -132,9 +132,12 @@ each build batch inherits all of them.
    `src/tests/journeys/` (11 exist; `_journeyHarness.js` shared). Runner chunks
    via `apps/backend/scripts/run-ci-jest.mjs`. Realtime channels get emitter +
    channel-RBAC unit tests (precedent: `unit/bloodBankRealtimeChannel.test.js`).
-10. **Feature gating.** Per-tenant module toggles ride the `feature_flags`
-    substrate (`apps/backend/src/services/featureFlags/featureFlagService.js`);
-    enforcement flips follow the `REQUIRE_ADMIN_PRIVILEGE()`-style env-flag
+10. **Feature gating.** Per-tenant module toggles copy the tenant-scoped
+    settings-table pattern (`composition_search_settings`, migration 351 +
+    `compositionFeatureService.js` — per-tenant cache, fail-closed); the global
+    `feature_flags` table (`featureFlagService.js`) is NOT tenant-scoped and
+    must not carry per-tenant state. Enforcement flips follow the
+    `REQUIRE_ADMIN_PRIVILEGE()`-style env-flag
     pattern already used by the chemo privilege gate
     (`apps/backend/src/services/oncology/chemoService.js:571`): ship inert,
     flip per tenant with evidence.
@@ -266,8 +269,9 @@ one or more `lab_specimens` rows — reuse specimen accessioning rather than
 duplicate it), `ap_gross_records`, `ap_blocks`, `ap_slides` (+ stain enum,
 barcode via existing label pattern), `ap_reports` (sectioned body: gross_text,
 micro_text, diagnosis_text + `report_status` draft→preliminary→final→amended
-copying the radiology status set, signer gate = `PATHOLOGIST_SIGN_ROLES`, no
-ADMIN override — mirror the radiology stance for medico-legal diagnosis),
+copying the radiology status set, signer gate mirroring the radiology no-ADMIN stance for medico-legal
+diagnosis via a new `AP_REPORT_SIGN_ROLES = [PATHOLOGIST]` constant — the existing
+`PATHOLOGIST_SIGN_ROLES` includes ADMIN/LAB_INCHARGE and cannot be reused as-is),
 `ap_report_addenda` (copy radiology addendum semantics). Catalog: seed AP test
 codes (HISTO-BIOPSY, FROZEN, FNAC, PAP, FLUID-CYTO) into the investigation
 catalog so ordering rides the existing order path
