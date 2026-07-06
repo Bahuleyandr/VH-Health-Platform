@@ -1,22 +1,28 @@
 // src/services/billing/paymentLinkService.js
 //
 // Sprint 4 — UPI / payment-gateway link creation, distribution, and
-// reconciliation. Uses the existing sendWhatsApp / sendEmail
+// reconciliation. Uses the existing sendSMS / sendWhatsApp / sendEmail
 // notification infrastructure for distribution.
 
 import { randomBytes } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { sendSMS } from '../smsService.js';
 import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { getTenantSettings } from '../tenant/tenantSettingsService.js';
 import { collectPayment, deriveInvoicePaymentStateFromLedgerTx } from './billingV2Service.js';
 import { postPaymentEntry } from './ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 
 const DEFAULT_EXPIRY_HOURS = 48;
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const DEFAULT_PAYMENT_LINK_CHANNELS = ['whatsapp'];
+const TELECONSULT_PAYMENT_LINK_NOTES_PREFIX = 'Teleconsult post-consult payment';
+
+export const PAYMENT_LINK_CHANNELS = new Set(['sms', 'whatsapp', 'email']);
 
 function generateToken() {
   return randomBytes(24).toString('base64url');
@@ -24,6 +30,40 @@ function generateToken() {
 
 function normalizeTenantId(tenantId) {
   return tenantId ? String(tenantId) : DEFAULT_TENANT_ID;
+}
+
+export function normalizePaymentLinkChannels(channels, fallback = DEFAULT_PAYMENT_LINK_CHANNELS) {
+  const raw = Array.isArray(channels)
+    ? channels
+    : (channels ? [channels] : []);
+  const normalized = [];
+  for (const channel of raw) {
+    const value = String(channel || '').trim().toLowerCase();
+    if (PAYMENT_LINK_CHANNELS.has(value) && !normalized.includes(value)) {
+      normalized.push(value);
+    }
+  }
+  if (normalized.length) return normalized;
+  return Array.isArray(fallback) ? [...fallback] : DEFAULT_PAYMENT_LINK_CHANNELS;
+}
+
+export function resolveTeleconsultPaymentLinkConfig(settings = {}) {
+  const raw = settings?.teleconsultPayments;
+  if (!raw || typeof raw !== 'object' || raw.enabled !== true) {
+    return {
+      enabled: false,
+      channels: DEFAULT_PAYMENT_LINK_CHANNELS,
+      expiresInHours: DEFAULT_EXPIRY_HOURS,
+    };
+  }
+  const expiresInHours = Number(raw.expiresInHours ?? raw.expires_in_hours ?? DEFAULT_EXPIRY_HOURS);
+  return {
+    enabled: true,
+    channels: normalizePaymentLinkChannels(raw.channels),
+    expiresInHours: Number.isFinite(expiresInHours) && expiresInHours > 0
+      ? expiresInHours
+      : DEFAULT_EXPIRY_HOURS,
+  };
 }
 
 async function assertPatientInTenant(patientUid, tenantId) {
@@ -63,6 +103,96 @@ async function resolvePaymentLinkSubject({ tenantId, invoice_id, patient_uid }) 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   await assertPatientInTenant(patient_uid, tenantId);
   return { invoiceId: null, patientUid: String(patient_uid) };
+}
+
+async function getTeleconsultPaymentContext({ tenantId, teleconsultationId }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT tc.id,
+            tc.appointment_id,
+            COALESCE(tc.patient_uid, ap.uid) AS patient_uid,
+            tc.status,
+            tc.actual_end,
+            COALESCE(tp.phone, ap.phone, a.phone) AS patient_phone,
+            COALESCE(tp.email, ap.email) AS patient_email
+       FROM teleconsultations tc
+       LEFT JOIN appointments a
+              ON a.id = tc.appointment_id
+             AND a.tenant_id = tc.tenant_id
+       LEFT JOIN users tp
+              ON tp.uid = tc.patient_uid
+             AND tp.tenant_id = tc.tenant_id
+       LEFT JOIN users ap
+              ON ap.id = a.patient_id
+             AND ap.tenant_id = tc.tenant_id
+      WHERE tc.id = $1::int
+        AND tc.tenant_id = $2::uuid
+      LIMIT 1`,
+    Number(teleconsultationId),
+    normalizeTenantId(tenantId),
+  );
+  return rows[0] || null;
+}
+
+async function findTeleconsultLinkedInvoice({ tenantId, teleconsultation, invoiceId = null }) {
+  const params = [
+    normalizeTenantId(tenantId),
+    Number(teleconsultation.id),
+    teleconsultation.appointment_id != null ? Number(teleconsultation.appointment_id) : null,
+    String(teleconsultation.patient_uid),
+  ];
+  const invoiceSql = invoiceId ? ` AND bi.id = $${params.push(Number(invoiceId))}::int` : '';
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT bi.id,
+            bi.invoice_number,
+            bi.patient_uid,
+            bi.patient_phone,
+            bi.amount_due,
+            bi.status,
+            bi.tenant_id
+       FROM billing_invoices bi
+       JOIN billing_invoice_items bii
+         ON bii.invoice_id = bi.id
+        AND bii.tenant_id = bi.tenant_id
+      WHERE bi.tenant_id = $1::uuid
+        AND bi.patient_uid = $4::uuid
+        ${invoiceSql}
+        AND (
+          (bii.source_ref_type = 'teleconsultation' AND bii.source_ref_id = $2::int)
+          OR (
+            $3::int IS NOT NULL
+            AND bii.source_ref_type = 'appointment'
+            AND bii.source_ref_id = $3::int
+          )
+        )
+      ORDER BY CASE
+                 WHEN bi.status IN ('ISSUED', 'PARTIAL') THEN 0
+                 WHEN bi.status = 'DRAFT' THEN 1
+                 ELSE 2
+               END,
+               bi.created_at DESC,
+               bi.id DESC
+      LIMIT 1`,
+    ...params,
+  );
+  return rows[0] || null;
+}
+
+async function findReusablePaymentLinkForInvoice({ tenantId, invoiceId, amount }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT *
+       FROM billing_payment_links
+      WHERE tenant_id = $1::uuid
+        AND invoice_id = $2::int
+        AND amount = $3::numeric
+        AND status IN ('created', 'sent')
+        AND (expires_at IS NULL OR expires_at > NOW())
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    normalizeTenantId(tenantId),
+    Number(invoiceId),
+    Number(amount),
+  );
+  return rows[0] || null;
 }
 
 /**
@@ -144,7 +274,7 @@ export async function getPaymentLink({ tenantId, link_token }) {
 }
 
 /**
- * Send the link to the patient via WhatsApp + (optionally) email.
+ * Send the link to the patient via SMS, WhatsApp, and/or email.
  * Records send timestamps on the link row.
  */
 export async function sendPaymentLink({
@@ -170,7 +300,16 @@ export async function sendPaymentLink({
   ].join('\n');
 
   const updates = {};
-  if (channels.includes('whatsapp') && patient_phone) {
+  const requestedChannels = normalizePaymentLinkChannels(channels);
+  if (requestedChannels.includes('sms') && patient_phone) {
+    try {
+      await sendSMS(patient_phone, messageBody);
+      updates.sent_via_sms_at = 'NOW()';
+    } catch (e) {
+      logger.warn('paymentLink SMS send failed', { error: e.message, link_id: link.id });
+    }
+  }
+  if (requestedChannels.includes('whatsapp') && patient_phone) {
     try {
       await sendWhatsApp({ to: patient_phone, body: messageBody });
       updates.sent_via_whatsapp_at = 'NOW()';
@@ -179,7 +318,7 @@ export async function sendPaymentLink({
       logger.warn('paymentLink WA send failed', { error: e.message, link_id: link.id });
     }
   }
-  if (channels.includes('email') && patient_email) {
+  if (requestedChannels.includes('email') && patient_email) {
     try {
       await sendEmail({
         to: patient_email,
@@ -189,7 +328,7 @@ export async function sendPaymentLink({
       });
       updates.sent_via_email_at = 'NOW()';
     } catch (e) {
-      logger.warn('paymentLink email send failed', { error: e.message, link_token });
+      logger.warn('paymentLink email send failed', { error: e.message, link_id: link.id });
     }
   }
 
@@ -198,6 +337,15 @@ export async function sendPaymentLink({
   if (updates.sent_via_whatsapp_at) {
     await prisma.$executeRawUnsafe(
       `UPDATE billing_payment_links SET sent_via_whatsapp_at = NOW(),
+              status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
+              updated_at = NOW()
+        WHERE id = $1::int`,
+      link.id,
+    );
+  }
+  if (updates.sent_via_sms_at) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE billing_payment_links SET sent_via_sms_at = NOW(),
               status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
               updated_at = NOW()
         WHERE id = $1::int`,
@@ -214,6 +362,102 @@ export async function sendPaymentLink({
     );
   }
   return getPaymentLink({ tenantId, link_token: link.link_token });
+}
+
+export async function createTeleconsultPostConsultPaymentLink({
+  tenantId, teleconsultation_id, invoice_id, created_by, channels,
+  patient_phone, patient_email,
+}) {
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
+  if (!teleconsultation_id) {
+    throw AppError.badRequest('teleconsultation_id is required');
+  }
+
+  const settings = await getTenantSettings(tenant);
+  const config = resolveTeleconsultPaymentLinkConfig(settings);
+  const teleconsultationId = Number(teleconsultation_id);
+  if (!Number.isInteger(teleconsultationId) || teleconsultationId <= 0) {
+    throw AppError.badRequest('teleconsultation_id must be a positive integer');
+  }
+
+  const teleconsultation = await getTeleconsultPaymentContext({ tenantId: tenant, teleconsultationId });
+  if (!teleconsultation) throw AppError.notFound('Teleconsultation not found');
+
+  const baseResult = {
+    teleconsultation_id: teleconsultationId,
+    appointment_id: teleconsultation.appointment_id != null ? Number(teleconsultation.appointment_id) : null,
+    patient_uid: teleconsultation.patient_uid || null,
+    invoice_id: invoice_id ? Number(invoice_id) : null,
+    configured: config.enabled,
+  };
+
+  if (!config.enabled) {
+    return { ...baseResult, status: 'skipped', reason: 'tenant_not_configured' };
+  }
+  if (String(teleconsultation.status || '').toLowerCase() !== 'completed') {
+    return { ...baseResult, status: 'skipped', reason: 'teleconsultation_not_completed' };
+  }
+  if (!teleconsultation.patient_uid) {
+    return { ...baseResult, status: 'skipped', reason: 'patient_not_resolved' };
+  }
+
+  const invoice = await findTeleconsultLinkedInvoice({
+    tenantId: tenant,
+    teleconsultation,
+    invoiceId: invoice_id,
+  });
+  if (!invoice) {
+    return { ...baseResult, status: 'skipped', reason: 'invoice_not_linked' };
+  }
+
+  const amountDue = Number(invoice.amount_due || 0);
+  if (['PAID', 'VOID'].includes(String(invoice.status || '').toUpperCase()) || amountDue <= 0) {
+    return {
+      ...baseResult,
+      invoice_id: Number(invoice.id),
+      status: 'skipped',
+      reason: 'invoice_not_payable',
+    };
+  }
+
+  const requestedChannels = normalizePaymentLinkChannels(channels, config.channels);
+  let link = await findReusablePaymentLinkForInvoice({
+    tenantId: tenant,
+    invoiceId: invoice.id,
+    amount: amountDue,
+  });
+  const reused = Boolean(link);
+  if (!link) {
+    link = await createPaymentLink({
+      tenantId: tenant,
+      invoice_id: invoice.id,
+      patient_uid: invoice.patient_uid,
+      amount: amountDue,
+      expires_in_hours: config.expiresInHours,
+      notes: `${TELECONSULT_PAYMENT_LINK_NOTES_PREFIX}: consult ${teleconsultationId}` +
+        (teleconsultation.appointment_id ? ` / appointment ${teleconsultation.appointment_id}` : ''),
+      created_by,
+    });
+  }
+
+  const sentLink = await sendPaymentLink({
+    tenantId: tenant,
+    link_token: link.link_token,
+    channels: requestedChannels,
+    patient_phone: patient_phone || invoice.patient_phone || teleconsultation.patient_phone || null,
+    patient_email: patient_email || teleconsultation.patient_email || null,
+  });
+
+  return {
+    ...baseResult,
+    invoice_id: Number(invoice.id),
+    payment_link_id: Number(sentLink.id),
+    link: sentLink,
+    status: reused ? 'reused' : 'created',
+    sent: sentLink.status === 'sent',
+    channels: requestedChannels,
+    reused,
+  };
 }
 
 /**

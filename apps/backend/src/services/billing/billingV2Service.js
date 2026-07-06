@@ -558,6 +558,8 @@ export async function createDraftInvoice({
 // bundles that legitimately have no source row. Migration 199.
 // Finding: 2026-05-10-inpatient-admission-billing-final-bill-untraceable-package-line.
 const VALID_SOURCE_REF_TYPES = new Set([
+  'appointment',
+  'teleconsultation',
   'lab_order',
   'radiology_order',
   'pharmacy_order',

@@ -670,6 +670,37 @@ router.post('/payment-links', requireStaffOrAdmin, wrap(async (req) => {
   return link;
 }));
 
+router.post('/payment-links/teleconsult-post-consult', requireStaffOrAdmin, wrap(async (req) => {
+  const result = await payLinks.createTeleconsultPostConsultPaymentLink({
+    tenantId: tenantOf(req),
+    created_by: req.user?.uid,
+    teleconsultation_id: req.body.teleconsultation_id,
+    invoice_id: req.body.invoice_id,
+    channels: req.body.channels,
+    patient_phone: req.body.patient_phone,
+    patient_email: req.body.patient_email,
+  });
+  await logBillingAudit(req, 'FRONT_OFFICE_TELECONSULT_PAYMENT_LINK_HOOK', {
+    payment_link_id: result?.payment_link_id ?? result?.link?.id ?? null,
+    invoice_id: result?.invoice_id ?? req.body?.invoice_id ?? null,
+    patient_uid: result?.patient_uid ?? null,
+    status: result?.status ?? null,
+  }, {
+    teleconsultation_id: result?.teleconsultation_id ?? req.body?.teleconsultation_id ?? null,
+    appointment_id: result?.appointment_id ?? null,
+    configured: result?.configured === true,
+    skipped_reason: result?.reason ?? null,
+    reused: result?.reused === true,
+    channels: result?.channels ?? [],
+    patient_phone_present: Boolean(req.body?.patient_phone),
+    patient_email_present: Boolean(req.body?.patient_email),
+  }, {
+    resource: result?.payment_link_id ? 'billing_payment_link' : 'teleconsultation',
+    resourceId: result?.payment_link_id ?? result?.teleconsultation_id ?? req.body?.teleconsultation_id ?? null,
+  });
+  return result;
+}));
+
 router.get('/payment-links', requireStaffOrAdmin, wrap(async (req) =>
   payLinks.listPaymentLinks({
     tenantId: tenantOf(req),
