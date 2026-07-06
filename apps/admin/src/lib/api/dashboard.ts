@@ -71,6 +71,34 @@ export function getAppointmentSummary<T = unknown>() {
   return getJSON<T>(API_ENDPOINTS.admin.stats.appointmentSummary);
 }
 
+export interface TeleconsultOpsSnapshot {
+  generated_at: string;
+  window_hours: number;
+  livekit_enabled: boolean;
+  recording_enabled: boolean;
+  media_boundary: string;
+  queue_model: string;
+  teleconsult_count: number;
+  active_count: number;
+  waiting_count: number;
+  scheduled_count: number;
+  terminal_count: number;
+  video_session_count: number;
+  join_failure_count: number;
+  turn_session_count: number;
+  turn_usage_rate_pct: number;
+  consent_recorded_count: number;
+  consent_recorded_rate_pct: number;
+  final_modality_distribution: Record<string, number>;
+  status_counts: Record<string, number>;
+  video_session_counts: Record<string, number>;
+  provider_counts: Record<string, number>;
+}
+
+export function getTeleconsultOpsSnapshot() {
+  return getJSON<TeleconsultOpsSnapshot>("/api/v1/dashboards/snapshot/teleconsult-ops");
+}
+
 /* =========================
  * Admin Activity & Monitoring
  * ========================= */

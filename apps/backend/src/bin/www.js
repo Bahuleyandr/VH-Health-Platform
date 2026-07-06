@@ -29,6 +29,7 @@ import { runAllScheduledTasksNow, stopAllScheduledTasks } from '../utils/schedul
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
 import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
+import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 
 
 
@@ -206,6 +207,11 @@ async function onListening() {
 // set after listen() and cleared in the pre-existing gracefulShutdown closure.
 const reliabilityMetricsBox = { timer: null };
 
+async function collectRuntimeMetrics() {
+  await collectReliabilityMetrics();
+  await collectTeleconsultOpsMetrics();
+}
+
 // Graceful shutdown
 function gracefulShutdown(signal) {
   logger.info(`${signal} received. Starting graceful shutdown...`);
@@ -277,8 +283,8 @@ server.listen(PORT);
 // so it never holds the event loop open during graceful shutdown. Runs per-pod
 // (each reports its own view of the global gauges; alerts collapse with max()).
 const RELIABILITY_METRICS_INTERVAL_MS = 20_000;
-collectReliabilityMetrics(); // prime immediately so the first scrape isn't empty
-reliabilityMetricsBox.timer = setInterval(collectReliabilityMetrics, RELIABILITY_METRICS_INTERVAL_MS);
+collectRuntimeMetrics(); // prime immediately so the first scrape isn't empty
+reliabilityMetricsBox.timer = setInterval(collectRuntimeMetrics, RELIABILITY_METRICS_INTERVAL_MS);
 reliabilityMetricsBox.timer.unref();
 
 export default server;

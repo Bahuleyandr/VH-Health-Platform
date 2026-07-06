@@ -250,6 +250,7 @@ import { runEscalationSweep } from '../services/workflow/escalationEngineService
 // dedicated k8s CronJobs (audit C-5), not the in-process scheduler.
 import { tickAdminKpi } from './kpiAggregator.js';
 import { tickDailyOps } from './dailyOpsBroadcaster.js';
+import { tickTeleconsultOps } from './teleconsultOpsBroadcaster.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
@@ -808,6 +809,8 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
   // Every 60s — daily-ops snapshot push (per-tenant). withJobLock = one runner across processes.
   registerCron('0 * * * * *', withJobLock('daily-ops-tick', tickDailyOps));
+  // Every 60s — teleconsult ops snapshot push (per-tenant, non-PHI telemetry).
+  registerCron('15 * * * * *', withJobLock('teleconsult-ops-tick', tickTeleconsultOps));
 
   // Every 30 seconds — clinical-AI workflow resume scheduler (Phase 5 of
   // the rollout, docs/CLINICAL_AI_ROLLOUT_PLAN.md). Polls
@@ -865,6 +868,7 @@ if (process.env.NODE_ENV !== 'test') {
   setImmediate(async () => {
     try { await tickAdminKpi(); } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
     try { await tickDailyOps(); } catch (e) { logger.warn('Initial daily-ops tick failed:', e.message); }
+    try { await tickTeleconsultOps(); } catch (e) { logger.warn('Initial teleconsult-ops tick failed:', e.message); }
   });
 }
 

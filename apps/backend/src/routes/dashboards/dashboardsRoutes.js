@@ -12,6 +12,7 @@ import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import * as snapshot from '../../services/dashboards/snapshotService.js';
+import { getTeleconsultOpsSnapshot } from '../../services/dashboards/teleconsultOpsService.js';
 import * as metabase from '../../services/dashboards/metabaseService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
@@ -45,6 +46,13 @@ function requireAdmin(req, res, next) {
 // ── Direct snapshot queries ─────────────────────────────────────────
 router.get('/snapshot/daily-ops', requireAdmin, wrap(async (req) =>
   snapshot.getDailyOpsSnapshot({ tenantId: tenantOf(req) }),
+));
+
+router.get('/snapshot/teleconsult-ops', requireAdmin, wrap(async (req) =>
+  getTeleconsultOpsSnapshot({
+    tenantId: tenantOf(req),
+    windowHours: req.query.window_hours || req.query.windowHours || 24,
+  }),
 ));
 
 router.get('/snapshot/opd-daily', requireAdmin, wrap(async (req) =>

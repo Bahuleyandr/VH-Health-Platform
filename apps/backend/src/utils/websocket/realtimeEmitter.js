@@ -202,6 +202,15 @@ export function emitDailyOps(snapshot, { tenantId } = {}) {
   }
 }
 
+/** Teleconsult operations snapshot push (per-tenant cron). Payload is non-PHI telemetry. */
+export function emitTeleconsultOps(snapshot, { tenantId } = {}) {
+  try {
+    broadcast('admin:teleconsult-ops', snapshot, { tenantId });
+  } catch (err) {
+    logger.warn('emitTeleconsultOps failed:', err.message);
+  }
+}
+
 /** OR board change (case scheduled / status changed / cancelled). */
 export function emitOrBoardEvent(kind, { scheduleId, status, tenantId } = {}) {
   try {

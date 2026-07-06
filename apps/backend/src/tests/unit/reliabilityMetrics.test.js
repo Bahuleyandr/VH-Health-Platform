@@ -93,6 +93,7 @@ describe('metrics route composition', () => {
     expect(res.text).toContain('http_requests_total');
     expect(res.text).toContain('# TYPE event_outbox_pending_rows gauge');
     expect(res.text).toContain('# TYPE ws_broadcast_dropped_total counter');
+    expect(res.text).toContain('# TYPE teleconsult_ops_active_count gauge');
   }, 30_000);
 });
 

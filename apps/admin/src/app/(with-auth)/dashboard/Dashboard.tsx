@@ -17,6 +17,7 @@ import {
   InfrastructureMonitor,
 } from "./components/SystemHealthPanel";
 import LiveBedOccupancyTile from "./components/LiveBedOccupancyTile";
+import TeleconsultOpsPanel from "./components/TeleconsultOpsPanel";
 import type { AppointmentQueue, Quick } from "./hooks/useDashboardData.types";
 
 const adminQuickLinks = [
@@ -168,6 +169,7 @@ export default function Dashboard() {
         <StatCards quick={liveQuick} prevQuick={prevQuick} />
         <AppointmentQueueCards queue={liveQueue} prevQueue={prevQueue} />
         <LiveBedOccupancyTile />
+        <TeleconsultOpsPanel />
         <AnalyticsAndActivity charts={charts} activity={activity} />
         <SystemHealthSection health={health} lastUpdated={lastUpdated} />
         {infraHealth && <InfrastructureMonitor infraHealth={infraHealth} />}
