@@ -10,6 +10,7 @@ import authRoutes from './authRoutes.js';
 import firebaseAuthRoutes from './firebaseAuthRoutes.js';
 import otpRoutes from './otpRoutes.js';
 import staffAuthRoutes from './staffAuthRoutes.js';
+import staffOidcSsoRoutes from './staffOidcSsoRoutes.js';
 import { isDevAuthEnabled } from '../../utils/authCompatibilityGates.js';
 
 const router = express.Router();
@@ -54,6 +55,7 @@ router.use('/otp', otpRoutes); // OTP at /api/v1/auth/otp/* (admin/testing)
 router.use('/admin/otp', adminOtpRoutes); // Admin OTP at /api/v1/auth/admin/otp/*
 router.use('/admin/sso/oidc', adminOidcSsoRoutes); // Admin OIDC SSO at /api/v1/auth/admin/sso/oidc/*
 router.use('/admin', adminAuthRoutes); // Admin auth at /api/v1/auth/admin/* (USERNAME/PASSWORD)
+router.use('/staff/sso/oidc', staffOidcSsoRoutes); // Staff OIDC SSO at /api/v1/auth/staff/sso/oidc/*
 router.use('/staff', staffAuthRoutes); // Staff auth at /api/v1/auth/staff/* (EMPLOYEE ID + PIN)
 
 // Dev-only shortcuts — let a local harness obtain a real patient JWT without a
@@ -87,6 +89,7 @@ logger.info('  - OTP: /api/v1/auth/otp/* (admin/testing only)');
 logger.info('  - Admin OTP: /api/v1/auth/admin/otp/* (monitoring/override)');
 logger.info('  - Admin OIDC SSO: /api/v1/auth/admin/sso/oidc/*');
 logger.info('  - Admin Auth: /api/v1/auth/admin/* (USERNAME/PASSWORD for web portal)');
+logger.info('  - Staff OIDC SSO: /api/v1/auth/staff/sso/oidc/*');
 logger.info('  - Staff Auth: /api/v1/auth/staff/* (EMPLOYEE + PIN for staff app)');
 
 export default protectedRouter;

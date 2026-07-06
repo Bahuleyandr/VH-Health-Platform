@@ -26,6 +26,7 @@ class AppointmentInfo {
   final int? tokenNumber;
   final String? confirmationNotes;
   final bool hasDocuments;
+  final String visitType;
 
   const AppointmentInfo({
     required this.id,
@@ -38,18 +39,20 @@ class AppointmentInfo {
     this.tokenNumber,
     this.confirmationNotes,
     this.hasDocuments = false,
+    this.visitType = '',
   });
+
+  bool get isTeleconsult => visitType.trim().toUpperCase() == 'TELE';
+
+  bool get hasTerminalStatus => [
+    'cancelled',
+    'no_show',
+    'completed',
+    'rescheduled',
+  ].contains(status.toLowerCase());
 
   bool get isUpcoming {
     final dt = DateTime.tryParse('$date $time');
-    final normalizedStatus = status.toLowerCase();
-    return dt != null &&
-        dt.isAfter(DateTime.now()) &&
-        ![
-          'cancelled',
-          'no_show',
-          'completed',
-          'rescheduled',
-        ].contains(normalizedStatus);
+    return dt != null && dt.isAfter(DateTime.now()) && !hasTerminalStatus;
   }
 }

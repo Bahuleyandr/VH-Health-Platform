@@ -7,6 +7,13 @@ import {
   replaceAdminOidcRoleMappings,
   upsertAdminOidcProvider,
 } from '../../services/auth/adminOidcSsoService.js';
+import {
+  getStaffOidcProviderConfig,
+  listStaffOidcProviders,
+  listStaffOidcRoleMappings,
+  replaceStaffOidcRoleMappings,
+  upsertStaffOidcProvider,
+} from '../../services/auth/staffOidcSsoService.js';
 import { AppError } from '../../utils/AppError.js';
 import { success } from '../../utils/responseHelper.js';
 
@@ -24,25 +31,42 @@ function platformRequested(req) {
     || req.body?.scope === 'platform';
 }
 
-function scopeFromRequest(req) {
+function realmFromRequest(req) {
+  const realm = String(req.query.realm || req.body?.realm || 'admin').trim().toLowerCase();
+  if (!['admin', 'staff'].includes(realm)) {
+    throw AppError.badRequest('Invalid SSO realm', 'SSO_REALM_INVALID');
+  }
+  return realm;
+}
+
+function scopeFromRequest(req, realm = 'admin') {
   const platform = platformRequested(req);
+  if (realm === 'staff' && platform) {
+    throw AppError.badRequest('Staff SSO providers are tenant-scoped', 'SSO_STAFF_PLATFORM_FORBIDDEN');
+  }
   if (platform) {
     if (!isSuperAdmin(req)) throw AppError.forbidden('SUPER_ADMIN required for platform SSO providers', 'SSO_PLATFORM_FORBIDDEN');
-    return { platform: true, tenantId: null };
+    return { realm, platform: true, tenantId: null };
   }
   if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
-  return { platform: false, tenantId: String(req.tenantId) };
+  return { realm, platform: false, tenantId: String(req.tenantId) };
 }
 
 router.get('/sso/oidc/providers', async (req, res, next) => {
   try {
-    const scope = scopeFromRequest(req);
-    const providers = await listAdminOidcProviders({
-      tenantId: scope.tenantId,
-      platform: scope.platform,
-      status: req.query.status || null,
-    });
-    return success(res, { providers, scope }, 'Admin OIDC providers retrieved');
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const providers = realm === 'staff'
+      ? await listStaffOidcProviders({
+        tenantId: scope.tenantId,
+        status: req.query.status || null,
+      })
+      : await listAdminOidcProviders({
+        tenantId: scope.tenantId,
+        platform: scope.platform,
+        status: req.query.status || null,
+      });
+    return success(res, { providers, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC providers retrieved`);
   } catch (err) {
     return next(err);
   }
@@ -50,14 +74,22 @@ router.get('/sso/oidc/providers', async (req, res, next) => {
 
 router.put('/sso/oidc/providers/:provider', async (req, res, next) => {
   try {
-    const scope = scopeFromRequest(req);
-    const provider = await upsertAdminOidcProvider({
-      ...scope,
-      providerKey: req.params.provider,
-      actorUid: req.user?.uid || null,
-      input: req.body || {},
-    });
-    return success(res, { provider, scope }, 'Admin OIDC provider saved');
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const provider = realm === 'staff'
+      ? await upsertStaffOidcProvider({
+        tenantId: scope.tenantId,
+        providerKey: req.params.provider,
+        actorUid: req.user?.uid || null,
+        input: req.body || {},
+      })
+      : await upsertAdminOidcProvider({
+        ...scope,
+        providerKey: req.params.provider,
+        actorUid: req.user?.uid || null,
+        input: req.body || {},
+      });
+    return success(res, { provider, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC provider saved`);
   } catch (err) {
     return next(err);
   }
@@ -65,12 +97,18 @@ router.put('/sso/oidc/providers/:provider', async (req, res, next) => {
 
 router.get('/sso/oidc/providers/:provider', async (req, res, next) => {
   try {
-    const scope = scopeFromRequest(req);
-    const provider = await getAdminOidcProvider({
-      ...scope,
-      providerKey: req.params.provider,
-    });
-    return success(res, { provider, scope }, 'Admin OIDC provider retrieved');
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const provider = realm === 'staff'
+      ? await getStaffOidcProviderConfig({
+        tenantId: scope.tenantId,
+        providerKey: req.params.provider,
+      })
+      : await getAdminOidcProvider({
+        ...scope,
+        providerKey: req.params.provider,
+      });
+    return success(res, { provider, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC provider retrieved`);
   } catch (err) {
     return next(err);
   }
@@ -78,12 +116,18 @@ router.get('/sso/oidc/providers/:provider', async (req, res, next) => {
 
 router.get('/sso/oidc/providers/:provider/mappings', async (req, res, next) => {
   try {
-    const scope = scopeFromRequest(req);
-    const mappings = await listAdminOidcRoleMappings({
-      ...scope,
-      providerKey: req.params.provider,
-    });
-    return success(res, { mappings, scope }, 'Admin OIDC role mappings retrieved');
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const mappings = realm === 'staff'
+      ? await listStaffOidcRoleMappings({
+        tenantId: scope.tenantId,
+        providerKey: req.params.provider,
+      })
+      : await listAdminOidcRoleMappings({
+        ...scope,
+        providerKey: req.params.provider,
+      });
+    return success(res, { mappings, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC role mappings retrieved`);
   } catch (err) {
     return next(err);
   }
@@ -91,14 +135,22 @@ router.get('/sso/oidc/providers/:provider/mappings', async (req, res, next) => {
 
 router.put('/sso/oidc/providers/:provider/mappings', async (req, res, next) => {
   try {
-    const scope = scopeFromRequest(req);
-    const mappings = await replaceAdminOidcRoleMappings({
-      ...scope,
-      providerKey: req.params.provider,
-      actorUid: req.user?.uid || null,
-      mappings: req.body?.mappings || [],
-    });
-    return success(res, { mappings, scope }, 'Admin OIDC role mappings saved');
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const mappings = realm === 'staff'
+      ? await replaceStaffOidcRoleMappings({
+        tenantId: scope.tenantId,
+        providerKey: req.params.provider,
+        actorUid: req.user?.uid || null,
+        mappings: req.body?.mappings || [],
+      })
+      : await replaceAdminOidcRoleMappings({
+        ...scope,
+        providerKey: req.params.provider,
+        actorUid: req.user?.uid || null,
+        mappings: req.body?.mappings || [],
+      });
+    return success(res, { mappings, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC role mappings saved`);
   } catch (err) {
     return next(err);
   }

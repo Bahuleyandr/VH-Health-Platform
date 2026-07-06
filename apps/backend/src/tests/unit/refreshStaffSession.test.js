@@ -135,6 +135,20 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
     expect(result.accessToken).toBe('fresh-access-token');
   });
 
+  it('rejects a valid refresh token after the staff account is deprovisioned', async () => {
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1', id: 42, role: 'DOCTOR', type: 'refresh', jti: 'good-jti',
+    });
+    mockIsTokenBlacklisted.mockResolvedValue(false);
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([{ ...SESSION_ROW, is_active: false }]);
+
+    await expect(
+      StaffAuthService.refreshStaffSession('a-valid-refresh-token', null, REQ)
+    ).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
+  });
+
   it('rejects a token whose type claim is something other than refresh', async () => {
     // e.g. a token explicitly typed 'access' must not pass the refresh gate.
     mockVerifyToken.mockReturnValue({

@@ -46,6 +46,7 @@ void main() {
       () async {
         FlutterSecureStorage.setMockInitialValues({
           'jwt': 'header.payload.signature',
+          'staff_jwt': 'header.payload.signature',
           'refreshToken': 'refresh',
           'staff_id': 'staff-snake',
           'staffId': 'staff-camel',
@@ -61,6 +62,7 @@ void main() {
 
         const storage = FlutterSecureStorage();
         expect(await storage.read(key: 'jwt'), isNull);
+        expect(await storage.read(key: 'staff_jwt'), isNull);
         expect(await storage.read(key: 'refreshToken'), isNull);
         expect(await storage.read(key: 'staff_id'), isNull);
         expect(await storage.read(key: 'staffId'), isNull);

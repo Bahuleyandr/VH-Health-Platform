@@ -18,8 +18,7 @@ import * as portal from '../../services/portal/patientPortalService.js';
 import * as portalAccess from '../../services/portal/portalAccessService.js';
 import { getPatientWhatsNext } from '../../services/carePlan/carePlanService.js';
 import {
-  ensureTeleconsultationForAppointment,
-  getTeleconsultRoomState,
+  getPatientTeleconsultLobbyStateForAppointment,
   issueJoinToken,
   recordTeleconsultConsent,
 } from '../../services/telemedicine/teleconsultProvisioningService.js';
@@ -376,15 +375,10 @@ router.get('/clinical-notes/:id', requirePatient, wrap(async (req) => {
 // patient_uid from the authenticated token and never accept a body patient_uid.
 
 router.get('/teleconsult/appointments/:appointmentId/lobby-state', requirePatient, wrap(async (req) => {
-  const teleconsultation = await ensureTeleconsultationForAppointment({
+  return getPatientTeleconsultLobbyStateForAppointment({
     tenantId: tenantOf(req),
     appointmentId: req.params.appointmentId,
     actorUid: patientUidOf(req),
-    role: 'PATIENT',
-  });
-  return getTeleconsultRoomState({
-    tenantId: tenantOf(req),
-    teleconsultationId: teleconsultation.id,
   });
 }));
 
@@ -695,6 +689,16 @@ router.get('/messages', requirePatient, wrap(async (req) =>
     patient_uid: patientUidOf(req),
     status: req.query.status,
     limit: req.query.limit,
+  }),
+));
+
+router.post('/messages/appointment/:appointmentId/teleconsult-fallback', requirePatient, wrap(async (req) =>
+  portal.ensureAppointmentThread({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    appointment_id: req.params.appointmentId,
+    subject: req.body?.subject,
+    body: req.body?.body,
   }),
 ));
 

@@ -15,6 +15,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 const {
   ensureTeleconsultationForAppointment,
   ensureVideoSession,
+  getPatientTeleconsultLobbyStateForAppointment,
   getTeleconsultRoomState,
   issueJoinToken,
   recordTeleconsultConsent,
@@ -351,6 +352,77 @@ describe('teleconsult provisioning service', () => {
     expect(session1.external_session_id).toMatch(/^tc_[0-9a-f]{10}_1000_/);
     expect(session1.external_session_id).not.toContain(PATIENT);
     expect(session1.external_session_id).not.toContain(DOCTOR);
+  });
+
+  test('patient lobby state degrades honestly when LiveKit is disabled', async () => {
+    process.env.LIVEKIT_ENABLED = 'false';
+
+    const state = await getPatientTeleconsultLobbyStateForAppointment({
+      tenantId: TENANT,
+      appointmentId: APPOINTMENT_ID,
+      actorUid: PATIENT,
+    });
+
+    expect(state).toMatchObject({
+      livekit_enabled: false,
+      provider: 'livekit',
+      recording_enabled: false,
+      media_boundary: 'hospital_infra_only',
+      appointment_id: APPOINTMENT_ID,
+      teleconsultation_id: null,
+      join_state: 'unavailable',
+      joinable: false,
+      consent_recorded: false,
+      video_session: null,
+      message: 'Teleconsultation is not available yet',
+    });
+    expect(db.teleconsultations).toHaveLength(0);
+
+    await expect(getPatientTeleconsultLobbyStateForAppointment({
+      tenantId: TENANT,
+      appointmentId: APPOINTMENT_ID,
+      actorUid: OTHER_PATIENT,
+    })).rejects.toMatchObject({ code: 'TELECONSULT_PATIENT_SCOPE_DENIED' });
+  });
+
+  test('room state exposes the patient join-state contract', async () => {
+    const consult = await ensureTeleconsultationForAppointment({
+      tenantId: TENANT,
+      appointmentId: APPOINTMENT_ID,
+      actorUid: DOCTOR,
+      role: 'DOCTOR',
+    });
+
+    db.teleconsultations[0].status = 'waiting';
+    await expect(getTeleconsultRoomState({
+      tenantId: TENANT,
+      teleconsultationId: consult.id,
+    })).resolves.toMatchObject({ join_state: 'lobby-open', joinable: true });
+
+    db.teleconsultations[0].status = 'in_progress';
+    await expect(getTeleconsultRoomState({
+      tenantId: TENANT,
+      teleconsultationId: consult.id,
+    })).resolves.toMatchObject({ join_state: 'in-progress', joinable: true });
+
+    db.teleconsultations[0].status = 'scheduled';
+    db.teleconsultations[0].scheduled_start = '2099-07-06T04:50:00.000Z';
+    await expect(getTeleconsultRoomState({
+      tenantId: TENANT,
+      teleconsultationId: consult.id,
+    })).resolves.toMatchObject({ join_state: 'not-yet', joinable: false });
+
+    db.teleconsultations[0].scheduled_start = '2000-07-06T04:50:00.000Z';
+    await expect(getTeleconsultRoomState({
+      tenantId: TENANT,
+      teleconsultationId: consult.id,
+    })).resolves.toMatchObject({ join_state: 'ended', joinable: false });
+
+    db.teleconsultations[0].status = 'cancelled';
+    await expect(getTeleconsultRoomState({
+      tenantId: TENANT,
+      teleconsultationId: consult.id,
+    })).resolves.toMatchObject({ join_state: 'cancelled', joinable: false });
   });
 
   test('blocks token issuance until consent is recorded, then mints PHI-minimized no-recording grants', async () => {

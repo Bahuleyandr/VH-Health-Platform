@@ -2,7 +2,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:encrypt/encrypt.dart' as encrypt;
+
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
@@ -28,10 +29,11 @@ class ApiCacheManager {
   static const Duration defaultTtl = Duration(minutes: 15);
 
   static String? _cacheDir;
-  static encrypt.Key? _aesKey;
+  static SecretKey? _aesKey;
+  static final AesGcm _aesGcm = AesGcm.with256bits();
 
   /// Retrieve or generate a 256-bit AES key stored in secure storage.
-  static Future<encrypt.Key> _getEncryptionKey() async {
+  static Future<SecretKey> _getEncryptionKey() async {
     if (_aesKey != null) return _aesKey!;
     final storage = VHSecureStorage.instance;
     var keyBase64 = await storage.read(key: 'cache_aes_key');
@@ -44,7 +46,7 @@ class ApiCacheManager {
       keyBase64 = base64Encode(keyBytes);
       await storage.write(key: 'cache_aes_key', value: keyBase64);
     }
-    _aesKey = encrypt.Key.fromBase64(keyBase64);
+    _aesKey = SecretKey(base64Decode(keyBase64));
     return _aesKey!;
   }
 
@@ -52,12 +54,14 @@ class ApiCacheManager {
   /// Returns `iv_base64:ciphertext_base64`.
   static Future<String> _encrypt(String plaintext) async {
     final key = await _getEncryptionKey();
-    final iv = encrypt.IV.fromSecureRandom(12);
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    final nonce = _secureRandomBytes(12);
+    final box = await _aesGcm.encrypt(
+      utf8.encode(plaintext),
+      secretKey: key,
+      nonce: nonce,
     );
-    final encrypted = encrypter.encrypt(plaintext, iv: iv);
-    return '${iv.base64}:${encrypted.base64}';
+    final combined = Uint8List.fromList([...box.cipherText, ...box.mac.bytes]);
+    return '${base64Encode(nonce)}:${base64Encode(combined)}';
   }
 
   /// Decrypt a string produced by [_encrypt].
@@ -67,11 +71,18 @@ class ApiCacheManager {
     if (parts.length != 2) {
       throw const FormatException('Invalid encrypted data');
     }
-    final iv = encrypt.IV.fromBase64(parts[0]);
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    final nonce = base64Decode(parts[0]);
+    final combined = base64Decode(parts[1]);
+    if (combined.length < 16) {
+      throw const FormatException('Invalid encrypted data');
+    }
+    final cipherText = combined.sublist(0, combined.length - 16);
+    final mac = Mac(combined.sublist(combined.length - 16));
+    final plain = await _aesGcm.decrypt(
+      SecretBox(cipherText, nonce: nonce, mac: mac),
+      secretKey: key,
     );
-    return encrypter.decrypt(encrypt.Encrypted.fromBase64(parts[1]), iv: iv);
+    return utf8.decode(plain);
   }
 
   /// Encrypt raw bytes (e.g. a downloaded PHI document) for storage at rest,
@@ -86,14 +97,20 @@ class ApiCacheManager {
   /// reports/scans by ~33%. Decrypt with [decryptBytes].
   static Future<Uint8List> encryptBytes(List<int> plainBytes) async {
     final key = await _getEncryptionKey();
-    final iv = encrypt.IV.fromSecureRandom(12);
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    final nonce = _secureRandomBytes(12);
+    final box = await _aesGcm.encrypt(plainBytes, secretKey: key, nonce: nonce);
+    final out = Uint8List(nonce.length + box.cipherText.length + 16);
+    out.setRange(0, nonce.length, nonce);
+    out.setRange(
+      nonce.length,
+      nonce.length + box.cipherText.length,
+      box.cipherText,
     );
-    final encrypted = encrypter.encryptBytes(plainBytes, iv: iv);
-    final out = Uint8List(iv.bytes.length + encrypted.bytes.length);
-    out.setRange(0, iv.bytes.length, iv.bytes);
-    out.setRange(iv.bytes.length, out.length, encrypted.bytes);
+    out.setRange(
+      nonce.length + box.cipherText.length,
+      out.length,
+      box.mac.bytes,
+    );
     return out;
   }
 
@@ -105,12 +122,26 @@ class ApiCacheManager {
     }
     final key = await _getEncryptionKey();
     final bytes = Uint8List.fromList(storedBytes);
-    final iv = encrypt.IV(Uint8List.sublistView(bytes, 0, 12));
-    final cipher = encrypt.Encrypted(Uint8List.sublistView(bytes, 12));
-    final encrypter = encrypt.Encrypter(
-      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    if (bytes.length < 28) {
+      throw const FormatException('Invalid encrypted file');
+    }
+    final nonce = Uint8List.sublistView(bytes, 0, 12);
+    final cipherText = Uint8List.sublistView(bytes, 12, bytes.length - 16);
+    final mac = Mac(Uint8List.sublistView(bytes, bytes.length - 16));
+    final plain = await _aesGcm.decrypt(
+      SecretBox(cipherText, nonce: nonce, mac: mac),
+      secretKey: key,
     );
-    return Uint8List.fromList(encrypter.decryptBytes(cipher, iv: iv));
+    return Uint8List.fromList(plain);
+  }
+
+  static Uint8List _secureRandomBytes(int length) {
+    final random = Random.secure();
+    final bytes = Uint8List(length);
+    for (var i = 0; i < length; i++) {
+      bytes[i] = random.nextInt(256);
+    }
+    return bytes;
   }
 
   static Future<String> _getCacheDir() async {

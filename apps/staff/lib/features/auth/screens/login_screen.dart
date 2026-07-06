@@ -35,6 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _rememberMe = true;
   bool _deviceRegistered = false;
+  bool _ssoLoading = false;
+  List<StaffSsoProvider> _ssoProviders = const [];
   String? _error;
   bool _isLockedOut = false;
 
@@ -53,6 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _loadSavedCredentials();
+    _loadSsoProviders();
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -71,6 +74,15 @@ class _LoginScreenState extends State<LoginScreen> {
     final registered = await AuthService.isDeviceRegistered();
     if (mounted && registered && _empIdController.text.isNotEmpty) {
       setState(() => _deviceRegistered = true);
+    }
+  }
+
+  Future<void> _loadSsoProviders() async {
+    try {
+      final providers = await LoginService.discoverStaffSsoProviders();
+      if (mounted) setState(() => _ssoProviders = providers);
+    } catch (_) {
+      if (mounted) setState(() => _ssoProviders = const []);
     }
   }
 
@@ -111,22 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
           pin: _pinController.text,
         );
       }
-      if (mounted) {
-        // Reset the idle-timeout flag BEFORE navigating. Without this, if a
-        // previous session timed out (which sets `_expired = true` and wipes
-        // the JWT via clearAll), the router's redirect guard would see
-        // `isSessionExpired == true` on the very next /dashboard navigation
-        // and bounce the freshly-logged-in user back to /login. Calling
-        // resetSession() here flips `_expired` to false synchronously so the
-        // redirect chain resolves to /dashboard on the first hop.
-        try {
-          context.read<SessionTimeoutProvider>().resetSession();
-        } catch (_) {
-          // Provider may not be in scope under unusual mount conditions —
-          // the on-/login redirect path will still call startTracking().
-        }
-        context.go('/dashboard');
-      }
+      _finishLogin();
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
@@ -136,6 +133,46 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _submitSso(StaffSsoProvider provider) async {
+    setState(() {
+      _ssoLoading = true;
+      _error = null;
+      _isLockedOut = false;
+    });
+    try {
+      await LoginService.loginWithStaffSso(provider);
+      _finishLogin();
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        setState(() {
+          _error = msg;
+          _isLockedOut = _looksLikeLockout(msg);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _ssoLoading = false);
+    }
+  }
+
+  void _finishLogin() {
+    if (!mounted) return;
+    // Reset the idle-timeout flag BEFORE navigating. Without this, if a
+    // previous session timed out (which sets `_expired = true` and wipes
+    // the JWT via clearAll), the router's redirect guard would see
+    // `isSessionExpired == true` on the very next /dashboard navigation
+    // and bounce the freshly-logged-in user back to /login. Calling
+    // resetSession() here flips `_expired` to false synchronously so the
+    // redirect chain resolves to /dashboard on the first hop.
+    try {
+      context.read<SessionTimeoutProvider>().resetSession();
+    } catch (_) {
+      // Provider may not be in scope under unusual mount conditions —
+      // the on-/login redirect path will still call startTracking().
+    }
+    context.go('/dashboard');
   }
 
   @override
@@ -519,7 +556,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 24),
 
                         ElevatedButton(
-                          onPressed: _loading ? null : _submit,
+                          onPressed: (_loading || _ssoLoading) ? null : _submit,
                           child: _loading
                               ? const SizedBox(
                                   height: 22,
@@ -537,6 +574,28 @@ class _LoginScreenState extends State<LoginScreen> {
                                       : s.loginSignInWithPin,
                                 ),
                         ),
+
+                        if (_ssoProviders.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: (_loading || _ssoLoading)
+                                  ? null
+                                  : () => _submitSso(_ssoProviders.first),
+                              icon: _ssoLoading
+                                  ? const SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.open_in_browser),
+                              label: Text(s.loginSignInWithSso),
+                            ),
+                          ),
+                        ],
 
                         const SizedBox(height: 32),
 

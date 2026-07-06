@@ -185,6 +185,7 @@ class AppStrings {
   String get loginSignInWithPassword => _t('login.sign_in_with_password');
   String get loginSignInWithPin => _t('login.sign_in_with_pin');
   String get loginQuickSignIn => _t('login.quick_sign_in');
+  String get loginSignInWithSso => _t('login.sign_in_with_sso');
   String get loginFooter => _t('login.footer');
 
   // ── Dashboard (additional) ─────────────────────────────────────────
@@ -3179,6 +3180,7 @@ class AppStrings {
       'login.sign_in_with_password': 'Sign In with Password',
       'login.sign_in_with_pin': 'Sign In with PIN',
       'login.quick_sign_in': 'Quick Sign In',
+      'login.sign_in_with_sso': 'Sign in with SSO',
       'login.footer': 'VHHealth · Staff Access Only',
       // Dashboard (additional)
       'dashboard.welcome_back': 'Welcome back',
@@ -8203,6 +8205,7 @@ class AppStrings {
       'login.sign_in_with_password': 'पासवर्ड से साइन इन करें',
       'login.sign_in_with_pin': 'पिन से साइन इन करें',
       'login.quick_sign_in': 'त्वरित साइन इन',
+      'login.sign_in_with_sso': 'SSO से साइन इन करें',
       'login.footer': 'VHHealth · केवल स्टाफ पहुँच',
       // Dashboard (additional)
       'dashboard.welcome_back': 'वापस स्वागत है',
@@ -13274,6 +13277,7 @@ class AppStrings {
       'login.sign_in_with_password': 'கடவுச்சொல்லுடன் உள்நுழை',
       'login.sign_in_with_pin': 'PIN-உடன் உள்நுழை',
       'login.quick_sign_in': 'விரைவு உள்நுழைவு',
+      'login.sign_in_with_sso': 'SSO மூலம் உள்நுழைக',
       'login.footer': 'VHHealth · பணியாளர் அணுகல் மட்டும்',
       // Dashboard (additional)
       'dashboard.welcome_back': 'மீண்டும் வரவேற்கிறோம்',
@@ -19005,6 +19009,7 @@ class AppStrings {
       'login.sign_in_with_password': 'పాస్‌వర్డ్‌తో సైన్ ఇన్',
       'login.sign_in_with_pin': 'PIN-తో సైన్ ఇన్',
       'login.quick_sign_in': 'త్వరిత సైన్ ఇన్',
+      'login.sign_in_with_sso': 'SSOతో సైన్ ఇన్ చేయండి',
       'login.footer': 'VHHealth · సిబ్బంది యాక్సెస్ మాత్రమే',
       // Dashboard (additional)
       'dashboard.welcome_back': 'తిరిగి స్వాగతం',
