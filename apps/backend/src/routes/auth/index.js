@@ -4,6 +4,7 @@ import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
 import adminAuthRoutes from './adminAuthRoutes.js';
+import adminOidcSsoRoutes from './adminOidcSsoRoutes.js';
 import adminOtpRoutes from './adminOtpRoutes.js';
 import authRoutes from './authRoutes.js';
 import firebaseAuthRoutes from './firebaseAuthRoutes.js';
@@ -51,6 +52,7 @@ router.use('/', authRoutes); // Core auth at /api/v1/auth/* (legacy/utility)
 router.use('/firebase', firebaseAuthRoutes); // Firebase at /api/v1/auth/firebase/* (PATIENT LOGIN)
 router.use('/otp', otpRoutes); // OTP at /api/v1/auth/otp/* (admin/testing)
 router.use('/admin/otp', adminOtpRoutes); // Admin OTP at /api/v1/auth/admin/otp/*
+router.use('/admin/sso/oidc', adminOidcSsoRoutes); // Admin OIDC SSO at /api/v1/auth/admin/sso/oidc/*
 router.use('/admin', adminAuthRoutes); // Admin auth at /api/v1/auth/admin/* (USERNAME/PASSWORD)
 router.use('/staff', staffAuthRoutes); // Staff auth at /api/v1/auth/staff/* (EMPLOYEE ID + PIN)
 
@@ -83,6 +85,7 @@ logger.info('  - Core auth: /api/v1/auth/* (legacy/utility routes)');
 logger.info('  - Firebase: /api/v1/auth/firebase/* (PRIMARY PATIENT AUTH)');
 logger.info('  - OTP: /api/v1/auth/otp/* (admin/testing only)');
 logger.info('  - Admin OTP: /api/v1/auth/admin/otp/* (monitoring/override)');
+logger.info('  - Admin OIDC SSO: /api/v1/auth/admin/sso/oidc/*');
 logger.info('  - Admin Auth: /api/v1/auth/admin/* (USERNAME/PASSWORD for web portal)');
 logger.info('  - Staff Auth: /api/v1/auth/staff/* (EMPLOYEE + PIN for staff app)');
 
