@@ -67930,40 +67930,6 @@
         ]
       }
     },
-    "/api/v1/integrations/nhcx/coverageeligibility/on_check": {
-      "post": {
-        "operationId": "post_api_v1_integrations_nhcx_coverageeligibility_on_check",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/nhcx/preauth/on_submit": {
-      "post": {
-        "operationId": "post_api_v1_integrations_nhcx_preauth_on_submit",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/integrations/nhcx/claim/on_status": {
       "post": {
         "operationId": "post_api_v1_integrations_nhcx_claim_on_status",
@@ -67984,6 +67950,40 @@
     "/api/v1/integrations/nhcx/claim/on_submit": {
       "post": {
         "operationId": "post_api_v1_integrations_nhcx_claim_on_submit",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/nhcx/coverageeligibility/on_check": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_coverageeligibility_on_check",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/nhcx/preauth/on_submit": {
+      "post": {
+        "operationId": "post_api_v1_integrations_nhcx_preauth_on_submit",
         "responses": {
           "200": {
             "description": "Successful response",
