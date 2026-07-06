@@ -11,6 +11,21 @@ const ONBOARDABLE_STAFF_ROLES = Object.values(STAFF_ROLES).filter(
   (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
 );
 
+const SCIM_MANAGED_SOURCES = new Set(['scim', 'hybrid']);
+const SCIM_OWNED_STAFF_FIELDS = ['department', 'position', 'is_active'];
+
+function scimOverrideReason(data = {}) {
+  return String(data.scimOverrideReason || data.identityOverrideReason || data.override_reason || '').trim();
+}
+
+function isScimManagedSource(source) {
+  return SCIM_MANAGED_SOURCES.has(String(source || 'local').toLowerCase());
+}
+
+function auditIpAddress(value) {
+  return String(value || '').split(',')[0].trim() || null;
+}
+
 export const getStaffList = async (filters, userRole) => {
   const allowedRoles = getStaffHierarchy(userRole);
   const { page, limit, role, department, shift, active, search, supervisor_id, skill } = filters;
@@ -538,9 +553,14 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
 
   // Verify staff profile exists
   const staffCheck = await prisma.$queryRawUnsafe(`
-    SELECT s.*, u.id AS user_int_id, u.name
+    SELECT s.*, u.id AS user_int_id, u.uid AS user_uid, u.name,
+           u.identity_source AS user_identity_source,
+           u.scim_provider_id AS user_scim_provider_id,
+           tip.provider_key AS scim_provider_key
     FROM staff s
     JOIN users u ON s.user_id = u.uid
+    LEFT JOIN tenant_identity_providers tip
+      ON tip.id = COALESCE(s.scim_provider_id, u.scim_provider_id)
     WHERE
       s.user_id::text = $1
       OR s.id::text = $1
@@ -553,6 +573,16 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   }
 
   const currentStaff = staffCheck[0];
+  const scimOwnedFieldsTouched = SCIM_OWNED_STAFF_FIELDS.filter((field) => Object.prototype.hasOwnProperty.call(data || {}, field));
+  const scimManaged = isScimManagedSource(currentStaff.identity_source)
+    || isScimManagedSource(currentStaff.user_identity_source);
+  const overrideReason = scimOverrideReason(data);
+  if (scimManaged && scimOwnedFieldsTouched.length > 0 && overrideReason.length < 8) {
+    const err = new Error('SCIM_OWNED_FIELD_OVERRIDE_REQUIRED');
+    err.statusCode = 409;
+    err.details = { fields: scimOwnedFieldsTouched };
+    throw err;
+  }
 
   // Validate supervisor if provided
   if (supervisor_id) {
@@ -598,6 +628,33 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   if (department && department !== currentStaff.department) {changes.department = { from: currentStaff.department, to: department };}
   if (salary && salary !== currentStaff.salary) {changes.salary = { from: currentStaff.salary, to: salary };}
   if (is_active !== undefined && is_active !== currentStaff.is_active) {changes.is_active = { from: currentStaff.is_active, to: is_active };}
+
+  if (scimManaged && scimOwnedFieldsTouched.length > 0) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO identity_audit_events (
+          tenant_id, realm, protocol, provider_id, provider_key, event_type, outcome,
+          actor_uid, local_uid, ip_address, details
+        )
+        VALUES (
+          $1::uuid, 'staff', 'scim', $2::bigint, $3, 'SCIM_LOCAL_OVERRIDE', 'accepted',
+          $4::uuid, $5::uuid, $6::inet, $7::jsonb
+        )`,
+      currentStaff.tenant_id,
+      currentStaff.scim_provider_id || currentStaff.user_scim_provider_id || null,
+      currentStaff.scim_provider_key || null,
+      updatedBy || null,
+      currentStaff.user_id,
+      auditIpAddress(ipAddress),
+      JSON.stringify({
+        fields: scimOwnedFieldsTouched,
+        reason: overrideReason,
+        source: {
+          staff: currentStaff.identity_source || 'local',
+          user: currentStaff.user_identity_source || 'local',
+        },
+      })
+    );
+  }
 
   // Log staff update activity
   await prisma.$queryRawUnsafe(

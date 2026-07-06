@@ -122,6 +122,8 @@ export const updateStaffProfile = async (req, res) => {
       error(res, 'Staff profile not found', HTTP_STATUS.NOT_FOUND);
     } else if (err.message === 'INVALID_SUPERVISOR') {
       error(res, 'Invalid supervisor ID or supervisor lacks appropriate role', HTTP_STATUS.BAD_REQUEST);
+    } else if (err.message === 'SCIM_OWNED_FIELD_OVERRIDE_REQUIRED') {
+      error(res, 'SCIM-owned staff fields require an explicit override reason', HTTP_STATUS.CONFLICT, err.details);
     } else {
       error(res, 'Failed to update staff profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
