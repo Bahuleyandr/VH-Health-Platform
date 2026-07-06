@@ -25,6 +25,10 @@ const MANUAL_SEED_TABLES = new Set([
   // (two postings netting to zero) instead.
   'ledger_entries',
   'ledger_postings',
+  // NL-1 identity SSO tables have realm/protocol/role CHECK constraints
+  // that the generic relaxed seeder cannot infer safely.
+  'tenant_identity_providers',
+  'tenant_idp_role_mappings',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1015,6 +1019,37 @@ async function seedLedgerEntries() {
   );
 }
 
+async function seedIdentityProviderTables() {
+  let provider = await first(
+    'tenant_identity_providers',
+    'id',
+    "tenant_id = $1::uuid AND realm = 'admin' AND protocol = 'oidc'",
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!provider) {
+    const created = await client.query(
+      `INSERT INTO tenant_identity_providers (
+         tenant_id, realm, protocol, provider_key, display_name, status
+       )
+       VALUES ($1::uuid, 'admin', 'oidc', 'seed-oidc', 'Seed admin OIDC', 'draft')
+       RETURNING id`,
+      [DEFAULT_TENANT_ID],
+    );
+    provider = created.rows[0];
+  }
+
+  await insertIfEmpty('tenant_idp_role_mappings', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    provider_id: provider.id,
+    realm: 'admin',
+    idp_group: 'seed-admins',
+    vh_role: 'ADMIN',
+    status: 'active',
+    priority: 100,
+  }]);
+}
+
 // Explicit seeds for the Pillar-D workflow tables (migrations 285/290/292).
 // The auto-seeder can't navigate their domain CHECK constraints — provider
 // availability and resource bookings require ordered time windows
@@ -1096,6 +1131,7 @@ async function seedPillarDWorkflowTables() {
 try {
   await client.query('BEGIN');
   await seedCoreData();
+  await seedIdentityProviderTables();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
