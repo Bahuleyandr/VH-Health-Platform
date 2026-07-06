@@ -33,6 +33,10 @@ import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
 import '../../features/opd/screens/op_doctor_workspace_screen.dart';
 import '../../features/opd/screens/op_nursing_dashboard_screen.dart';
+import '../../features/teleconsult/models/staff_teleconsult_route_args.dart';
+import '../../features/teleconsult/screens/staff_teleconsult_consult_screen.dart';
+import '../../features/teleconsult/services/staff_teleconsult_repository.dart';
+import '../../features/teleconsult/services/staff_teleconsult_room_client.dart';
 
 // Clinical AI (Phase 2 of the rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md)
 import '../../features/clinical_ai/screens/clinical_ai_review_queue_screen.dart';
@@ -260,6 +264,32 @@ final GoRouter appRouter = GoRouter(
               child: AppointmentsScreen(
                 initialDate: initialDate,
                 workspaceMode: workspaceMode,
+              ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/teleconsult/appointments/:appointmentId/consult',
+          name: 'staff-teleconsult-consult',
+          pageBuilder: (context, state) {
+            final appointmentId =
+                int.tryParse(state.pathParameters['appointmentId'] ?? '') ?? 0;
+            final extra = state.extra;
+            final args = extra is StaffTeleconsultRouteArgs ? extra : null;
+            final appointment =
+                args?.appointment ??
+                StaffTeleconsultAppointmentContext.fromQuery(
+                  appointmentId,
+                  state.uri.queryParameters,
+                );
+            return NoTransitionPage(
+              child: StaffTeleconsultConsultScreen(
+                appointment: appointment,
+                repository:
+                    args?.repository ?? const StaffTeleconsultRepository(),
+                roomClient:
+                    args?.roomClient ??
+                    const LiveKitStaffTeleconsultRoomClient(),
               ),
             );
           },
