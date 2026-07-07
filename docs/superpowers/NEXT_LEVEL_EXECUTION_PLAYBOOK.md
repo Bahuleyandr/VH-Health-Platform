@@ -1,6 +1,6 @@
 # Next-Level Program — Execution Playbook (coordinator handbook)
 
-**Last updated:** 2026-07-07 at main `cdd477fa` (round 2 launch).
+**Last updated:** 2026-07-07 at main `117a5b7b` (round 1 CLOSED: #450/#452/#453/#456 all merged, PASS zero-corrections; round 2b launched). Operator: LOINC 2.82 imported to QA (97,314 concepts, batches 14–15).
 **Purpose:** make the NL-1..NL-12 pipeline survivable across model/agent changes. Everything a
 coordinator needs — state, loop, drills, verification method, migration registry, decision log,
 and the full build-prompt library — lives in this file and `docs/superpowers/build-prompts/`.
@@ -29,7 +29,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | NL-4 basics | SHIPPED (reschedule, consent signatures mig 356, EMPI hardening) |
 | NL-5 terminology/content | Spec MERGED. **P1 MERGED** (PR #453 `cdd477fa`, migs 369–370, PASS zero-corrections). **P3 LAUNCHED** (round 2); P2/P4 prompts ready |
 | NL-6 departmental | Plan MERGED. **N6-1 MERGED** (PR #450 `d4b33514`, migs 375–377, PASS zero-corrections). **N6-4 + N6-5 LAUNCHED** (round 2); rest ready (donor slices owner-gated) |
-| NL-7 device gateway | Spec MERGED. **P1 BUILDING** (migs 371–374, last round-1 item); P2/P3 unlock on P1 merge |
+| NL-7 device gateway | Spec MERGED. **P1 MERGED** (PR #456 `117a5b7b`, migs 371–373 [374 unused], PASS zero-corrections — gateway service, registry, associations, alarm policy). **ROUND 1 CLOSED.** P2 + P3 LAUNCHED (round 2b) |
 | NL-8..NL-10 (Wave C) | Not started — kickoff design prompts ready in the library |
 | NL-11..NL-12 (Wave D) | Not started — kickoff prompts ready; NL-12 heavily operator-track |
 
@@ -107,13 +107,15 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | …–367 | shipped through NL-1 P3 SCIM | on main |
 | 368 | NL-1 P4 SAML | in flight |
 | 369–370 | NL-5 P1 | **on main** (#453) |
-| 371–374 | NL-7 P1 | in flight |
+| 371–373 | NL-7 P1 | **on main** (#456); 374 unused — documented gap, do not reuse |
 | 375–377 | N6-1 | **on main** (#450) |
 | 378–380 | N6-5 credentialing | launched 2026-07-07 (round 2) |
 | 381–382 | NL-5 P3 content studio | launched 2026-07-07 (round 2) |
 | 383–386 | N6-4 histopath | launched 2026-07-07 (round 2) |
 | 387–390 | N6-2 donor intake | launched 2026-07-07 (gate resolved: blood centre) |
-| 391+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 391–393 | NL-7 P2 cold-chain | launched 2026-07-07 (round 2b, gate open: P1 on main) |
+| 394–396 | NL-7 P3 CMMS | launched 2026-07-07 (round 2b, gate open: P1 on main) |
+| 397+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -185,9 +187,9 @@ parallel-safe may overlap.
 | `nl5-p2-drugkb-seams.md` | source priority, acceptance harness, admin status | spec on main; re-scoped for indigenous KB | READY |
 | `nl5-p3-content-studio.md` | order-set lifecycle, import format, studio UI | spec on main | **LAUNCHED** (migs 381–382) |
 | `nl5-p4-pediatric-packs.md` | growth LMS table + IAP, immunization packs | spec on main | READY |
-| `nl7-p1-device-gateway.md` | MLLP gateway, registry, association, alarm policy | spec on main | **LAUNCHED** |
-| `nl7-p2-cold-chain.md` | cold-chain tables, excursion engine, board | NL-7 P1 merged | READY |
-| `nl7-p3-cmms.md` | work orders, schedules, calibration certs | NL-7 P1 merged | READY |
+| `nl7-p1-device-gateway.md` | MLLP gateway, registry, association, alarm policy | spec on main | **MERGED** #456 |
+| `nl7-p2-cold-chain.md` | cold-chain tables, excursion engine, board | NL-7 P1 merged ✓ | **LAUNCHED** (migs 391–393) |
+| `nl7-p3-cmms.md` | work orders, schedules, calibration certs | NL-7 P1 merged ✓ | **LAUNCHED** (migs 394–396) |
 | `nl7-p4-rtls-hardening.md` | RTLS seam (gated) + pilot hardening | P1–P3 merged + Decision 4 / RTLS pilot | GATED |
 | `nl6-01-radiology-reporting.md` | templates, peer review, TAT, timeline fix | plan on main | **MERGED** #450 |
 | `nl6-02-donor-intake.md` | donors, screening, deferrals, collection | gate RESOLVED: blood centre ✓ | **LAUNCHED** (migs 387–390) |
