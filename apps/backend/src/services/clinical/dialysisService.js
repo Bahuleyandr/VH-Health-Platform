@@ -10,12 +10,66 @@
 // with canonical timeline emission.
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { addInvoiceItem, createDraftInvoice } from '../billing/billingV2Service.js';
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
+
+const REUSE_INTEGRITY_RESULTS = ['pending', 'pass', 'fail', 'not_done'];
+const REUSE_STATUSES = ['in_use', 'discarded', 'quarantined'];
+const MACHINE_QA_STATUSES = ['pending', 'passed', 'failed', 'maintenance_required'];
+
+function intOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : NaN;
+}
+
+export function validateReuseRegisterInput(body = {}) {
+  const reuseCycleCount = intOrNull(body.reuse_cycle_count ?? body.cycle_count);
+  if (!Number.isInteger(reuseCycleCount) || reuseCycleCount < 0 || reuseCycleCount > 100) {
+    throw AppError.badRequest('reuse_cycle_count must be an integer from 0 to 100', 'DIALYZER_REUSE_CYCLE_INVALID');
+  }
+  const integrity = body.integrity_test_result || 'pending';
+  if (!REUSE_INTEGRITY_RESULTS.includes(integrity)) {
+    throw AppError.badRequest(
+      `integrity_test_result must be one of: ${REUSE_INTEGRITY_RESULTS.join(', ')}`,
+      'DIALYZER_REUSE_INTEGRITY_INVALID',
+    );
+  }
+  const status = body.status || (integrity === 'fail' ? 'quarantined' : 'in_use');
+  if (!REUSE_STATUSES.includes(status)) {
+    throw AppError.badRequest(
+      `status must be one of: ${REUSE_STATUSES.join(', ')}`,
+      'DIALYZER_REUSE_STATUS_INVALID',
+    );
+  }
+  const discardReason = body.discard_reason ? String(body.discard_reason).trim() : null;
+  if (status === 'discarded' && !discardReason) {
+    throw AppError.badRequest('discard_reason is required when status is discarded', 'DIALYZER_REUSE_DISCARD_REASON_REQUIRED');
+  }
+  if (integrity === 'fail' && status === 'in_use') {
+    throw AppError.badRequest('failed integrity tests must be discarded or quarantined', 'DIALYZER_REUSE_FAILED_IN_USE');
+  }
+  return { reuseCycleCount, integrity, status, discardReason };
+}
+
+export function buildMachineQaWarnings(log, machineNo) {
+  if (!machineNo) return ['Machine number missing; QA log cannot be matched'];
+  if (!log) return [`No same-day machine QA log for ${machineNo}`];
+  const warnings = [];
+  if (log.warn_only !== true) warnings.push('Machine QA log is not marked warn-only');
+  if (log.disinfection_completed !== true) warnings.push(`Machine ${machineNo} disinfection is not marked complete`);
+  if (log.machine_ready !== true) warnings.push(`Machine ${machineNo} is not marked ready`);
+  if (['failed', 'maintenance_required'].includes(String(log.status))) {
+    warnings.push(`Machine ${machineNo} QA status is ${log.status}`);
+  }
+  return warnings;
+}
 
 // Session status walk
 const SESSION_TRANSITIONS = {
@@ -99,6 +153,51 @@ async function getDialysisSessionInTenant(tenantId, sessionId) {
   const session = unwrap(rows);
   if (!session) throw AppError.notFound('Session not found');
   return session;
+}
+
+async function getSameDayMachineQaLog(tenantId, machineNo, db = prisma) {
+  if (!machineNo) return null;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, machine_no, session_id, qa_date, disinfection_completed,
+            machine_ready, status, warn_only, issues, recorded_at
+       FROM dialysis_machine_qa_logs
+      WHERE tenant_id = $1::uuid
+        AND machine_no = $2
+        AND qa_date = CURRENT_DATE
+      ORDER BY recorded_at DESC, id DESC
+      LIMIT 1`,
+    tenantOr(tenantId), String(machineNo),
+  ).catch((err) => {
+    logger.warn('dialysis machine QA lookup failed', { tenantId, machineNo, error: err.message });
+    return [];
+  });
+  return unwrap(rows) || null;
+}
+
+async function getSessionBillingConfig(tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT tenant_id, charge_enabled, service_code, unit_price, gst_rate,
+            finance_reviewed_at, finance_reviewed_by
+       FROM dialysis_billing_settings
+      WHERE tenant_id = $1::uuid
+      LIMIT 1`,
+    tenantOr(tenantId),
+  ).catch((err) => {
+    logger.warn('dialysis billing settings lookup failed', { tenantId, error: err.message });
+    return [];
+  });
+  return unwrap(rows) || null;
+}
+
+async function getPatientBillingSnapshot(tenantId, patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, name, phone
+       FROM users
+      WHERE tenant_id = $1::uuid AND uid = $2::uuid
+      LIMIT 1`,
+    tenantOr(tenantId), String(patientUid),
+  );
+  return unwrap(rows) || { uid: patientUid, name: null, phone: null };
 }
 
 async function getAccessInTenant(tenantId, accessId, dialysisPatientId = null) {
@@ -422,63 +521,105 @@ export async function startSession({ tenantId, id, ...body }) {
   return unwrap(rows);
 }
 
-export async function completeSession({ tenantId, id, ...body }) {
-  const sessRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
-    parseInt(id, 10), tenantOr(tenantId));
-  const sess = unwrap(sessRows);
-  if (!sess) throw AppError.notFound('Session not found');
-  if (!SESSION_TRANSITIONS[sess.status]?.includes('completed')) {
-    throw AppError.invalidTransition(sess.status, 'completed', SESSION_TRANSITIONS[sess.status] || []);
-  }
+export async function completeSession({ tenantId, id, completed_by, actorRole, ...body }) {
+  const completed = await setTenantTx(tenantOr(tenantId), async (tx) => {
+    const sessRows = await tx.$queryRawUnsafe(
+      `SELECT s.*, p.patient_uid
+         FROM dialysis_sessions s
+         JOIN dialysis_patients p ON p.id = s.dialysis_patient_id
+          AND p.tenant_id = s.tenant_id
+        WHERE s.id = $1 AND s.tenant_id = $2::uuid
+        FOR UPDATE`,
+      parseInt(id, 10), tenantOr(tenantId));
+    const sess = unwrap(sessRows);
+    if (!sess) throw AppError.notFound('Session not found');
+    if (!SESSION_TRANSITIONS[sess.status]?.includes('completed')) {
+      throw AppError.invalidTransition(sess.status, 'completed', SESSION_TRANSITIONS[sess.status] || []);
+    }
 
-  const startTs = sess.actual_start_at ? new Date(sess.actual_start_at) : null;
-  const durationMin = startTs ? Math.round((Date.now() - startTs.getTime()) / 60000) : null;
+    const startTs = sess.actual_start_at ? new Date(sess.actual_start_at) : null;
+    const durationMin = startTs ? Math.round((Date.now() - startTs.getTime()) / 60000) : null;
 
-  // Compute Kt/V + URR if labs supplied.
-  const ureaPre = body.urea_pre_mg_dl ?? sess.urea_pre_mg_dl;
-  const ureaPost = body.urea_post_mg_dl ?? sess.urea_post_mg_dl;
-  const postWeight = body.post_weight_kg ?? sess.post_weight_kg;
-  const actualUf = body.actual_uf_l ?? sess.actual_uf_l;
+    const ureaPre = body.urea_pre_mg_dl ?? sess.urea_pre_mg_dl;
+    const ureaPost = body.urea_post_mg_dl ?? sess.urea_post_mg_dl;
+    const postWeight = body.post_weight_kg ?? sess.post_weight_kg;
+    const actualUf = body.actual_uf_l ?? sess.actual_uf_l;
 
-  const urr = computeUrr({ urea_pre_mg_dl: ureaPre, urea_post_mg_dl: ureaPost });
-  const ktv = computeKtv({
-    urea_pre_mg_dl: ureaPre, urea_post_mg_dl: ureaPost,
-    duration_min: durationMin, actual_uf_l: actualUf, post_weight_kg: postWeight,
+    const urr = computeUrr({ urea_pre_mg_dl: ureaPre, urea_post_mg_dl: ureaPost });
+    const ktv = computeKtv({
+      urea_pre_mg_dl: ureaPre, urea_post_mg_dl: ureaPost,
+      duration_min: durationMin, actual_uf_l: actualUf, post_weight_kg: postWeight,
+    });
+
+    const sql = `
+      UPDATE dialysis_sessions
+      SET status = 'completed',
+          actual_end_at = NOW(),
+          duration_min = $1,
+          post_weight_kg = $2, post_bp_systolic = $3, post_bp_diastolic = $4,
+          post_pulse = $5, post_temp_c = $6,
+          actual_uf_l = $7,
+          urea_pre_mg_dl = $8, urea_post_mg_dl = $9,
+          urr_pct = $10, ktv_calculated = $11,
+          intra_dialytic_hypotension = COALESCE($12, intra_dialytic_hypotension),
+          cramps = COALESCE($13, cramps),
+          bleeding = COALESCE($14, bleeding),
+          clotting = COALESCE($15, clotting),
+          early_termination = COALESCE($16, early_termination),
+          early_termination_reason = $17,
+          notes = $18,
+          updated_at = NOW()
+      WHERE id = $19 AND tenant_id = $20::uuid
+      RETURNING *`;
+    const rows = await tx.$queryRawUnsafe(sql,
+      durationMin,
+      postWeight, body.post_bp_systolic || null, body.post_bp_diastolic || null,
+      body.post_pulse || null, body.post_temp_c || null,
+      actualUf,
+      ureaPre, ureaPost, urr, ktv,
+      body.intra_dialytic_hypotension ?? null, body.cramps ?? null,
+      body.bleeding ?? null, body.clotting ?? null,
+      body.early_termination ?? null, body.early_termination_reason || null,
+      body.notes || null,
+      parseInt(id, 10), tenantOr(tenantId));
+    const row = unwrap(rows);
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tenantOr(tenantId),
+      patientUid: sess.patient_uid,
+      eventType: 'dialysis.completed',
+      sourceTable: 'dialysis_sessions',
+      sourceId: row.id,
+      actorUid: completed_by || null,
+      actorRole: actorRole || null,
+      summary: `Dialysis session completed${row.ktv_calculated ? `; Kt/V ${row.ktv_calculated}` : ''}`,
+      payload: {
+        session_id: row.id,
+        dialysis_patient_id: row.dialysis_patient_id,
+        modality: row.modality,
+        machine_no: row.machine_no,
+        duration_min: row.duration_min,
+        urr_pct: row.urr_pct,
+        ktv_calculated: row.ktv_calculated,
+      },
+    }, { db: tx });
+
+    return { ...row, patient_uid: sess.patient_uid };
   });
 
-  const sql = `
-    UPDATE dialysis_sessions
-    SET status = 'completed',
-        actual_end_at = NOW(),
-        duration_min = $1,
-        post_weight_kg = $2, post_bp_systolic = $3, post_bp_diastolic = $4,
-        post_pulse = $5, post_temp_c = $6,
-        actual_uf_l = $7,
-        urea_pre_mg_dl = $8, urea_post_mg_dl = $9,
-        urr_pct = $10, ktv_calculated = $11,
-        intra_dialytic_hypotension = COALESCE($12, intra_dialytic_hypotension),
-        cramps = COALESCE($13, cramps),
-        bleeding = COALESCE($14, bleeding),
-        clotting = COALESCE($15, clotting),
-        early_termination = COALESCE($16, early_termination),
-        early_termination_reason = $17,
-        notes = $18,
-        updated_at = NOW()
-    WHERE id = $19 AND tenant_id = $20::uuid
-    RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
-    durationMin,
-    postWeight, body.post_bp_systolic || null, body.post_bp_diastolic || null,
-    body.post_pulse || null, body.post_temp_c || null,
-    actualUf,
-    ureaPre, ureaPost, urr, ktv,
-    body.intra_dialytic_hypotension ?? null, body.cramps ?? null,
-    body.bleeding ?? null, body.clotting ?? null,
-    body.early_termination ?? null, body.early_termination_reason || null,
-    body.notes || null,
-    parseInt(id, 10), tenantOr(tenantId));
-  return unwrap(rows);
+  const qaLog = await getSameDayMachineQaLog(tenantId, completed.machine_no);
+  const machineQaWarnings = buildMachineQaWarnings(qaLog, completed.machine_no);
+  const billingHook = await maybeEmitDialysisBillingLine({
+    tenantId,
+    session: completed,
+    actorUid: completed_by || null,
+  });
+
+  return {
+    ...completed,
+    machine_qa_warnings: machineQaWarnings,
+    billing_hook: billingHook,
+  };
 }
 
 export async function cancelSession({ tenantId, id, reason, mark_no_show }) {
@@ -679,6 +820,275 @@ export async function listObservations({ tenantId, session_id }) {
     session.id);
 }
 
+async function maybeEmitDialysisBillingLine({ tenantId, session, actorUid = null }) {
+  const config = await getSessionBillingConfig(tenantId);
+  if (!config?.charge_enabled) {
+    return { status: 'disabled', emitted: false };
+  }
+  if (!config.finance_reviewed_at || config.unit_price == null) {
+    return { status: 'finance_review_required', emitted: false };
+  }
+
+  try {
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, invoice_id
+         FROM billing_invoice_items
+        WHERE source_ref_type = 'dialysis_session'
+          AND source_ref_id = $1::int
+        LIMIT 1`,
+      Number(session.id),
+    );
+    if (existing.length) {
+      return {
+        status: 'already_emitted',
+        emitted: false,
+        invoice_id: existing[0].invoice_id,
+        invoice_item_id: existing[0].id,
+      };
+    }
+
+    const patient = await getPatientBillingSnapshot(tenantId, session.patient_uid);
+    let invoice = unwrap(await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND department = 'Dialysis'
+          AND invoice_type = 'OP'
+          AND status = 'DRAFT'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      tenantOr(tenantId), String(session.patient_uid),
+    ));
+    if (!invoice) {
+      invoice = await createDraftInvoice({
+        tenantId: tenantOr(tenantId),
+        patient_uid: session.patient_uid,
+        patient_name: patient.name || null,
+        patient_phone: patient.phone || null,
+        department: 'Dialysis',
+        invoice_type: 'OP',
+        notes: 'Auto-created by dialysis completion hook; draft only until finance issues invoice.',
+        created_by: actorUid,
+      });
+    }
+
+    const unitPrice = Number(config.unit_price);
+    const item = await addInvoiceItem(invoice.id, {
+      tenantId: tenantOr(tenantId),
+      service_code: config.service_code || 'DIALYSIS-HD-SESSION',
+      description: `Dialysis session #${session.id}`,
+      category: 'procedure',
+      quantity: 1,
+      unit_price: unitPrice,
+      gst_rate: Number(config.gst_rate || 0),
+      notes: 'Finance-reviewed dialysis tariff emitted from session completion.',
+      source_ref_type: 'dialysis_session',
+      source_ref_id: session.id,
+    });
+    return {
+      status: 'emitted',
+      emitted: true,
+      invoice_id: invoice.id,
+      invoice_item_id: item.id,
+      unit_price: unitPrice,
+    };
+  } catch (err) {
+    const duplicate = await prisma.$queryRawUnsafe(
+      `SELECT id, invoice_id
+         FROM billing_invoice_items
+        WHERE source_ref_type = 'dialysis_session'
+          AND source_ref_id = $1::int
+        LIMIT 1`,
+      Number(session.id),
+    ).catch(() => []);
+    if (duplicate.length) {
+      return {
+        status: 'already_emitted',
+        emitted: false,
+        invoice_id: duplicate[0].invoice_id,
+        invoice_item_id: duplicate[0].id,
+      };
+    }
+    logger.error('dialysis billing hook failed', {
+      tenantId,
+      sessionId: session.id,
+      error: err.message,
+    });
+    return { status: 'error', emitted: false, message: 'Billing hook failed; review required' };
+  }
+}
+
+export async function recordReuseRegister({ tenantId, session_id, processed_by, ...body }) {
+  if (!session_id) throw AppError.badRequest('session_id required');
+  if (!body.dialyzer_serial) throw AppError.badRequest('dialyzer_serial required');
+  const normalized = validateReuseRegisterInput(body);
+
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const sessRows = await tx.$queryRawUnsafe(
+      `SELECT s.id, s.reuse_count, s.dialysis_patient_id, p.patient_uid
+         FROM dialysis_sessions s
+         JOIN dialysis_patients p ON p.id = s.dialysis_patient_id
+          AND p.tenant_id = s.tenant_id
+        WHERE s.id = $1::int AND s.tenant_id = $2::uuid
+        FOR UPDATE`,
+      Number(session_id), tenantOr(tenantId),
+    );
+    const sess = unwrap(sessRows);
+    if (!sess) throw AppError.notFound('Session not found');
+    if (sess.reuse_count != null && Number(sess.reuse_count) !== normalized.reuseCycleCount) {
+      throw AppError.badRequest(
+        'reuse_cycle_count must match the session reuse_count',
+        'DIALYZER_REUSE_SESSION_MISMATCH',
+        { session_reuse_count: Number(sess.reuse_count), reuse_cycle_count: normalized.reuseCycleCount },
+      );
+    }
+    if (sess.reuse_count == null) {
+      await tx.$executeRawUnsafe(
+        `UPDATE dialysis_sessions
+            SET reuse_count = $1::int, updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid`,
+        normalized.reuseCycleCount, sess.id, tenantOr(tenantId),
+      );
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO dialyzer_reuse_register
+         (tenant_id, session_id, dialysis_patient_id, patient_uid, dialyzer_serial,
+          reuse_cycle_count, session_reuse_count, integrity_test_result,
+          integrity_test_method, disinfectant, processed_by, status, discard_reason, notes)
+       VALUES ($1::uuid, $2::int, $3::int, $4::uuid, $5, $6::int, $7::int, $8,
+               $9, $10, $11::uuid, $12, $13, $14)
+       ON CONFLICT (tenant_id, session_id) DO UPDATE SET
+          dialyzer_serial = EXCLUDED.dialyzer_serial,
+          reuse_cycle_count = EXCLUDED.reuse_cycle_count,
+          session_reuse_count = EXCLUDED.session_reuse_count,
+          integrity_test_result = EXCLUDED.integrity_test_result,
+          integrity_test_method = EXCLUDED.integrity_test_method,
+          disinfectant = EXCLUDED.disinfectant,
+          processed_by = EXCLUDED.processed_by,
+          processed_at = NOW(),
+          status = EXCLUDED.status,
+          discard_reason = EXCLUDED.discard_reason,
+          notes = EXCLUDED.notes,
+          updated_at = NOW()
+       RETURNING *`,
+      tenantOr(tenantId),
+      sess.id,
+      sess.dialysis_patient_id,
+      sess.patient_uid,
+      String(body.dialyzer_serial).trim(),
+      normalized.reuseCycleCount,
+      normalized.reuseCycleCount,
+      normalized.integrity,
+      body.integrity_test_method || null,
+      body.disinfectant || null,
+      processed_by || null,
+      normalized.status,
+      normalized.discardReason,
+      body.notes || null,
+    );
+    return unwrap(rows);
+  });
+}
+
+export async function listReuseRegister({ tenantId, session_id, dialysis_patient_id, limit = 100 }) {
+  const conds = ['tenant_id = $1::uuid'];
+  const args = [tenantOr(tenantId)];
+  if (session_id) {
+    args.push(Number(session_id));
+    conds.push(`session_id = $${args.length}::int`);
+  }
+  if (dialysis_patient_id) {
+    const patient = await getDialysisPatientInTenant(tenantId, dialysis_patient_id);
+    args.push(patient.id);
+    conds.push(`dialysis_patient_id = $${args.length}::int`);
+  }
+  const lim = Math.min(parseInt(limit, 10) || 100, 500);
+  return prisma.$queryRawUnsafe(
+    `SELECT * FROM dialyzer_reuse_register
+      WHERE ${conds.join(' AND ')}
+      ORDER BY processed_at DESC, id DESC
+      LIMIT ${lim}`,
+    ...args,
+  );
+}
+
+export async function recordMachineQaLog({ tenantId, recorded_by, ...body }) {
+  if (!body.machine_no && !body.session_id) {
+    throw AppError.badRequest('machine_no or session_id required');
+  }
+  let machineNo = body.machine_no ? String(body.machine_no).trim() : null;
+  let sessionId = body.session_id ? Number(body.session_id) : null;
+  if (sessionId) {
+    const session = await getDialysisSessionInTenant(tenantId, sessionId);
+    const sessionRows = await prisma.$queryRawUnsafe(
+      `SELECT machine_no FROM dialysis_sessions WHERE id = $1::int AND tenant_id = $2::uuid`,
+      session.id, tenantOr(tenantId),
+    );
+    const sessionMachine = unwrap(sessionRows)?.machine_no || null;
+    if (!machineNo) machineNo = sessionMachine;
+    if (machineNo && sessionMachine && machineNo !== sessionMachine) {
+      throw AppError.badRequest('machine_no does not match the session machine_no', 'DIALYSIS_QA_MACHINE_MISMATCH');
+    }
+  }
+  if (!machineNo) throw AppError.badRequest('machine_no required');
+  const issues = Array.isArray(body.issues) ? body.issues : [];
+  const status = body.status || (body.machine_ready && body.disinfection_completed ? 'passed' : 'pending');
+  if (!MACHINE_QA_STATUSES.includes(status)) {
+    throw AppError.badRequest(
+      `status must be one of: ${MACHINE_QA_STATUSES.join(', ')}`,
+      'DIALYSIS_QA_STATUS_INVALID',
+    );
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO dialysis_machine_qa_logs
+       (tenant_id, machine_no, session_id, qa_date, disinfection_completed,
+        disinfection_method, disinfectant_lot, turnaround_started_at,
+        turnaround_completed_at, machine_ready, status, issues, notes, recorded_by)
+     VALUES ($1::uuid, $2, $3::int, COALESCE($4::date, CURRENT_DATE), COALESCE($5, false),
+             $6, $7, $8::timestamptz, $9::timestamptz, COALESCE($10, false),
+             $11, $12::jsonb, $13, $14::uuid)
+     RETURNING *`,
+    tenantOr(tenantId),
+    machineNo,
+    sessionId,
+    body.qa_date || null,
+    body.disinfection_completed ?? null,
+    body.disinfection_method || null,
+    body.disinfectant_lot || null,
+    body.turnaround_started_at || null,
+    body.turnaround_completed_at || null,
+    body.machine_ready ?? null,
+    status,
+    JSON.stringify(issues),
+    body.notes || null,
+    recorded_by || null,
+  );
+  return unwrap(rows);
+}
+
+export async function listMachineQaLogs({ tenantId, machine_no, session_id, limit = 100 }) {
+  const conds = ['tenant_id = $1::uuid'];
+  const args = [tenantOr(tenantId)];
+  if (machine_no) {
+    args.push(String(machine_no));
+    conds.push(`machine_no = $${args.length}`);
+  }
+  if (session_id) {
+    args.push(Number(session_id));
+    conds.push(`session_id = $${args.length}::int`);
+  }
+  const lim = Math.min(parseInt(limit, 10) || 100, 500);
+  return prisma.$queryRawUnsafe(
+    `SELECT * FROM dialysis_machine_qa_logs
+      WHERE ${conds.join(' AND ')}
+      ORDER BY qa_date DESC, recorded_at DESC, id DESC
+      LIMIT ${lim}`,
+    ...args,
+  );
+}
+
 // ── Serology ──────────────────────────────────────────────────────
 
 export async function recordSerology({ tenantId, dialysis_patient_id, ...body }) {
@@ -735,4 +1145,5 @@ export async function recordSerology({ tenantId, dialysis_patient_id, ...body })
 export const _internal = {
   SESSION_TRANSITIONS, computeUrr, computeKtv,
   VALID_MODALITIES, VALID_ACCESS_TYPES,
+  validateReuseRegisterInput, buildMachineQaWarnings,
 };

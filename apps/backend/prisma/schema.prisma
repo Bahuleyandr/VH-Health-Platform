@@ -9612,10 +9612,13 @@ model tenants {
   device_presence_logs                       device_presence_logs[]
   devices                                    devices[]
   diagnoses                                  diagnoses[]
+  dialysis_billing_settings                  dialysis_billing_settings?
   dialysis_intra_obs                         dialysis_intra_obs[]
+  dialysis_machine_qa_logs                   dialysis_machine_qa_logs[]
   dialysis_prescriptions                     dialysis_prescriptions[]
   dialysis_serology                          dialysis_serology[]
   dialysis_session_events                    dialysis_session_events[]
+  dialyzer_reuse_register                    dialyzer_reuse_register[]
   diet_orders                                diet_orders[]
   discharge_consults                         discharge_consults[]
   discharge_summary_sections                 discharge_summary_sections[]
@@ -11010,6 +11013,7 @@ model billing_invoice_items {
   tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_billing_invoice_items_tenant")
   tpa_claim_line_decisions tpa_claim_line_decisions[]
 
+  @@unique([source_ref_type, source_ref_id], map: "ux_billing_invoice_items_dialysis_session", where: raw("(((source_ref_type)::text = 'dialysis_session'::text) AND (source_ref_id IS NOT NULL))"))
   @@index([invoice_id], map: "idx_invoice_items_invoice")
   @@index([invoice_id], map: "idx_billing_invoice_items_non_payable", where: raw("((tpa_decision)::text = ANY ((ARRAY['non_payable'::character varying, 'partial'::character varying])::text[]))"))
   @@index([source_ref_type, source_ref_id], map: "idx_billing_invoice_items_source_ref", where: raw("((source_ref_type IS NOT NULL) AND (source_ref_id IS NOT NULL))"))
@@ -12647,29 +12651,30 @@ model dialysis_intra_obs {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model dialysis_patients {
-  id                     Int                     @id @default(autoincrement())
-  patient_uid            String                  @db.Uuid
-  enrolled_at            DateTime                @default(dbgenerated("CURRENT_DATE")) @db.Date
-  modality               String                  @default("hd") @db.VarChar(20)
-  schedule_pattern       String?                 @db.VarChar(20)
-  prescribed_minutes     Int?
-  prescribed_dialyser    String?                 @db.VarChar(80)
-  dry_weight_kg          Decimal?                @db.Decimal(5, 2)
-  dry_weight_set_at      DateTime?               @db.Timestamptz(6)
-  anticoag_default       String?                 @default("heparin") @db.VarChar(20)
-  hbsag_status           String?                 @default("negative") @db.VarChar(20)
-  hcv_status             String?                 @default("negative") @db.VarChar(20)
-  hiv_status             String?                 @default("negative") @db.VarChar(20)
-  isolation_required     Boolean?                @default(dbgenerated("(((hbsag_status)::text = 'positive'::text) OR ((hcv_status)::text = 'positive'::text) OR ((hiv_status)::text = 'positive'::text))"))
-  status                 String                  @default("active") @db.VarChar(20)
-  notes                  String?
-  tenant_id              String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at             DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
-  dialysis_prescriptions dialysis_prescriptions?
-  dialysis_serology      dialysis_serology[]
-  dialysis_sessions      dialysis_sessions[]
-  vascular_access        vascular_access?
+  id                      Int                       @id @default(autoincrement())
+  patient_uid             String                    @db.Uuid
+  enrolled_at             DateTime                  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  modality                String                    @default("hd") @db.VarChar(20)
+  schedule_pattern        String?                   @db.VarChar(20)
+  prescribed_minutes      Int?
+  prescribed_dialyser     String?                   @db.VarChar(80)
+  dry_weight_kg           Decimal?                  @db.Decimal(5, 2)
+  dry_weight_set_at       DateTime?                 @db.Timestamptz(6)
+  anticoag_default        String?                   @default("heparin") @db.VarChar(20)
+  hbsag_status            String?                   @default("negative") @db.VarChar(20)
+  hcv_status              String?                   @default("negative") @db.VarChar(20)
+  hiv_status              String?                   @default("negative") @db.VarChar(20)
+  isolation_required      Boolean?                  @default(dbgenerated("(((hbsag_status)::text = 'positive'::text) OR ((hcv_status)::text = 'positive'::text) OR ((hiv_status)::text = 'positive'::text))"))
+  status                  String                    @default("active") @db.VarChar(20)
+  notes                   String?
+  tenant_id               String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  dialysis_prescriptions  dialysis_prescriptions?
+  dialysis_serology       dialysis_serology[]
+  dialysis_sessions       dialysis_sessions[]
+  dialyzer_reuse_register dialyzer_reuse_register[]
+  vascular_access         vascular_access?
 
   @@index([patient_uid], map: "idx_dialysis_patients_pat")
   @@index([tenant_id, status], map: "idx_dialysis_patients_active", where: raw("((status)::text = 'active'::text)"))
@@ -12701,57 +12706,59 @@ model dialysis_serology {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model dialysis_sessions {
-  id                         Int                       @id @default(autoincrement())
+  id                         Int                        @id @default(autoincrement())
   dialysis_patient_id        Int
   vascular_access_id         Int?
-  session_date               DateTime                  @default(dbgenerated("CURRENT_DATE")) @db.Date
-  machine_no                 String?                   @db.VarChar(40)
-  station_no                 String?                   @db.VarChar(20)
-  modality                   String                    @db.VarChar(20)
-  dialyser                   String?                   @db.VarChar(80)
+  session_date               DateTime                   @default(dbgenerated("CURRENT_DATE")) @db.Date
+  machine_no                 String?                    @db.VarChar(40)
+  station_no                 String?                    @db.VarChar(20)
+  modality                   String                     @db.VarChar(20)
+  dialyser                   String?                    @db.VarChar(80)
   reuse_count                Int?
-  scheduled_start_at         DateTime?                 @db.Timestamptz(6)
-  actual_start_at            DateTime?                 @db.Timestamptz(6)
-  actual_end_at              DateTime?                 @db.Timestamptz(6)
+  scheduled_start_at         DateTime?                  @db.Timestamptz(6)
+  actual_start_at            DateTime?                  @db.Timestamptz(6)
+  actual_end_at              DateTime?                  @db.Timestamptz(6)
   duration_min               Int?
-  pre_weight_kg              Decimal?                  @db.Decimal(5, 2)
+  pre_weight_kg              Decimal?                   @db.Decimal(5, 2)
   pre_bp_systolic            Int?
   pre_bp_diastolic           Int?
   pre_pulse                  Int?
-  pre_temp_c                 Decimal?                  @db.Decimal(4, 1)
-  post_weight_kg             Decimal?                  @db.Decimal(5, 2)
+  pre_temp_c                 Decimal?                   @db.Decimal(4, 1)
+  post_weight_kg             Decimal?                   @db.Decimal(5, 2)
   post_bp_systolic           Int?
   post_bp_diastolic          Int?
   post_pulse                 Int?
-  post_temp_c                Decimal?                  @db.Decimal(4, 1)
-  prescribed_uf_l            Decimal?                  @db.Decimal(4, 2)
-  actual_uf_l                Decimal?                  @db.Decimal(4, 2)
-  anticoag                   String?                   @db.VarChar(20)
-  anticoag_initial_dose      String?                   @db.VarChar(40)
-  anticoag_maintenance       String?                   @db.VarChar(40)
-  ktv_calculated             Decimal?                  @db.Decimal(4, 2)
+  post_temp_c                Decimal?                   @db.Decimal(4, 1)
+  prescribed_uf_l            Decimal?                   @db.Decimal(4, 2)
+  actual_uf_l                Decimal?                   @db.Decimal(4, 2)
+  anticoag                   String?                    @db.VarChar(20)
+  anticoag_initial_dose      String?                    @db.VarChar(40)
+  anticoag_maintenance       String?                    @db.VarChar(40)
+  ktv_calculated             Decimal?                   @db.Decimal(4, 2)
   urea_pre_mg_dl             Int?
   urea_post_mg_dl            Int?
   urr_pct                    Int?
-  intra_dialytic_hypotension Boolean                   @default(false)
-  cramps                     Boolean                   @default(false)
-  bleeding                   Boolean                   @default(false)
-  clotting                   Boolean                   @default(false)
-  early_termination          Boolean                   @default(false)
+  intra_dialytic_hypotension Boolean                    @default(false)
+  cramps                     Boolean                    @default(false)
+  bleeding                   Boolean                    @default(false)
+  clotting                   Boolean                    @default(false)
+  early_termination          Boolean                    @default(false)
   early_termination_reason   String?
-  status                     String                    @default("scheduled") @db.VarChar(20)
-  conducted_by               String?                   @db.Uuid
-  supervised_by              String?                   @db.Uuid
+  status                     String                     @default("scheduled") @db.VarChar(20)
+  conducted_by               String?                    @db.Uuid
+  supervised_by              String?                    @db.Uuid
   notes                      String?
-  tenant_id                  String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at                 DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
   prescription_id            Int?
   dialysis_intra_obs         dialysis_intra_obs[]
+  dialysis_machine_qa_logs   dialysis_machine_qa_logs[]
   dialysis_session_events    dialysis_session_events[]
-  dialysis_patients          dialysis_patients         @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  dialysis_prescriptions     dialysis_prescriptions?   @relation(fields: [prescription_id], references: [id], onUpdate: NoAction)
-  vascular_access            vascular_access?          @relation(fields: [vascular_access_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dialysis_patients          dialysis_patients          @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dialysis_prescriptions     dialysis_prescriptions?    @relation(fields: [prescription_id], references: [id], onUpdate: NoAction)
+  vascular_access            vascular_access?           @relation(fields: [vascular_access_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dialyzer_reuse_register    dialyzer_reuse_register[]
 
   @@index([dialysis_patient_id, session_date(sort: Desc)], map: "idx_dialysis_sess_patient")
   @@index([tenant_id, status, session_date(sort: Desc)], map: "idx_dialysis_sess_status")
@@ -16632,4 +16639,80 @@ model outbreak_episodes {
   @@unique([tenant_id, episode_code], map: "uq_outbreak_episode_code")
   @@index([tenant_id, organism, ward, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_organism_ward")
   @@index([tenant_id, status, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialysis_billing_settings {
+  tenant_id           String    @id @db.Uuid
+  charge_enabled      Boolean   @default(false)
+  service_code        String    @default("DIALYSIS-HD-SESSION") @db.VarChar(50)
+  unit_price          Decimal?  @db.Decimal(12, 2)
+  gst_rate            Decimal   @default(0) @db.Decimal(5, 2)
+  finance_reviewed_at DateTime? @db.Timestamptz(6)
+  finance_reviewed_by String?   @db.Uuid
+  acceptance_snapshot Json?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialysis_machine_qa_logs {
+  id                      BigInt             @id @default(autoincrement())
+  tenant_id               String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  machine_no              String             @db.VarChar(40)
+  session_id              Int?
+  qa_date                 DateTime           @default(dbgenerated("CURRENT_DATE")) @db.Date
+  disinfection_completed  Boolean            @default(false)
+  disinfection_method     String?            @db.VarChar(120)
+  disinfectant_lot        String?            @db.VarChar(120)
+  turnaround_started_at   DateTime?          @db.Timestamptz(6)
+  turnaround_completed_at DateTime?          @db.Timestamptz(6)
+  machine_ready           Boolean            @default(false)
+  status                  String             @default("pending") @db.VarChar(30)
+  warn_only               Boolean            @default(true)
+  issues                  Json               @default("[]")
+  notes                   String?
+  recorded_by             String?            @db.Uuid
+  recorded_at             DateTime           @default(now()) @db.Timestamptz(6)
+  created_at              DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime           @default(now()) @db.Timestamptz(6)
+  dialysis_sessions       dialysis_sessions? @relation(fields: [session_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialysis_machine_qa_logs_tenant")
+
+  @@index([tenant_id, machine_no, qa_date(sort: Desc), recorded_at(sort: Desc)], map: "idx_dialysis_machine_qa_logs_machine_date")
+  @@index([tenant_id, session_id], map: "idx_dialysis_machine_qa_logs_session", where: raw("(session_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialyzer_reuse_register {
+  id                     BigInt            @id @default(autoincrement())
+  tenant_id              String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  session_id             Int
+  dialysis_patient_id    Int
+  patient_uid            String            @db.Uuid
+  dialyzer_serial        String            @db.VarChar(80)
+  reuse_cycle_count      Int
+  session_reuse_count    Int?
+  integrity_test_result  String            @default("pending") @db.VarChar(20)
+  integrity_test_method  String?           @db.VarChar(120)
+  disinfectant           String?           @db.VarChar(80)
+  processed_by           String?           @db.Uuid
+  processed_at           DateTime          @default(now()) @db.Timestamptz(6)
+  status                 String            @default("in_use") @db.VarChar(20)
+  discard_reason         String?           @db.VarChar(255)
+  register_format_status String            @default("format_pending") @db.VarChar(30)
+  notes                  String?
+  created_at             DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime          @default(now()) @db.Timestamptz(6)
+  dialysis_patients      dialysis_patients @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dialysis_sessions      dialysis_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialyzer_reuse_register_tenant")
+
+  @@unique([tenant_id, session_id], map: "ux_dialyzer_reuse_register_session")
+  @@index([tenant_id, dialysis_patient_id, processed_at(sort: Desc)], map: "idx_dialyzer_reuse_register_patient")
+  @@index([tenant_id, dialyzer_serial, reuse_cycle_count(sort: Desc)], map: "idx_dialyzer_reuse_register_serial")
 }

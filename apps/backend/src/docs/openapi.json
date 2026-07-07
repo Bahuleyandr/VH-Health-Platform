@@ -61607,6 +61607,38 @@
         ]
       }
     },
+    "/api/v1/dialysis/machine-qa": {
+      "get": {
+        "operationId": "get_api_v1_dialysis_machine_qa",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_dialysis_machine_qa",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/dialysis/machines/ingest": {
       "post": {
         "operationId": "post_api_v1_dialysis_machines_ingest",
@@ -61982,6 +62014,58 @@
       },
       "post": {
         "operationId": "post_api_v1_dialysis_sessions_by_id_obs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/dialysis/sessions/{id}/reuse-register": {
+      "get": {
+        "operationId": "get_api_v1_dialysis_sessions_by_id_reuse_register",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_dialysis_sessions_by_id_reuse_register",
         "responses": {
           "200": {
             "description": "Successful response",
