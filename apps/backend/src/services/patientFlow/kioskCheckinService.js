@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { ensureAppointmentQueueForAppointment } from '../appointment/appointmentQueueService.js';
 import { findRegistrationDuplicateCandidates } from '../patient/patientDedupeService.js';
