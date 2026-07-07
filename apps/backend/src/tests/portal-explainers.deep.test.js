@@ -15,6 +15,7 @@ let acceptedReviewId;
 let pendingReviewId;
 let rejectedReviewId;
 let otherPatientReviewId;
+let seededModuleForTest = false;
 
 function patientClient() {
   return {
@@ -36,6 +37,21 @@ async function setModuleEnabled(enabled) {
     MODULE_KEY,
     Boolean(enabled),
   );
+}
+
+async function ensureModuleRegistered() {
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT module_key FROM clinical_ai_modules WHERE module_key = $1 LIMIT 1`,
+    MODULE_KEY,
+  );
+  if (existing[0]?.module_key) return;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO clinical_ai_modules
+       (module_key, display_name, description, enabled, settings, created_at, updated_at)
+     VALUES ($1, 'Lab Result Patient Explanation', 'Patient-facing explanation fixture', true, '{}'::jsonb, NOW(), NOW())`,
+    MODULE_KEY,
+  );
+  seededModuleForTest = true;
 }
 
 async function insertGeneration({
@@ -102,6 +118,13 @@ async function cleanup() {
     TENANT_ID,
     MODULE_KEY,
   ).catch(() => {});
+  if (seededModuleForTest) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_ai_modules WHERE module_key = $1`,
+      MODULE_KEY,
+    ).catch(() => {});
+    seededModuleForTest = false;
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
     PATIENT_UID,
@@ -128,6 +151,7 @@ describe('Portal explainers — accepted patient read surface', () => {
       id: users.find((u) => String(u.uid) === PATIENT_UID)?.id,
     });
 
+    await ensureModuleRegistered();
     await setModuleEnabled(true);
 
     const acceptedGenId = await insertGeneration({

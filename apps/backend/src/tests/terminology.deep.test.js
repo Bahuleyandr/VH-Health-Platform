@@ -261,10 +261,15 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
   test('coverage report counts the confirmed binding', async () => {
     const res = await authClient('DOCTOR').get('/api/v1/terminology/coverage');
     expect(res.status).toBe(200);
-    const inv = res.body.data.coverage.find((c) => c.catalog_type === 'investigation_test');
+    const inv = res.body.data.coverage.catalog_bindings.find((c) => c.catalog_type === 'investigation_test');
     expect(inv).toBeDefined();
     expect(inv.confirmed).toBeGreaterThanOrEqual(1);
     expect(inv.catalog_rows).toBeGreaterThanOrEqual(2);
+    const mapCoverage = res.body.data.coverage.concept_maps.find(
+      (c) => c.source_system === 'ICD10' && c.target_system === 'SNOMED_CT',
+    );
+    expect(mapCoverage).toBeDefined();
+    expect(mapCoverage.relationships.broader).toBeGreaterThanOrEqual(1);
   });
 
   test('binding write rejected for non-curator; patient blocked at mount', async () => {
