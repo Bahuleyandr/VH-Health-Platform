@@ -40,6 +40,7 @@ const navigation: NavItem[] = [
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Report Builder', href: '/dashboard/report-builder', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Staff Roster', href: '/dashboard/staff-roster', minRole: 'HR' },
+  { name: 'Credentialing', href: '/dashboard/credentialing', minRole: 'HR' },
   { name: 'Attendance', href: '/dashboard/attendance', requiredPermissions: ['userManagement'] },
   { name: 'Leave Approvals', href: '/dashboard/leave-approvals', minRole: 'HR' },
   { name: 'Shift Management', href: '/dashboard/shifts', minRole: 'HR' },

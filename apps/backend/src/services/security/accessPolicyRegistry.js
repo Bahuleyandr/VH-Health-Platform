@@ -324,7 +324,10 @@ export function policyCodeForRecordType(recordType = 'PHI') {
   // ---- CareTeam ABAC family record types (LOW-1) ----
   // Diagnostics
   if (normalized === 'INVESTIGATION') return ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW;
-  if (normalized === 'LAB_RESULT' || normalized === 'MICROBIOLOGY') return ACCESS_POLICY_CODES.PATIENT_LAB_RESULT_VIEW;
+  if (normalized === 'LAB_RESULT'
+    || normalized === 'MICROBIOLOGY'
+    || normalized === 'PATHOLOGY'
+    || normalized === 'ANATOMIC_PATHOLOGY') return ACCESS_POLICY_CODES.PATIENT_LAB_RESULT_VIEW;
   if (normalized === 'RADIOLOGY' || normalized === 'RADIOLOGY_PACS') return ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW;
   // Medication
   if (normalized === 'PHARMACY_ORDER' || normalized === 'PRESCRIPTION') return ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW;

@@ -163,7 +163,7 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
   test('validate: LOINC structural fallback while catalogue not imported', async () => {
     const structural = await authClient('DOCTOR')
       .get('/api/v1/terminology/validate')
-      .query({ system: 'LOINC', code: '2160-0' });
+      .query({ system: 'LOINC', code: '9999999-9' });
     expect(structural.status).toBe(200);
     expect(structural.body.data).toMatchObject({ valid: true, mode: 'structural' });
 

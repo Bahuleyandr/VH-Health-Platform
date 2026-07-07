@@ -12,7 +12,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { info: jest.fn(), error: jest.fn() },
+  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
 // Canonical timeline/audit writes are emitted in the same tx as each mutation

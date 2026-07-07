@@ -23,6 +23,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { assertPrivilegeForGate, isGateEnabled } from '../staff/credentialingService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -909,6 +910,15 @@ export async function upsertAnesthesiaRecord({
       'ANAESTHESIA_FINALIZER_REQUIRED',
     );
   }
+  if (cleanStatus === 'finalized') {
+    await assertPrivilegeForGate({
+      staffUid: finalizerUid,
+      privilegeName: 'anesthesia_finalize',
+      tenantId: tid,
+      gate: 'anesthesia_record_upsert_finalize',
+      enabled: isGateEnabled('ANESTHESIA_REQUIRE_FINALIZE_PRIVILEGE'),
+    });
+  }
 
   try {
     return await setTenantTx(tid, async (tx) => {
@@ -1027,6 +1037,13 @@ export async function finalizeAnesthesiaRecord({
       'ANAESTHESIA_FINALIZER_REQUIRED',
     );
   }
+  await assertPrivilegeForGate({
+    staffUid: finalizerUid,
+    privilegeName: 'anesthesia_finalize',
+    tenantId: tid,
+    gate: 'anesthesia_record_finalize',
+    enabled: isGateEnabled('ANESTHESIA_REQUIRE_FINALIZE_PRIVILEGE'),
+  });
   return setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE anesthesia_records
