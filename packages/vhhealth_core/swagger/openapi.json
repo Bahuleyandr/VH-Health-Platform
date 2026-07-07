@@ -89711,6 +89711,38 @@
         }
       }
     },
+    "/api/v1/terminology/settings": {
+      "get": {
+        "operationId": "get_api_v1_terminology_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_terminology_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/terminology/validate": {
       "get": {
         "operationId": "get_api_v1_terminology_validate",
