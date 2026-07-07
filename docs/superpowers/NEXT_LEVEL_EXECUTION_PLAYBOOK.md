@@ -32,6 +32,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | NL-7 device gateway | Spec MERGED. **P1 MERGED** (PR #456 `117a5b7b`, migs 371–373 [374 unused], PASS zero-corrections — gateway service, registry, associations, alarm policy). **ROUND 1 CLOSED.** P2 + P3 LAUNCHED (round 2b) |
 | NL-8..NL-10 (Wave C) | Not started — kickoff design prompts ready in the library |
 | NL-11..NL-12 (Wave D) | Not started — kickoff prompts ready; NL-12 heavily operator-track |
+| NL-13..NL-14 (Wave E, quaternary depth) | Defined in roadmap §5-E (2026-07-07) — design kickoffs ready; see the one-month plan for sequencing |
 
 ## 2. The pipeline loop
 
@@ -122,7 +123,10 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 408–410 | NL-5 P2 + indigenous-KB substrate | launched 2026-07-07 (round 4) |
 | 411–412 | N6-10 infusion chairs | launched 2026-07-07 (round 4) |
 | 413–414 | N6-12 mortuary | launched 2026-07-07 (round 4) |
-| 415+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 415–417 | N6-7 ophthalmology | launched 2026-07-07 (round 5) |
+| 418–420 | N6-9 dialysis completion | launched 2026-07-07 (round 5) |
+| 421–423 | N6-13 CSSD | launched 2026-07-07 (round 5) |
+| 424+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -217,6 +221,10 @@ parallel-safe may overlap.
 | `wave-c-nl10-kickoff.md` | NL-10 embedded-BI **design spec** | same | READY (design) |
 | `wave-d-nl11-kickoff.md` | NL-11 productization **survey + slice plan** | may start parallel to B/C | READY (design) |
 | `wave-d-nl12-kickoff.md` | NL-12 assurance **plan** (heavily operator) | same | READY (design) |
+| `wave-e-nl13-kickoff.md` | NL-13 quaternary suites **survey+design** | Wave B substantially landed ✓ | READY (design) |
+| `wave-e-nl14-kickoff.md` | NL-14 critical-care/ED depth **survey+design** | same | READY (design) |
+| `golive-readiness-kickoff.md` | `docs/GO_LIVE_RUNBOOK.md` — sequenced activation runbook | Week-3 of the month plan (or on demand) | READY (design) |
+| `indigenous-drugkb-kickoff.md` | indigenous drug-KB program design spec | — | **MERGED** #463 |
 
 Wave C/D kickoffs produce SPECS, not code — after each spec merges, run loop steps 2–4 to
 generate that program's build prompts (model them on the NL-5/6/7 ones here).
@@ -245,3 +253,36 @@ generate that program's build prompts (model them on the NL-5/6/7 ones here).
   apps/backend/src/routes`). A gate that greps only routes/ false-negatives.
 - Terminology + drug-KB content tables are GLOBAL (no tenant_id/RLS — mig 275/307/277 stance);
   never commit licensed content (SNOMED RF2, LOINC, vendor KB, IAP tables pending Decision 6).
+
+## 11. Prompt-Authoring Guide — turning a merged spec into build prompts (successor procedure)
+
+When a design spec merges, the coordinator authors its build prompts. This is the ONLY
+recurring authoring act in the pipeline; execute it mechanically:
+
+1. **Slice by the spec's own phased plan / slice table.** One prompt per phase/slice.
+2. **Copy an existing prompt as the skeleton** (`nl6-05-credentialing.md` for single-batch
+   backend+admin; `nl7-p1-device-gateway.md` for multi-surface) and fill exactly: title ·
+   spec pointer (file + §) · start gate (`git grep` for the prerequisite ON MAIN —
+   mount-path literals live in app.js, not routes/) · workspace block (worktree + branch
+   names) · scope bullets (COPY the spec's deliverables, cite its line refs — do not
+   re-design) · migration COUNT from the spec with numbers left as <ASSIGN> · tests (the
+   spec's test strategy verbatim) · deliverable contract (branch, PR title, build ledger,
+   STOP after PR, never force-push after the PR opens) · kickoff line.
+3. **Parallel-safety:** list each prompt's touched surfaces. Overlap ONLY in
+   schema.prisma/openapi.json = parallel-safe (the train regenerates); overlapping service
+   files = sequence them.
+4. **Sizing:** S ≤1.5k LOC · M 1.5–4k · L 4k+. Split L unless the spec argues cohesion.
+5. **Registry:** land prompts via a docs PR that ALSO assigns each launched prompt's
+   contiguous migration block in §5. Never assign numbers in chat alone.
+6. **Launch:** paste each kickoff line into a fresh worker session with the block filled in.
+7. **Verify + merge per §4** as PRs land; refresh §5/§8/§9 in the next docs PR.
+
+Every step is CLI- or paste-executable — a human coordinator can run the entire loop.
+
+## 12. One-month plan (and its successors)
+
+The current calendar: `docs/superpowers/plans/2026-07-07-one-month-execution-plan.md` —
+week-by-week launches, owner decisions, operator actions, dependency map, and exit criteria
+through 2026-08-10 (covers Wave C/D build-out, Wave E design+start, the go-live-readiness
+rehearsal). At month end, draft the next month's plan from the §9 remainder into a new
+dated file in the same directory — that review is itself a docs PR.

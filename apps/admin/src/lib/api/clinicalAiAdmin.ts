@@ -168,6 +168,32 @@ export interface ClinicalAiConfig {
   supportedProviders?: string[];
 }
 
+export interface DrugKbSourceStatus {
+  source_key: string;
+  name: string;
+  vendor?: string | null;
+  version?: string | null;
+  license_note?: string | null;
+  is_starter: boolean;
+  is_active: boolean;
+  priority?: number | null;
+  source_family?: string | null;
+  edition_status?: string | null;
+  license_status?: string | null;
+  imported_at?: string | null;
+  accepted_at?: string | null;
+  activated_at?: string | null;
+  deactivated_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface DrugKbStatus {
+  kb_available: boolean;
+  sources: DrugKbSourceStatus[];
+  counts: Record<string, number> | null;
+  starter_only: boolean | null;
+}
+
 export interface ClinicalAiStatus {
   config: ClinicalAiConfig;
   providerHealth: {
@@ -182,6 +208,7 @@ export interface ClinicalAiStatus {
   modules: ClinicalAiModule[];
   usage: ClinicalAiUsageSummary;
   adapters?: ClinicalAiAdapterStatus[];
+  drug_kb_status?: DrugKbStatus;
 }
 
 export interface ClinicalAiGeneration {

@@ -616,6 +616,21 @@ class DonorIntakeService {
     const collectionKind = cleanText(data.collection_kind || data.collectionKind, 20) || 'in_house';
     const barcode = cleanText(data.donation_barcode || data.donationBarcode, 80) || donationBarcode(tenantId, donorId);
     const donationCode = cleanText(data.donation_code || data.donationCode, 60) || barcode;
+    const campId = data.camp_id ?? data.campId ?? null;
+    if (campId != null) {
+      const campRows = await prisma.$queryRawUnsafe(
+        `SELECT id
+           FROM donor_camps
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          LIMIT 1`,
+        Number(campId),
+        tenantId,
+      ).catch((err) => {
+        if (err?.code === 'P2010' || String(err?.message || '').includes('donor_camps')) return [];
+        throw err;
+      });
+      if (!campRows.length) throw AppError.notFound('Donor camp not found', 'DONOR_CAMP_NOT_FOUND');
+    }
     const preVitals = asObject(data.pre_vitals || data.preVitals, 'pre_vitals');
     const postVitals = asObject(data.post_vitals || data.postVitals, 'post_vitals');
     const adverseReaction = data.adverse_reaction === true || data.adverseReaction === true;
@@ -624,15 +639,15 @@ class DonorIntakeService {
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO donation_events
            (tenant_id, donor_id, screening_id, donation_code, donation_barcode,
-            collection_kind, camp_name, camp_location, pre_vitals, post_vitals,
+            collection_kind, camp_id, camp_name, camp_location, pre_vitals, post_vitals,
             volume_ml, collected_by, barcode_printed_at, barcode_scanned_at,
             barcode_scan_match, adverse_reaction, adverse_reaction_type,
             adverse_reaction_severity, adverse_reaction_notes,
             adverse_reaction_intervention, adverse_reaction_outcome, metadata)
          VALUES
-           ($1::uuid, $2::int, $3::int, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb,
-            $11::int, $12::uuid, $13::timestamptz, $14::timestamptz, $15::boolean,
-            $16::boolean, $17, $18, $19, $20, $21, $22::jsonb)
+           ($1::uuid, $2::int, $3::int, $4, $5, $6, $7::int, $8, $9, $10::jsonb, $11::jsonb,
+            $12::int, $13::uuid, $14::timestamptz, $15::timestamptz, $16::boolean,
+            $17::boolean, $18, $19, $20, $21, $22, $23::jsonb)
          RETURNING id, donor_id, screening_id, donation_code, donation_barcode,
                    collection_kind, volume_ml, status, collected_at, collected_by,
                    barcode_scanned_at, barcode_scan_match, adverse_reaction,
@@ -643,6 +658,7 @@ class DonorIntakeService {
         donationCode,
         barcode,
         collectionKind,
+        campId == null ? null : Number(campId),
         cleanText(data.camp_name || data.campName, 160),
         cleanText(data.camp_location || data.campLocation, 2000),
         JSON.stringify(preVitals),
@@ -660,6 +676,16 @@ class DonorIntakeService {
         cleanText(data.adverse_reaction_outcome || data.adverseReactionOutcome, 1000),
         JSON.stringify(asObject(data.metadata, 'metadata')),
       );
+      if (campId != null) {
+        await tx.$executeRawUnsafe(
+          `UPDATE donor_camps
+              SET collected_units = collected_units + 1,
+                  updated_at = NOW()
+            WHERE id = $1::int AND tenant_id = $2::uuid`,
+          Number(campId),
+          tenantId,
+        );
+      }
       await tx.$executeRawUnsafe(
         `UPDATE donors
             SET status = 'active',

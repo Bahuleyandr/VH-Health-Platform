@@ -72,6 +72,12 @@ regexes = [
   # This is a well-known public test value, not a real credential.
   '''JBSWY3DPEHPK3PXP''',
   '''af2ca5d7aa1663634f6c11eae3a1f4ceb7517720''',
+  # Drug-KB source keys are public immutable edition/test identifiers. The
+  # generic-api-key heuristic trips on `source_key = '...'` examples and
+  # fixture manifests, but these values are not credentials.
+  '''vh_indigenous_2026q3''',
+  '''vh_indigenous_fixture_v1''',
+  '''vh_indigenous_demo''',
   # Shell-variable password references in sealed-secret runbooks
   # (e.g. --from-literal=password="$REPL_PW" after openssl rand). A
   # variable reference is definitionally not a literal credential; the
