@@ -69,12 +69,15 @@ The source-family activation guard requires `metadata.acceptance_snapshot` befor
 Activate the accepted edition:
 
 ```sql
+WITH accepted_source AS (
+  SELECT '<accepted_source_key>'::text AS source_key
+)
 UPDATE drug_kb_sources
    SET is_active = TRUE,
        edition_status = 'accepted',
        activated_at = NOW(),
        updated_at = NOW()
- WHERE source_key = 'vh_indigenous_2026q3'
+ WHERE source_key = (SELECT source_key FROM accepted_source)
    AND source_family = 'vh_indigenous'
    AND metadata ? 'acceptance_snapshot';
 ```
@@ -82,17 +85,20 @@ UPDATE drug_kb_sources
 Deactivate the starter only after the accepted edition passes and the owner-approved coverage gate is met. Record the same acceptance snapshot on the starter row as deactivation evidence:
 
 ```sql
+WITH accepted_source AS (
+  SELECT '<accepted_source_key>'::text AS source_key
+)
 UPDATE drug_kb_sources
    SET is_active = FALSE,
        deactivated_at = NOW(),
        metadata = jsonb_set(
          COALESCE(metadata, '{}'::jsonb),
-         '{starter_deactivation_snapshot}',
-         (SELECT metadata->'acceptance_snapshot'
-            FROM drug_kb_sources
-           WHERE source_key = 'vh_indigenous_2026q3'),
-         TRUE
-       ),
+          '{starter_deactivation_snapshot}',
+          (SELECT metadata->'acceptance_snapshot'
+             FROM drug_kb_sources
+            WHERE source_key = (SELECT source_key FROM accepted_source)),
+          TRUE
+        ),
        updated_at = NOW()
  WHERE source_key = 'vh_starter_set';
 ```

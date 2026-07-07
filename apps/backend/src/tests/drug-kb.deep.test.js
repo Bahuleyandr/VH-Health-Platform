@@ -24,7 +24,7 @@ const TEST_SOURCE_KEYS = [
   'b2_priority_low',
   'b2_priority_high',
   'b2_cutover_source',
-  'vh_indigenous_fixture_v1',
+  'vh_indigenous_demo',
 ];
 
 const PHONE = `+9199906${String(Date.now() % 10000).padStart(5, '0')}`;
@@ -121,7 +121,7 @@ async function seedPriorityConflictSources() {
 }
 
 async function importSyntheticFixture() {
-  await deleteDrugKbSource('vh_indigenous_fixture_v1');
+  await deleteDrugKbSource('vh_indigenous_demo');
   const script = path.join(BACKEND_ROOT, 'scripts/drug-kb-import.mjs');
   const datasets = [
     'monographs',
@@ -135,7 +135,7 @@ async function importSyntheticFixture() {
   for (const dataset of datasets) {
     await execFileAsync(process.execPath, [
       script,
-      '--source', 'vh_indigenous_fixture_v1',
+      '--source', 'vh_indigenous_demo',
       '--source-family', 'vh_indigenous',
       '--version', 'fixture.v1',
       '--vendor', 'VH Health',
@@ -295,9 +295,9 @@ d('Drug knowledge base — deep round-trip (roadmap B2)', () => {
       '--scenario-set',
       'synthetic',
       '--source',
-      'vh_indigenous_fixture_v1',
+      'vh_indigenous_demo',
       '--record-source',
-      'vh_indigenous_fixture_v1',
+      'vh_indigenous_demo',
     ], { cwd: BACKEND_ROOT, env: process.env });
     const snapshot = JSON.parse(acceptance.stdout);
     expect(snapshot.status).toBe('passed');
@@ -306,11 +306,11 @@ d('Drug knowledge base — deep round-trip (roadmap B2)', () => {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT metadata->'acceptance_snapshot' AS acceptance_snapshot
          FROM drug_kb_sources
-        WHERE source_key = 'vh_indigenous_fixture_v1'`,
+         WHERE source_key = 'vh_indigenous_demo'`,
     );
     expect(rows[0]?.acceptance_snapshot?.status).toBe('passed');
 
-    await deleteDrugKbSource('vh_indigenous_fixture_v1');
+    await deleteDrugKbSource('vh_indigenous_demo');
     __resetDrugKbCache();
   });
 
