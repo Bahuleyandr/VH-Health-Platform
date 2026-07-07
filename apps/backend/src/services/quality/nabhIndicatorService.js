@@ -132,9 +132,9 @@ const INDICATORS = {
   async hai_rate_per_1000_patient_days({ from, to, tenantId }) {
     const [cases, days] = await Promise.all([
       prisma.$queryRawUnsafe(
-        `SELECT COUNT(*)::int AS n FROM infection_cases
+        `SELECT COALESCE(SUM(numerator_count), 0)::int AS n FROM hai_cases
           WHERE tenant_id = $1::uuid
-            AND detection_date >= $2::date AND detection_date <= $3::date`,
+            AND onset_date >= $2::date AND onset_date <= $3::date`,
         tenantId, from, to,
       ),
       prisma.$queryRawUnsafe(
@@ -155,6 +155,68 @@ const INDICATORS = {
     const denominator = Number(days[0]?.patient_days) || 0;
     return indicator('hai_rate_per_1000_patient_days', 'Healthcare-associated infection cases per 1000 patient-days',
       'per 1000 patient-days', per1000(numerator, denominator), numerator, denominator);
+  },
+
+  async hai_device_rate_per_1000_device_days({ from, to, tenantId }) {
+    const rows = await prisma.$queryRawUnsafe(
+      `WITH hai_counts AS (
+         SELECT COALESCE(device_type,
+                CASE hai_type
+                  WHEN 'CAUTI' THEN 'urinary_catheter'
+                  WHEN 'CLABSI' THEN 'central_line'
+                  WHEN 'VAP' THEN 'ventilator'
+                  ELSE NULL
+                END) AS device_type,
+                SUM(numerator_count)::int AS numerator
+           FROM hai_cases
+          WHERE tenant_id = $1::uuid
+            AND onset_date >= $2::date
+            AND onset_date <= $3::date
+          GROUP BY 1
+       ),
+       device_days AS (
+         SELECT device_type,
+                COALESCE(SUM(
+                  GREATEST(0, EXTRACT(EPOCH FROM (
+                    LEAST(COALESCE(stopped_at, ($3::date + 1)::timestamptz), ($3::date + 1)::timestamptz)
+                    - GREATEST(started_at, $2::date::timestamptz)
+                  )) / 86400)
+                ), 0)::numeric(14,2) AS denominator
+           FROM device_presence_logs
+          WHERE tenant_id = $1::uuid
+            AND started_at < ($3::date + 1)
+            AND COALESCE(stopped_at, ($3::date + 1)::timestamptz) >= $2::date
+          GROUP BY device_type
+       )
+       SELECT hc.device_type,
+              hc.numerator,
+              COALESCE(dd.denominator, 0)::numeric(14,2) AS denominator
+         FROM hai_counts hc
+         LEFT JOIN device_days dd ON dd.device_type = hc.device_type
+        WHERE hc.device_type IS NOT NULL
+        ORDER BY hc.device_type`,
+      tenantId, from, to,
+    );
+    const byDevice = Object.fromEntries(rows.map((row) => {
+      const numerator = Number(row.numerator) || 0;
+      const denominator = Number(row.denominator) || 0;
+      return [row.device_type, {
+        numerator,
+        denominator,
+        rate_per_1000_device_days: per1000(numerator, denominator),
+      }];
+    }));
+    const numerator = rows.reduce((sum, row) => sum + (Number(row.numerator) || 0), 0);
+    const denominator = rows.reduce((sum, row) => sum + (Number(row.denominator) || 0), 0);
+    return indicator(
+      'hai_device_rate_per_1000_device_days',
+      'Device-associated HAI cases per 1000 device-days',
+      'per 1000 device-days',
+      per1000(numerator, denominator),
+      numerator,
+      Number(denominator.toFixed(2)),
+      { by_device_type: byDevice },
+    );
   },
 
   async incident_counts({ from, to, tenantId }) {
