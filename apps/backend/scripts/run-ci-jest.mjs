@@ -16,7 +16,7 @@ const endChunk = process.env.JEST_CI_END_CHUNK
   : null;
 const isolatedTestPatterns = String(
   process.env.JEST_CI_ISOLATED_TESTS
-    || 'document-integrity.deep.test.js,pharmacy-ward-indent.test.js',
+    || 'analytics-dashboard-tenant.deep.test.js,bed-service-c2-discharge.deep.test.js,document-integrity.deep.test.js,future-proof-clinical-ai.test.js,pharmacy-ward-indent.test.js',
 )
   .split(',')
   .map((pattern) => pattern.trim())

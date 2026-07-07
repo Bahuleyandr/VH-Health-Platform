@@ -6155,11 +6155,17 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "Appointment rescheduled",
       's4.lib.front_office_workbench.appointments': "Appointments",
+      's4.lib.front_office_workbench.arrival_check_in':
+          "Arrival check-in",
+      's4.lib.front_office_workbench.arrival_checked_in':
+          "Arrival check-in recorded",
       's4.lib.front_office_workbench.billing': "Billing",
       's4.lib.front_office_workbench.check_in': "Check in",
       's4.lib.front_office_workbench.checking_existing_patients':
           "Checking for existing patients...",
       's4.lib.front_office_workbench.complete': "Complete",
+      's4.lib.front_office_workbench.confirm_appointment':
+          "Confirm appointment",
       's4.lib.front_office_workbench.doctor': "Doctor",
       's4.lib.front_office_workbench.enter_chief_complaint':
           "Enter the chief complaint.",
@@ -11250,11 +11256,17 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "अपॉइंटमेंट पुनर्निर्धारित किया गया",
       's4.lib.front_office_workbench.appointments': "अपॉइंटमेंट",
+      's4.lib.front_office_workbench.arrival_check_in':
+          "आगमन चेक इन",
+      's4.lib.front_office_workbench.arrival_checked_in':
+          "आगमन चेक इन दर्ज किया गया",
       's4.lib.front_office_workbench.billing': "बिलिंग",
       's4.lib.front_office_workbench.check_in': "चेक इन",
       's4.lib.front_office_workbench.checking_existing_patients':
           "मौजूदा मरीजों की जांच हो रही है...",
       's4.lib.front_office_workbench.complete': "पूरा करें",
+      's4.lib.front_office_workbench.confirm_appointment':
+          "अपॉइंटमेंट की पुष्टि करें",
       's4.lib.front_office_workbench.doctor': "डॉक्टर",
       's4.lib.front_office_workbench.enter_chief_complaint':
           "मुख्य शिकायत दर्ज करें।",
@@ -16920,11 +16932,17 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "நேர்முகம் மறுவழங்கப்பட்டது",
       's4.lib.front_office_workbench.appointments': "நேர்முகங்கள்",
+      's4.lib.front_office_workbench.arrival_check_in':
+          "வருகை செக் இன்",
+      's4.lib.front_office_workbench.arrival_checked_in':
+          "வருகை செக் இன் பதிவு செய்யப்பட்டது",
       's4.lib.front_office_workbench.billing': "பில்லிங்",
       's4.lib.front_office_workbench.check_in': "செக் இன்",
       's4.lib.front_office_workbench.checking_existing_patients':
           "ஏற்கனவே உள்ள நோயாளிகளைச் சரிபார்க்கிறது...",
       's4.lib.front_office_workbench.complete': "முடிக்கவும்",
+      's4.lib.front_office_workbench.confirm_appointment':
+          "சந்திப்பை உறுதிப்படுத்து",
       's4.lib.front_office_workbench.doctor': "மருத்துவர்",
       's4.lib.front_office_workbench.enter_chief_complaint':
           "முக்கிய புகாரை உள்ளிடவும்.",
@@ -22643,11 +22661,17 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "అపాయింట్మెంట్ రీషెడ్యూల్ చేయబడింది",
       's4.lib.front_office_workbench.appointments': "అపాయింట్మెంట్లు",
+      's4.lib.front_office_workbench.arrival_check_in':
+          "రాక చెక్ ఇన్",
+      's4.lib.front_office_workbench.arrival_checked_in':
+          "రాక చెక్ ఇన్ నమోదు చేయబడింది",
       's4.lib.front_office_workbench.billing': "బిల్లింగ్",
       's4.lib.front_office_workbench.check_in': "చెక్ ఇన్",
       's4.lib.front_office_workbench.checking_existing_patients':
           "ఇప్పటికే ఉన్న రోగులను తనిఖీ చేస్తోంది...",
       's4.lib.front_office_workbench.complete': "పూర్తి చేయండి",
+      's4.lib.front_office_workbench.confirm_appointment':
+          "అపాయింట్‌మెంట్‌ను నిర్ధారించండి",
       's4.lib.front_office_workbench.doctor': "వైద్యుడు",
       's4.lib.front_office_workbench.enter_chief_complaint':
           "ముఖ్య ఫిర్యాదును నమోదు చేయండి.",
@@ -24800,6 +24824,12 @@ class AppStrings {
       'dashboard.checked_in': 'ചെക്ക്-ഇൻ ചെയ്തു',
       'dashboard.checked_out': 'ചെക്ക്-ഔട്ട് ചെയ്തു',
       'dashboard.not_checked_in': 'ചെക്ക്-ഇൻ ചെയ്തിട്ടില്ല',
+      's4.lib.front_office_workbench.arrival_check_in':
+          'അറൈവൽ ചെക്ക്-ഇൻ',
+      's4.lib.front_office_workbench.arrival_checked_in':
+          'അറൈവൽ ചെക്ക്-ഇൻ രേഖപ്പെടുത്തി',
+      's4.lib.front_office_workbench.confirm_appointment':
+          'അപ്പോയിന്റ്മെന്റ് സ്ഥിരീകരിക്കുക',
       'dashboard.quick_actions_header': 'ദ്രുത പ്രവർത്തനങ്ങൾ',
       'dashboard.recent_patients_header': 'സമീപകാല രോഗികൾ',
       'dashboard.stat.alerts': 'അലേർട്ടുകൾ',

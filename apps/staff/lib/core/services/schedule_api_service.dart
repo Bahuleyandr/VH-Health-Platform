@@ -248,6 +248,23 @@ class ScheduleApiService {
     return _post('/appointments/$id/confirm', data);
   }
 
+  /// POST /patient-flow/checkins/supervised - record arrival without changing
+  /// the appointment's clinician workflow status.
+  static Future<Map<String, dynamic>> supervisedKioskCheckIn({
+    required int appointmentId,
+    String? department,
+    Map<String, dynamic>? profileDelta,
+  }) async {
+    return _post('/patient-flow/checkins/supervised', {
+      'appointmentId': appointmentId,
+      if (department != null && department.trim().isNotEmpty)
+        'department': department.trim(),
+      if (profileDelta != null && profileDelta.isNotEmpty)
+        'profileDelta': profileDelta,
+      'acknowledgements': const ['front_office_arrival_confirmed'],
+    });
+  }
+
   /// POST /appointments/:id/no-show
   static Future<Map<String, dynamic>> markNoShow(int id) async {
     return _post('/appointments/$id/no-show', {});

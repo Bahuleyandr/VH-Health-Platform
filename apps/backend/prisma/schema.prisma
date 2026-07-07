@@ -847,6 +847,7 @@ model appointments {
   bed_inspections                      bed_inspections[]
   clinical_notes                       clinical_notes[]
   investigation_bookings               investigation_bookings[]
+  patient_flow_checkins                patient_flow_checkins[]
   teleconsultations                    teleconsultations[]
 
   @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
@@ -9859,6 +9860,9 @@ model tenants {
   patient_data_rights_requests               patient_data_rights_requests[]
   patient_duplicate_candidates               patient_duplicate_candidates[]
   patient_feedback                           patient_feedback[]
+  patient_flow_checkins                      patient_flow_checkins[]
+  patient_flow_kiosk_sessions                patient_flow_kiosk_sessions[]
+  patient_flow_kiosk_settings                patient_flow_kiosk_settings[]
   patient_identifiers                        patient_identifiers[]
   patient_merge_requests                     patient_merge_requests[]
   patient_problems                           patient_problems[]
@@ -10495,6 +10499,7 @@ model users {
   overtime_requests_overtime_requests_approved_by_uidTousers                       overtime_requests[]                @relation("overtime_requests_approved_by_uidTousers")
   overtime_requests_overtime_requests_staff_idTousers                              overtime_requests[]                @relation("overtime_requests_staff_idTousers")
   overtime_requests_overtime_requests_staff_uidTousers                             overtime_requests[]                @relation("overtime_requests_staff_uidTousers")
+  patient_flow_checkins                                                            patient_flow_checkins[]
   patient_records                                                                  patient_records[]
   payroll_runs_payroll_runs_generated_byTousers                                    payroll_runs[]                     @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers                                       payroll_runs[]                     @relation("payroll_runs_locked_byTousers")
@@ -14073,6 +14078,7 @@ model appointment_queues {
   facilities                       facilities?                        @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
   tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   appointments                     appointments[]
+  patient_flow_checkins            patient_flow_checkins[]
 
   @@index([tenant_id, queue_date, status, queue_kind], map: "idx_appointment_queues_date_status")
   @@index([tenant_id, department_id, queue_date, status], map: "idx_appointment_queues_department_date", where: raw("(department_id IS NOT NULL)"))
@@ -16736,4 +16742,89 @@ model outbreak_episodes {
   @@unique([tenant_id, episode_code], map: "uq_outbreak_episode_code")
   @@index([tenant_id, organism, ward, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_organism_ward")
   @@index([tenant_id, status, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model patient_flow_checkins {
+  id                          BigInt                       @id @default(autoincrement())
+  tenant_id                   String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  appointment_id              Int
+  patient_uid                 String                       @db.Uuid
+  queue_id                    Int?
+  kiosk_session_id            BigInt?
+  checkin_channel             String                       @db.VarChar(30)
+  identity_method             String                       @db.VarChar(30)
+  status                      String                       @default("pending") @db.VarChar(30)
+  token_number                String?                      @db.VarChar(20)
+  visit_no                    String?                      @db.VarChar(50)
+  profile_delta_summary       Json                         @default("{}")
+  duplicate_candidate_count   Int                          @default(0)
+  acknowledgement_refs        Json                         @default("[]")
+  consent_refs                Json                         @default("[]")
+  checked_in_at               DateTime?                    @db.Timestamptz(6)
+  checked_in_by               String?                      @db.Uuid
+  created_by                  String?                      @db.Uuid
+  updated_by                  String?                      @db.Uuid
+  metadata                    Json                         @default("{}")
+  created_at                  DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                     @default(now()) @db.Timestamptz(6)
+  appointments                appointments                 @relation(fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_patient_flow_checkins_appointment")
+  users                       users                        @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_flow_checkins_patient")
+  appointment_queues          appointment_queues?          @relation(fields: [queue_id], references: [id], onUpdate: NoAction, map: "fk_patient_flow_checkins_queue")
+  patient_flow_kiosk_sessions patient_flow_kiosk_sessions? @relation(fields: [kiosk_session_id], references: [id], onUpdate: NoAction, map: "fk_patient_flow_checkins_session")
+  tenants                     tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_flow_checkins_tenant")
+
+  @@unique([tenant_id, appointment_id], map: "ux_patient_flow_checkins_checked_in_once", where: raw("((status)::text = 'checked_in'::text)"))
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_patient_flow_checkins_front_desk", where: raw("((status)::text = 'front_desk_required'::text)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_patient_flow_checkins_patient")
+  @@index([tenant_id, queue_id, checked_in_at(sort: Desc)], map: "idx_patient_flow_checkins_queue", where: raw("(queue_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model patient_flow_kiosk_sessions {
+  id                    BigInt                  @id @default(autoincrement())
+  tenant_id             String                  @db.Uuid
+  session_jti           String                  @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token_hash            String                  @unique(map: "patient_flow_kiosk_sessions_token_hash_unique") @db.Char(64)
+  department_key        String                  @db.VarChar(120)
+  channel               String                  @default("kiosk_self") @db.VarChar(30)
+  device_label          String?                 @db.VarChar(160)
+  status                String                  @default("active") @db.VarChar(20)
+  expires_at            DateTime                @db.Timestamptz(6)
+  created_by            String?                 @db.Uuid
+  revoked_by            String?                 @db.Uuid
+  revoked_at            DateTime?               @db.Timestamptz(6)
+  last_seen_at          DateTime?               @db.Timestamptz(6)
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  patient_flow_checkins patient_flow_checkins[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, session_jti], map: "patient_flow_kiosk_sessions_jti_unique")
+  @@index([tenant_id, department_key, expires_at], map: "idx_patient_flow_kiosk_sessions_active", where: raw("((status)::text = 'active'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model patient_flow_kiosk_settings {
+  tenant_id               String    @db.Uuid
+  department_key          String    @db.VarChar(120)
+  department_name         String?   @db.VarChar(160)
+  self_service_enabled    Boolean   @default(false)
+  supervised_mode_enabled Boolean   @default(false)
+  qr_otp_required         Boolean   @default(true)
+  safe_profile_fields     String[]  @default(["address", "email", "preferred_language", "emergency_contact"])
+  enabled_at              DateTime? @db.Timestamptz(6)
+  enabled_by              String?   @db.Uuid
+  updated_by              String?   @db.Uuid
+  metadata                Json      @default("{}")
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([tenant_id, department_key], map: "patient_flow_kiosk_settings_pk")
+  @@index([tenant_id, self_service_enabled, supervised_mode_enabled], map: "idx_patient_flow_kiosk_settings_enabled")
 }
