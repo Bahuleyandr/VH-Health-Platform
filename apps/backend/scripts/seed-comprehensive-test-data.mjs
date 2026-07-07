@@ -36,6 +36,9 @@ const MANUAL_SEED_TABLES = new Set([
   // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
   'donation_events',
   'donor_consents',
+  // N6-12 mortuary slots enforce occupancy consistency: an available
+  // slot cannot carry a current body reference.
+  'mortuary_slots',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1231,6 +1234,16 @@ async function seedDonorIntakeTables() {
   }
 }
 
+async function seedMortuarySlots() {
+  await insertIfEmpty('mortuary_slots', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    slot_code: 'MORT-SEED-0001',
+    display_name: 'Seed mortuary slot',
+    status: 'available',
+    notes: 'Seed slot for QA coverage',
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1241,6 +1254,7 @@ try {
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
   await seedDonorIntakeTables();
+  await seedMortuarySlots();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
