@@ -10,7 +10,11 @@ import os from 'node:os';
 import pg from 'pg';
 import { importCompositions, matchCatalog, coverageStats } from '../../scripts/import-drug-reference.mjs';
 
-const CONN = process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:55432/vhhealth_test';
+// CI provides DATABASE_URL (postgres service); local QA runs export TEST_DATABASE_URL.
+// The bare-port fallback only serves ad-hoc local runs against the QA cluster.
+const CONN = process.env.TEST_DATABASE_URL
+  || process.env.DATABASE_URL
+  || 'postgresql://postgres:postgres@127.0.0.1:55432/vhhealth_test';
 const TENANT = '00000000-0000-0000-0000-00000000d16e';
 const MARK = 'drugref-test';
 
