@@ -112,7 +112,8 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 378–380 | N6-5 credentialing | launched 2026-07-07 (round 2) |
 | 381–382 | NL-5 P3 content studio | launched 2026-07-07 (round 2) |
 | 383–386 | N6-4 histopath | launched 2026-07-07 (round 2) |
-| 387+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 387–390 | N6-2 donor intake | launched 2026-07-07 (gate resolved: blood centre) |
+| 391+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -144,8 +145,8 @@ auto-creates work orders from device faults (with open-WO dedupe) · RTLS = cont
 a vendor pilot is scheduled.
 
 **OPEN — owner action required (none block currently-launched work):**
-1. Drug-KB vendor: FDB / Medi-Span / CIMS-MIMS / hybrid (gates NL-5 P2's vendor transform only).
-2. Blood CENTRE vs storage centre (licensing scope; gates N6-2/N6-3 — the two largest slices).
+1. ~~Drug-KB vendor~~ **RESOLVED 2026-07-07: INDIGENOUS** — no vendor (lock-in refused; roadmap §7 override recorded there). Content = evidence-gated in-house program: versioned `drug_kb_sources` editions, clinical-governance authoring, acceptance-battery release gate, aushadhi dataset as brand/composition seed. Needs its own design spec before content authoring starts (queue a kickoff prompt when capacity frees). NL-5 P2 re-scoped accordingly (vendor transform dropped).
+2. ~~Blood centre vs storage centre~~ **RESOLVED 2026-07-07: FULL BLOOD CENTRE** (target model; licensing scope accepted) — N6-2/N6-3 build as specced. Register formats (Decision 3) still needed before N6-3 exports lose the "format pending" flag.
 3. Statutory register formats — source the real current forms (blood-bank set, dialyzer reuse,
    IDSP/IHIP); until then slices ship exports flagged "format pending".
 4. Monitor vendor/fleet + device-VLAN & firewall rules with hospital IT (gates NL-7 pilot
@@ -181,7 +182,7 @@ parallel-safe may overlap.
 | File | Builds | Gate | Status |
 |---|---|---|---|
 | `nl5-p1-terminology-releases.md` | release versioning, tenant settings, ICD-11 flip | spec on main | **MERGED** #453 |
-| `nl5-p2-drugkb-seams.md` | source priority, acceptance harness, admin status | spec on main; vendor-transform part waits on Decision 1 | READY |
+| `nl5-p2-drugkb-seams.md` | source priority, acceptance harness, admin status | spec on main; re-scoped for indigenous KB | READY |
 | `nl5-p3-content-studio.md` | order-set lifecycle, import format, studio UI | spec on main | **LAUNCHED** (migs 381–382) |
 | `nl5-p4-pediatric-packs.md` | growth LMS table + IAP, immunization packs | spec on main | READY |
 | `nl7-p1-device-gateway.md` | MLLP gateway, registry, association, alarm policy | spec on main | **LAUNCHED** |
@@ -189,7 +190,7 @@ parallel-safe may overlap.
 | `nl7-p3-cmms.md` | work orders, schedules, calibration certs | NL-7 P1 merged | READY |
 | `nl7-p4-rtls-hardening.md` | RTLS seam (gated) + pilot hardening | P1–P3 merged + Decision 4 / RTLS pilot | GATED |
 | `nl6-01-radiology-reporting.md` | templates, peer review, TAT, timeline fix | plan on main | **MERGED** #450 |
-| `nl6-02-donor-intake.md` | donors, screening, deferrals, collection | **Decision 2 (blood centre)** | GATED |
+| `nl6-02-donor-intake.md` | donors, screening, deferrals, collection | gate RESOLVED: blood centre ✓ | **LAUNCHED** (migs 387–390) |
 | `nl6-03-donor-processing.md` | TTI, components, traceability, registers | N6-2 merged + Decision 3 | GATED |
 | `nl6-04-histopath.md` | AP cases/blocks/slides/reports | N6-1 merged ✓ | **LAUNCHED** (migs 383–386) |
 | `nl6-05-credentialing.md` | privilege catalog, approvals, expiry alerts | plan on main | **LAUNCHED** (migs 378–380) |
