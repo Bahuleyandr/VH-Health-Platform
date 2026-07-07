@@ -1,0 +1,73 @@
+{
+  "format": "vh-order-set/1",
+  "family_key": "ADULT-CAP-INITIAL",
+  "title": "Adult community-acquired pneumonia initial bundle",
+  "specialty": "General Medicine",
+  "description": "Synthetic starter order set for the governed content-studio import path.",
+  "condition_codes": ["J18.9"],
+  "phases": [
+    {
+      "phase": "initial",
+      "items": [
+        {
+          "kind": "lab",
+          "display_order": 1,
+          "default_selected": true,
+          "payload": {
+            "test_name": "CBC with differential",
+            "urgency": "urgent",
+            "instructions": "Collect before first antibiotic dose when feasible."
+          },
+          "codings": [
+            {
+              "system": "LOINC",
+              "code": "58410-2",
+              "display": "CBC panel"
+            }
+          ]
+        },
+        {
+          "kind": "radiology",
+          "display_order": 2,
+          "default_selected": true,
+          "payload": {
+            "modality": "xray",
+            "body_part": "chest",
+            "clinical_indication": "Suspected community-acquired pneumonia",
+            "urgency": "urgent"
+          }
+        },
+        {
+          "kind": "nursing",
+          "display_order": 3,
+          "default_selected": true,
+          "payload": {
+            "task": "Record oxygen saturation and respiratory rate",
+            "frequency": "q4h",
+            "urgency": "routine"
+          }
+        },
+        {
+          "kind": "med",
+          "display_order": 4,
+          "default_selected": true,
+          "payload": {
+            "medication_name": "Ceftriaxone",
+            "dose": "1 g",
+            "route": "IV",
+            "frequency": "once daily",
+            "duration": "5 days",
+            "urgency": "routine"
+          },
+          "codings": [
+            {
+              "system": "ATC",
+              "code": "J01DD04",
+              "display": "ceftriaxone"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

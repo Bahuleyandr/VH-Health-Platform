@@ -27,6 +27,20 @@ const CLINICAL_AI_CONTROL_ROLES = [
   "SYSTEM_ADMIN",
 ];
 
+const ORDER_SET_STUDIO_ROLES = [
+  "ADMIN",
+  "SUPER_ADMIN",
+  "DOCTOR",
+  "DUTY_DOCTOR",
+  "CONSULTANT",
+  "JUNIOR_DOCTOR",
+  "RESIDENT",
+  "CMO",
+  "MEDICAL_SUPERINTENDENT",
+  "QUALITY_OFFICER",
+  "PHARMACY_INCHARGE",
+];
+
 // Deliberately hidden from this grouped side nav:
 // - feature-flags: super-admin release switchboard; keep out of routine admin flow.
 // - database: live DB browser; access should stay intentional and policy-gated.
@@ -106,6 +120,11 @@ const navSections: NavSection[] = [
       { name: "Quality", href: "/dashboard/quality" },
       { name: "Referrals", href: "/dashboard/referral" },
       { name: "Productivity", href: "/dashboard/productivity" },
+      {
+        name: "Order-Set Studio",
+        href: "/dashboard/order-set-studio",
+        allowedRoles: ORDER_SET_STUDIO_ROLES,
+      },
       { name: "Patient Messages", href: "/dashboard/messaging" },
       { name: "Discharge Summaries", href: "/dashboard/discharge-summaries" },
       { name: "ED Tracker", href: "/dashboard/ed-tracker" },
@@ -181,6 +200,7 @@ const ROLE_RANK: Record<string, number> = {
   OP_INCHARGE: 0,
   PHARMACY_STAFF: 0,
   PHARMACY_INCHARGE: 0,
+  QUALITY_OFFICER: 0,
   STORES_PURCHASE_INCHARGE: 0,
   LAB_STAFF: 0,
   RADIOLOGY_STAFF: 0,
@@ -196,9 +216,13 @@ const ROLE_RANK: Record<string, number> = {
   TECHNICIAN: 0,
   NURSE: 0,
   DOCTOR: 1,
+  CONSULTANT: 1,
+  JUNIOR_DOCTOR: 1,
+  RESIDENT: 1,
   ANAESTHETIST: 1,
   DUTY_DOCTOR: 1,
   MEDICAL_SUPERINTENDENT: 1,
+  CMO: 1,
   CNO: 1,
   HR: 2,
   HR_STAFF: 2,

@@ -9535,6 +9535,7 @@ model tenants {
   composition_search_settings                composition_search_settings?
   consent_signatures                         consent_signatures[]
   consultations                              consultations[]
+  content_studio_settings                    content_studio_settings?
   data_breaches                              data_breaches[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
@@ -9654,6 +9655,8 @@ model tenants {
   nurse_handovers                            nurse_handovers[]
   ophthalmic_exams                           ophthalmic_exams[]
   ophthalmic_refractions                     ophthalmic_refractions[]
+  order_set_import_batches                   order_set_import_batches[]
+  order_set_review_events                    order_set_review_events[]
   ot_schedules                               ot_schedules[]
   otp_logs                                   otp_logs[]
   otp_sessions                               otp_sessions[]
@@ -11140,12 +11143,27 @@ model clinical_order_sets {
   tenant_id                       String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
   updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  family_key                      String                            @db.VarChar(80)
+  version                         Int                               @default(1)
+  status                          String                            @default("approved") @db.VarChar(20)
+  approved_by                     String?                           @db.Uuid
+  approved_at                     DateTime?                         @db.Timestamptz(6)
+  review_note                     String?
+  superseded_by                   Int?
+  source                          String                            @default("authored") @db.VarChar(20)
+  import_batch_id                 BigInt?
   clinical_order_set_applications clinical_order_set_applications[]
   clinical_order_set_items        clinical_order_set_items[]
+  order_set_import_batches        order_set_import_batches?         @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction, map: "fk_clinical_order_sets_import_batch")
+  clinical_order_sets             clinical_order_sets?              @relation("clinical_order_setsToclinical_order_sets", fields: [superseded_by], references: [id], onUpdate: NoAction, map: "fk_clinical_order_sets_superseded_by")
+  other_clinical_order_sets       clinical_order_sets[]             @relation("clinical_order_setsToclinical_order_sets")
+  order_set_review_events         order_set_review_events[]
 
   @@unique([tenant_id, code], map: "uniq_clinical_order_sets_tenant_code")
+  @@unique([tenant_id, family_key], map: "uniq_clinical_order_sets_deployed_family", where: raw("(((status)::text = 'approved'::text) AND (active = true))"))
   @@index([specialty, active], map: "idx_clinical_order_sets_specialty")
   @@index([tenant_id], map: "idx_clinical_order_sets_tenant_id")
+  @@index([tenant_id, family_key, status, active, version(sort: Desc)], map: "idx_clinical_order_sets_family_status")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -15692,4 +15710,61 @@ model device_vitals_control_ids {
 
   @@unique([tenant_id, device_registry_id, control_id], map: "ux_device_vitals_control_id")
   @@index([expires_at], map: "idx_device_vitals_control_ids_expires")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model content_studio_settings {
+  tenant_id           String    @id @db.Uuid
+  enabled             Boolean   @default(false)
+  enabled_at          DateTime? @db.Timestamptz(6)
+  enabled_by          String?   @db.Uuid
+  acceptance_snapshot Json?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model order_set_import_batches {
+  id                  BigInt                @id @default(autoincrement())
+  tenant_id           String                @db.Uuid
+  import_key          String                @db.VarChar(120)
+  format              String                @default("vh-order-set/1") @db.VarChar(40)
+  source_file         String?
+  dry_run             Boolean               @default(false)
+  status              String                @default("pending") @db.VarChar(20)
+  row_count           Int                   @default(0)
+  imported_count      Int                   @default(0)
+  warning_count       Int                   @default(0)
+  error_count         Int                   @default(0)
+  metadata            Json                  @default("{}")
+  actor_uid           String?               @db.Uuid
+  started_at          DateTime              @default(now()) @db.Timestamptz(6)
+  completed_at        DateTime?             @db.Timestamptz(6)
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  clinical_order_sets clinical_order_sets[]
+  tenants             tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, import_key], map: "uniq_order_set_import_batches_tenant_key")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_order_set_import_batches_tenant_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model order_set_review_events {
+  id                  BigInt              @id @default(autoincrement())
+  tenant_id           String              @db.Uuid
+  order_set_id        Int
+  action              String              @db.VarChar(20)
+  actor_uid           String?             @db.Uuid
+  actor_role          String?             @db.VarChar(80)
+  note                String?
+  metadata            Json                @default("{}")
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  clinical_order_sets clinical_order_sets @relation(fields: [order_set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([order_set_id, created_at], map: "idx_order_set_review_events_set_created")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_order_set_review_events_tenant_created")
 }
