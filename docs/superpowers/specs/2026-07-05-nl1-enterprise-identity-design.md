@@ -2,7 +2,7 @@
 
 - Date: 2026-07-05
 - Program: NL-1 Enterprise identity
-- Status: Design proposal, deploy held
+- Status: P4 SAML in review, deploy held
 - Scope: Specification only. This document does not implement application code, database migrations, Kubernetes manifests, or client screens.
 - Recommendation: Add tenant-scoped federation brokers for the ADMIN and STAFF realms. OIDC is the primary protocol, SAML is the secondary compatibility protocol, and both terminate in the backend issuing VH Health JWTs through the existing session machinery.
 
@@ -244,6 +244,15 @@ Audit writes should be tenant-scoped and append-only. Failure to persist securit
 
 ## 12. Phased Plan
 
+Implementation ledger:
+
+| Phase | Status |
+|---|---|
+| P1 OIDC admin portal | In review |
+| P2 staff OIDC PKCE | In review |
+| P3 SCIM 2.0 provisioning | In review |
+| P4 SAML 2.0 compatibility | P4 SAML in review |
+
 ### P1 - OIDC Login for Admin Portal
 
 Build ADMIN realm OIDC first because admin is browser-based and has the smallest client surface.
@@ -303,6 +312,8 @@ Test strategy:
 - Audit tests for every mutation and revoke-all result.
 
 ### P4 - SAML 2.0 Compatibility
+
+Status (2026-07-07): P4 SAML is in review on branch `feat/nl1-p4-saml`. The implementation adds SAML provider config, metadata import, signed-response or signed-assertion ACS validation, durable replay storage, existing-identity linking, role mapping, VH Health session issuance, audit, admin login handoff, and deep assertion tests. Deploy remains held.
 
 Scope:
 
