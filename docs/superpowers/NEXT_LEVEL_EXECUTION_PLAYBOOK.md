@@ -126,7 +126,11 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 415–417 | N6-7 ophthalmology | launched 2026-07-07 (round 5) |
 | 418–420 | N6-9 dialysis completion | launched 2026-07-07 (round 5) |
 | 421–423 | N6-13 CSSD | launched 2026-07-07 (round 5) |
-| 424+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 424–426 | NL11-S1 migration toolkit P1 | launched 2026-07-07 (Wave C/D round 1) |
+| 427–428 | NL11-S2 developer portal P1 | launched 2026-07-07 (Wave C/D round 1) |
+| 429–431 | NL8-P1 kiosk self-check-in | launched 2026-07-07 (Wave C/D round 1) |
+| — | NL12-S4 SLSA + NL12-S5 Kyverno gate | launched 2026-07-07 — ZERO-MIGRATION slices (no block; any migration need = STOP and ask coordinator) |
+| 432+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
