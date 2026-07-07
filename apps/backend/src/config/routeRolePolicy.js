@@ -272,6 +272,14 @@ export const BLOOD_BANK_ROUTE_ROLES = mergeRoles(
   rolesFrom(['DOCTOR', 'PATHOLOGIST', 'LAB_INCHARGE']),
 );
 
+export const COLD_CHAIN_ROUTE_ROLES = mergeRoles(
+  PHARMACY_ROUTE_ROLES,
+  LAB_ROUTE_ROLES,
+  BLOOD_BANK_ROUTE_ROLES,
+  THEATRE_ROUTE_ROLES,
+  rolesFrom(['NURSING_STAFF', 'NURSING_INCHARGE', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT', 'ADMIN']),
+);
+
 export const BILLING_V2_ROUTE_ROLES = mergeRoles(
   BILLING_ROUTE_ROLES,
   getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
