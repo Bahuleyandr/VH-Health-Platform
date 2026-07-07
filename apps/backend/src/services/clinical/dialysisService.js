@@ -1019,7 +1019,7 @@ export async function recordMachineQaLog({ tenantId, recorded_by, ...body }) {
     throw AppError.badRequest('machine_no or session_id required');
   }
   let machineNo = body.machine_no ? String(body.machine_no).trim() : null;
-  let sessionId = body.session_id ? Number(body.session_id) : null;
+  const sessionId = body.session_id ? Number(body.session_id) : null;
   if (sessionId) {
     const session = await getDialysisSessionInTenant(tenantId, sessionId);
     const sessionRows = await prisma.$queryRawUnsafe(
