@@ -1131,30 +1131,51 @@ model blood_requests {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model blood_units {
-  id                        Int                         @id @default(autoincrement())
-  tenant_id                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  unit_number               String                      @db.VarChar(60)
-  blood_group               String                      @db.VarChar(5)
-  component                 String                      @default("prbc") @db.VarChar(30)
-  status                    String                      @default("available") @db.VarChar(20)
-  volume_ml                 Int?
-  collected_date            DateTime?                   @db.Date
-  expiry_date               DateTime                    @db.Date
-  donor_ref                 String?                     @db.VarChar(80)
-  source_blood_bank         String?                     @db.VarChar(160)
-  request_id                Int?
-  registered_by             String?                     @db.Uuid
-  metadata                  Json                        @default("{}")
-  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  blood_requests_crossmatch blood_requests[]            @relation("blood_requests_crossmatched_unit")
-  blood_requests            blood_requests?             @relation("blood_units_request", fields: [request_id], references: [id], onUpdate: NoAction)
-  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_units_tenant")
-  transfusion_reactions     transfusion_reactions[]
-  transfusion_verifications transfusion_verifications[]
+  id                                                                                  Int                         @id @default(autoincrement())
+  tenant_id                                                                           String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_number                                                                         String                      @db.VarChar(60)
+  blood_group                                                                         String                      @db.VarChar(5)
+  component                                                                           String                      @default("prbc") @db.VarChar(30)
+  status                                                                              String                      @default("available") @db.VarChar(20)
+  volume_ml                                                                           Int?
+  collected_date                                                                      DateTime?                   @db.Date
+  expiry_date                                                                         DateTime                    @db.Date
+  donor_ref                                                                           String?                     @db.VarChar(80)
+  source_blood_bank                                                                   String?                     @db.VarChar(160)
+  request_id                                                                          Int?
+  registered_by                                                                       String?                     @db.Uuid
+  metadata                                                                            Json                        @default("{}")
+  created_at                                                                          DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                                          DateTime                    @default(now()) @db.Timestamptz(6)
+  donor_id                                                                            Int?
+  donation_event_id                                                                   Int?
+  parent_unit_id                                                                      Int?
+  component_preparation_id                                                            Int?
+  component_sequence                                                                  Int?
+  prepared_at                                                                         DateTime?                   @db.Timestamptz(6)
+  prepared_by                                                                         String?                     @db.Uuid
+  quarantined_at                                                                      DateTime?                   @db.Timestamptz(6)
+  quarantine_reason                                                                   String?
+  discard_confirmed_at                                                                DateTime?                   @db.Timestamptz(6)
+  discard_confirmed_by                                                                String?                     @db.Uuid
+  blood_requests_crossmatch                                                           blood_requests[]            @relation("blood_requests_crossmatched_unit")
+  blood_unit_discard_events                                                           blood_unit_discard_events[]
+  blood_requests                                                                      blood_requests?             @relation("blood_units_request", fields: [request_id], references: [id], onUpdate: NoAction)
+  component_preparations_blood_units_component_preparation_idTocomponent_preparations component_preparations?     @relation("blood_units_component_preparation_idTocomponent_preparations", fields: [component_preparation_id], references: [id], onUpdate: NoAction, map: "fk_blood_units_component_preparation")
+  donation_events                                                                     donation_events?            @relation(fields: [donation_event_id], references: [id], onUpdate: NoAction, map: "fk_blood_units_donation_event")
+  donors                                                                              donors?                     @relation(fields: [donor_id], references: [id], onUpdate: NoAction, map: "fk_blood_units_donor")
+  blood_units                                                                         blood_units?                @relation("blood_unitsToblood_units", fields: [parent_unit_id], references: [id], onUpdate: NoAction, map: "fk_blood_units_parent_unit")
+  other_blood_units                                                                   blood_units[]               @relation("blood_unitsToblood_units")
+  tenants                                                                             tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_units_tenant")
+  component_preparations_component_preparations_parent_unit_idToblood_units           component_preparations[]    @relation("component_preparations_parent_unit_idToblood_units")
+  transfusion_reactions                                                               transfusion_reactions[]
+  transfusion_verifications                                                           transfusion_verifications[]
 
   @@unique([tenant_id, unit_number], map: "uq_blood_units_number")
   @@index([tenant_id, status, blood_group, component, expiry_date], map: "idx_blood_units_stock")
+  @@index([tenant_id, donor_id, donation_event_id, parent_unit_id], map: "idx_blood_units_donor_trace")
+  @@index([tenant_id, component_preparation_id, component_sequence], map: "idx_blood_units_preparation")
+  @@index([tenant_id, status, quarantined_at(sort: Desc)], map: "idx_blood_units_quarantine", where: raw("((status)::text = 'quarantined'::text)"))
 }
 
 model bulk_operation_logs {
@@ -9444,7 +9465,9 @@ model tenants {
   beds                                       beds[]
   billing_advance_settlements                billing_advance_settlements[]
   billing_invoice_items                      billing_invoice_items[]
+  blood_bank_register_exports                blood_bank_register_exports[]
   blood_requests                             blood_requests[]
+  blood_unit_discard_events                  blood_unit_discard_events[]
   blood_units                                blood_units[]
   bookable_resources                         bookable_resources[]
   bulk_operation_logs                        bulk_operation_logs[]
@@ -9561,6 +9584,7 @@ model tenants {
   clinical_trial_match_results               clinical_trial_match_results[]
   clinical_trials_catalog                    clinical_trials_catalog[]
   clinical_voice_notes                       clinical_voice_notes[]
+  component_preparations                     component_preparations[]
   composition_search_settings                composition_search_settings?
   consent_signatures                         consent_signatures[]
   consultations                              consultations[]
@@ -9585,6 +9609,7 @@ model tenants {
   discharge_summary_sections                 discharge_summary_sections[]
   doctors                                    doctors[]
   donation_events                            donation_events[]
+  donor_camps                                donor_camps[]
   donor_consents                             donor_consents[]
   donor_deferrals                            donor_deferrals[]
   donor_screenings                           donor_screenings[]
@@ -9827,6 +9852,7 @@ model tenants {
   transfusion_reactions                      transfusion_reactions[]
   transfusion_verifications                  transfusion_verifications[]
   triage_assessments                         triage_assessments[]
+  tti_tests                                  tti_tests[]
   user_action_logs                           user_action_logs[]
   user_active_sessions                       user_active_sessions[]
   user_deactivation_log                      user_deactivation_log[]
@@ -15828,42 +15854,52 @@ model privilege_catalog {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model donation_events {
-  id                            Int               @id @default(autoincrement())
-  tenant_id                     String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  donor_id                      Int
-  screening_id                  Int?
-  donation_code                 String            @db.VarChar(60)
-  donation_barcode              String            @db.VarChar(80)
-  collection_kind               String            @default("in_house") @db.VarChar(20)
-  camp_name                     String?           @db.VarChar(160)
-  camp_location                 String?
-  pre_vitals                    Json              @default("{}")
-  post_vitals                   Json              @default("{}")
-  volume_ml                     Int
-  status                        String            @default("collected") @db.VarChar(20)
-  collected_at                  DateTime          @default(now()) @db.Timestamptz(6)
-  collected_by                  String?           @db.Uuid
-  barcode_printed_at            DateTime?         @db.Timestamptz(6)
-  barcode_scanned_at            DateTime?         @db.Timestamptz(6)
-  barcode_scan_match            Boolean?
-  adverse_reaction              Boolean           @default(false)
-  adverse_reaction_type         String?           @db.VarChar(60)
-  adverse_reaction_severity     String?           @db.VarChar(20)
-  adverse_reaction_notes        String?
-  adverse_reaction_intervention String?
-  adverse_reaction_outcome      String?
-  created_at                    DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at                    DateTime          @default(now()) @db.Timestamptz(6)
-  metadata                      Json              @default("{}")
-  donors                        donors            @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_donation_events_donor")
-  donor_screenings              donor_screenings? @relation(fields: [screening_id], references: [id], onUpdate: NoAction, map: "fk_donation_events_screening")
-  tenants                       tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donation_events_tenant")
+  id                                                     Int                         @id @default(autoincrement())
+  tenant_id                                              String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_id                                               Int
+  screening_id                                           Int?
+  donation_code                                          String                      @db.VarChar(60)
+  donation_barcode                                       String                      @db.VarChar(80)
+  collection_kind                                        String                      @default("in_house") @db.VarChar(20)
+  camp_name                                              String?                     @db.VarChar(160)
+  camp_location                                          String?
+  pre_vitals                                             Json                        @default("{}")
+  post_vitals                                            Json                        @default("{}")
+  volume_ml                                              Int
+  status                                                 String                      @default("collected") @db.VarChar(20)
+  collected_at                                           DateTime                    @default(now()) @db.Timestamptz(6)
+  collected_by                                           String?                     @db.Uuid
+  barcode_printed_at                                     DateTime?                   @db.Timestamptz(6)
+  barcode_scanned_at                                     DateTime?                   @db.Timestamptz(6)
+  barcode_scan_match                                     Boolean?
+  adverse_reaction                                       Boolean                     @default(false)
+  adverse_reaction_type                                  String?                     @db.VarChar(60)
+  adverse_reaction_severity                              String?                     @db.VarChar(20)
+  adverse_reaction_notes                                 String?
+  adverse_reaction_intervention                          String?
+  adverse_reaction_outcome                               String?
+  created_at                                             DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                             DateTime                    @default(now()) @db.Timestamptz(6)
+  metadata                                               Json                        @default("{}")
+  tti_status                                             String                      @default("not_tested") @db.VarChar(30)
+  last_tti_test_id                                       Int?
+  camp_id                                                Int?
+  blood_unit_discard_events                              blood_unit_discard_events[]
+  blood_units                                            blood_units[]
+  component_preparations                                 component_preparations[]
+  donor_camps                                            donor_camps?                @relation(fields: [camp_id], references: [id], onUpdate: NoAction, map: "fk_donation_events_camp")
+  donors                                                 donors                      @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_donation_events_donor")
+  tti_tests_donation_events_last_tti_test_idTotti_tests  tti_tests?                  @relation("donation_events_last_tti_test_idTotti_tests", fields: [last_tti_test_id], references: [id], onUpdate: NoAction, map: "fk_donation_events_last_tti_test")
+  donor_screenings                                       donor_screenings?           @relation(fields: [screening_id], references: [id], onUpdate: NoAction, map: "fk_donation_events_screening")
+  tenants                                                tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donation_events_tenant")
+  tti_tests_tti_tests_donation_event_idTodonation_events tti_tests[]                 @relation("tti_tests_donation_event_idTodonation_events")
 
   @@unique([tenant_id, donation_barcode], map: "ux_donation_events_barcode")
   @@unique([tenant_id, donation_code], map: "ux_donation_events_code")
   @@index([tenant_id, collection_kind, collected_at(sort: Desc)], map: "idx_donation_events_collection")
   @@index([tenant_id, donor_id, collected_at(sort: Desc)], map: "idx_donation_events_donor_time")
   @@index([tenant_id, adverse_reaction, collected_at(sort: Desc)], map: "idx_donation_events_reactions", where: raw("(adverse_reaction = true)"))
+  @@index([tenant_id, camp_id, collected_at(sort: Desc)], map: "idx_donation_events_camp", where: raw("(camp_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -15957,36 +15993,40 @@ model donor_screenings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model donors {
-  id                        Int                @id @default(autoincrement())
-  tenant_id                 String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  donor_uid                 String             @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  full_name                 String             @db.VarChar(160)
-  phone                     String?            @db.VarChar(20)
-  email                     String?            @db.VarChar(255)
-  gender                    String?            @db.VarChar(20)
-  date_of_birth             DateTime?          @db.Date
+  id                        Int                         @id @default(autoincrement())
+  tenant_id                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_uid                 String                      @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  full_name                 String                      @db.VarChar(160)
+  phone                     String?                     @db.VarChar(20)
+  email                     String?                     @db.VarChar(255)
+  gender                    String?                     @db.VarChar(20)
+  date_of_birth             DateTime?                   @db.Date
   age_years                 Int?
   address                   String?
-  government_id_type        String?            @db.VarChar(40)
-  government_id_ref         String?            @db.VarChar(120)
-  abo_group                 String?            @db.VarChar(2)
-  rh_factor                 String?            @db.VarChar(8)
-  blood_group               String?            @db.VarChar(5)
-  status                    String             @default("registered") @db.VarChar(30)
-  eligibility_status        String             @default("not_screened") @db.VarChar(30)
-  last_screened_at          DateTime?          @db.Timestamptz(6)
-  last_donated_at           DateTime?          @db.Timestamptz(6)
+  government_id_type        String?                     @db.VarChar(40)
+  government_id_ref         String?                     @db.VarChar(120)
+  abo_group                 String?                     @db.VarChar(2)
+  rh_factor                 String?                     @db.VarChar(8)
+  blood_group               String?                     @db.VarChar(5)
+  status                    String                      @default("registered") @db.VarChar(30)
+  eligibility_status        String                      @default("not_screened") @db.VarChar(30)
+  last_screened_at          DateTime?                   @db.Timestamptz(6)
+  last_donated_at           DateTime?                   @db.Timestamptz(6)
   duplicate_override_reason String?
-  duplicate_reviewed_by     String?            @db.Uuid
-  registered_by             String?            @db.Uuid
-  registered_at             DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime           @default(now()) @db.Timestamptz(6)
-  metadata                  Json               @default("{}")
+  duplicate_reviewed_by     String?                     @db.Uuid
+  registered_by             String?                     @db.Uuid
+  registered_at             DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  metadata                  Json                        @default("{}")
+  blood_unit_discard_events blood_unit_discard_events[]
+  blood_units               blood_units[]
+  component_preparations    component_preparations[]
   donation_events           donation_events[]
   donor_consents            donor_consents[]
   donor_deferrals           donor_deferrals[]
   donor_screenings          donor_screenings[]
-  tenants                   tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donors_tenant")
+  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donors_tenant")
+  tti_tests                 tti_tests[]
 
   @@unique([tenant_id, donor_uid], map: "ux_donors_tenant_uid")
   @@index([tenant_id, government_id_type, government_id_ref], map: "idx_donors_tenant_government_ref", where: raw("(government_id_ref IS NOT NULL)"))
@@ -15997,6 +16037,23 @@ model donors {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model blood_bank_register_exports {
+  id                Int      @id @default(autoincrement())
+  tenant_id         String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  register_type     String   @db.VarChar(40)
+  export_format     String   @db.VarChar(20)
+  format_pending    Boolean  @default(true)
+  filters           Json     @default("{}")
+  row_count         Int      @default(0)
+  generated_by      String?  @db.Uuid
+  generated_by_role String?  @db.VarChar(60)
+  generated_at      DateTime @default(now()) @db.Timestamptz(6)
+  metadata          Json     @default("{}")
+  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_bank_register_exports_tenant")
+
+  @@index([tenant_id, register_type, generated_at(sort: Desc)], map: "idx_blood_bank_register_exports_type_time")
+}
+
 model ap_blocks {
   id               BigInt            @id @default(autoincrement())
   tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -16038,6 +16095,31 @@ model ap_case_specimens {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model blood_unit_discard_events {
+  id                Int              @id @default(autoincrement())
+  tenant_id         String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_id           Int
+  donor_id          Int?
+  donation_event_id Int?
+  tti_test_id       Int?
+  event_type        String           @db.VarChar(30)
+  reason_code       String           @db.VarChar(80)
+  reason_text       String
+  reversible        Boolean          @default(true)
+  performed_by      String?          @db.Uuid
+  performed_by_role String?          @db.VarChar(60)
+  performed_at      DateTime         @default(now()) @db.Timestamptz(6)
+  metadata          Json             @default("{}")
+  donation_events   donation_events? @relation(fields: [donation_event_id], references: [id], onUpdate: NoAction, map: "fk_blood_unit_discards_donation_event")
+  donors            donors?          @relation(fields: [donor_id], references: [id], onUpdate: NoAction, map: "fk_blood_unit_discards_donor")
+  tenants           tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_unit_discards_tenant")
+  tti_tests         tti_tests?       @relation(fields: [tti_test_id], references: [id], onUpdate: NoAction, map: "fk_blood_unit_discards_tti_test")
+  blood_units       blood_units      @relation(fields: [unit_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_blood_unit_discards_unit")
+
+  @@index([tenant_id, event_type, reason_code, performed_at(sort: Desc)], map: "idx_blood_unit_discards_reason")
+  @@index([tenant_id, unit_id, performed_at(sort: Desc)], map: "idx_blood_unit_discards_unit_time")
+}
+
 model ap_cases {
   id                      BigInt              @id @default(autoincrement())
   tenant_id               String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -16072,6 +16154,32 @@ model ap_cases {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model component_preparations {
+  id                                                                       Int             @id @default(autoincrement())
+  tenant_id                                                                String          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donation_event_id                                                        Int
+  donor_id                                                                 Int
+  parent_unit_id                                                           Int?
+  preparation_code                                                         String          @db.VarChar(80)
+  method                                                                   String          @default("manual") @db.VarChar(40)
+  prepared_units                                                           Json            @default("[]")
+  status                                                                   String          @default("prepared") @db.VarChar(20)
+  prepared_by                                                              String?         @db.Uuid
+  prepared_at                                                              DateTime        @default(now()) @db.Timestamptz(6)
+  notes                                                                    String?
+  created_at                                                               DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at                                                               DateTime        @default(now()) @db.Timestamptz(6)
+  metadata                                                                 Json            @default("{}")
+  blood_units_blood_units_component_preparation_idTocomponent_preparations blood_units[]   @relation("blood_units_component_preparation_idTocomponent_preparations")
+  donation_events                                                          donation_events @relation(fields: [donation_event_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_component_preparations_donation_event")
+  donors                                                                   donors          @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_component_preparations_donor")
+  blood_units_component_preparations_parent_unit_idToblood_units           blood_units?    @relation("component_preparations_parent_unit_idToblood_units", fields: [parent_unit_id], references: [id], onUpdate: NoAction, map: "fk_component_preparations_parent_unit")
+  tenants                                                                  tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_component_preparations_tenant")
+
+  @@unique([tenant_id, preparation_code], map: "ux_component_preparations_code")
+  @@index([tenant_id, donation_event_id, prepared_at(sort: Desc)], map: "idx_component_preparations_donation")
+}
+
 model ap_gross_records {
   id                BigInt      @id @default(autoincrement())
   tenant_id         String      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -16095,6 +16203,31 @@ model ap_gross_records {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model donor_camps {
+  id              Int               @id @default(autoincrement())
+  tenant_id       String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  camp_code       String            @db.VarChar(80)
+  name            String            @db.VarChar(160)
+  organizer       String?           @db.VarChar(160)
+  location        String?
+  scheduled_date  DateTime?         @db.Date
+  status          String            @default("planned") @db.VarChar(20)
+  expected_donors Int?
+  collected_units Int               @default(0)
+  contact_name    String?           @db.VarChar(160)
+  contact_phone   String?           @db.VarChar(30)
+  notes           String?
+  created_by      String?           @db.Uuid
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  metadata        Json              @default("{}")
+  donation_events donation_events[]
+  tenants         tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donor_camps_tenant")
+
+  @@unique([tenant_id, camp_code], map: "ux_donor_camps_code")
+  @@index([tenant_id, status, scheduled_date(sort: Desc)], map: "idx_donor_camps_status_date")
+}
+
 model ap_report_addenda {
   id            BigInt     @id @default(autoincrement())
   tenant_id     String     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -16112,6 +16245,45 @@ model ap_report_addenda {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tti_tests {
+  id                                                           Int                         @id @default(autoincrement())
+  tenant_id                                                    String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donation_event_id                                            Int
+  donor_id                                                     Int
+  panel_code                                                   String                      @default("standard_tti") @db.VarChar(40)
+  sample_identifier                                            String?                     @db.VarChar(80)
+  result_hiv                                                   String                      @default("not_tested") @db.VarChar(20)
+  result_hbsag                                                 String                      @default("not_tested") @db.VarChar(20)
+  result_hcv                                                   String                      @default("not_tested") @db.VarChar(20)
+  result_syphilis                                              String                      @default("not_tested") @db.VarChar(20)
+  result_malaria                                               String                      @default("not_tested") @db.VarChar(20)
+  results                                                      Json                        @default("{}")
+  overall_result                                               String                      @default("pending") @db.VarChar(20)
+  status                                                       String                      @default("pending") @db.VarChar(20)
+  repeat_parent_id                                             Int?
+  repeat_sequence                                              Int                         @default(1)
+  tested_by                                                    String?                     @db.Uuid
+  tested_at                                                    DateTime?                   @db.Timestamptz(6)
+  approved_by                                                  String?                     @db.Uuid
+  approved_by_role                                             String?                     @db.VarChar(60)
+  approved_at                                                  DateTime?                   @db.Timestamptz(6)
+  notes                                                        String?
+  created_at                                                   DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                   DateTime                    @default(now()) @db.Timestamptz(6)
+  metadata                                                     Json                        @default("{}")
+  blood_unit_discard_events                                    blood_unit_discard_events[]
+  donation_events_donation_events_last_tti_test_idTotti_tests  donation_events[]           @relation("donation_events_last_tti_test_idTotti_tests")
+  donation_events_tti_tests_donation_event_idTodonation_events donation_events             @relation("tti_tests_donation_event_idTodonation_events", fields: [donation_event_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tti_tests_donation_event")
+  donors                                                       donors                      @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tti_tests_donor")
+  tti_tests                                                    tti_tests?                  @relation("tti_testsTotti_tests", fields: [repeat_parent_id], references: [id], onUpdate: NoAction, map: "fk_tti_tests_repeat_parent")
+  other_tti_tests                                              tti_tests[]                 @relation("tti_testsTotti_tests")
+  tenants                                                      tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tti_tests_tenant")
+
+  @@unique([tenant_id, donation_event_id, repeat_sequence], map: "ux_tti_tests_donation_repeat")
+  @@index([tenant_id, donor_id, created_at(sort: Desc)], map: "idx_tti_tests_donor_time")
+  @@index([tenant_id, status, overall_result, created_at(sort: Desc)], map: "idx_tti_tests_status")
+}
+
 model ap_reports {
   id                BigInt              @id @default(autoincrement())
   tenant_id         String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid

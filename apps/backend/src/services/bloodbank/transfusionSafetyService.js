@@ -115,7 +115,8 @@ async function loadRequest(requestId, tenantId) {
 
 export async function registerUnit({
   unitNumber, bloodGroup, component = 'prbc', expiryDate, collectedDate = null,
-  volumeMl = null, donorRef = null, sourceBloodBank = null,
+  volumeMl = null, donorRef = null, sourceBloodBank = null, donorId = null,
+  donationEventId = null,
 } = {}, context = {}) {
   const tenantId = requireTenantId(context.tenantId);
   const cleanedNumber = (unitNumber || '').trim().toUpperCase();
@@ -128,12 +129,13 @@ export async function registerUnit({
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO blood_units
        (tenant_id, unit_number, blood_group, component, expiry_date, collected_date, volume_ml,
-        donor_ref, source_blood_bank, registered_by)
-     VALUES ($1::uuid, $2, $3, $4, $5::date, $6::date, $7::int, $8, $9, $10::uuid)
+        donor_ref, source_blood_bank, donor_id, donation_event_id, registered_by)
+     VALUES ($1::uuid, $2, $3, $4, $5::date, $6::date, $7::int, $8, $9, $10::int, $11::int, $12::uuid)
      ON CONFLICT (tenant_id, unit_number) DO UPDATE SET updated_at = NOW()
-     RETURNING id, unit_number, blood_group, component, status, expiry_date, created_at`,
+     RETURNING id, unit_number, blood_group, component, status, donor_id, donation_event_id, expiry_date, created_at`,
     tenantId, cleanedNumber, bloodGroup, String(component).toLowerCase(), expiryDate, collectedDate,
-    volumeMl, donorRef, sourceBloodBank, context.actorUid || null,
+    volumeMl, donorRef, sourceBloodBank, donorId == null ? null : Number(donorId),
+    donationEventId == null ? null : Number(donationEventId), context.actorUid || null,
   );
   return rows[0];
 }
@@ -147,7 +149,7 @@ export async function listUnits({ status = null, bloodGroup = null, component = 
   if (component) { params.push(String(component).toLowerCase()); conditions.push(`component = $${params.length}`); }
   return prisma.$queryRawUnsafe(
     `SELECT id, unit_number, blood_group, component, status, volume_ml, collected_date,
-            expiry_date, source_blood_bank, request_id, created_at
+            expiry_date, donor_id, donation_event_id, source_blood_bank, request_id, created_at
        FROM blood_units WHERE ${conditions.join(' AND ')}
       ORDER BY expiry_date ASC, id ASC LIMIT 200`,
     ...params,

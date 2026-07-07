@@ -49461,6 +49461,92 @@
         }
       }
     },
+    "/api/v1/blood-bank/donations/{id}/components": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donations_by_id_components",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donations/{id}/tti-tests": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donations_by_id_tti_tests",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donor-camps": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_donor_camps",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donor_camps",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/blood-bank/donors": {
       "get": {
         "operationId": "get_api_v1_blood_bank_donors",
@@ -49643,6 +49729,33 @@
         }
       }
     },
+    "/api/v1/blood-bank/registers/{registerType}": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_registers_by_registerType",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "registerType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/blood-bank/request": {
       "post": {
         "operationId": "post_api_v1_blood_bank_request",
@@ -49690,6 +49803,50 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/blood-bank/units/traceability": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_units_traceability",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blood-bank/units/{unitId}/discard-confirmation": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_units_by_unitId_discard_confirmation",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/blood-bank/{id}/complete-transfusion": {
