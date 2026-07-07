@@ -22,6 +22,12 @@ const webhookFailed = new Gauge('webhook_deliveries_failed_rows', 'webhook_deliv
 const webhookDead = new Gauge('webhook_deliveries_dead_rows', 'webhook_deliveries rows in the terminal dead status (undelivered)');
 const dbBreakerOpen = new Gauge('db_circuit_breaker_open', 'Whether any Prisma client circuit breaker is open (1=open, 0=closed)');
 const dbReadReplicaLagSeconds = new Gauge('db_read_replica_lag_seconds', 'Approximate read-replica replay lag observed through prismaReadOnly (seconds); emitted only when DATABASE_READ_URL is configured');
+const deviceRegistryActiveDevices = new Gauge('device_registry_active_devices', 'Active registered clinical devices');
+const deviceSilentDevices = new Gauge('device_silent_devices', 'Active devices whose last_seen_at is older than three times their expected interval, or has never been seen');
+const deviceVitalsUnverifiedRows = new Gauge('device_vitals_unverified_rows', 'Unverified device-originated vitals_chart rows');
+const deviceAssociationsActive = new Gauge('device_associations_active', 'Active device-patient associations');
+const deviceUnassociatedMessages = new Gauge('device_unassociated_messages_total', 'Device ORU messages parked as DEVICE_NOT_ASSOCIATED');
+const deviceSamplesSuppressed = new Gauge('device_samples_suppressed_total', 'Device vital samples suppressed by bounded policy reason', ['reason']);
 
 // ---- Counters (incremented inline at the event site) ----------------------
 const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable WS broadcast/sendToUser drops (per-socket backpressure or cross-process fan-out fallback). NOTE: the at-most-once Redis-failover drop is invisible to the app — see ws_fanout_subscriber_errors_total for the failover-window proxy.', ['reason']);
@@ -117,6 +123,59 @@ export async function collectReliabilityMetrics() {
     webhookFailed.set({}, Number(wd?.failed ?? 0));
     webhookDead.set({}, Number(wd?.dead ?? 0));
 
+    const [dm] = await prisma.$queryRawUnsafe(`
+      WITH registry AS (
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'active') AS active_devices,
+          COUNT(*) FILTER (
+            WHERE status = 'active'
+              AND (
+                last_seen_at IS NULL
+                OR last_seen_at < NOW() - (GREATEST(expected_interval_seconds, 60) * 3 * INTERVAL '1 second')
+              )
+          ) AS silent_devices
+        FROM device_registry
+      ),
+      vitals AS (
+        SELECT COUNT(*) AS unverified_rows
+          FROM vitals_chart
+         WHERE source = 'device'
+           AND device_verified = false
+      ),
+      associations AS (
+        SELECT COUNT(*) AS active_associations
+          FROM device_patient_associations
+         WHERE ended_at IS NULL
+      ),
+      unassociated AS (
+        SELECT COUNT(*) AS unassociated_messages
+          FROM lab_interface_messages
+         WHERE message_type = 'ORU^VITALS'
+           AND status = 'failed'
+           AND error = 'DEVICE_NOT_ASSOCIATED'
+      )
+      SELECT
+        registry.active_devices,
+        registry.silent_devices,
+        vitals.unverified_rows,
+        associations.active_associations,
+        unassociated.unassociated_messages,
+        COALESCE((
+          SELECT jsonb_object_agg(reason, count)
+            FROM device_vital_suppression_counters
+        ), '{}'::jsonb) AS suppressed
+      FROM registry, vitals, associations, unassociated
+    `);
+    deviceRegistryActiveDevices.set({}, Number(dm?.active_devices ?? 0));
+    deviceSilentDevices.set({}, Number(dm?.silent_devices ?? 0));
+    deviceVitalsUnverifiedRows.set({}, Number(dm?.unverified_rows ?? 0));
+    deviceAssociationsActive.set({}, Number(dm?.active_associations ?? 0));
+    deviceUnassociatedMessages.set({}, Number(dm?.unassociated_messages ?? 0));
+    const suppressed = dm?.suppressed && typeof dm.suppressed === 'object' ? dm.suppressed : {};
+    for (const [reason, value] of Object.entries(suppressed)) {
+      deviceSamplesSuppressed.set({ reason }, Number(value ?? 0));
+    }
+
     dbBreakerOpen.set({}, circuitBreakerStatus().open ? 1 : 0);
   } catch (err) {
     logger.warn(`collectReliabilityMetrics: refresh skipped — ${err?.message || err}`);
@@ -129,6 +188,8 @@ export function serializeReliabilityMetrics() {
     eventOutboxPending, eventOutboxOldestAge, eventOutboxDeadLetter,
     notificationOutboxPending,
     webhookPending, webhookFailed, webhookDead,
+    deviceRegistryActiveDevices, deviceSilentDevices, deviceVitalsUnverifiedRows,
+    deviceAssociationsActive, deviceUnassociatedMessages, deviceSamplesSuppressed,
     dbBreakerOpen,
     wsBroadcastDropped, wsFanoutSubscriberErrors, eventDeadLettered,
     ledgerReconciliationDrift,

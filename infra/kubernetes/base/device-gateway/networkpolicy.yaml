@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: device-gateway-locked-egress
+  namespace: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: device-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.40.0.0/16
+      ports:
+        - protocol: TCP
+          port: 2575
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 9108
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - protocol: TCP
+          port: 3000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -37,7 +37,7 @@ describe('buildRoleRegistry', () => {
     expect(payload.doctor_tiers).toEqual(['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']);
     expect(payload.clinical_roles).toContain('COUNSELLOR');
     expect(payload.platform_roles).toContain('DATA_PROTECTION_OFFICER');
-    expect(payload.machine_roles).toEqual(['WEBHOOK_CLIENT']);
+    expect(payload.machine_roles).toEqual(['WEBHOOK_CLIENT', 'DEVICE_GATEWAY']);
   });
 
   it('flags CONSULTANT as clinical + doctor_tier', () => {
@@ -50,6 +50,14 @@ describe('buildRoleRegistry', () => {
 
   it('flags WEBHOOK_CLIENT as machine only (not clinical / not staff)', () => {
     const entry = payload.roles.find((r) => r.role === 'WEBHOOK_CLIENT');
+    expect(entry.is_machine).toBe(true);
+    expect(entry.is_clinical).toBe(false);
+    expect(entry.is_doctor_tier).toBe(false);
+    expect(entry.is_support).toBe(false);
+  });
+
+  it('flags DEVICE_GATEWAY as machine only (not clinical / not staff)', () => {
+    const entry = payload.roles.find((r) => r.role === 'DEVICE_GATEWAY');
     expect(entry.is_machine).toBe(true);
     expect(entry.is_clinical).toBe(false);
     expect(entry.is_doctor_tier).toBe(false);
@@ -86,6 +94,7 @@ describe('buildRoleRegistry', () => {
       'CATH_LAB_INCHARGE',
     ]));
     expect(pickerRoles).not.toContain('WEBHOOK_CLIENT');
+    expect(pickerRoles).not.toContain('DEVICE_GATEWAY');
     expect(pickerRoles).not.toContain('PATIENT');
   });
 });

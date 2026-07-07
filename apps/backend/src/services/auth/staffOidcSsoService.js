@@ -20,7 +20,7 @@ const STAFF_STATE_CACHE = new Map();
 const METADATA_CACHE = new Map();
 const JWKS_CACHE = new Map();
 const STAFF_REALM_ROLES = new Set(ALL_STAFF_ROLES);
-const FORBIDDEN_STAFF_SSO_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'PATIENT', 'WEBHOOK_CLIENT']);
+const FORBIDDEN_STAFF_SSO_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'PATIENT', 'WEBHOOK_CLIENT', 'DEVICE_GATEWAY']);
 
 function getHmacSecret() {
   const secret = process.env.JWT_SECRET;

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-gateway-config
+  namespace: vhhealth
+data:
+  DEVICE_GATEWAY_LISTENERS: |
+    [
+      {
+        "name": "icu-monitors",
+        "port": 2575,
+        "adapter": "mllp-hl7v2",
+        "tenant_slug": "default",
+        "source_kind": "monitor"
+      }
+    ]
+  DEVICE_GATEWAY_METRICS_PORT: "9108"
+  DEVICE_GATEWAY_SPOOL_DIR: "/var/spool/vhhealth-device-gateway"
+  DEVICE_GATEWAY_MAX_SPOOL_BYTES: "1073741824"

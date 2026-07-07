@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: device-gateway
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: device-gateway
+spec:
+  selector:
+    app.kubernetes.io/name: device-gateway
+  ports:
+    - name: mllp
+      port: 2575
+      targetPort: mllp
+    - name: metrics
+      port: 9108
+      targetPort: metrics
