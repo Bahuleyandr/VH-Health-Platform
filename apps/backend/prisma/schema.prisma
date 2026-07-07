@@ -1759,6 +1759,15 @@ model clinical_ai_biomed_devices {
   metadata                                   Json?                                        @default("{}")
   created_at                                 DateTime?                                    @default(now()) @db.Timestamptz(6)
   updated_at                                 DateTime?                                    @default(now()) @db.Timestamptz(6)
+  amc_vendor                                 String?                                      @db.VarChar(160)
+  amc_contract_number                        String?                                      @db.VarChar(120)
+  amc_starts_on                              DateTime?                                    @db.Date
+  amc_expires_on                             DateTime?                                    @db.Date
+  amc_contact_name                           String?                                      @db.VarChar(160)
+  amc_contact_phone                          String?                                      @db.VarChar(40)
+  biomed_calibration_certificates            biomed_calibration_certificates[]
+  biomed_maintenance_schedules               biomed_maintenance_schedules[]
+  biomed_work_orders                         biomed_work_orders[]
   tenants                                    tenants                                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   clinical_ai_biomed_maintenance_predictions clinical_ai_biomed_maintenance_predictions[]
   cold_chain_units                           cold_chain_units[]
@@ -9584,6 +9593,11 @@ model tenants {
   beds                                       beds[]
   billing_advance_settlements                billing_advance_settlements[]
   billing_invoice_items                      billing_invoice_items[]
+  biomed_calibration_certificates            biomed_calibration_certificates[]
+  biomed_maintenance_schedules               biomed_maintenance_schedules[]
+  biomed_work_order_recipients               biomed_work_order_recipients[]
+  biomed_work_order_updates                  biomed_work_order_updates[]
+  biomed_work_orders                         biomed_work_orders[]
   blood_bank_register_exports                blood_bank_register_exports[]
   blood_requests                             blood_requests[]
   blood_unit_discard_events                  blood_unit_discard_events[]
@@ -10458,6 +10472,10 @@ model users {
   attendance_regularization_attendance_regularization_reviewed_byTousers           attendance_regularization[]        @relation("attendance_regularization_reviewed_byTousers")
   attendance_regularization_attendance_regularization_staff_idTousers              attendance_regularization[]        @relation("attendance_regularization_staff_idTousers")
   beds                                                                             beds[]
+  biomed_maintenance_schedules                                                     biomed_maintenance_schedules[]
+  biomed_work_order_recipients                                                     biomed_work_order_recipients[]
+  biomed_work_order_updates                                                        biomed_work_order_updates[]
+  biomed_work_orders                                                               biomed_work_orders[]
   chair_bookings                                                                   chair_bookings[]
   device_patient_associations                                                      device_patient_associations[]
   device_presence_logs                                                             device_presence_logs[]
@@ -16979,4 +16997,164 @@ model cold_chain_units {
   @@unique([tenant_id, unit_code], map: "ux_cold_chain_units_tenant_code")
   @@unique([tenant_id, device_registry_id], map: "ux_cold_chain_units_tenant_device_active", where: raw("((status)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying])::text[]))"))
   @@index([tenant_id, status, department], map: "idx_cold_chain_units_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model biomed_calibration_certificates {
+  id                         BigInt                     @id @default(autoincrement())
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  biomed_device_id           Int
+  work_order_id              BigInt?
+  certificate_number         String                     @db.VarChar(120)
+  calibrated_at              DateTime                   @db.Timestamptz(6)
+  due_at                     DateTime                   @db.Timestamptz(6)
+  performed_by               String?                    @db.VarChar(160)
+  performed_by_uid           String?                    @db.Uuid
+  document_id                String
+  document_storage_key       String?
+  document_mime_type         String?                    @db.VarChar(100)
+  result                     String                     @db.VarChar(24)
+  notes                      String?
+  created_by                 String?                    @db.Uuid
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  metadata                   Json                       @default("{}")
+  clinical_ai_biomed_devices clinical_ai_biomed_devices @relation(fields: [biomed_device_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  biomed_work_orders         biomed_work_orders?        @relation(fields: [work_order_id], references: [id], onUpdate: NoAction)
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_biomed_calibration_certificates_tenant")
+
+  @@unique([tenant_id, certificate_number], map: "ux_biomed_calibration_certificates_number")
+  @@index([tenant_id, biomed_device_id, due_at(sort: Desc)], map: "idx_biomed_calibration_certificates_device_due")
+  @@index([tenant_id, work_order_id], map: "idx_biomed_calibration_certificates_order")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model biomed_maintenance_schedules {
+  id                                                                                     BigInt                     @id @default(autoincrement())
+  tenant_id                                                                              String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  biomed_device_id                                                                       Int
+  kind                                                                                   String                     @db.VarChar(24)
+  interval_days                                                                          Int?
+  interval_usage_hours                                                                   Decimal?                   @db.Decimal(12, 2)
+  next_due_at                                                                            DateTime?                  @db.Timestamptz(6)
+  next_due_usage_hours                                                                   Decimal?                   @db.Decimal(12, 2)
+  assigned_role                                                                          String                     @default("BIOMEDICAL_STAFF") @db.VarChar(60)
+  assigned_to_id                                                                         Int?
+  assigned_to_uid                                                                        String?                    @db.Uuid
+  assigned_vendor                                                                        String?                    @db.VarChar(160)
+  active                                                                                 Boolean                    @default(true)
+  last_materialized_due_at                                                               DateTime?                  @db.Timestamptz(6)
+  last_materialized_usage_hours                                                          Decimal?                   @db.Decimal(12, 2)
+  last_work_order_id                                                                     BigInt?
+  created_by                                                                             String?                    @db.Uuid
+  created_at                                                                             DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                                                                             DateTime                   @default(now()) @db.Timestamptz(6)
+  metadata                                                                               Json                       @default("{}")
+  users                                                                                  users?                     @relation(fields: [assigned_to_id], references: [id], onUpdate: NoAction)
+  clinical_ai_biomed_devices                                                             clinical_ai_biomed_devices @relation(fields: [biomed_device_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  biomed_work_orders_biomed_maintenance_schedules_last_work_order_idTobiomed_work_orders biomed_work_orders?        @relation("biomed_maintenance_schedules_last_work_order_idTobiomed_work_orders", fields: [last_work_order_id], references: [id], onUpdate: NoAction, map: "fk_biomed_maintenance_schedules_last_work_order")
+  tenants                                                                                tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_biomed_maintenance_schedules_tenant")
+  biomed_work_orders_biomed_work_orders_schedule_idTobiomed_maintenance_schedules        biomed_work_orders[]       @relation("biomed_work_orders_schedule_idTobiomed_maintenance_schedules")
+
+  @@unique([tenant_id, biomed_device_id, kind], map: "ux_biomed_maintenance_schedules_active_kind", where: raw("(active = true)"))
+  @@index([tenant_id, biomed_device_id, active], map: "idx_biomed_maintenance_schedules_device")
+  @@index([tenant_id, active, next_due_at], map: "idx_biomed_maintenance_schedules_due", where: raw("(active = true)"))
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model biomed_work_order_recipients {
+  id                 BigInt             @id @default(autoincrement())
+  tenant_id          String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  work_order_id      BigInt
+  staff_id           Int
+  staff_uid          String?            @db.Uuid
+  recipient_kind     String             @default("assignee") @db.VarChar(40)
+  source             String             @default("role") @db.VarChar(60)
+  notified_at        DateTime?          @db.Timestamptz(6)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  users              users              @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  biomed_work_orders biomed_work_orders @relation(fields: [work_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_biomed_work_order_recipients_tenant")
+
+  @@unique([tenant_id, work_order_id, staff_id], map: "ux_biomed_work_order_recipients_staff")
+  @@index([tenant_id, staff_id, work_order_id], map: "idx_biomed_work_order_recipients_staff")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model biomed_work_order_updates {
+  id                 BigInt             @id @default(autoincrement())
+  tenant_id          String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  work_order_id      BigInt
+  previous_status    String?            @db.VarChar(24)
+  status             String             @db.VarChar(24)
+  message            String?
+  author_id          Int?
+  author_uid         String?            @db.Uuid
+  author_role        String?            @db.VarChar(60)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  metadata           Json               @default("{}")
+  users              users?             @relation(fields: [author_id], references: [id], onUpdate: NoAction)
+  biomed_work_orders biomed_work_orders @relation(fields: [work_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_biomed_work_order_updates_tenant")
+
+  @@index([tenant_id, work_order_id, created_at(sort: Desc)], map: "idx_biomed_work_order_updates_order")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model biomed_work_orders {
+  id                                                                                               BigInt                            @id @default(autoincrement())
+  tenant_id                                                                                        String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  work_order_number                                                                                String                            @default(dbgenerated("((('BWO-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('biomed_work_order_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(32)
+  biomed_device_id                                                                                 Int
+  schedule_id                                                                                      BigInt?
+  kind                                                                                             String                            @db.VarChar(24)
+  priority                                                                                         String                            @default("normal") @db.VarChar(24)
+  status                                                                                           String                            @default("open") @db.VarChar(24)
+  description                                                                                      String
+  assigned_to_id                                                                                   Int?
+  assigned_to_uid                                                                                  String?                           @db.Uuid
+  assigned_to_role                                                                                 String?                           @db.VarChar(60)
+  assigned_vendor                                                                                  String?                           @db.VarChar(160)
+  assigned_by                                                                                      String?                           @db.Uuid
+  assigned_at                                                                                      DateTime?                         @db.Timestamptz(6)
+  sla_due_at                                                                                       DateTime?                         @db.Timestamptz(6)
+  sla_breached_at                                                                                  DateTime?                         @db.Timestamptz(6)
+  completion_notes                                                                                 String?
+  parts_used                                                                                       Json                              @default("[]")
+  cost_amount                                                                                      Decimal?                          @db.Decimal(12, 2)
+  downtime_started_at                                                                              DateTime?                         @db.Timestamptz(6)
+  downtime_ended_at                                                                                DateTime?                         @db.Timestamptz(6)
+  completed_by                                                                                     String?                           @db.Uuid
+  completed_at                                                                                     DateTime?                         @db.Timestamptz(6)
+  verified_by                                                                                      String?                           @db.Uuid
+  verified_at                                                                                      DateTime?                         @db.Timestamptz(6)
+  source                                                                                           String                            @default("manual") @db.VarChar(32)
+  source_ref                                                                                       String?                           @db.VarChar(160)
+  due_window_start                                                                                 DateTime?                         @db.Timestamptz(6)
+  due_window_end                                                                                   DateTime?                         @db.Timestamptz(6)
+  created_by                                                                                       String?                           @db.Uuid
+  created_at                                                                                       DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                       DateTime                          @default(now()) @db.Timestamptz(6)
+  metadata                                                                                         Json                              @default("{}")
+  biomed_calibration_certificates                                                                  biomed_calibration_certificates[]
+  biomed_maintenance_schedules_biomed_maintenance_schedules_last_work_order_idTobiomed_work_orders biomed_maintenance_schedules[]    @relation("biomed_maintenance_schedules_last_work_order_idTobiomed_work_orders")
+  biomed_work_order_recipients                                                                     biomed_work_order_recipients[]
+  biomed_work_order_updates                                                                        biomed_work_order_updates[]
+  users                                                                                            users?                            @relation(fields: [assigned_to_id], references: [id], onUpdate: NoAction)
+  clinical_ai_biomed_devices                                                                       clinical_ai_biomed_devices        @relation(fields: [biomed_device_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  biomed_maintenance_schedules_biomed_work_orders_schedule_idTobiomed_maintenance_schedules        biomed_maintenance_schedules?     @relation("biomed_work_orders_schedule_idTobiomed_maintenance_schedules", fields: [schedule_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                          tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_biomed_work_orders_tenant")
+
+  @@unique([tenant_id, source_ref], map: "ux_biomed_work_orders_ai_prediction_open", where: raw("(((source)::text = 'ai_prediction'::text) AND (source_ref IS NOT NULL) AND ((status)::text = ANY ((ARRAY['open'::character varying, 'assigned'::character varying, 'in_progress'::character varying, 'completed'::character varying])::text[])))"))
+  @@unique([tenant_id, schedule_id, due_window_start], map: "ux_biomed_work_orders_schedule_window", where: raw("(((source)::text = 'schedule'::text) AND (schedule_id IS NOT NULL) AND (due_window_start IS NOT NULL))"))
+  @@unique([tenant_id, work_order_number], map: "ux_biomed_work_orders_tenant_number")
+  @@index([tenant_id, assigned_to_id, status], map: "idx_biomed_work_orders_assignee")
+  @@index([tenant_id, biomed_device_id, created_at(sort: Desc)], map: "idx_biomed_work_orders_device")
+  @@index([tenant_id, status, priority, sla_due_at], map: "idx_biomed_work_orders_queue")
 }
