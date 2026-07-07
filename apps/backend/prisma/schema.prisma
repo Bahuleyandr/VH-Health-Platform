@@ -5069,6 +5069,7 @@ model facility_locations {
   tenants                  tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_rooms           facility_rooms[]
   lab_analyzers            lab_analyzers[]
+  mortuary_slots           mortuary_slots[]
 
   @@unique([facility_id, location_code])
   @@index([tenant_id, location_kind, status], map: "idx_facility_locations_kind")
@@ -9585,6 +9586,7 @@ model tenants {
   blood_requests                             blood_requests[]
   blood_unit_discard_events                  blood_unit_discard_events[]
   blood_units                                blood_units[]
+  body_custody_events                        body_custody_events[]
   bookable_resources                         bookable_resources[]
   bulk_operation_logs                        bulk_operation_logs[]
   bulk_revision_jobs                         bulk_revision_jobs[]
@@ -9597,6 +9599,7 @@ model tenants {
   care_team_status_history                   care_team_status_history[]
   care_teams                                 care_teams[]
   cds_alerts                                 cds_alerts[]
+  chair_bookings                             chair_bookings[]
   chat_session_messages                      chat_session_messages[]
   chat_sessions                              chat_sessions[]
   chemo_administrations                      chemo_administrations[]
@@ -9777,6 +9780,7 @@ model tenants {
   incident_reports                           incident_reports[]
   india_compliance_evidence                  india_compliance_evidence[]
   infection_cases                            infection_cases[]
+  infusion_chairs                            infusion_chairs[]
   insurance_claim_caps                       insurance_claim_caps[]
   insurance_claims                           insurance_claims[]
   insurance_preauth_responses                insurance_preauth_responses[]
@@ -9825,6 +9829,7 @@ model tenants {
   micro_isolates                             micro_isolates[]
   micro_sensitivities                        micro_sensitivities[]
   mlc_records                                mlc_records[]
+  mortuary_slots                             mortuary_slots[]
   nabh_indicator_snapshots                   nabh_indicator_snapshots[]
   news2_scores                               news2_scores[]
   nhcx_messages                              nhcx_messages[]
@@ -10450,6 +10455,7 @@ model users {
   attendance_regularization_attendance_regularization_reviewed_byTousers           attendance_regularization[]        @relation("attendance_regularization_reviewed_byTousers")
   attendance_regularization_attendance_regularization_staff_idTousers              attendance_regularization[]        @relation("attendance_regularization_staff_idTousers")
   beds                                                                             beds[]
+  chair_bookings                                                                   chair_bookings[]
   device_patient_associations                                                      device_patient_associations[]
   device_presence_logs                                                             device_presence_logs[]
   device_vital_sample_observations                                                 device_vital_sample_observations[]
@@ -12671,51 +12677,53 @@ model bmw_waste_log {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model death_records {
-  id                           Int                 @id @default(autoincrement())
-  patient_uid                  String              @db.Uuid
+  id                           Int                   @id @default(autoincrement())
+  patient_uid                  String                @db.Uuid
   admission_id                 Int?
-  mccd_serial                  String?             @db.VarChar(40)
-  date_of_death                DateTime            @db.Date
-  time_of_death                DateTime            @db.Time(6)
-  place_of_death               String              @default("inpatient") @db.VarChar(40)
-  ward_or_unit                 String?             @db.VarChar(80)
+  mccd_serial                  String?               @db.VarChar(40)
+  date_of_death                DateTime              @db.Date
+  time_of_death                DateTime              @db.Time(6)
+  place_of_death               String                @default("inpatient") @db.VarChar(40)
+  ward_or_unit                 String?               @db.VarChar(80)
   cause_part_1a                String
-  icd10_part_1a                String?             @db.VarChar(10)
+  icd10_part_1a                String?               @db.VarChar(10)
   cause_part_1b                String?
-  icd10_part_1b                String?             @db.VarChar(10)
+  icd10_part_1b                String?               @db.VarChar(10)
   cause_part_1c                String?
-  icd10_part_1c                String?             @db.VarChar(10)
+  icd10_part_1c                String?               @db.VarChar(10)
   cause_part_2                 String?
-  icd10_part_2                 String?             @db.VarChar(10)
-  manner_of_death              String              @default("natural") @db.VarChar(20)
-  was_pregnancy_related        Boolean             @default(false)
-  pregnancy_stage              String?             @db.VarChar(40)
-  was_postsurgery              Boolean             @default(false)
-  surgery_within_30d           Boolean             @default(false)
-  is_medicolegal               Boolean             @default(false)
-  police_station               String?             @db.VarChar(120)
-  police_fir_no                String?             @db.VarChar(60)
-  police_clearance_at          DateTime?           @db.Timestamptz(6)
-  postmortem_required          Boolean             @default(false)
-  postmortem_completed_at      DateTime?           @db.Timestamptz(6)
-  body_released_at             DateTime?           @db.Timestamptz(6)
-  body_released_to_name        String?             @db.VarChar(160)
-  body_released_to_relation    String?             @db.VarChar(40)
-  body_released_to_id_proof    String?             @db.VarChar(60)
-  body_release_witnessed_by    String?             @db.Uuid
-  body_release_method          String?             @db.VarChar(20)
-  certified_by                 String?             @db.Uuid
-  certified_by_name            String?             @db.VarChar(160)
-  certifier_registration_no    String?             @db.VarChar(60)
-  certified_at                 DateTime?           @db.Timestamptz(6)
-  status                       String              @default("pending") @db.VarChar(20)
-  registrar_acknowledgement_no String?             @db.VarChar(60)
-  registered_at                DateTime?           @db.Timestamptz(6)
+  icd10_part_2                 String?               @db.VarChar(10)
+  manner_of_death              String                @default("natural") @db.VarChar(20)
+  was_pregnancy_related        Boolean               @default(false)
+  pregnancy_stage              String?               @db.VarChar(40)
+  was_postsurgery              Boolean               @default(false)
+  surgery_within_30d           Boolean               @default(false)
+  is_medicolegal               Boolean               @default(false)
+  police_station               String?               @db.VarChar(120)
+  police_fir_no                String?               @db.VarChar(60)
+  police_clearance_at          DateTime?             @db.Timestamptz(6)
+  postmortem_required          Boolean               @default(false)
+  postmortem_completed_at      DateTime?             @db.Timestamptz(6)
+  body_released_at             DateTime?             @db.Timestamptz(6)
+  body_released_to_name        String?               @db.VarChar(160)
+  body_released_to_relation    String?               @db.VarChar(40)
+  body_released_to_id_proof    String?               @db.VarChar(60)
+  body_release_witnessed_by    String?               @db.Uuid
+  body_release_method          String?               @db.VarChar(20)
+  certified_by                 String?               @db.Uuid
+  certified_by_name            String?               @db.VarChar(160)
+  certifier_registration_no    String?               @db.VarChar(60)
+  certified_at                 DateTime?             @db.Timestamptz(6)
+  status                       String                @default("pending") @db.VarChar(20)
+  registrar_acknowledgement_no String?               @db.VarChar(60)
+  registered_at                DateTime?             @db.Timestamptz(6)
   notes                        String?
-  tenant_id                    String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at                   DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at                   DateTime            @default(now()) @db.Timestamptz(6)
+  tenant_id                    String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at                   DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime              @default(now()) @db.Timestamptz(6)
+  body_custody_events          body_custody_events[]
   mortality_reviews            mortality_reviews[]
+  mortuary_slots               mortuary_slots[]
 
   @@unique([tenant_id, mccd_serial])
   @@index([patient_uid], map: "idx_death_records_patient")
@@ -14833,6 +14841,7 @@ model chemo_cycles {
   created_by            String?                 @db.Uuid
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  chair_bookings        chair_bookings[]
   chemo_administrations chemo_administrations[]
   chemo_treatment_plans chemo_treatment_plans   @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_cycles_tenant")
@@ -16744,7 +16753,6 @@ model outbreak_episodes {
   @@index([tenant_id, status, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_status")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model patient_flow_checkins {
   id                          BigInt                       @id @default(autoincrement())
@@ -16782,6 +16790,36 @@ model patient_flow_checkins {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains exclusion constraints and requires additional setup for migrations. Visit https://pris.ly/d/exclusion-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model chair_bookings {
+  id                  Int             @id @default(autoincrement())
+  tenant_id           String          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  chair_id            Int
+  cycle_id            Int
+  patient_uid         String          @db.Uuid
+  start_at            DateTime        @db.Timestamptz(6)
+  end_at              DateTime        @db.Timestamptz(6)
+  status              String          @default("booked") @db.VarChar(20)
+  warning_codes       String[]        @default([])
+  notes               String?
+  booked_by           String?         @db.Uuid
+  cancelled_by        String?         @db.Uuid
+  cancelled_at        DateTime?       @db.Timestamptz(6)
+  cancellation_reason String?
+  created_at          DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime        @default(now()) @db.Timestamptz(6)
+  infusion_chairs     infusion_chairs @relation(fields: [chair_id], references: [id], onUpdate: NoAction, map: "fk_chair_bookings_chair")
+  chemo_cycles        chemo_cycles    @relation(fields: [cycle_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chair_bookings_cycle")
+  users               users           @relation(fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_chair_bookings_patient")
+  tenants             tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chair_bookings_tenant")
+
+  @@unique([tenant_id, cycle_id], map: "uq_chair_bookings_active_cycle", where: raw("((status)::text = ANY ((ARRAY['booked'::character varying, 'checked_in'::character varying, 'completed'::character varying])::text[]))"))
+  @@index([tenant_id, start_at, status, chair_id], map: "idx_chair_bookings_board")
+  @@index([tenant_id, patient_uid, start_at, end_at], map: "idx_chair_bookings_patient_window", where: raw("((status)::text <> 'cancelled'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model patient_flow_kiosk_sessions {
   id                    BigInt                  @id @default(autoincrement())
@@ -16809,6 +16847,26 @@ model patient_flow_kiosk_sessions {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model infusion_chairs {
+  id             Int              @id @default(autoincrement())
+  tenant_id      String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_name      String           @default("Day Care") @db.VarChar(120)
+  chair_code     String           @db.VarChar(40)
+  display_name   String           @db.VarChar(120)
+  status         String           @default("active") @db.VarChar(20)
+  location_note  String?
+  created_by     String?          @db.Uuid
+  created_at     DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime         @default(now()) @db.Timestamptz(6)
+  chair_bookings chair_bookings[]
+  tenants        tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_infusion_chairs_tenant")
+
+  @@unique([tenant_id, unit_name, chair_code], map: "uq_infusion_chairs_unit_code")
+  @@index([tenant_id, unit_name, status, chair_code], map: "idx_infusion_chairs_unit_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model patient_flow_kiosk_settings {
   tenant_id               String    @db.Uuid
   department_key          String    @db.VarChar(120)
@@ -16827,4 +16885,61 @@ model patient_flow_kiosk_settings {
 
   @@id([tenant_id, department_key], map: "patient_flow_kiosk_settings_pk")
   @@index([tenant_id, self_service_enabled, supervised_mode_enabled], map: "idx_patient_flow_kiosk_settings_enabled")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model body_custody_events {
+  id                BigInt          @id @default(autoincrement())
+  tenant_id         String          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  death_record_id   Int
+  slot_id           BigInt?
+  event_type        String          @db.VarChar(30)
+  event_at          DateTime        @default(now()) @db.Timestamptz(6)
+  performed_by      String?         @db.Uuid
+  performed_by_role String?         @db.VarChar(80)
+  witness_name      String?         @db.VarChar(160)
+  witness_uid       String?         @db.Uuid
+  witness_id_proof  String?         @db.VarChar(80)
+  claimant_name     String?         @db.VarChar(160)
+  claimant_relation String?         @db.VarChar(80)
+  claimant_contact  String?         @db.VarChar(80)
+  is_unclaimed      Boolean         @default(false)
+  unclaimed_reason  String?
+  release_method    String?         @db.VarChar(40)
+  notes             String?
+  metadata          Json            @default("{}")
+  created_at        DateTime        @default(now()) @db.Timestamptz(6)
+  death_records     death_records   @relation(fields: [death_record_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  mortuary_slots    mortuary_slots? @relation(fields: [slot_id], references: [id], onUpdate: NoAction)
+  tenants           tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_body_custody_events_tenant")
+
+  @@index([tenant_id, death_record_id, event_at(sort: Desc), id(sort: Desc)], map: "idx_body_custody_events_record")
+  @@index([tenant_id, slot_id, event_at(sort: Desc)], map: "idx_body_custody_events_slot", where: raw("(slot_id IS NOT NULL)"))
+  @@index([tenant_id, event_at(sort: Desc)], map: "idx_body_custody_events_unclaimed", where: raw("(is_unclaimed = true)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model mortuary_slots {
+  id                      BigInt                @id @default(autoincrement())
+  tenant_id               String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  slot_code               String                @db.VarChar(80)
+  display_name            String?               @db.VarChar(160)
+  location_id             Int?
+  status                  String                @default("available") @db.VarChar(30)
+  current_death_record_id Int?
+  occupied_since          DateTime?             @db.Timestamptz(6)
+  notes                   String?
+  created_at              DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime              @default(now()) @db.Timestamptz(6)
+  body_custody_events     body_custody_events[]
+  tenants                 tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_mortuary_slots_tenant")
+  death_records           death_records?        @relation(fields: [current_death_record_id], references: [id], onUpdate: NoAction)
+  facility_locations      facility_locations?   @relation(fields: [location_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, slot_code], map: "ux_mortuary_slots_code")
+  @@index([tenant_id, current_death_record_id], map: "idx_mortuary_slots_current_body", where: raw("(current_death_record_id IS NOT NULL)"))
+  @@index([tenant_id, location_id], map: "idx_mortuary_slots_location", where: raw("(location_id IS NOT NULL)"))
+  @@index([tenant_id, status, slot_code], map: "idx_mortuary_slots_status")
 }
