@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType, ReactNode, SVGProps } from "react";
 import type {
   AnalyzerStatus,
   CareTeamKind,
@@ -124,7 +123,7 @@ export function SectionCard({
   action,
 }: {
   title: string;
-  icon: LucideIcon;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
   children: ReactNode;
   action?: ReactNode;
 }) {

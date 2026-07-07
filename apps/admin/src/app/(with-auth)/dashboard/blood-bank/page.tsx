@@ -8,6 +8,10 @@ import {
   AlertTriangle,
   ClipboardList,
   Droplets,
+  FileDown,
+  FlaskConical,
+  GitBranch,
+  MapPin,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -75,6 +79,50 @@ type Deferral = {
   blood_group?: string | null;
 };
 
+type TtiResult = "not_tested" | "non_reactive" | "reactive" | "indeterminate";
+
+type PreparedUnit = {
+  id: number;
+  unit_number: string;
+  blood_group: string;
+  component: string;
+  status: string;
+  expiry_date?: string | null;
+};
+
+type TraceabilityPayload = {
+  unit: PreparedUnit & {
+    donor_id?: number | null;
+    donation_event_id?: number | null;
+    quarantine_reason?: string | null;
+  };
+  donor?: { id: number; full_name: string; phone?: string | null } | null;
+  donation?: { id: number; donation_code: string; collected_at: string } | null;
+  transfusion?: { request_id: number; patient_uid: string; status: string } | null;
+  siblings: PreparedUnit[];
+  tti_tests: Array<{ id: number; overall_result: string; status: string; approved_at?: string | null }>;
+  discard_events: Array<{ id: number; event_type: string; reason_code: string; performed_at: string }>;
+};
+
+type RegisterPayload = {
+  register_type: string;
+  format_pending: boolean;
+  format_note: string;
+  rows: Array<Record<string, unknown>>;
+};
+
+type DonorCamp = {
+  id: number;
+  camp_code: string;
+  name: string;
+  organizer?: string | null;
+  location?: string | null;
+  scheduled_date?: string | null;
+  status: string;
+  expected_donors?: number | null;
+  collected_units: number;
+};
+
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
   REQUESTED: "bg-yellow-100 text-yellow-800",
@@ -94,6 +142,9 @@ const STATUS_COLORS: Record<string, string> = {
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const BLOOD_BANK_CHANNEL = "staff:blood-bank";
+const TTI_RESULTS: TtiResult[] = ["non_reactive", "reactive", "indeterminate", "not_tested"];
+const COMPONENT_TYPES = ["prbc", "ffp", "platelets", "cryoprecipitate"];
+const REGISTER_TYPES = ["donor", "collection", "tti", "component-preparation", "deferral", "discard"];
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -773,8 +824,471 @@ function DeferralBoardTab() {
   );
 }
 
+function ProcessingTab() {
+  const qc = useQueryClient();
+  const [donationId, setDonationId] = useState("");
+  const [parentUnitNumber, setParentUnitNumber] = useState("");
+  const [ttiResults, setTtiResults] = useState<Record<string, TtiResult>>({
+    hiv: "non_reactive",
+    hbsag: "non_reactive",
+    hcv: "non_reactive",
+    syphilis: "non_reactive",
+    malaria: "non_reactive",
+  });
+  const [components, setComponents] = useState(
+    COMPONENT_TYPES.map((component) => ({ component, unit_number: "", volume_ml: "" })),
+  );
+  const [message, setMessage] = useState<string | null>(null);
+
+  const recordTti = useMutation({
+    mutationFn: () =>
+      postJSON(`/api/v1/blood-bank/donations/${donationId}/tti-tests`, {
+        results: ttiResults,
+      }),
+    onSuccess: (payload) => {
+      const data = payload as { data?: { tti_test?: { overall_result?: string } }; tti_test?: { overall_result?: string } };
+      const result = data.tti_test?.overall_result ?? data.data?.tti_test?.overall_result ?? "recorded";
+      setMessage(`TTI ${result}`);
+      qc.invalidateQueries({ queryKey: ["blood-bank"] });
+    },
+    onError: (e) => alert(e instanceof Error ? e.message : "TTI recording failed"),
+  });
+
+  const prepare = useMutation({
+    mutationFn: () =>
+      postJSON(`/api/v1/blood-bank/donations/${donationId}/components`, {
+        parent_unit_number: parentUnitNumber || undefined,
+        components: components
+          .filter((item) => item.unit_number || item.volume_ml)
+          .map((item) => ({
+            component: item.component,
+            unit_number: item.unit_number || undefined,
+            volume_ml: item.volume_ml ? Number(item.volume_ml) : undefined,
+          })),
+      }),
+    onSuccess: (payload) => {
+      const data = payload as { data?: { units?: PreparedUnit[] }; units?: PreparedUnit[] };
+      const count = data.units?.length ?? data.data?.units?.length ?? 0;
+      setMessage(`${count} component unit${count === 1 ? "" : "s"} prepared`);
+      qc.invalidateQueries({ queryKey: ["blood-bank"] });
+    },
+    onError: (e) => alert(e instanceof Error ? e.message : "Component preparation failed"),
+  });
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">TTI Panel</h2>
+        </div>
+        {message && <div className="border border-border rounded-lg p-3 text-sm">{message}</div>}
+        <input
+          placeholder="Donation event ID"
+          value={donationId}
+          onChange={(e) => setDonationId(e.target.value)}
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {Object.keys(ttiResults).map((marker) => (
+            <label key={marker} className="text-sm">
+              <span className="block text-xs font-medium uppercase text-muted-foreground">{marker}</span>
+              <select
+                value={ttiResults[marker]}
+                onChange={(e) => setTtiResults({ ...ttiResults, [marker]: e.target.value as TtiResult })}
+                className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm"
+              >
+                {TTI_RESULTS.map((result) => (
+                  <option key={result} value={result}>{result}</option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+        <button
+          onClick={() => recordTti.mutate()}
+          disabled={recordTti.isPending || !donationId}
+          className="inline-flex items-center justify-center gap-2 bg-primary text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
+        >
+          <ShieldCheck className="h-4 w-4" />
+          {recordTti.isPending ? "Approving..." : "Approve TTI"}
+        </button>
+      </div>
+
+      <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+        <div className="flex items-center gap-2">
+          <GitBranch className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">Component Preparation</h2>
+        </div>
+        <input
+          placeholder="Parent whole blood unit number"
+          value={parentUnitNumber}
+          onChange={(e) => setParentUnitNumber(e.target.value)}
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        />
+        <div className="space-y-2">
+          {components.map((item, index) => (
+            <div key={item.component} className="grid grid-cols-[110px_1fr_90px] gap-2">
+              <div className="border border-border rounded-lg px-3 py-2 text-sm bg-muted/40">{item.component}</div>
+              <input
+                placeholder="Child unit number"
+                value={item.unit_number}
+                onChange={(e) => {
+                  const next = [...components];
+                  next[index] = { ...item, unit_number: e.target.value };
+                  setComponents(next);
+                }}
+                className="border border-border rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                placeholder="mL"
+                value={item.volume_ml}
+                onChange={(e) => {
+                  const next = [...components];
+                  next[index] = { ...item, volume_ml: e.target.value };
+                  setComponents(next);
+                }}
+                className="border border-border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => prepare.mutate()}
+          disabled={prepare.isPending || !donationId}
+          className="inline-flex items-center justify-center gap-2 bg-primary text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
+        >
+          <GitBranch className="h-4 w-4" />
+          {prepare.isPending ? "Preparing..." : "Prepare Components"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TraceabilityTab() {
+  const [lookup, setLookup] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const [discardReason, setDiscardReason] = useState("");
+  const qc = useQueryClient();
+  const {
+    data,
+    isFetching,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["blood-bank", "traceability", submitted],
+    enabled: Boolean(submitted),
+    queryFn: async () => {
+      const param = /^\d+$/.test(submitted)
+        ? `unit_id=${encodeURIComponent(submitted)}`
+        : `unit_number=${encodeURIComponent(submitted)}`;
+      const r = await fetchAdminAPI<{ data: TraceabilityPayload }>(`/blood-bank/units/traceability?${param}`);
+      const payload = r as { data?: TraceabilityPayload } | TraceabilityPayload;
+      return "unit" in payload ? payload : payload.data;
+    },
+  });
+
+  const discard = useMutation({
+    mutationFn: () =>
+      postJSON(`/api/v1/blood-bank/units/${data?.unit.id}/discard-confirmation`, {
+        reason: discardReason,
+      }),
+    onSuccess: () => {
+      setDiscardReason("");
+      qc.invalidateQueries({ queryKey: ["blood-bank"] });
+      refetch();
+    },
+    onError: (e) => alert(e instanceof Error ? e.message : "Discard confirmation failed"),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input
+          placeholder="Unit ID or unit number"
+          value={lookup}
+          onChange={(e) => setLookup(e.target.value)}
+          className="border border-border rounded-lg px-3 py-2 text-sm min-w-[280px]"
+        />
+        <button
+          onClick={() => setSubmitted(lookup.trim())}
+          disabled={!lookup.trim()}
+          className="inline-flex items-center justify-center gap-2 bg-primary text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
+        >
+          <Search className="h-4 w-4" />
+          Trace
+        </button>
+      </div>
+      {isFetching && <div className="text-center py-8 text-muted-foreground">Loading...</div>}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+          {error instanceof Error ? error.message : "Traceability lookup failed"}
+        </div>
+      )}
+      {data && (
+        <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <tbody>
+                {[
+                  ["Unit", `${data.unit.unit_number} (${data.unit.component})`],
+                  ["Status", data.unit.status],
+                  ["Donor", data.donor ? `${data.donor.full_name} #${data.donor.id}` : "-"],
+                  ["Donation", data.donation ? `${data.donation.donation_code} #${data.donation.id}` : "-"],
+                  ["Transfusion", data.transfusion ? `Request #${data.transfusion.request_id} ${data.transfusion.status}` : "-"],
+                  ["Quarantine", data.unit.quarantine_reason ?? "-"],
+                ].map(([label, value]) => (
+                  <tr key={label} className="border-b border-border">
+                    <th className="text-left bg-muted/50 py-2 px-3 w-32">{label}</th>
+                    <td className="py-2 px-3">{value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="border border-border rounded-lg p-4 space-y-3">
+            <h2 className="text-lg font-semibold">Sibling Components</h2>
+            {data.siblings.length === 0 && <div className="text-sm text-muted-foreground">No siblings found</div>}
+            {data.siblings.map((unit) => (
+              <div key={unit.id} className="flex items-center justify-between text-sm border-b border-border pb-2">
+                <span>{unit.unit_number}</span>
+                <StatusBadge status={unit.status} />
+              </div>
+            ))}
+            {data.unit.status === "quarantined" && (
+              <div className="pt-2 space-y-2">
+                <input
+                  placeholder="Discard confirmation reason"
+                  value={discardReason}
+                  onChange={(e) => setDiscardReason(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+                />
+                <button
+                  onClick={() => discard.mutate()}
+                  disabled={discard.isPending || discardReason.trim().length < 8}
+                  className="inline-flex items-center justify-center gap-2 w-full bg-red-600 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  Confirm Discard
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RegistersTab() {
+  const [type, setType] = useState("donor");
+  const {
+    data,
+    isFetching,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["blood-bank", "register", type],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<{ data: RegisterPayload }>(`/blood-bank/registers/${type}?format=json`);
+      const payload = r as { data?: RegisterPayload } | RegisterPayload;
+      return "rows" in payload ? payload : payload.data;
+    },
+  });
+
+  const proxyPath = `/api/proxy/api/v1/blood-bank/registers/${type}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          className="border border-border rounded-lg px-3 py-2 text-sm"
+        >
+          {REGISTER_TYPES.map((registerType) => (
+            <option key={registerType} value={registerType}>{registerType}</option>
+          ))}
+        </select>
+        <RefreshButton onClick={() => refetch()} />
+        <a
+          href={`${proxyPath}?format=xlsx`}
+          className="inline-flex items-center gap-2 text-sm bg-green-50 text-green-700 px-3 py-2 rounded-lg hover:bg-green-100"
+        >
+          <FileDown className="h-4 w-4" />
+          XLSX
+        </a>
+        <a
+          href={`${proxyPath}?format=pdf`}
+          className="inline-flex items-center gap-2 text-sm bg-red-50 text-red-700 px-3 py-2 rounded-lg hover:bg-red-100"
+        >
+          <FileDown className="h-4 w-4" />
+          PDF
+        </a>
+      </div>
+      {data?.format_pending && (
+        <div className="border border-amber-200 bg-amber-50 text-amber-800 rounded-lg p-3 text-sm">
+          {data.format_note}
+        </div>
+      )}
+      {isFetching && <div className="text-center py-8 text-muted-foreground">Loading...</div>}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+          {error instanceof Error ? error.message : "Failed to load register"}
+        </div>
+      )}
+      {data && (
+        <div className="overflow-x-auto border border-border rounded-lg">
+          <table className="w-full text-xs">
+            <tbody>
+              {data.rows.slice(0, 20).map((row, index) => (
+                <tr key={index} className="border-b border-border">
+                  <td className="py-2 px-3 font-mono whitespace-pre-wrap">{JSON.stringify(row)}</td>
+                </tr>
+              ))}
+              {data.rows.length === 0 && (
+                <tr><td className="py-8 px-3 text-center text-muted-foreground">No register rows</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DonorCampsTab() {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    name: "",
+    organizer: "",
+    location: "",
+    scheduled_date: "",
+    expected_donors: "",
+  });
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["blood-bank", "donor-camps"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<{ data: { camps: DonorCamp[] } }>("/blood-bank/donor-camps");
+      const payload = r as { camps?: DonorCamp[]; data?: { camps?: DonorCamp[] } };
+      return payload.camps ?? payload.data?.camps ?? [];
+    },
+  });
+
+  const create = useMutation({
+    mutationFn: () =>
+      postJSON("/api/v1/blood-bank/donor-camps", {
+        ...form,
+        expected_donors: form.expected_donors ? Number(form.expected_donors) : undefined,
+      }),
+    onSuccess: () => {
+      setForm({ name: "", organizer: "", location: "", scheduled_date: "", expected_donors: "" });
+      qc.invalidateQueries({ queryKey: ["blood-bank", "donor-camps"] });
+    },
+    onError: (e) => alert(e instanceof Error ? e.message : "Camp creation failed"),
+  });
+
+  const camps = data ?? [];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+      <div className="border border-border rounded-lg p-4 bg-card space-y-3">
+        <h2 className="text-lg font-semibold">Donor Camp</h2>
+        <input
+          placeholder="Camp name"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        />
+        <input
+          placeholder="Organizer"
+          value={form.organizer}
+          onChange={(e) => setForm({ ...form, organizer: e.target.value })}
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        />
+        <input
+          placeholder="Location"
+          value={form.location}
+          onChange={(e) => setForm({ ...form, location: e.target.value })}
+          className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="date"
+            value={form.scheduled_date}
+            onChange={(e) => setForm({ ...form, scheduled_date: e.target.value })}
+            className="border border-border rounded-lg px-3 py-2 text-sm"
+          />
+          <input
+            type="number"
+            placeholder="Expected"
+            value={form.expected_donors}
+            onChange={(e) => setForm({ ...form, expected_donors: e.target.value })}
+            className="border border-border rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <button
+          onClick={() => create.mutate()}
+          disabled={create.isPending || !form.name}
+          className="inline-flex items-center justify-center gap-2 w-full bg-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+        >
+          <MapPin className="h-4 w-4" />
+          {create.isPending ? "Saving..." : "Save Camp"}
+        </button>
+      </div>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Camp Records</h2>
+          <RefreshButton onClick={() => refetch()} />
+        </div>
+        {isLoading && <div className="text-center py-8 text-muted-foreground">Loading...</div>}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+            {error instanceof Error ? error.message : "Failed to load donor camps"}
+          </div>
+        )}
+        <div className="overflow-x-auto border border-border rounded-lg">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left bg-muted/50">
+                <th className="py-2 px-3">Camp</th>
+                <th className="py-2 px-3">Date</th>
+                <th className="py-2 px-3">Status</th>
+                <th className="py-2 px-3">Collections</th>
+              </tr>
+            </thead>
+            <tbody>
+              {camps.map((camp) => (
+                <tr key={camp.id} className="border-b border-border hover:bg-muted/40">
+                  <td className="py-2 px-3">
+                    <div className="font-medium">{camp.name}</div>
+                    <div className="text-xs text-muted-foreground">{camp.location ?? camp.organizer ?? camp.camp_code}</div>
+                  </td>
+                  <td className="py-2 px-3">{fmtDate(camp.scheduled_date)}</td>
+                  <td className="py-2 px-3"><StatusBadge status={camp.status} /></td>
+                  <td className="py-2 px-3">{camp.collected_units}/{camp.expected_donors ?? "-"}</td>
+                </tr>
+              ))}
+              {camps.length === 0 && (
+                <tr><td colSpan={4} className="py-8 px-3 text-center text-muted-foreground">No donor camps</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BloodBankContent() {
-  const [tab, setTab] = useState<"inventory" | "pending" | "new" | "donors" | "screening" | "deferrals">("inventory");
+  const [tab, setTab] = useState<"inventory" | "pending" | "new" | "donors" | "screening" | "deferrals" | "processing" | "traceability" | "registers" | "camps">("inventory");
 
   const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(BLOOD_BANK_CHANNEL, [
     ["blood-bank"],
@@ -796,6 +1310,10 @@ function BloodBankContent() {
     { key: "donors" as const, label: "Donors", icon: Users },
     { key: "screening" as const, label: "Screening", icon: ShieldCheck },
     { key: "deferrals" as const, label: "Deferrals", icon: Activity },
+    { key: "processing" as const, label: "Processing", icon: FlaskConical },
+    { key: "traceability" as const, label: "Traceability", icon: GitBranch },
+    { key: "registers" as const, label: "Registers", icon: FileDown },
+    { key: "camps" as const, label: "Camps", icon: MapPin },
   ];
 
   return (
@@ -830,6 +1348,10 @@ function BloodBankContent() {
       {tab === "donors" && <DonorRegistryTab />}
       {tab === "screening" && <ScreeningTab />}
       {tab === "deferrals" && <DeferralBoardTab />}
+      {tab === "processing" && <ProcessingTab />}
+      {tab === "traceability" && <TraceabilityTab />}
+      {tab === "registers" && <RegistersTab />}
+      {tab === "camps" && <DonorCampsTab />}
     </div>
   );
 }
