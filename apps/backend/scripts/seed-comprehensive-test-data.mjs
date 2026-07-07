@@ -203,7 +203,11 @@ function checkedValue(checksByTable, table, column) {
   for (const definition of definitions) {
     if (!definition.toLowerCase().includes(lowerColumn)) continue;
     const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map((match) => match[1]);
-    const cleaned = values.filter((value) => !value.includes('::') && value.length <= 80);
+    const cleaned = values.filter((value) => (
+      !value.includes('::')
+      && value.length <= 80
+      && !/[\\^$[\]{}+*?]/.test(value)
+    ));
     if (cleaned.length) return cleaned[0];
   }
   return null;
@@ -255,6 +259,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('code')) return text(`CODE-${index}`);
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
   if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
+  if (name === 'sha256_hash' || name.endsWith('_sha256_hash')) return text('0'.repeat(64));
   if (name.includes('hash')) return text(`hash_${tablePrefix}_${index}`);
   if (name.includes('url')) return text(`https://example.test/${tablePrefix}/${index}`);
   if (name.includes('name') || name.includes('title') || name.includes('label')) return text(`Seed ${tablePrefix}`);
@@ -274,6 +279,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   }
   if (name.includes('lat')) return 13.02936;
   if (name.includes('lng') || name.includes('lon')) return 80.24409;
+  if (name === 'volume_ml') return 450;
   if (name.includes('amount') || name.includes('cost') || name.includes('rate') || name.includes('score')) return 1;
   if (name.includes('count') || name.includes('total') || name.includes('units') || name.includes('minutes')) return 1;
 
