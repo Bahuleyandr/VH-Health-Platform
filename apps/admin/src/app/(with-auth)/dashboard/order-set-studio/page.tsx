@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ComponentType, type SVGProps, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -17,7 +17,6 @@ import {
   ShieldCheck,
   Trash2,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 
@@ -76,6 +75,8 @@ type ImportPreview = {
   requires_pharmacy_review?: boolean;
   order_set?: OrderSetRow;
 };
+
+type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
 const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -168,7 +169,7 @@ function ActionButton({
   onClick,
   disabled = false,
 }: {
-  icon: LucideIcon;
+  icon: IconComponent;
   label: string;
   onClick: () => void;
   disabled?: boolean;

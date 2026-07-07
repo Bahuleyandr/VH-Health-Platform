@@ -269,7 +269,7 @@ export const DIALYSIS_ROUTE_ROLES = mergeRoles(
 
 export const BLOOD_BANK_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'theatre', 'cath_lab', 'specialty_services']),
-  rolesFrom(['DOCTOR']),
+  rolesFrom(['DOCTOR', 'PATHOLOGIST', 'LAB_INCHARGE']),
 );
 
 export const BILLING_V2_ROUTE_ROLES = mergeRoles(

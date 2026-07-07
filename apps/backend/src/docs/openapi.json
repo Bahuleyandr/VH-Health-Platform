@@ -49461,6 +49461,92 @@
         }
       }
     },
+    "/api/v1/blood-bank/donations/{id}/components": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donations_by_id_components",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donations/{id}/tti-tests": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donations_by_id_tti_tests",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donor-camps": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_donor_camps",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donor_camps",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/blood-bank/donors": {
       "get": {
         "operationId": "get_api_v1_blood_bank_donors",
@@ -49643,6 +49729,33 @@
         }
       }
     },
+    "/api/v1/blood-bank/registers/{registerType}": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_registers_by_registerType",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "registerType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/blood-bank/request": {
       "post": {
         "operationId": "post_api_v1_blood_bank_request",
@@ -49690,6 +49803,50 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/blood-bank/units/traceability": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_units_traceability",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blood-bank/units/{unitId}/discard-confirmation": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_units_by_unitId_discard_confirmation",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/blood-bank/{id}/complete-transfusion": {
@@ -69029,6 +69186,133 @@
         }
       }
     },
+    "/api/v1/infection-control/device-presence": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_device_presence",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/device-presence/{id}/stop": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_device_presence_by_id_stop",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/infection-control/hai-cases": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_hai_cases",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/hai-rates": {
+      "get": {
+        "operationId": "get_api_v1_infection_control_hai_rates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/hai-rates/snapshot": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_hai_rates_snapshot",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/hand-hygiene-audits": {
+      "get": {
+        "operationId": "get_api_v1_infection_control_hand_hygiene_audits",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_infection_control_hand_hygiene_audits",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/infection-control/isolation-board": {
       "get": {
         "operationId": "get_api_v1_infection_control_isolation_board",
@@ -69044,6 +69328,230 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/infection-control/isolation-orders": {
+      "get": {
+        "operationId": "get_api_v1_infection_control_isolation_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_infection_control_isolation_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/isolation-orders/{id}/checklist/{itemKey}": {
+      "patch": {
+        "operationId": "patch_api_v1_infection_control_isolation_orders_by_id_checklist_by_itemKey",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/infection-control/isolation-orders/{id}/discontinue": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_isolation_orders_by_id_discontinue",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/infection-control/isolation-orders/{id}/terminal-clean": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_isolation_orders_by_id_terminal_clean",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/infection-control/outbreaks": {
+      "get": {
+        "operationId": "get_api_v1_infection_control_outbreaks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_infection_control_outbreaks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/outbreaks/cluster-suggestions": {
+      "get": {
+        "operationId": "get_api_v1_infection_control_outbreaks_cluster_suggestions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/infection-control/outbreaks/{id}/cases": {
+      "post": {
+        "operationId": "post_api_v1_infection_control_outbreaks_by_id_cases",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/infection-control/outbreaks/{id}/epi-curve": {
+      "get": {
+        "operationId": "get_api_v1_infection_control_outbreaks_by_id_epi_curve",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/insurance/claims": {
@@ -73958,6 +74466,126 @@
     "/api/v1/oncology/administrations/{id}/withhold": {
       "post": {
         "operationId": "post_api_v1_oncology_administrations_by_id_withhold",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/oncology/chair-bookings": {
+      "post": {
+        "operationId": "post_api_v1_oncology_chair_bookings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oncology/chair-bookings/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_oncology_chair_bookings_by_id_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/oncology/infusion-board": {
+      "get": {
+        "operationId": "get_api_v1_oncology_infusion_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oncology/infusion-chairs": {
+      "get": {
+        "operationId": "get_api_v1_oncology_infusion_chairs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_oncology_infusion_chairs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oncology/infusion-chairs/{id}/status": {
+      "patch": {
+        "operationId": "patch_api_v1_oncology_infusion_chairs_by_id_status",
         "responses": {
           "200": {
             "description": "Successful response",

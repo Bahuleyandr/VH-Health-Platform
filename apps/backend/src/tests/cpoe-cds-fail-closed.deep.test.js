@@ -240,6 +240,56 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     expect(validatePrescriptionSafetySpy).toHaveBeenCalledTimes(1);
   });
 
+  test('drug-KB source cutover leaves CPOE safety-screen inputs unchanged', async () => {
+    safetyControl.throwError = null;
+    validatePrescriptionSafetySpy.mockClear();
+    const details = { medication_name: 'Metformin', dose: '500mg', route: 'PO', frequency: 'BD' };
+
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE drug_kb_sources
+            SET is_active = TRUE,
+                deactivated_at = NULL,
+                updated_at = NOW()
+          WHERE source_key = 'vh_starter_set'`,
+      ).catch(() => {});
+      await createOrder({
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        details,
+        ordered_by: ORDERER_UID,
+        tenantId: TENANT_ID,
+      });
+      const beforeArgs = JSON.parse(JSON.stringify(validatePrescriptionSafetySpy.mock.calls.at(-1)));
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE drug_kb_sources
+            SET is_active = FALSE,
+                deactivated_at = NOW(),
+                updated_at = NOW()
+          WHERE source_key = 'vh_starter_set'`,
+      ).catch(() => {});
+      await createOrder({
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        details,
+        ordered_by: ORDERER_UID,
+        tenantId: TENANT_ID,
+      });
+      const afterArgs = JSON.parse(JSON.stringify(validatePrescriptionSafetySpy.mock.calls.at(-1)));
+
+      expect(afterArgs).toEqual(beforeArgs);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE drug_kb_sources
+            SET is_active = TRUE,
+                deactivated_at = NULL,
+                updated_at = NOW()
+          WHERE source_key = 'vh_starter_set'`,
+      ).catch(() => {});
+    }
+  });
+
   test('concurrent verifyOrder on the same order → exactly one verifies (M6 TOCTOU)', async () => {
     safetyControl.throwError = null;
     const created = await createOrder({

@@ -57,8 +57,9 @@ describe('NABH indicator tenant authorization', () => {
       tenantId: TENANT,
     });
 
-    expect(pack.indicators).toHaveLength(7);
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(9);
+    expect(pack.indicators).toHaveLength(8);
+    expect(pack.indicators.map((indicator) => indicator.code)).toContain('hai_device_rate_per_1000_device_days');
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(10);
     for (const call of queryRawUnsafeMock.mock.calls) {
       expect(call[0]).toContain('tenant_id = $1::uuid');
       expect(call[1]).toBe(TENANT);
@@ -73,6 +74,11 @@ describe('NABH indicator tenant authorization', () => {
     expect(patientDaysCall[0]).toContain('GREATEST(admitted_at, $2::date::timestamptz)');
     expect(patientDaysCall[0]).toContain('LEAST(COALESCE(discharged_at, NOW()), ($3::date + 1)::timestamptz)');
     expect(patientDaysCall.slice(1)).toEqual([TENANT, '2026-06-01', '2026-06-30']);
+
+    const deviceDaysCall = queryRawUnsafeMock.mock.calls[8];
+    expect(deviceDaysCall[0]).toContain('FROM device_presence_logs');
+    expect(deviceDaysCall[0]).toContain('tenant_id = $1::uuid');
+    expect(deviceDaysCall.slice(1)).toEqual([TENANT, '2026-06-01', '2026-06-30']);
   });
 
   it('writes and lists snapshots under the caller tenant', async () => {
@@ -86,6 +92,7 @@ describe('NABH indicator tenant authorization', () => {
       .mockResolvedValueOnce([{ n: 0 }])
       .mockResolvedValueOnce([{ patient_days: 0 }])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValue([{ id: 1 }]);
 
     const snapshot = await snapshotIndicators(
@@ -93,8 +100,8 @@ describe('NABH indicator tenant authorization', () => {
       { tenantId: TENANT, actorUid: ACTOR },
     );
 
-    expect(snapshot.snapshot_saved).toBe(7);
-    const insertCalls = queryRawUnsafeMock.mock.calls.slice(9);
+    expect(snapshot.snapshot_saved).toBe(8);
+    const insertCalls = queryRawUnsafeMock.mock.calls.slice(10);
     for (const call of insertCalls) {
       expect(call[0]).toContain('INSERT INTO nabh_indicator_snapshots');
       expect(call[0]).toContain('(tenant_id, period_start');

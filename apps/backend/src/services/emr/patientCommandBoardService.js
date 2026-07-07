@@ -408,6 +408,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
     dischargeSummaries,
     recentNotes,
     infectionCases,
+    isolationOrders,
   ] = await Promise.all([
     patientUids.length
       ? prisma.users.findMany({
@@ -537,6 +538,26 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           take: 300,
         })
       : [],
+    patientUids.length
+      ? prisma.isolation_orders.findMany({
+          where: {
+            patient_uid: { in: patientUids },
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+            status: 'active',
+          },
+          select: {
+            patient_uid: true,
+            id: true,
+            admission_id: true,
+            precaution_type: true,
+            status: true,
+            ordered_at: true,
+            reason: true,
+          },
+          orderBy: [{ ordered_at: 'desc' }, { id: 'desc' }],
+          take: 300,
+        })
+      : [],
   ]);
 
   const byUid = (rows, key = 'patient_uid') => rows.reduce((acc, row) => {
@@ -560,6 +581,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const infectionCasesByPatient = byUid(infectionCases);
   const consultsByAdmission = byUid(dischargeConsults, 'admission_id');
   const notesByEncounter = byUid(recentNotes.filter((row) => row.encounter_id), 'encounter_id');
+  const isolationOrdersByPatient = byUid(isolationOrders);
 
   const latestSummaryByAdmission = new Map();
   for (const summary of dischargeSummaries) {
@@ -655,24 +677,48 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
       // (organism/site) stays full-payload only.
       isolation: (() => {
         const caseRows = infectionCasesByPatient.get(admission.patient_uid) || [];
-        const required = caseRows.some((item) => item.isolation_required === true);
+        const orderRows = isolationOrdersByPatient.get(admission.patient_uid) || [];
+        const required = orderRows.length > 0 || caseRows.some((item) => item.isolation_required === true);
         const types = [...new Set(
-          caseRows
-            .filter((item) => item.isolation_required === true && item.isolation_type)
-            .map((item) => String(item.isolation_type)),
+          [
+            ...caseRows
+              .filter((item) => item.isolation_required === true && item.isolation_type)
+              .map((item) => String(item.isolation_type)),
+            ...orderRows
+              .filter((item) => item.precaution_type)
+              .map((item) => String(item.precaution_type)),
+          ],
         )];
         return {
           required,
           types,
           active_case_count: caseRows.length,
-          items: minimizePayload ? [] : caseRows.map((item) => ({
-            organism: item.organism,
-            infection_site: item.infection_site,
-            isolation_required: item.isolation_required,
-            isolation_type: item.isolation_type,
-            detection_date: item.detection_date,
-            status: item.status,
-          })),
+          active_order_count: orderRows.length,
+          items: minimizePayload ? [] : [
+            ...caseRows.map((item) => ({
+              source_kind: 'infection_case',
+              organism: item.organism,
+              infection_site: item.infection_site,
+              isolation_required: item.isolation_required,
+              isolation_type: item.isolation_type,
+              detection_date: item.detection_date,
+              status: item.status,
+            })),
+            ...orderRows.map((item) => ({
+              source_kind: 'isolation_order',
+              isolation_order_id: item.isolation_order_id != null
+                ? String(item.isolation_order_id)
+                : item.id != null
+                  ? String(item.id)
+                  : null,
+              admission_id: item.admission_id,
+              isolation_required: true,
+              isolation_type: item.precaution_type,
+              detection_date: item.ordered_at,
+              status: item.status,
+              reason: item.reason,
+            })),
+          ],
         };
       })(),
       alerts: {

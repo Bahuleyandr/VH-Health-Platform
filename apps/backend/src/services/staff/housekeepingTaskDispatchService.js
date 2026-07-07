@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { emitHousekeepingRequestRaised } from '../clinical/canonicalOperationalBridgeService.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
@@ -95,6 +96,7 @@ export async function resolveBedCleaningContext(bedId) {
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT b.id AS bed_id,
+            b.tenant_id,
             b.bed_number,
             b.ward_id,
             COALESCE(w.name, b.ward_name) AS ward_name,
@@ -348,6 +350,65 @@ async function findExistingActiveBedCleaningRequest(bedId) {
   return rows[0] || null;
 }
 
+async function resolveTerminalIsolationContext({
+  tenantId,
+  bedId,
+  admissionId = null,
+  patientUid = null,
+  trigger = null,
+} = {}) {
+  if (trigger !== 'final_discharge') return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT io.id,
+            io.precaution_type,
+            io.patient_uid,
+            io.admission_id,
+            io.reason
+       FROM isolation_orders io
+       LEFT JOIN admissions a ON a.id = io.admission_id
+      WHERE io.tenant_id = $1::uuid
+        AND io.status = 'active'
+        AND (
+          ($2::int IS NOT NULL AND io.admission_id = $2::int)
+          OR ($3::uuid IS NOT NULL AND io.patient_uid = $3::uuid)
+          OR (
+            $4::int IS NOT NULL
+            AND a.bed_id = $4::int
+            AND COALESCE(a.status, 'admitted') IN ('admitted', 'transferred', 'discharged')
+          )
+        )
+      ORDER BY io.ordered_at DESC`,
+    tenantId,
+    admissionId || null,
+    patientUid || null,
+    bedId || null,
+  );
+  if (!rows.length) return null;
+  const precautions = [...new Set(rows.map((row) => row.precaution_type).filter(Boolean))];
+  return {
+    tenantId,
+    orders: rows,
+    orderIds: rows.map((row) => Number(row.id)),
+    precautions,
+    label: precautions.length ? precautions.join(', ') : 'isolation',
+  };
+}
+
+async function stampTerminalCleanRequest({ isolationContext, requestId } = {}) {
+  if (!isolationContext?.orderIds?.length || !requestId) return;
+  await prisma.$executeRawUnsafe(
+    `UPDATE isolation_orders
+        SET terminal_clean_requested_at = COALESCE(terminal_clean_requested_at, NOW()),
+            terminal_clean_request_id = $2::int,
+            updated_at = NOW()
+      WHERE id = ANY($1::bigint[])
+        AND tenant_id = $3::uuid`,
+    isolationContext.orderIds,
+    requestId,
+    isolationContext.tenantId,
+  );
+}
+
 export async function fanOutHousekeepingRequest({
   tenantId = DEFAULT_TENANT_ID,
   requestId,
@@ -391,6 +452,8 @@ export async function createBedCleaningRequest({
   trigger = 'bed_cleaning',
   urgency = 'high',
   description = null,
+  admissionId = null,
+  patientUid = null,
   now = new Date(),
 } = {}) {
   const context = await resolveBedCleaningContext(bedId);
@@ -421,6 +484,19 @@ export async function createBedCleaningRequest({
     : trigger === 'final_discharge'
       ? 'Final discharge'
       : 'Bed turnover';
+  const isolationContext = await resolveTerminalIsolationContext({
+    tenantId: requireTenantId(context.tenant_id),
+    bedId: context.bed_id,
+    admissionId,
+    patientUid,
+    trigger,
+  });
+  const terminalPrefix = isolationContext
+    ? `Terminal isolation clean (${isolationContext.label})`
+    : triggerLabel;
+  const requestDescription = isolationContext
+    ? `${terminalPrefix} required for ${bedLabel}. bed_id=${context.bed_id}.${description ? ` ${description}` : ''}`
+    : (description || `${terminalPrefix} cleaning required for ${bedLabel}. bed_id=${context.bed_id}.`);
 
   const existing = await findExistingActiveBedCleaningRequest(context.bed_id);
   if (existing) {
@@ -428,7 +504,7 @@ export async function createBedCleaningRequest({
       requestId: existing.id,
       recipients,
       title: 'Housekeeping: bed cleaning required',
-      body: `${triggerLabel} cleaning task for ${bedLabel}.`,
+      body: `${terminalPrefix} cleaning task for ${bedLabel}.`,
       urgency: safeUrgency,
       data: {
         housekeeping_request_id: existing.id,
@@ -436,10 +512,14 @@ export async function createBedCleaningRequest({
         ward_id: context.ward_id,
         ward_name: context.ward_name,
         trigger,
+        terminal_isolation_clean: Boolean(isolationContext),
+        isolation_order_ids: isolationContext?.orderIds || [],
+        precaution_types: isolationContext?.precautions || [],
         source: 'bed_cleaning_dispatch',
       },
-      updateMessage: `Roster fan-out refreshed for ${bedLabel}: ${recipients.length} recipient(s).`,
+      updateMessage: `${terminalPrefix} roster fan-out refreshed for ${bedLabel}: ${recipients.length} recipient(s).`,
     });
+    await stampTerminalCleanRequest({ isolationContext, requestId: existing.id });
     await emitHousekeepingRequestRaised({
       request: existing,
       actorUid: requester.uid,
@@ -449,6 +529,8 @@ export async function createBedCleaningRequest({
         bed_id: context.bed_id,
         ward_id: context.ward_id,
         ward_name: context.ward_name,
+        terminal_isolation_clean: Boolean(isolationContext),
+        isolation_order_ids: isolationContext?.orderIds || [],
         created: false,
       },
     });
@@ -470,7 +552,7 @@ export async function createBedCleaningRequest({
     requestZoneId,
     bedLabel,
     safeUrgency,
-    description || `${triggerLabel} cleaning required for ${bedLabel}. bed_id=${context.bed_id}.`,
+    requestDescription,
     primary?.id || null,
     primary?.uid || null,
     primary ? now.toISOString() : null,
@@ -478,12 +560,13 @@ export async function createBedCleaningRequest({
     slaDueAt
   );
   const request = requestRows[0];
+  await stampTerminalCleanRequest({ isolationContext, requestId: request.id });
 
   const fanout = await fanOutHousekeepingRequest({
     requestId: request.id,
     recipients,
     title: 'Housekeeping: bed cleaning required',
-    body: `${triggerLabel} cleaning task for ${bedLabel}.`,
+    body: `${terminalPrefix} cleaning task for ${bedLabel}.`,
     urgency: safeUrgency,
     data: {
       housekeeping_request_id: request.id,
@@ -491,9 +574,12 @@ export async function createBedCleaningRequest({
       ward_id: context.ward_id,
       ward_name: context.ward_name,
       trigger,
+      terminal_isolation_clean: Boolean(isolationContext),
+      isolation_order_ids: isolationContext?.orderIds || [],
+      precaution_types: isolationContext?.precautions || [],
       source: 'bed_cleaning_dispatch',
     },
-    updateMessage: `Request ${request.request_number} routed to ${recipients.length} housekeeping recipient(s) for ${bedLabel}.`,
+    updateMessage: `Request ${request.request_number} routed to ${recipients.length} housekeeping recipient(s) for ${terminalPrefix} at ${bedLabel}.`,
   });
 
   logger.info('Housekeeping bed cleaning request dispatched', {
@@ -501,6 +587,7 @@ export async function createBedCleaningRequest({
     bedId: context.bed_id,
     wardId: context.ward_id,
     trigger,
+    terminalIsolationClean: Boolean(isolationContext),
     recipientCount: recipients.length,
   });
 
@@ -509,13 +596,15 @@ export async function createBedCleaningRequest({
     actorUid: requester.uid,
     actorRole: requester.role || null,
     trigger,
-    payload: {
-      bed_id: context.bed_id,
-      ward_id: context.ward_id,
-      ward_name: context.ward_name,
-      created: true,
-    },
-  });
+      payload: {
+        bed_id: context.bed_id,
+        ward_id: context.ward_id,
+        ward_name: context.ward_name,
+        terminal_isolation_clean: Boolean(isolationContext),
+        isolation_order_ids: isolationContext?.orderIds || [],
+        created: true,
+      },
+    });
 
   return { request, recipients, fanout, created: true };
 }

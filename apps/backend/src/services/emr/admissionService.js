@@ -33,6 +33,7 @@ import {
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
+import { ensureIsolationTerminalCleanForAdmission } from '../quality/infectionControlWorkbenchService.js';
 import { populateAdmissionCareTeam } from '../security/careTeamPopulationService.js';
 import {
   emitDischargeDrugsDispensed,
@@ -2924,6 +2925,17 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
   //   2026-05-09-inpatient-admission-housekeeping-no-ticket-on-discharge.
   if (phase1.bedTurnover) {
     try {
+      await ensureIsolationTerminalCleanForAdmission({
+        admissionId,
+        tenantId: tenantId || phase1.updated.tenant_id,
+        actorUid: dischargedBy,
+        actorRole: 'DISCHARGE',
+      });
+    } catch (e) {
+      logger.warn(`dischargePatient: isolation terminal-clean request failed for admission ${admissionId} (continuing): ${e.message}`);
+    }
+
+    try {
       const { bed_id, bed_number, ward_name } = phase1.bedTurnover;
       const bedLabel = [ward_name, bed_number].filter(Boolean).join(' / ')
         || `Bed ${bed_id}`;
@@ -2932,6 +2944,8 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
         requesterUid: dischargedBy,
         trigger: 'final_discharge',
         urgency: 'high',
+        admissionId,
+        patientUid: phase1.updated.patient_uid,
         description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}. bed_id=${bed_id}.`,
       });
     } catch (e) {

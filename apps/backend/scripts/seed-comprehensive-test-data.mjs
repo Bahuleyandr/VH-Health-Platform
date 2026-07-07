@@ -36,9 +36,16 @@ const MANUAL_SEED_TABLES = new Set([
   // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
   'donation_events',
   'donor_consents',
+<<<<<<< HEAD
   // N6-12 mortuary slots enforce occupancy consistency: an available
   // slot cannot carry a current body reference.
   'mortuary_slots',
+=======
+  // N6-10 infusion chair coverage needs an active chair plus an ordered,
+  // cycle-date-aligned booking window.
+  'infusion_chairs',
+  'chair_bookings',
+>>>>>>> github/main
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1234,6 +1241,7 @@ async function seedDonorIntakeTables() {
   }
 }
 
+<<<<<<< HEAD
 async function seedMortuarySlots() {
   await insertIfEmpty('mortuary_slots', [{
     tenant_id: DEFAULT_TENANT_ID,
@@ -1241,6 +1249,63 @@ async function seedMortuarySlots() {
     display_name: 'Seed mortuary slot',
     status: 'available',
     notes: 'Seed slot for QA coverage',
+=======
+async function seedInfusionChairTables() {
+  let chair = await first(
+    'infusion_chairs',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!chair) {
+    const created = await client.query(
+      `INSERT INTO infusion_chairs (
+         tenant_id, unit_name, chair_code, display_name, status, location_note
+       )
+       VALUES (
+         $1::uuid, 'Day Care', 'SEED-CHAIR-1', 'Seed Chair 1',
+         'active', 'Seed chair for QA coverage'
+       )
+       ON CONFLICT (tenant_id, unit_name, chair_code)
+       DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         status = 'active',
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING id, tenant_id`,
+      [DEFAULT_TENANT_ID],
+    );
+    chair = created.rows[0];
+  }
+
+  if (await tableCount('chair_bookings')) return;
+
+  const cycleResult = await client.query(
+    `SELECT c.id, c.tenant_id, c.scheduled_date, p.patient_uid
+       FROM chemo_cycles c
+       JOIN chemo_treatment_plans p ON p.id = c.plan_id
+      ORDER BY c.id
+      LIMIT 1`,
+  );
+  const cycle = cycleResult.rows[0];
+  if (!chair || !cycle?.patient_uid) return;
+
+  const scheduledDate =
+    cycle.scheduled_date instanceof Date
+      ? cycle.scheduled_date.toISOString().slice(0, 10)
+      : String(cycle.scheduled_date).slice(0, 10);
+
+  await insertIfEmpty('chair_bookings', [{
+    tenant_id: cycle.tenant_id || chair.tenant_id || DEFAULT_TENANT_ID,
+    chair_id: chair.id,
+    cycle_id: cycle.id,
+    patient_uid: cycle.patient_uid,
+    start_at: `${scheduledDate}T09:00:00.000Z`,
+    end_at: `${scheduledDate}T10:00:00.000Z`,
+    status: 'booked',
+    warning_codes: [],
+    notes: 'Seed booking for QA coverage',
+>>>>>>> github/main
   }]);
 }
 
@@ -1254,7 +1319,11 @@ try {
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
   await seedDonorIntakeTables();
+<<<<<<< HEAD
   await seedMortuarySlots();
+=======
+  await seedInfusionChairTables();
+>>>>>>> github/main
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));

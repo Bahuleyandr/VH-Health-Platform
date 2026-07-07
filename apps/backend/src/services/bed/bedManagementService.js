@@ -333,6 +333,8 @@ class BedManagementService {
         requesterUid: dischargedBy,
         trigger: 'final_discharge',
         urgency: 'high',
+        admissionId,
+        patientUid,
         description: `Discharge cleaning required after direct bed discharge. bed_id=${bedId}.`,
       });
     } catch (e) {
