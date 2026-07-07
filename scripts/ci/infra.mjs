@@ -73,6 +73,8 @@ function installLinuxManifestValidators() {
 export function runInfraStage({ install } = {}) {
   let installedTools;
   try {
+    run(process.execPath, ['--test', 'scripts/update-prod-digests.test.mjs']);
+
     if (
       install &&
       process.platform === 'linux' &&

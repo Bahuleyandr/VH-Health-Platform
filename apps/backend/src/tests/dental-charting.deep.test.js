@@ -11,6 +11,7 @@ import { isValidFdiTooth } from '../services/clinical/dentalService.js';
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const TEST_NAME = 'D7TEST DentalPatient';
 let patientUid;
 let cariesFindingId;
@@ -67,6 +68,33 @@ d('Dental charting — deep round-trip (roadmap D7)', () => {
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect();
+  });
+
+  test('links dental procedure services to billing service catalog rows', async () => {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT
+         b.code,
+         b.category,
+         sc.service_code,
+         sc.specialty,
+         sc.default_tariff_item_code,
+         sc.metadata->>'procedureCode' AS procedure_code
+       FROM billing_service_master b
+       JOIN service_catalog sc
+         ON sc.tenant_id = b.tenant_id
+        AND sc.service_code = b.code
+       WHERE b.tenant_id = $1::uuid
+         AND b.code IN ('DENT-CONSULT', 'DENT-REST-D2391', 'DENT-RCT-D3310')`,
+      DEFAULT_TENANT_ID,
+    );
+    const byCode = Object.fromEntries(rows.map((row) => [row.code, row]));
+
+    expect(rows).toHaveLength(3);
+    expect(byCode['DENT-CONSULT'].category).toBe('consultation');
+    expect(byCode['DENT-CONSULT'].specialty).toBe('Dentistry');
+    expect(byCode['DENT-REST-D2391'].default_tariff_item_code).toBe('DENT-REST-D2391');
+    expect(byCode['DENT-REST-D2391'].procedure_code).toBe('D2391');
+    expect(byCode['DENT-RCT-D3310'].service_code).toBe('DENT-RCT-D3310');
   });
 
   test('records findings with FDI + surface validation', async () => {

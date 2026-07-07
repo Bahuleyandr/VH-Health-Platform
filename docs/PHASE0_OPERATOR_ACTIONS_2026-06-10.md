@@ -149,7 +149,7 @@ placeholders** — pods cannot pull them. Before the ArgoCD `apps` Application
 next syncs, resolve the currently-deployed releases:
 
 ```bash
-GHCR_TOKEN=<read:packages PAT> node scripts/update-prod-digests.mjs \
+GHCR_TOKEN=<read:packages PAT> COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs \
   --tag backend-v<current> --tag admin-v<current> --tag staff-web-v<current>
 git commit -am "chore(prod): bootstrap H11 digest pins" && git push
 ```

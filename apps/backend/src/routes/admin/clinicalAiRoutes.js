@@ -26,6 +26,7 @@ import trialSafetyOperationsRoutes from './clinicalAi/trialSafetyOperationsRoute
 import dischargeComposeRoutes from './clinicalAi/dischargeComposeRoutes.js';
 import priorAuthAppealRoutes from './clinicalAi/priorAuthAppealRoutes.js';
 import qualityCaseRoutes from './clinicalAi/qualityCaseRoutes.js';
+import biomedCmmsRoutes from './clinicalAi/biomedCmmsRoutes.js';
 import { requireClinicalAiControl } from './clinicalAi/shared.js';
 
 const router = express.Router();
@@ -58,5 +59,6 @@ router.use('/', trialSafetyOperationsRoutes);
 router.use('/', dischargeComposeRoutes);
 router.use('/', priorAuthAppealRoutes);
 router.use('/', qualityCaseRoutes);
+router.use('/biomed-cmms', biomedCmmsRoutes);
 
 export default router;

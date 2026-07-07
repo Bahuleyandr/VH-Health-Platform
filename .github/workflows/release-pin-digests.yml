@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   pin-digests:
@@ -32,12 +33,19 @@ jobs:
         with:
           ref: main
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Resolve digest and update overlay
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          COSIGN_CERTIFICATE_IDENTITY_REGEXP: '^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$'
+          COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
         run: |
-          node scripts/update-prod-digests.mjs --tag "$RELEASE_TAG"
+          node scripts/update-prod-digests.mjs \
+            --tag "$RELEASE_TAG" \
+            --evidence-file "output/release-pin-digests/${RELEASE_TAG}.json"
 
       - name: Commit digest bump
         env:
@@ -52,3 +60,11 @@ jobs:
           git add infra/kubernetes/apps/kustomization.yaml
           git commit -m "chore(prod): pin ${RELEASE_TAG} image digest (H11 GitOps write-back)"
           git push origin main
+
+      - name: Upload digest verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-pin-digests-${{ github.event.workflow_run.head_branch }}
+          path: output/release-pin-digests
+          if-no-files-found: ignore

@@ -74,12 +74,14 @@ import {
 import { getDefaultCheckpointStore } from '../../../services/ai/workflowCheckpointStore.js';
 import { resumeWorkflow } from '../../../services/ai/workflowGraphRunner.js';
 import { normalizeRole as normalizePlatformRole } from '../../../utils/roles.js';
+import biomedCmmsRoutes from './biomedCmmsRoutes.js';
 
 const router = express.Router();
 
 // Defense-in-depth: outer guard is requireRole(...CLINICAL_AI_USER_ROLES)
 // at the app.js mount; this is the inner guard. Both must pass.
 router.use(requireClinicalAiUse);
+router.use('/biomed-cmms', biomedCmmsRoutes);
 
 // Intra-tenant IDOR guards for the patient-explainer + discharge-compose
 // entrypoints. Each resolves the patient owning the cited source row

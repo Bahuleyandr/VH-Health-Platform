@@ -80,6 +80,44 @@ interface MortalitySummary {
   reviews_preventable: number;
 }
 
+interface MortuarySlot {
+  id: number;
+  slot_code: string;
+  display_name: string | null;
+  location_name: string | null;
+  status: string;
+  current_death_record_id: number | null;
+  current_patient_uid: string | null;
+  current_mccd_serial: string | null;
+  occupied_since: string | null;
+}
+
+interface MortuaryBody {
+  death_record_id: number;
+  patient_uid: string;
+  mccd_serial: string | null;
+  date_of_death: string;
+  time_of_death: string;
+  is_medicolegal: boolean;
+  police_clearance_at: string | null;
+  latest_event_type: string;
+  latest_event_at: string;
+  is_unclaimed: boolean;
+  unclaimed_reason: string | null;
+  slot_code: string | null;
+  slot_name: string | null;
+  unclaimed_task_status: string | null;
+  unclaimed_sla_status: string | null;
+  unclaimed_due_at: string | null;
+}
+
+interface MortuaryBoard {
+  occupancy: Record<string, number>;
+  slots: MortuarySlot[];
+  active_bodies: MortuaryBody[];
+  unclaimed: MortuaryBody[];
+}
+
 function unwrap<T>(r: unknown): T {
   return ((r as { data?: T }).data ?? r) as T;
 }
@@ -129,6 +167,14 @@ export default function DeathCertificationPage() {
     ),
   });
 
+  const { data: mortuaryBoard, isLoading: mortuaryLoading } = useQuery<MortuaryBoard>({
+    queryKey: ["death", "mortuary-board"],
+    queryFn: async () => unwrap<MortuaryBoard>(
+      await fetchAdminAPI<unknown>(`/death-certification/mortuary/board`),
+    ),
+    refetchInterval: 60_000,
+  });
+
   const { data: detail } = useQuery<DeathRecord>({
     queryKey: ["death", "detail", selectedId],
     queryFn: async () => unwrap<DeathRecord>(
@@ -158,6 +204,8 @@ export default function DeathCertificationPage() {
           <KpiCard label="Preventable" value={summary.reviews_preventable} tone="warning" />
         </div>
       )}
+
+      <MortuaryBoardSection board={mortuaryBoard} isLoading={mortuaryLoading} />
 
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-sm">
@@ -853,6 +901,197 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
 }
 
 // ── Shared ───────────────────────────────────────────────────────────
+
+function MortuaryBoardSection({
+  board, isLoading,
+}: { board?: MortuaryBoard; isLoading: boolean }) {
+  const qc = useQueryClient();
+  const [slotCode, setSlotCode] = useState("");
+  const [slotName, setSlotName] = useState("");
+
+  const addSlot = useMutation({
+    mutationFn: async () => fetchAdminAPI<unknown>("/death-certification/mortuary/slots", {
+      method: "POST",
+      body: {
+        slot_code: slotCode,
+        display_name: slotName || slotCode,
+      },
+    }),
+    onSuccess: () => {
+      setSlotCode("");
+      setSlotName("");
+      qc.invalidateQueries({ queryKey: ["death", "mortuary-board"] });
+    },
+  });
+
+  const occupancy = board?.occupancy ?? {};
+  const slots = board?.slots ?? [];
+  const activeBodies = board?.active_bodies ?? [];
+  const unclaimed = board?.unclaimed ?? [];
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold">Mortuary Board</h2>
+          <p className="text-sm text-muted-foreground">
+            Cooler occupancy, custody state, and unclaimed-body escalation status.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+          <MiniStat label="Slots" value={occupancy.total ?? 0} />
+          <MiniStat label="Occupied" value={occupancy.occupied ?? 0} tone="warning" />
+          <MiniStat label="Unclaimed" value={unclaimed.length} tone="warning" />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border p-3">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+          <input
+            type="text"
+            value={slotCode}
+            onChange={(e) => setSlotCode(e.target.value)}
+            placeholder="Slot code"
+            className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+          />
+          <input
+            type="text"
+            value={slotName}
+            onChange={(e) => setSlotName(e.target.value)}
+            placeholder="Display name"
+            className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+          />
+          <button
+            type="button"
+            disabled={!slotCode.trim() || addSlot.isPending}
+            onClick={() => addSlot.mutate()}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {addSlot.isPending ? "Saving..." : "Add slot"}
+          </button>
+        </div>
+        {addSlot.error instanceof Error && (
+          <div className="mt-2 text-sm text-rose-400">{addSlot.error.message}</div>
+        )}
+      </div>
+
+      {isLoading && <LoadingSpinner />}
+
+      {!isLoading && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="rounded-lg border border-border overflow-hidden xl:col-span-1">
+            <div className="bg-muted/40 p-3 text-sm font-semibold">Cooler slots</div>
+            {slots.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground">No mortuary slots registered.</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {slots.map((slot) => (
+                  <div key={slot.id} className="p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-mono text-xs">{slot.slot_code}</div>
+                      <span className={`px-2 py-0.5 rounded text-xs ${
+                        slot.status === "occupied"
+                          ? "bg-amber-500/15 text-amber-300"
+                          : "bg-emerald-500/15 text-emerald-300"
+                      }`}>
+                        {slot.status}
+                      </span>
+                    </div>
+                    <div className="mt-1">{slot.display_name ?? slot.slot_code}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {slot.location_name ?? "No location"}
+                    </div>
+                    {slot.current_death_record_id && (
+                      <div className="mt-2 text-xs">
+                        Record #{slot.current_death_record_id}
+                        {slot.current_mccd_serial && ` / ${slot.current_mccd_serial}`}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border overflow-hidden xl:col-span-1">
+            <div className="bg-muted/40 p-3 text-sm font-semibold">Custody chain</div>
+            {activeBodies.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground">No bodies currently in custody.</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {activeBodies.map((body) => (
+                  <BodyCustodyRow key={body.death_record_id} body={body} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border overflow-hidden xl:col-span-1">
+            <div className="bg-muted/40 p-3 text-sm font-semibold">Unclaimed</div>
+            {unclaimed.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground">No unclaimed bodies in custody.</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {unclaimed.map((body) => (
+                  <BodyCustodyRow key={body.death_record_id} body={body} showEscalation />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BodyCustodyRow({
+  body, showEscalation = false,
+}: { body: MortuaryBody; showEscalation?: boolean }) {
+  return (
+    <div className="p-3 text-sm space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-medium">
+          Record #{body.death_record_id}
+          {body.mccd_serial && ` / ${body.mccd_serial}`}
+        </div>
+        <span className="text-xs uppercase text-muted-foreground">{body.latest_event_type}</span>
+      </div>
+      <div className="text-xs text-muted-foreground">
+        Patient {body.patient_uid.slice(0, 8)}... · {body.date_of_death} {body.time_of_death}
+      </div>
+      <div className="text-xs">
+        Slot: {body.slot_code ?? "Not stored"}
+        {body.is_medicolegal && (
+          <span className="ml-2 text-rose-300">
+            MLC {body.police_clearance_at ? "cleared" : "pending clearance"}
+          </span>
+        )}
+      </div>
+      {showEscalation && (
+        <div className="text-xs text-amber-300">
+          {body.unclaimed_task_status ?? "task pending"} / {body.unclaimed_sla_status ?? "SLA pending"}
+          {body.unclaimed_due_at && ` · due ${new Date(body.unclaimed_due_at).toLocaleString()}`}
+        </div>
+      )}
+      {body.unclaimed_reason && (
+        <div className="text-xs text-muted-foreground">{body.unclaimed_reason}</div>
+      )}
+    </div>
+  );
+}
+
+function MiniStat({
+  label, value, tone,
+}: { label: string; value: number; tone?: "warning" }) {
+  return (
+    <div className={`rounded border px-3 py-2 ${
+      tone === "warning" ? "border-amber-500/30 bg-amber-500/5" : "border-border"
+    }`}>
+      <div className="text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
 
 function KpiCard({
   label, value, tone,
