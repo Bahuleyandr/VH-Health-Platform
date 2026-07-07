@@ -22,6 +22,7 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { istDateString } from '../../utils/dateUtils.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { hasActivePrivilege } from '../staff/credentialingService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -70,8 +71,39 @@ export function projectCumulativePerM2({ existingPerM2 = 0, dosePerM2Planned = 0
   };
 }
 
+export function infusionSlotsOverlap(aStart, aEnd, bStart, bEnd) {
+  const as = new Date(aStart).getTime();
+  const ae = new Date(aEnd).getTime();
+  const bs = new Date(bStart).getTime();
+  const be = new Date(bEnd).getTime();
+  if (![as, ae, bs, be].every(Number.isFinite)) return false;
+  return as < be && bs < ae;
+}
+
+function normalizeSlotWindow({ startAt, endAt }) {
+  if (!startAt || !endAt) {
+    throw AppError.badRequest('start_at and end_at are required', 'INFUSION_SLOT_WINDOW_REQUIRED');
+  }
+  const start = new Date(String(startAt));
+  const end = new Date(String(endAt));
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    throw AppError.badRequest('start_at and end_at must be valid date-times', 'INFUSION_SLOT_WINDOW_INVALID');
+  }
+  if (end <= start) {
+    throw AppError.badRequest('end_at must be after start_at', 'INFUSION_SLOT_WINDOW_INVALID');
+  }
+  return {
+    start,
+    end,
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+    durationMinutes: Math.round((end.getTime() - start.getTime()) / 60000),
+  };
+}
+
 const REQUIRE_ADMIN_PRIVILEGE = () => String(process.env.CHEMO_REQUIRE_ADMIN_PRIVILEGE || 'false') === 'true';
 const tenantOr = (t) => requireTenantId(t);
+const ACTIVE_CHAIR_BOOKING_STATUSES = ['booked', 'checked_in', 'completed'];
 
 async function assertPatientInTenant(tenantId, patientUid) {
   if (!patientUid) throw AppError.badRequest('patient_uid is required', 'CHEMO_PATIENT_REQUIRED');
@@ -473,6 +505,347 @@ export async function scheduleCycle(planId, {
   }
 }
 
+// -- infusion chair scheduling ------------------------------------------------
+
+function normalizeChairStatus(status = 'active') {
+  const clean = String(status || 'active').trim().toLowerCase();
+  if (!['active', 'maintenance', 'inactive'].includes(clean)) {
+    throw AppError.badRequest('Chair status must be active, maintenance, or inactive', 'INFUSION_CHAIR_STATUS_INVALID');
+  }
+  return clean;
+}
+
+function normalizeUnitName(unitName = 'Day Care') {
+  const clean = String(unitName || 'Day Care').trim();
+  if (!clean) throw AppError.badRequest('unit_name is required', 'INFUSION_UNIT_REQUIRED');
+  return clean;
+}
+
+export async function createInfusionChair({
+  tenantId, unitName = 'Day Care', chairCode, displayName = null, status = 'active', locationNote = null,
+}, { actorUid = null } = {}) {
+  const code = String(chairCode || '').trim().toUpperCase();
+  if (!code) throw AppError.badRequest('chair_code is required', 'INFUSION_CHAIR_CODE_REQUIRED');
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO infusion_chairs
+         (tenant_id, unit_name, chair_code, display_name, status, location_note, created_by)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid)
+       RETURNING id, unit_name, chair_code, display_name, status, location_note, created_at, updated_at`,
+      tenantOr(tenantId),
+      normalizeUnitName(unitName),
+      code,
+      displayName ? String(displayName).trim() : code,
+      normalizeChairStatus(status),
+      locationNote || null,
+      actorUid,
+    );
+    return rows[0];
+  } catch (err) {
+    if (String(err.message).includes('uq_infusion_chairs_unit_code')) {
+      throw AppError.conflict('Infusion chair code already exists for this unit', 'INFUSION_CHAIR_CODE_TAKEN');
+    }
+    throw err;
+  }
+}
+
+export async function listInfusionChairs({ tenantId, unitName = null, includeInactive = false } = {}) {
+  const params = [tenantOr(tenantId)];
+  let where = 'WHERE tenant_id = $1::uuid';
+  if (unitName) {
+    params.push(normalizeUnitName(unitName));
+    where += ` AND unit_name = $${params.length}`;
+  }
+  if (!includeInactive) {
+    where += " AND status <> 'inactive'";
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, unit_name, chair_code, display_name, status, location_note, created_at, updated_at
+       FROM infusion_chairs
+      ${where}
+      ORDER BY unit_name, chair_code`,
+    ...params,
+  );
+}
+
+export async function updateInfusionChairStatus(chairId, { tenantId, status }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE infusion_chairs
+        SET status = $3, updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $2::uuid
+      RETURNING id, unit_name, chair_code, display_name, status, location_note, updated_at`,
+    Number(chairId),
+    tenantOr(tenantId),
+    normalizeChairStatus(status),
+  );
+  if (!rows.length) throw AppError.notFound('Infusion chair not found', 'INFUSION_CHAIR_NOT_FOUND');
+  return rows[0];
+}
+
+async function getCycleForChairBooking(cycleId, { tenantId, db = prisma } = {}) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT c.id, c.tenant_id, c.plan_id, c.cycle_number, c.scheduled_date, c.status,
+            p.patient_uid, p.planned_cycles, pr.code AS protocol_code
+       FROM chemo_cycles c
+       JOIN chemo_treatment_plans p ON p.id = c.plan_id
+       JOIN chemo_protocols pr ON pr.id = p.protocol_id
+      WHERE c.id = $1
+        AND c.tenant_id = $2::uuid
+        AND p.tenant_id = $2::uuid
+        AND pr.tenant_id = $2::uuid`,
+    Number(cycleId),
+    tenantOr(tenantId),
+  );
+  if (!rows.length) throw AppError.notFound('Chemo cycle not found', 'CHEMO_CYCLE_NOT_FOUND');
+  return rows[0];
+}
+
+async function assertWindowMatchesCycleDate(tx, { startIso, endIso, scheduledDate }) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT
+       (($1::timestamptz)::date = $3::date) AS start_matches,
+       (($2::timestamptz)::date = $3::date) AS end_matches`,
+    startIso,
+    endIso,
+    scheduledDate,
+  );
+  if (!rows[0]?.start_matches || !rows[0]?.end_matches) {
+    throw AppError.badRequest(
+      'Chair booking slot must stay on the chemo cycle scheduled_date',
+      'INFUSION_SLOT_DATE_MISMATCH',
+      { scheduled_date: scheduledDate },
+    );
+  }
+}
+
+function mapChairBookingDbError(err) {
+  const message = String(err?.message || '');
+  const pgCode = err?.meta?.code || err?.code;
+  if (pgCode === '23P01' || message.includes('excl_chair_bookings_chair_no_overlap')) {
+    return AppError.conflict('Infusion chair is already booked for that slot', 'INFUSION_CHAIR_SLOT_CONFLICT');
+  }
+  if (message.includes('uq_chair_bookings_active_cycle')) {
+    return AppError.conflict('Chemo cycle already has an active chair booking', 'INFUSION_CYCLE_ALREADY_BOOKED');
+  }
+  return null;
+}
+
+export async function bookInfusionChair({
+  tenantId, cycleId, chairId, startAt, endAt, notes = null,
+}, { actorUid = null, actorRole = null } = {}) {
+  const window = normalizeSlotWindow({ startAt, endAt });
+  try {
+    return await setTenantTx(tenantOr(tenantId), async (tx) => {
+      const cycle = await getCycleForChairBooking(cycleId, { tenantId, db: tx });
+      if (cycle.status === 'cancelled') {
+        throw AppError.invalidTransition(cycle.status, 'book infusion chair', ['scheduled', 'confirmed']);
+      }
+      await assertWindowMatchesCycleDate(tx, {
+        startIso: window.startIso,
+        endIso: window.endIso,
+        scheduledDate: cycle.scheduled_date,
+      });
+
+      const chairRows = await tx.$queryRawUnsafe(
+        `SELECT id, unit_name, chair_code, display_name, status
+           FROM infusion_chairs
+          WHERE id = $1 AND tenant_id = $2::uuid
+          FOR UPDATE`,
+        Number(chairId),
+        tenantOr(tenantId),
+      );
+      if (!chairRows.length) throw AppError.notFound('Infusion chair not found', 'INFUSION_CHAIR_NOT_FOUND');
+      const chair = chairRows[0];
+      if (chair.status !== 'active') {
+        throw AppError.badRequest('Infusion chair is not active', 'INFUSION_CHAIR_UNAVAILABLE', { status: chair.status });
+      }
+
+      const chairConflicts = await tx.$queryRawUnsafe(
+        `SELECT id, chair_id, cycle_id, start_at, end_at, status
+           FROM chair_bookings
+          WHERE tenant_id = $1::uuid
+            AND chair_id = $2
+            AND status <> 'cancelled'
+            AND start_at < $4::timestamptz
+            AND end_at > $3::timestamptz
+          ORDER BY start_at
+          LIMIT 5`,
+        tenantOr(tenantId),
+        chair.id,
+        window.startIso,
+        window.endIso,
+      );
+      if (chairConflicts.length) {
+        throw AppError.conflict(
+          'Infusion chair is already booked for that slot',
+          'INFUSION_CHAIR_SLOT_CONFLICT',
+          { conflicts: chairConflicts },
+        );
+      }
+
+      const patientConflicts = await tx.$queryRawUnsafe(
+        `SELECT id, chair_id, cycle_id, start_at, end_at, status
+           FROM chair_bookings
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND status <> 'cancelled'
+            AND start_at < $4::timestamptz
+            AND end_at > $3::timestamptz
+          ORDER BY start_at
+          LIMIT 5`,
+        tenantOr(tenantId),
+        cycle.patient_uid,
+        window.startIso,
+        window.endIso,
+      );
+      const warnings = patientConflicts.length ? ['PATIENT_SLOT_OVERLAP'] : [];
+
+      const bookingRows = await tx.$queryRawUnsafe(
+        `INSERT INTO chair_bookings
+           (tenant_id, chair_id, cycle_id, patient_uid, start_at, end_at, warning_codes, notes, booked_by)
+         VALUES ($1::uuid, $2, $3, $4::uuid, $5::timestamptz, $6::timestamptz, $7::text[], $8, $9::uuid)
+         RETURNING id, chair_id, cycle_id, patient_uid, start_at, end_at, status, warning_codes, notes, created_at`,
+        tenantOr(tenantId),
+        chair.id,
+        cycle.id,
+        cycle.patient_uid,
+        window.startIso,
+        window.endIso,
+        warnings,
+        notes || null,
+        actorUid,
+      );
+      const booking = bookingRows[0];
+
+      await recordCanonicalClinicalEvent({
+        tenantId: tenantOr(tenantId),
+        patientUid: cycle.patient_uid,
+        eventType: 'chemo.chair_booked',
+        sourceTable: 'chair_bookings',
+        sourceId: booking.id,
+        actorUid,
+        actorRole,
+        summary: `Chemo cycle ${cycle.cycle_number} booked in ${chair.display_name} (${chair.unit_name})`,
+        payload: {
+          cycle_id: cycle.id,
+          chair_id: chair.id,
+          chair_code: chair.chair_code,
+          start_at: window.startIso,
+          end_at: window.endIso,
+          warning_codes: warnings,
+        },
+      }, { db: tx });
+
+      return { booking, chair, warnings, patient_conflicts: patientConflicts };
+    });
+  } catch (err) {
+    throw mapChairBookingDbError(err) || err;
+  }
+}
+
+export async function cancelChairBooking(bookingId, {
+  tenantId, reason = null,
+}, { actorUid = null, actorRole = null } = {}) {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE chair_bookings b
+          SET status = 'cancelled',
+              cancelled_by = $3::uuid,
+              cancelled_at = NOW(),
+              cancellation_reason = $4,
+              updated_at = NOW()
+         FROM chemo_cycles c
+         JOIN chemo_treatment_plans p ON p.id = c.plan_id
+        WHERE b.id = $1
+          AND b.tenant_id = $2::uuid
+          AND b.status <> 'cancelled'
+          AND c.id = b.cycle_id
+          AND c.tenant_id = b.tenant_id
+          AND p.id = c.plan_id
+          AND p.tenant_id = b.tenant_id
+        RETURNING b.id, b.chair_id, b.cycle_id, b.patient_uid, b.start_at, b.end_at,
+                  b.status, b.warning_codes, b.cancellation_reason, b.cancelled_at,
+                  c.cycle_number, p.planned_cycles`,
+      Number(bookingId),
+      tenantOr(tenantId),
+      actorUid,
+      reason ? String(reason).trim() : null,
+    );
+    if (!rows.length) throw AppError.notFound('Active chair booking not found', 'INFUSION_BOOKING_NOT_FOUND');
+    const booking = rows[0];
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tenantOr(tenantId),
+      patientUid: booking.patient_uid,
+      eventType: 'chemo.chair_booking_cancelled',
+      sourceTable: 'chair_bookings',
+      sourceId: booking.id,
+      actorUid,
+      actorRole,
+      summary: `Chemo cycle ${booking.cycle_number} chair booking cancelled`,
+      payload: {
+        cycle_id: booking.cycle_id,
+        chair_id: booking.chair_id,
+        start_at: booking.start_at,
+        end_at: booking.end_at,
+        cancellation_reason: booking.cancellation_reason,
+      },
+    }, { db: tx });
+
+    return booking;
+  });
+}
+
+export async function getInfusionBoard({
+  tenantId, date = null, unitName = null, includeCancelled = false,
+} = {}) {
+  const day = date ? String(date).slice(0, 10) : istDateString();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    throw AppError.badRequest('date must be YYYY-MM-DD', 'INFUSION_BOARD_DATE_INVALID');
+  }
+  const unit = unitName ? normalizeUnitName(unitName) : null;
+  const chairs = await listInfusionChairs({ tenantId, unitName: unit, includeInactive: false });
+
+  const params = [tenantOr(tenantId), day];
+  let where = `WHERE b.tenant_id = $1::uuid
+                 AND b.start_at >= $2::date
+                 AND b.start_at < ($2::date + INTERVAL '1 day')`;
+  if (unit) {
+    params.push(unit);
+    where += ` AND ch.unit_name = $${params.length}`;
+  }
+  if (!includeCancelled) {
+    where += " AND b.status <> 'cancelled'";
+  }
+
+  const bookings = await prisma.$queryRawUnsafe(
+    `SELECT b.id, b.chair_id, ch.unit_name, ch.chair_code, ch.display_name,
+            b.cycle_id, b.patient_uid, u.name AS patient_name,
+            c.cycle_number, c.scheduled_date, c.status AS cycle_status,
+            p.id AS plan_id, pr.code AS protocol_code, pr.name AS protocol_name,
+            b.start_at, b.end_at, b.status, b.warning_codes, b.notes,
+            b.cancelled_at, b.cancellation_reason
+       FROM chair_bookings b
+       JOIN infusion_chairs ch ON ch.id = b.chair_id
+       JOIN chemo_cycles c ON c.id = b.cycle_id
+       JOIN chemo_treatment_plans p ON p.id = c.plan_id
+       JOIN chemo_protocols pr ON pr.id = p.protocol_id
+       LEFT JOIN users u ON u.uid = b.patient_uid
+      ${where}
+      ORDER BY b.start_at, ch.chair_code, b.id`,
+    ...params,
+  );
+
+  return {
+    date: day,
+    unit_name: unit,
+    chairs,
+    bookings,
+    warnings: bookings.filter((b) => Array.isArray(b.warning_codes) && b.warning_codes.length > 0),
+    active_booking_statuses: ACTIVE_CHAIR_BOOKING_STATUSES,
+  };
+}
+
 // ── administration: two-person verification + recording ─────────────────
 
 async function getAdministration(adminId, { tenantId, db = prisma } = {}) {
@@ -694,14 +1067,29 @@ export async function getPlanDetail(planId, { tenantId } = {}) {
   const plan = await getPlan(planId, { tenantId });
   const cycles = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.cycle_number, c.scheduled_date, c.status, c.weight_kg, c.bsa_m2,
-            COALESCE(json_agg(json_build_object(
-              'id', a.id, 'drug_name', a.drug_name, 'final_dose', a.final_dose,
-              'dose_unit', a.dose_unit, 'status', a.status
-            ) ORDER BY a.id) FILTER (WHERE a.id IS NOT NULL), '[]'::json) AS administrations
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'id', a.id, 'drug_name', a.drug_name, 'final_dose', a.final_dose,
+                'dose_unit', a.dose_unit, 'status', a.status
+              ) ORDER BY a.id)
+              FROM chemo_administrations a
+              WHERE a.cycle_id = c.id
+            ), '[]'::json) AS administrations,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'id', b.id, 'chair_id', b.chair_id, 'chair_code', ch.chair_code,
+                'display_name', ch.display_name, 'unit_name', ch.unit_name,
+                'start_at', b.start_at, 'end_at', b.end_at,
+                'status', b.status, 'warning_codes', b.warning_codes
+              ) ORDER BY b.start_at, b.id)
+              FROM chair_bookings b
+              JOIN infusion_chairs ch ON ch.id = b.chair_id
+              WHERE b.cycle_id = c.id
+                AND b.tenant_id = c.tenant_id
+                AND b.status <> 'cancelled'
+            ), '[]'::json) AS chair_bookings
      FROM chemo_cycles c
-     LEFT JOIN chemo_administrations a ON a.cycle_id = c.id
      WHERE c.plan_id = $1 AND c.tenant_id = $2::uuid
-     GROUP BY c.id
      ORDER BY c.cycle_number`,
     plan.id,
     tenantOr(tenantId),
@@ -715,12 +1103,19 @@ export default {
   computeDose,
   applyReduction,
   projectCumulativePerM2,
+  infusionSlotsOverlap,
   createProtocol,
   activateProtocol,
   getProtocol,
   listProtocols,
   createTreatmentPlan,
   scheduleCycle,
+  createInfusionChair,
+  listInfusionChairs,
+  updateInfusionChairStatus,
+  bookInfusionChair,
+  cancelChairBooking,
+  getInfusionBoard,
   verifyAdministration,
   recordChemoAdministration,
   withholdAdministration,

@@ -16,13 +16,19 @@ const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_U
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TEST_NAME = 'D1TEST OncoPatient';
+const OTHER_TEST_NAME = 'D1TEST OncoPatient Two';
 const PROTO_CODE = `D1T${String(Date.now()).slice(-6)}`;
 
 let patientUid;
+let otherPatientUid;
 let protocolId;
 let planId;
+let otherPlanId;
 let cycle;
+let otherCycle;
 let doxAdminId;
+let chairId;
+let bookingId;
 
 // Second verifier must be a DIFFERENT human — mint a token with another uid.
 function secondNurse() {
@@ -41,23 +47,39 @@ function secondNurse() {
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
-    `DELETE FROM chemo_cumulative_doses WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
+    `DELETE FROM chair_bookings WHERE patient_uid IN (SELECT uid FROM users WHERE name IN ($1, $2))`,
+    TEST_NAME,
+    OTHER_TEST_NAME,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM chemo_treatment_plans WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
+    `DELETE FROM infusion_chairs WHERE chair_code LIKE 'D1T-%'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM chemo_cumulative_doses WHERE patient_uid IN (SELECT uid FROM users WHERE name IN ($1, $2))`,
+    TEST_NAME,
+    OTHER_TEST_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM chemo_treatment_plans WHERE patient_uid IN (SELECT uid FROM users WHERE name IN ($1, $2))`,
+    TEST_NAME,
+    OTHER_TEST_NAME,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM chemo_protocols WHERE code LIKE 'D1T%'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM vitals_chart WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
+    `DELETE FROM vitals_chart WHERE patient_uid IN (SELECT uid FROM users WHERE name IN ($1, $2))`,
+    TEST_NAME,
+    OTHER_TEST_NAME,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
+    `DELETE FROM clinical_timeline_events WHERE patient_uid IN (SELECT uid FROM users WHERE name IN ($1, $2))`,
+    TEST_NAME,
+    OTHER_TEST_NAME,
   ).catch(() => {});
   // clinical_audit_events is append-only — the C4 hash chain must never
   // have holes, so test cleanup deliberately leaves audit rows in place.
-  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = $1`, TEST_NAME).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name IN ($1, $2)`, TEST_NAME, OTHER_TEST_NAME).catch(() => {});
 }
 
 d('Chemo closed loop — deep round-trip (roadmap D1)', () => {
@@ -73,11 +95,23 @@ d('Chemo closed loop — deep round-trip (roadmap D1)', () => {
       TEST_NAME,
     );
     patientUid = u[0].uid;
+    const u2 = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, updated_at)
+       VALUES ($1, $2, 'PATIENT', true, NOW()) RETURNING uid`,
+      `+9198844${String(Date.now() % 10000).padStart(4, '0')}`,
+      OTHER_TEST_NAME,
+    );
+    otherPatientUid = u2[0].uid;
     // 170 cm / 70 kg → BSA 1.82 m² (Mosteller).
     await prisma.$queryRawUnsafe(
       `INSERT INTO vitals_chart (patient_uid, weight_kg, height_cm, recorded_at)
        VALUES ($1::uuid, 70, 170, NOW())`,
       patientUid,
+    );
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO vitals_chart (patient_uid, weight_kg, height_cm, recorded_at)
+       VALUES ($1::uuid, 62, 166, NOW())`,
+      otherPatientUid,
     );
   });
 
@@ -148,6 +182,15 @@ d('Chemo closed loop — deep round-trip (roadmap D1)', () => {
     expect(events.length).toBe(1);
   });
 
+  test('creates a second patient plan for chair conflict coverage', async () => {
+    const res = await doctor.post(`/api/v1/oncology/protocols/${protocolId}/plans`).send({
+      patient_uid: otherPatientUid,
+      consent_ref: 'CONSENT-D1-002',
+    });
+    expect(res.status).toBe(201);
+    otherPlanId = res.body.data.plan.id;
+  });
+
   test('schedules cycle 1 with per-drug BSA doses', async () => {
     const res = await doctor.post(`/api/v1/oncology/plans/${planId}/cycles`).send({
       cycle_number: 1,
@@ -169,6 +212,54 @@ d('Chemo closed loop — deep round-trip (roadmap D1)', () => {
       cycle_number: 1, scheduled_date: '2026-06-16',
     });
     expect(dupCycle.status).toBe(409);
+
+    const other = await doctor.post(`/api/v1/oncology/plans/${otherPlanId}/cycles`).send({
+      cycle_number: 1,
+      scheduled_date: '2026-06-15',
+    });
+    expect(other.status).toBe(201);
+    otherCycle = other.body.data.cycle;
+  });
+
+  test('books an infusion chair, rejects double-booking, and surfaces on the plan', async () => {
+    const chair = await doctor.post('/api/v1/oncology/infusion-chairs').send({
+      unit_name: 'Day Care',
+      chair_code: `D1T-${String(Date.now()).slice(-5)}`,
+      display_name: 'Day Care Infusion Chair D1',
+    });
+    expect(chair.status).toBe(201);
+    chairId = chair.body.data.chair.id;
+
+    const booking = await doctor.post('/api/v1/oncology/chair-bookings').send({
+      cycle_id: cycle.id,
+      chair_id: chairId,
+      start_at: '2026-06-15T09:00:00+05:30',
+      end_at: '2026-06-15T11:00:00+05:30',
+      notes: 'Premeds at 08:45; vesicant precautions.',
+    });
+    expect(booking.status).toBe(201);
+    bookingId = booking.body.data.booking.id;
+    expect(booking.body.data.booking.status).toBe('booked');
+    expect(booking.body.data.warnings).toEqual([]);
+
+    const conflict = await doctor.post('/api/v1/oncology/chair-bookings').send({
+      cycle_id: otherCycle.id,
+      chair_id: chairId,
+      start_at: '2026-06-15T10:00:00+05:30',
+      end_at: '2026-06-15T12:00:00+05:30',
+    });
+    expect(conflict.status).toBe(409);
+    expect(JSON.stringify(conflict.body)).toContain('already booked');
+
+    const detail = await doctor.get(`/api/v1/oncology/plans/${planId}`);
+    expect(detail.status).toBe(200);
+    const bookedCycle = detail.body.data.plan.cycles.find((c) => c.id === cycle.id);
+    expect(bookedCycle.chair_bookings).toHaveLength(1);
+    expect(bookedCycle.chair_bookings[0].chair_id).toBe(chairId);
+
+    const board = await doctor.get('/api/v1/oncology/infusion-board?date=2026-06-15');
+    expect(board.status).toBe(200);
+    expect(board.body.data.board.bookings.some((b) => b.id === bookingId)).toBe(true);
   });
 
   test('two-person verification enforces the different-human guard', async () => {
@@ -231,6 +322,29 @@ d('Chemo closed loop — deep round-trip (roadmap D1)', () => {
       patientUid,
     );
     expect(events.length).toBe(1);
+
+    const chairBooking = await prisma.$queryRawUnsafe(
+      `SELECT status FROM chair_bookings WHERE id = $1`,
+      bookingId,
+    );
+    expect(chairBooking[0].status).toBe('booked');
+  });
+
+  test('cancelling a chair booking frees the slot', async () => {
+    const cancelled = await doctor.post(`/api/v1/oncology/chair-bookings/${bookingId}/cancel`).send({
+      reason: 'Moved to observation bay after premeds',
+    });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.data.booking.status).toBe('cancelled');
+
+    const reused = await doctor.post('/api/v1/oncology/chair-bookings').send({
+      cycle_id: otherCycle.id,
+      chair_id: chairId,
+      start_at: '2026-06-15T09:30:00+05:30',
+      end_at: '2026-06-15T10:30:00+05:30',
+    });
+    expect(reused.status).toBe(201);
+    expect(reused.body.data.booking.status).toBe('booked');
   });
 
   test('cumulative ceiling blocks cycle 2 without an override, allows with one', async () => {

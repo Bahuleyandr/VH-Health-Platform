@@ -14,6 +14,12 @@ import {
   listProtocols,
   createTreatmentPlan,
   scheduleCycle,
+  createInfusionChair,
+  listInfusionChairs,
+  updateInfusionChairStatus,
+  bookInfusionChair,
+  cancelChairBooking,
+  getInfusionBoard,
   verifyAdministration,
   recordChemoAdministration,
   withholdAdministration,
@@ -136,6 +142,95 @@ router.post('/plans/:id/cycles', async (req, res) => {
     return success(res, result, 'Cycle scheduled', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'schedule cycle');
+  }
+});
+
+// ── infusion chair board ─────────────────────────────────────────────────
+
+router.get('/infusion-chairs', async (req, res) => {
+  try {
+    const chairs = await listInfusionChairs({
+      tenantId: tenantOf(req),
+      unitName: req.query.unit_name || null,
+      includeInactive: req.query.include_inactive === 'true',
+    });
+    return success(res, { chairs, count: chairs.length }, 'Infusion chairs');
+  } catch (err) {
+    return handleFailure(res, err, 'list infusion chairs');
+  }
+});
+
+router.post('/infusion-chairs', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership manage infusion chairs', HTTP_STATUS.FORBIDDEN);
+    const chair = await createInfusionChair({
+      tenantId: tenantOf(req),
+      unitName: req.body.unit_name || 'Day Care',
+      chairCode: req.body.chair_code,
+      displayName: req.body.display_name || null,
+      status: req.body.status || 'active',
+      locationNote: req.body.location_note || null,
+    }, ctx(req));
+    return success(res, { chair }, 'Infusion chair created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'create infusion chair');
+  }
+});
+
+router.patch('/infusion-chairs/:id/status', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership manage infusion chairs', HTTP_STATUS.FORBIDDEN);
+    const chair = await updateInfusionChairStatus(req.params.id, {
+      tenantId: tenantOf(req),
+      status: req.body.status,
+    });
+    return success(res, { chair }, 'Infusion chair status updated');
+  } catch (err) {
+    return handleFailure(res, err, 'update infusion chair status');
+  }
+});
+
+router.get('/infusion-board', async (req, res) => {
+  try {
+    const board = await getInfusionBoard({
+      tenantId: tenantOf(req),
+      date: req.query.date || null,
+      unitName: req.query.unit_name || null,
+      includeCancelled: req.query.include_cancelled === 'true',
+    });
+    return success(res, { board }, 'Infusion chair board');
+  } catch (err) {
+    return handleFailure(res, err, 'get infusion chair board');
+  }
+});
+
+router.post('/chair-bookings', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership book infusion chairs', HTTP_STATUS.FORBIDDEN);
+    const result = await bookInfusionChair({
+      tenantId: tenantOf(req),
+      cycleId: req.body.cycle_id,
+      chairId: req.body.chair_id,
+      startAt: req.body.start_at,
+      endAt: req.body.end_at,
+      notes: req.body.notes || null,
+    }, ctx(req));
+    return success(res, result, 'Infusion chair booked', HTTP_STATUS.CREATED);
+  } catch (err) {
+    return handleFailure(res, err, 'book infusion chair');
+  }
+});
+
+router.post('/chair-bookings/:id/cancel', async (req, res) => {
+  try {
+    if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership cancel infusion chair bookings', HTTP_STATUS.FORBIDDEN);
+    const booking = await cancelChairBooking(req.params.id, {
+      tenantId: tenantOf(req),
+      reason: req.body.reason || null,
+    }, ctx(req));
+    return success(res, { booking }, 'Infusion chair booking cancelled');
+  } catch (err) {
+    return handleFailure(res, err, 'cancel infusion chair booking');
   }
 });
 
