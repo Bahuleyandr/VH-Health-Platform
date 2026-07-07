@@ -4,9 +4,17 @@
 // Two-tier module: top tier = device registry (upsert + list); bottom = maintenance predictions (evaluate + list + decide).
 // Backend routes: apps/backend/src/routes/admin/clinicalAiRoutes.js (lines 3311-3405).
 
-import { useState, type FormEvent } from "react";
+import { useState, type ComponentType, type FormEvent, type SVGProps } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Cpu, PlayCircle, Save } from "lucide-react";
+import {
+  ClipboardCheck,
+  Cpu,
+  FileCheck2,
+  PlayCircle,
+  RefreshCcw,
+  Save,
+  Wrench,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 
 import {
@@ -123,9 +131,64 @@ type PredictionRow = {
   created_at: string | null;
 };
 
+type CmmsStats = {
+  device_count?: number;
+  in_service_count?: number;
+  overdue_device_count?: number;
+  active_work_order_count?: number;
+  urgent_work_order_count?: number;
+  sla_breach_count?: number;
+  downtime_minutes_30d?: number;
+  current_count?: number;
+  expired_or_failed_count?: number;
+  due_soon_count?: number;
+};
+
+type CmmsDeviceRow = {
+  id: number;
+  device_code: string;
+  device_type: string;
+  location: string | null;
+  status: string;
+  next_scheduled_maintenance_at: string | null;
+  usage_hours: number;
+  fault_events_last_90d: number;
+  amc_vendor: string | null;
+  amc_expires_on: string | null;
+};
+
+type WorkOrderRow = {
+  id: number;
+  work_order_number: string;
+  device_code: string | null;
+  device_type: string | null;
+  kind: string;
+  priority: string;
+  status: string;
+  description: string;
+  sla_due_at: string | null;
+  sla_breached: boolean;
+  downtime_minutes: number;
+  source: string;
+  created_at: string | null;
+};
+
+type CmmsBoardResult = {
+  stats?: CmmsStats;
+  devices?: CmmsDeviceRow[];
+  work_orders?: WorkOrderRow[];
+};
+
+type CmmsStatCard = {
+  label: string;
+  value?: number;
+  Icon: ComponentType<SVGProps<SVGSVGElement>>;
+};
+
 const DEVICES_PATH = "/admin/clinical-ai/biomed-devices";
 const PREDICTIONS_PATH = "/admin/clinical-ai/biomed-devices/predictions";
 const EVALUATE_PATH = "/admin/clinical-ai/biomed-devices/evaluate";
+const CMMS_PATH = "/admin/clinical-ai/biomed-cmms";
 
 const PREDICTION_FILTERS: FilterSpec[] = [
   {
@@ -156,6 +219,49 @@ function urgencyBadgeClass(urgency: string | null | undefined) {
   if (u === "within_7_days") return "bg-orange-100 text-orange-800 border-orange-200";
   if (u === "within_30_days") return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function workOrderPriorityClass(priority: string | null | undefined) {
+  const p = (priority || "").toLowerCase();
+  if (p === "urgent") return "bg-red-100 text-red-800 border-red-200";
+  if (p === "high") return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function statValue(value: number | undefined) {
+  return Number.isFinite(Number(value)) ? Number(value).toLocaleString() : "0";
+}
+
+function CreateWorkOrderFromPredictionButton({ row }: { row: PredictionRow }) {
+  const queryClient = useQueryClient();
+  const createWorkOrder = useMutation({
+    mutationFn: () =>
+      evaluateClinicalAi(`${CMMS_PATH}/work-orders/from-prediction/${row.id}`, {}),
+    onSuccess: () => {
+      toast.success("Work order created");
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "biomed_device_maintenance"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "biomed_cmms"],
+      });
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Failed to create work order"),
+  });
+
+  const enabled = row.reviewer_decision === "accepted";
+  return (
+    <button
+      type="button"
+      disabled={!enabled || createWorkOrder.isPending}
+      onClick={() => createWorkOrder.mutate()}
+      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+    >
+      <Wrench className="h-3.5 w-3.5" />
+      {createWorkOrder.isPending ? "Creating..." : "Create WO"}
+    </button>
+  );
 }
 
 const PREDICTION_COLUMNS: ColumnSpec<PredictionRow>[] = [
@@ -219,6 +325,11 @@ const PREDICTION_COLUMNS: ColumnSpec<PredictionRow>[] = [
     key: "reviewer_decision",
     header: "Review",
     render: (row) => readableKey(row.reviewer_decision),
+  },
+  {
+    key: "cmms_action",
+    header: "CMMS",
+    render: (row) => <CreateWorkOrderFromPredictionButton row={row} />,
   },
   {
     key: "created_at",
@@ -589,6 +700,184 @@ function MaintenanceEvaluateForm() {
   );
 }
 
+function CmmsBoardSection() {
+  const queryClient = useQueryClient();
+  const board = useQuery({
+    queryKey: ["clinical-ai", "biomed_cmms", "board"],
+    queryFn: () =>
+      listClinicalAi(`${CMMS_PATH}/board`, {}) as Promise<CmmsBoardResult & { count: number }>,
+  });
+
+  const materialize = useMutation({
+    mutationFn: () =>
+      evaluateClinicalAi(`${CMMS_PATH}/work-orders/materialize-due`, {}),
+    onSuccess: () => {
+      toast.success("Due schedules checked");
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "biomed_cmms"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "biomed_device_maintenance"],
+      });
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Failed to materialize schedules"),
+  });
+
+  const stats = board.data?.stats ?? {};
+  const workOrders = board.data?.work_orders ?? [];
+  const devices = board.data?.devices ?? [];
+  const statCards: CmmsStatCard[] = [
+    {
+      label: "Active WOs",
+      value: stats.active_work_order_count,
+      Icon: Wrench,
+    },
+    {
+      label: "SLA breaches",
+      value: stats.sla_breach_count,
+      Icon: ClipboardCheck,
+    },
+    {
+      label: "Calibration due",
+      value: stats.expired_or_failed_count,
+      Icon: FileCheck2,
+    },
+    {
+      label: "Downtime 30d",
+      value: stats.downtime_minutes_30d,
+      Icon: Cpu,
+    },
+  ];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-base font-semibold">CMMS Operations</h3>
+        </div>
+        <button
+          type="button"
+          disabled={materialize.isPending}
+          onClick={() => materialize.mutate()}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+        >
+          <RefreshCcw className="h-4 w-4" />
+          {materialize.isPending ? "Checking..." : "Check Due Schedules"}
+        </button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {statCards.map(({ label, value, Icon }) => (
+          <div key={label} className="rounded-lg border border-border bg-card p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </div>
+            <div className="mt-1 text-xl font-semibold">{statValue(value)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[1.25fr_0.75fr]">
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Work order</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Device</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Priority</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">SLA</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {board.isLoading ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-sm text-slate-500" colSpan={5}>
+                    Loading...
+                  </td>
+                </tr>
+              ) : board.isError ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-sm text-red-700" colSpan={5}>
+                    {(board.error as Error | undefined)?.message ?? "Failed to load CMMS board"}
+                  </td>
+                </tr>
+              ) : workOrders.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-sm text-slate-500" colSpan={5}>
+                    No active biomedical work orders
+                  </td>
+                </tr>
+              ) : (
+                workOrders.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs">{row.work_order_number}</div>
+                      <div className="text-xs text-muted-foreground">{readableKey(row.kind)}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>{row.device_code ?? "-"}</div>
+                      <div className="text-xs text-muted-foreground">{row.device_type ? readableKey(row.device_type) : "-"}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${workOrderPriorityClass(row.priority)}`}>
+                        {readableKey(row.priority)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {row.sla_breached ? "Breached" : fmt(row.sla_due_at)}
+                    </td>
+                    <td className="px-4 py-3">{readableKey(row.status)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Device</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Next service</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">AMC</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {devices.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-sm text-slate-500" colSpan={3}>
+                    No device schedule rows
+                  </td>
+                </tr>
+              ) : (
+                devices.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs">{row.device_code}</div>
+                      <div className="text-xs text-muted-foreground">{row.location ?? readableKey(row.device_type)}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {fmt(row.next_scheduled_maintenance_at)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {row.amc_vendor ? `${row.amc_vendor} / ${fmt(row.amc_expires_on)}` : "-"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Top-level composite panel.
 // ---------------------------------------------------------------------------
@@ -601,6 +890,8 @@ export default function BiomedDeviceMaintenancePanel() {
       </div>
 
       <DeviceRegistrySection />
+
+      <CmmsBoardSection />
 
       <ClinicalAIReviewQueue<PredictionRow, MaintenanceDecision>
         title="Maintenance Predictions"

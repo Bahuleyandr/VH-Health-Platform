@@ -73,6 +73,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
+  circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
 }));
 
 // phiAccessLogger is a passive after-finish audit logger; stub it to a no-op

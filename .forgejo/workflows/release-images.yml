@@ -193,7 +193,7 @@ jobs:
           secret_args=()
           case "${{ matrix.app }}" in
             backend)
-              build_args+=(--build-arg "NODE_IMAGE=mirror.gcr.io/library/node:22-alpine")
+              build_args+=(--build-arg "NODE_IMAGE=mirror.gcr.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2")
               ;;
             admin)
               build_args+=(
@@ -271,13 +271,8 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/vh-release-tools/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${IMAGE_DIGEST}"
-          if [ -n "${COSIGN_PUBLIC_KEY:-}" ]; then
-            /tmp/vh-release-tools/cosign verify --key env://COSIGN_PUBLIC_KEY "${IMAGE}@${IMAGE_DIGEST}" \
-              > "output/release-images/${{ matrix.app }}/cosign-verify.json"
-          else
-            echo "COSIGN_PUBLIC_KEY not configured; image was signed but verification is deferred to deploy/cluster policy." \
-              > "output/release-images/${{ matrix.app }}/cosign-verify.txt"
-          fi
+          /tmp/vh-release-tools/cosign verify --key env://COSIGN_PUBLIC_KEY "${IMAGE}@${IMAGE_DIGEST}" \
+            > "output/release-images/${{ matrix.app }}/cosign-verify.json"
 
       - name: Write release summary
         if: steps.selection.outputs.selected == 'true'
@@ -315,6 +310,7 @@ jobs:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
       CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
@@ -326,6 +322,19 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install cosign
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-release-tools
+          cosign_version="2.5.3"
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${cosign_version}/cosign-linux-amd64" \
+            -o /tmp/vh-release-tools/cosign-linux-amd64
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${cosign_version}/cosign_checksums.txt" \
+            -o /tmp/vh-release-tools/cosign_checksums.txt
+          (cd /tmp/vh-release-tools && grep -E '(^|[[:space:]])cosign-linux-amd64$' cosign_checksums.txt | sha256sum -c -)
+          mv /tmp/vh-release-tools/cosign-linux-amd64 /tmp/vh-release-tools/cosign
+          chmod 0755 /tmp/vh-release-tools/cosign
+
       - name: Resolve digest and update overlay
         run: |
           set -euo pipefail
@@ -335,7 +344,10 @@ jobs:
           if [ -z "${GHCR_USERNAME:-}" ] && [ -n "${CONTAINER_REGISTRY_USERNAME:-}" ]; then
             export GHCR_USERNAME="$CONTAINER_REGISTRY_USERNAME"
           fi
-          node scripts/update-prod-digests.mjs --tag "$GITHUB_REF_NAME"
+          node scripts/update-prod-digests.mjs \
+            --cosign-exe /tmp/vh-release-tools/cosign \
+            --tag "$GITHUB_REF_NAME" \
+            --evidence-file "output/release-pin-digests/${GITHUB_REF_NAME}.json"
 
       - name: Commit digest bump
         run: |
@@ -349,3 +361,11 @@ jobs:
           git add infra/kubernetes/apps/kustomization.yaml
           git commit -m "chore(prod): pin ${GITHUB_REF_NAME} image digest"
           git push origin HEAD:main
+
+      - name: Upload digest verification evidence
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: release-pin-digests-${{ github.ref_name }}
+          path: output/release-pin-digests
+          if-no-files-found: ignore

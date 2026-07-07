@@ -15,12 +15,19 @@ function check(name, predicate) {
 
 const backendApp = read('apps/backend/src/app.js');
 const backendAllowlist = read('apps/backend/src/middleware/ipAllowlistMiddleware.js');
+const backendDockerfile = read('apps/backend/Dockerfile');
 const adminMiddleware = read('apps/admin/src/middleware.ts');
 const adminDockerfile = read('apps/admin/Dockerfile');
+const staffWebDockerfile = read('apps/staff/Dockerfile.web');
 const mcpIndex = read('infra/mcp/vh-mcp-postgres/index.js');
 const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
 const forgejoReleaseImages = read('.forgejo/workflows/release-images.yml');
 const forgejoDalekDeploy = read('.forgejo/workflows/deploy-dalekdefender.yml');
+const forgejoContainerSupplyChain = read('.forgejo/workflows/container-supply-chain.yml');
+const githubReleaseImages = read('.github/workflows/release-images.yml');
+const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
+
+const sha256Digest = '@sha256:[a-f0-9]{64}';
 
 check('backend HTTPS redirect does not reflect req.headers.host', () =>
   !/https:\/\/\$\{req\.headers\.host\}/.test(backendApp) &&
@@ -42,6 +49,18 @@ check('admin middleware fails closed when production allowlist is empty', () =>
 check('admin Dockerfile does not persist SENTRY_AUTH_TOKEN as ARG/ENV', () =>
   !/^ARG SENTRY_AUTH_TOKEN$/m.test(adminDockerfile) &&
   !/^ENV SENTRY_AUTH_TOKEN=/m.test(adminDockerfile));
+
+check('release Dockerfiles use digest-pinned base image defaults', () =>
+  new RegExp(`^ARG NODE_IMAGE=node:22-alpine${sha256Digest}$`, 'm').test(backendDockerfile) &&
+  new RegExp(`^ARG NODE_IMAGE=node:22-alpine${sha256Digest}$`, 'm').test(adminDockerfile) &&
+  new RegExp(`^ARG FLUTTER_IMAGE=ghcr\\.io/cirruslabs/flutter:3\\.41\\.7${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
+  !/^FROM (node|nginx|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
+
+check('release workflows keep backend base image overrides digest-pinned', () => {
+  const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
+  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(combined);
+});
 
 check('MCP bridge rejects query-string tokens', () =>
   !mcpIndex.includes('req.query.token') &&

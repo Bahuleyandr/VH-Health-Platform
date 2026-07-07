@@ -284,6 +284,22 @@ export function emitBloodBankEvent(kind, { tenantId } = {}) {
   }
 }
 
+/** Cold-chain board change (readings, excursions, acknowledgement, corrective action, silent sensor). */
+export function emitColdChainEvent(kind, { tenantId, unitId = null, excursionId = null, status = null, severity = null } = {}) {
+  try {
+    broadcast('staff:cold-chain', {
+      kind,
+      unitId,
+      excursionId,
+      status,
+      severity,
+      at: new Date().toISOString(),
+    }, { tenantId });
+  } catch (err) {
+    logger.warn('emitColdChainEvent failed:', err.message);
+  }
+}
+
 /** Radiology-board change (order lifecycle, acquisition, report submission, sign-off, addendum). */
 export function emitRadiologyEvent(kind, { tenantId } = {}) {
   try {

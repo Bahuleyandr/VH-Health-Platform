@@ -29151,6 +29151,322 @@
         ]
       }
     },
+    "/api/v1/admin/clinical-ai/biomed-cmms/board": {
+      "get": {
+        "operationId": "get_api_v1_admin_clinical_ai_biomed_cmms_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/calibration-certificates": {
+      "get": {
+        "operationId": "get_api_v1_admin_clinical_ai_biomed_cmms_calibration_certificates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_calibration_certificates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/schedules": {
+      "get": {
+        "operationId": "get_api_v1_admin_clinical_ai_biomed_cmms_schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders": {
+      "get": {
+        "operationId": "get_api_v1_admin_clinical_ai_biomed_cmms_work_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/device-fault": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_device_fault",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/escalate-breaches": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_escalate_breaches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/from-prediction/{id}": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_from_prediction_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/materialize-due": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_materialize_due",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/my": {
+      "get": {
+        "operationId": "get_api_v1_admin_clinical_ai_biomed_cmms_work_orders_my",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/{id}/assign": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_by_id_assign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/{id}/complete": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_by_id_complete",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/{id}/start": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_by_id_start",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/clinical-ai/biomed-cmms/work-orders/{id}/verify": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_biomed_cmms_work_orders_by_id_verify",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/clinical-ai/biomed-devices": {
       "get": {
         "operationId": "get_api_v1_admin_clinical_ai_biomed_devices",
@@ -50143,6 +50459,322 @@
         }
       }
     },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/board": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_clinical_biomed_cmms_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/calibration-certificates": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_clinical_biomed_cmms_calibration_certificates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_calibration_certificates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/schedules": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_clinical_biomed_cmms_schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_clinical_biomed_cmms_work_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/device-fault": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_device_fault",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/escalate-breaches": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_escalate_breaches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/from-prediction/{id}": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_from_prediction_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/materialize-due": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_materialize_due",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/my": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_my",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/{id}/assign": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_by_id_assign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/{id}/complete": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_by_id_complete",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/{id}/start": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_by_id_start",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/clinical/biomed-cmms/work-orders/{id}/verify": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_clinical_biomed_cmms_work_orders_by_id_verify",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/clinical-ai/clinical/discharge-compose": {
       "get": {
         "operationId": "get_api_v1_clinical_ai_clinical_discharge_compose",
@@ -51116,6 +51748,322 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ClinicalAiReviewDecisionResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/board": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_control_biomed_cmms_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/calibration-certificates": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_control_biomed_cmms_calibration_certificates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_calibration_certificates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/schedules": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_control_biomed_cmms_schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_control_biomed_cmms_work_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/device-fault": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_device_fault",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/escalate-breaches": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_escalate_breaches",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/from-prediction/{id}": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_from_prediction_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/materialize-due": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_materialize_due",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/my": {
+      "get": {
+        "operationId": "get_api_v1_clinical_ai_control_biomed_cmms_work_orders_my",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/{id}/assign": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_by_id_assign",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/{id}/complete": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_by_id_complete",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/{id}/start": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_by_id_start",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clinical-ai/control/biomed-cmms/work-orders/{id}/verify": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_biomed_cmms_work_orders_by_id_verify",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
                 }
               }
             }
@@ -58493,6 +59441,197 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/cold-chain/dashboard": {
+      "get": {
+        "operationId": "get_api_v1_cold_chain_dashboard",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cold-chain/excursions/{id}/acknowledge": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_excursions_by_id_acknowledge",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/excursions/{id}/corrective-action": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_excursions_by_id_corrective_action",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/ingest": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_ingest",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cold-chain/units": {
+      "get": {
+        "operationId": "get_api_v1_cold_chain_units",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_cold_chain_units",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cold-chain/units/{id}": {
+      "patch": {
+        "operationId": "patch_api_v1_cold_chain_units_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/units/{id}/register": {
+      "get": {
+        "operationId": "get_api_v1_cold_chain_units_by_id_register",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/watchdog/run": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_watchdog_run",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/compliance/audit/search": {
@@ -69552,6 +70691,23 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/ingest/cold-chain": {
+      "post": {
+        "operationId": "post_api_v1_ingest_cold_chain",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/insurance/claims": {

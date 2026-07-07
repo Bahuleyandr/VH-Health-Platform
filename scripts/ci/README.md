@@ -22,8 +22,9 @@ Stages:
 - `fhir`: FHIR R4 sample validation, with golden samples treated as strict.
 - `admin`: admin audit/lint/type-check/test/build/Clinical AI bundle check.
 - `flutter`: workspace `dart pub get`, Melos bootstrap, format, analyze, test.
-- `infra`: Kubernetes manifest validation + prod image-digest pin guard
-  (`scripts/check-prod-digests-pinned.mjs`, fails on `main` if any
+- `infra`: Kubernetes manifest validation + Kyverno Enforce readiness contract
+  + prod image-digest pin guard (`scripts/check-kyverno-enforce-readiness.mjs`,
+  `scripts/check-prod-digests-pinned.mjs`, fails on `main` if any
   `infra/kubernetes/apps/kustomization.yaml` digest is the all-zeros
   placeholder; no-op off-main).
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
@@ -61,10 +62,11 @@ Forgejo CD surfaces:
   secrets are configured.
 - `release-patient.yml` / `release-staff.yml`: build signed APK/AAB artifacts
   for `patient-v*` and `staff-v*` tags, then publish them to Forgejo releases.
-- `release-images.yml`: build, push, SBOM, Trivy-scan, cosign-sign, and
-  GitOps-pin backend/admin/staff-web release images for `backend-v*`,
+- `release-images.yml`: build, push, SBOM, Trivy-scan, cosign-sign, verify,
+  and GitOps-pin backend/admin/staff-web release images for `backend-v*`,
   `admin-v*`, and `staff-web-v*` tags.
-- `release-pin-digests.yml`: manual digest-pin repair path for operators.
+- `release-pin-digests.yml`: manual verified digest-pin repair path for
+  operators.
 - `deploy-dalekdefender.yml`: build, scan, sign, verify, and deploy backend/admin
   images to the Dalekdefender test rig by digest.
 
