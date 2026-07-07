@@ -37740,6 +37740,127 @@
         ]
       }
     },
+    "/api/v1/admin/identity/sso/saml/providers": {
+      "get": {
+        "operationId": "get_api_v1_admin_identity_sso_saml_providers",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/identity/sso/saml/providers/{provider}": {
+      "get": {
+        "operationId": "get_api_v1_admin_identity_sso_saml_providers_by_provider",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_identity_sso_saml_providers_by_provider",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/identity/sso/saml/providers/{provider}/mappings": {
+      "get": {
+        "operationId": "get_api_v1_admin_identity_sso_saml_providers_by_provider_mappings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_identity_sso_saml_providers_by_provider_mappings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/integrations": {
       "get": {
         "operationId": "get_api_v1_admin_integrations",
@@ -46058,6 +46179,94 @@
         ]
       }
     },
+    "/api/v1/auth/admin/sso/saml/complete": {
+      "post": {
+        "operationId": "post_api_v1_auth_admin_sso_saml_complete",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/admin/sso/saml/providers": {
+      "get": {
+        "operationId": "get_api_v1_auth_admin_sso_saml_providers",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/admin/sso/saml/{provider}/acs": {
+      "post": {
+        "operationId": "post_api_v1_auth_admin_sso_saml_by_provider_acs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/admin/sso/saml/{provider}/start": {
+      "get": {
+        "operationId": "get_api_v1_auth_admin_sso_saml_by_provider_start",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/auth/admin/update-permissions": {
       "put": {
         "operationId": "put_api_v1_auth_admin_update_permissions",
@@ -46801,6 +47010,77 @@
     "/api/v1/auth/staff/sso/oidc/{provider}/start": {
       "get": {
         "operationId": "get_api_v1_auth_staff_sso_oidc_by_provider_start",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/staff/sso/saml/providers": {
+      "get": {
+        "operationId": "get_api_v1_auth_staff_sso_saml_providers",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/staff/sso/saml/{provider}/acs": {
+      "post": {
+        "operationId": "post_api_v1_auth_staff_sso_saml_by_provider_acs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/staff/sso/saml/{provider}/start": {
+      "get": {
+        "operationId": "get_api_v1_auth_staff_sso_saml_by_provider_start",
         "responses": {
           "200": {
             "description": "Successful response",

@@ -23,12 +23,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
-import { KeyRound } from "lucide-react";
+import { FileKey2, KeyRound } from "lucide-react";
 import styles from "./Login.module.css";
 
 type SsoProvider = {
   provider_key: string;
   display_name: string;
+  protocol: "oidc" | "saml";
 };
 
 function LoginInner() {
@@ -101,26 +102,28 @@ function LoginInner() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/login/sso/oidc/providers", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return [];
-        const body = await response.json();
-        const providers = body?.data?.providers ?? body?.providers ?? [];
-        return Array.isArray(providers) ? providers : [];
-      })
-      .then((providers: unknown[]) => {
+    const loadProviders = async (protocol: SsoProvider["protocol"]) => {
+      const response = await fetch(`/api/login/sso/${protocol}/providers`, { cache: "no-store" });
+      if (!response.ok) return [];
+      const body = await response.json();
+      const providers = body?.data?.providers ?? body?.providers ?? [];
+      if (!Array.isArray(providers)) return [];
+      return providers
+        .map((provider: unknown) => {
+          const item = provider as Partial<SsoProvider>;
+          return {
+            provider_key: String(item.provider_key || "").trim(),
+            display_name: String(item.display_name || item.provider_key || "").trim(),
+            protocol,
+          };
+        })
+        .filter((provider) => provider.provider_key && provider.display_name);
+    };
+
+    Promise.all([loadProviders("oidc"), loadProviders("saml")])
+      .then(([oidcProviders, samlProviders]) => {
         if (!active) return;
-        setSsoProviders(
-          providers
-            .map((provider) => {
-              const item = provider as Partial<SsoProvider>;
-              return {
-                provider_key: String(item.provider_key || "").trim(),
-                display_name: String(item.display_name || item.provider_key || "").trim(),
-              };
-            })
-            .filter((provider) => provider.provider_key && provider.display_name),
-        );
+        setSsoProviders([...oidcProviders, ...samlProviders]);
       })
       .catch(() => {
         if (active) setSsoProviders([]);
@@ -364,10 +367,14 @@ function LoginInner() {
                 onClick={() => {
                   setError("");
                   window.location.href =
-                    `/api/login/sso/oidc/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
+                    `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
                 }}
               >
-                <KeyRound className={styles.ssoIcon} aria-hidden="true" />
+                {provider.protocol === "saml" ? (
+                  <FileKey2 className={styles.ssoIcon} aria-hidden="true" />
+                ) : (
+                  <KeyRound className={styles.ssoIcon} aria-hidden="true" />
+                )}
                 <span>Sign in with {provider.display_name}</span>
               </button>
             ))}

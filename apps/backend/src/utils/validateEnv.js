@@ -196,9 +196,9 @@ export const envSchema = Joi.object({
     .default('true')
     .label('REQUIRE_MFA_FOR_SUPER_ADMIN'),
 
-  // NL-1 P1 OIDC SSO operational bounds. IdP issuer/client/secret config stays
+  // NL-1 SSO operational bounds. IdP issuer/client/secret/SAML cert config stays
   // tenant-scoped in tenant_identity_providers; these are only global safety
-  // limits for outbound OIDC calls and assertion timestamp tolerance.
+  // limits for outbound metadata calls and assertion validation.
   SSO_OIDC_HTTP_TIMEOUT_MS: Joi.number()
     .integer()
     .min(1000)
@@ -217,6 +217,12 @@ export const envSchema = Joi.object({
     .max(600)
     .default(60)
     .label('SSO_ASSERTION_CLOCK_SKEW_SECONDS'),
+  SSO_SAML_MAX_ASSERTION_BYTES: Joi.number()
+    .integer()
+    .min(4096)
+    .max(2 * 1024 * 1024)
+    .default(256 * 1024)
+    .label('SSO_SAML_MAX_ASSERTION_BYTES'),
   SSO_DEBUG_ASSERTION_LOGGING: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string().valid('false', '').optional()

@@ -14,6 +14,13 @@ import {
   replaceStaffOidcRoleMappings,
   upsertStaffOidcProvider,
 } from '../../services/auth/staffOidcSsoService.js';
+import {
+  getSamlProviderConfig,
+  listSamlProviders,
+  listSamlRoleMappings,
+  replaceSamlRoleMappings,
+  upsertSamlProvider,
+} from '../../services/auth/samlSsoConfigService.js';
 import { configureProviderScimCredentials } from '../../services/auth/scimCredentialService.js';
 import { AppError } from '../../utils/AppError.js';
 import { success } from '../../utils/responseHelper.js';
@@ -172,6 +179,86 @@ router.put('/sso/oidc/providers/:provider/mappings', async (req, res, next) => {
         mappings: req.body?.mappings || [],
       });
     return success(res, { mappings, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} OIDC role mappings saved`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/sso/saml/providers', async (req, res, next) => {
+  try {
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const providers = await listSamlProviders({
+      tenantId: scope.tenantId,
+      realm,
+      platform: scope.platform,
+      status: req.query.status || null,
+    });
+    return success(res, { providers, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} SAML providers retrieved`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/sso/saml/providers/:provider', async (req, res, next) => {
+  try {
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const provider = await upsertSamlProvider({
+      ...scope,
+      realm,
+      providerKey: req.params.provider,
+      actorUid: req.user?.uid || null,
+      input: req.body || {},
+    });
+    return success(res, { provider, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} SAML provider saved`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/sso/saml/providers/:provider', async (req, res, next) => {
+  try {
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const provider = await getSamlProviderConfig({
+      ...scope,
+      realm,
+      providerKey: req.params.provider,
+    });
+    return success(res, { provider, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} SAML provider retrieved`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/sso/saml/providers/:provider/mappings', async (req, res, next) => {
+  try {
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const mappings = await listSamlRoleMappings({
+      ...scope,
+      realm,
+      providerKey: req.params.provider,
+    });
+    return success(res, { mappings, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} SAML role mappings retrieved`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/sso/saml/providers/:provider/mappings', async (req, res, next) => {
+  try {
+    const realm = realmFromRequest(req);
+    const scope = scopeFromRequest(req, realm);
+    const mappings = await replaceSamlRoleMappings({
+      ...scope,
+      realm,
+      providerKey: req.params.provider,
+      actorUid: req.user?.uid || null,
+      mappings: req.body?.mappings || [],
+    });
+    return success(res, { mappings, scope }, `${realm === 'staff' ? 'Staff' : 'Admin'} SAML role mappings saved`);
   } catch (err) {
     return next(err);
   }
