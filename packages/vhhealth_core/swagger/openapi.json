@@ -74544,9 +74544,90 @@
         }
       }
     },
+    "/api/v1/ophthalmology/exams/{id}/biometry": {
+      "post": {
+        "operationId": "post_api_v1_ophthalmology_exams_by_id_biometry",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/ophthalmology/exams/{id}/imaging-attachments": {
+      "post": {
+        "operationId": "post_api_v1_ophthalmology_exams_by_id_imaging_attachments",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/ophthalmology/exams/{id}/refractions": {
       "post": {
         "operationId": "post_api_v1_ophthalmology_exams_by_id_refractions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/ophthalmology/exams/{id}/spectacles-rx.pdf": {
+      "get": {
+        "operationId": "get_api_v1_ophthalmology_exams_by_id_spectacles_rx_pdf",
         "responses": {
           "200": {
             "description": "Successful response",
