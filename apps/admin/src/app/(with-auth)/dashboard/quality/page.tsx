@@ -26,13 +26,52 @@ type QualityDashboard = {
   active_outbreaks?: number;
 };
 
-type InfectionCase = {
-  id: number;
-  description: string;
-  pathogen?: string;
-  ward?: string;
+type IsolationBoardRow = {
+  source?: string;
+  source_kind?: string;
+  infection_case_id?: number | string | null;
+  isolation_order_id?: number | string | null;
+  patient_uid: string;
+  patient_name?: string;
+  organism?: string | null;
+  infection_site?: string | null;
+  isolation_type?: string | null;
+  ward?: string | null;
+  bed_number?: string | null;
+  case_status?: string | null;
+  order_status?: string | null;
+  checklist_status?: {
+    total?: number;
+    complete?: number;
+    pending?: number;
+  } | null;
+};
+
+type OutbreakEpisode = {
+  id: number | string;
+  episode_code: string;
+  organism: string;
+  ward?: string | null;
   status: string;
-  reported_at: string;
+  case_count?: number;
+  suspected_at: string;
+};
+
+type HaiRate = {
+  hai_type: string;
+  device_type?: string | null;
+  numerator: number;
+  device_days: number;
+  rate_per_1000_device_days: number | null;
+};
+
+type HandHygieneAudit = {
+  id: number;
+  audit_date: string;
+  ward?: string | null;
+  total_moments: number;
+  compliant_moments: number;
+  compliance_pct: number;
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -460,29 +499,61 @@ function IncidentsTab() {
 }
 
 function InfectionControlTab() {
-  const [cases, setCases] = useState<InfectionCase[]>([]);
-  const [outbreaks, setOutbreaks] = useState<unknown[]>([]);
+  const [isolationRows, setIsolationRows] = useState<IsolationBoardRow[]>([]);
+  const [outbreaks, setOutbreaks] = useState<OutbreakEpisode[]>([]);
+  const [haiRates, setHaiRates] = useState<HaiRate[]>([]);
+  const [handHygiene, setHandHygiene] = useState<HandHygieneAudit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reporting, setReporting] = useState(false);
-  const [form, setForm] = useState({ description: "", pathogen: "", ward: "" });
+  const [ordering, setOrdering] = useState(false);
+  const [form, setForm] = useState({
+    patient_uid: "",
+    admission_id: "",
+    infection_case_id: "",
+    precaution_type: "contact",
+    reason: "",
+  });
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [casesR, outbreaksR] = await Promise.all([
-        fetchAdminAPI<unknown>("/quality/infection-control/surveillance"),
-        fetchAdminAPI<unknown>("/quality/infection-control/outbreaks"),
+      const to = new Date().toISOString().slice(0, 10);
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 30);
+      const from = fromDate.toISOString().slice(0, 10);
+      const [boardR, outbreaksR, haiR, handR] = await Promise.all([
+        fetchAdminAPI<unknown>("/infection-control/isolation-board"),
+        fetchAdminAPI<unknown>("/infection-control/outbreaks?status=all"),
+        fetchAdminAPI<unknown>(`/infection-control/hai-rates?from=${from}&to=${to}`),
+        fetchAdminAPI<unknown>(`/infection-control/hand-hygiene-audits?from=${from}&to=${to}`),
       ]);
-      const casesData = ((casesR as Record<string, unknown>).data ??
-        casesR) as unknown;
+      const boardData = ((boardR as Record<string, unknown>).data ??
+        boardR) as Record<string, unknown>;
       const outbreaksData = ((outbreaksR as Record<string, unknown>).data ??
-        outbreaksR) as unknown;
-      setCases(Array.isArray(casesData) ? (casesData as InfectionCase[]) : []);
+        outbreaksR) as Record<string, unknown>;
+      const haiData = ((haiR as Record<string, unknown>).data ??
+        haiR) as Record<string, unknown>;
+      const handData = ((handR as Record<string, unknown>).data ??
+        handR) as Record<string, unknown>;
+      setIsolationRows(
+        Array.isArray(boardData.cases)
+          ? (boardData.cases as IsolationBoardRow[])
+          : [],
+      );
       setOutbreaks(
-        Array.isArray(outbreaksData) ? (outbreaksData as unknown[]) : [],
+        Array.isArray(outbreaksData.outbreaks)
+          ? (outbreaksData.outbreaks as OutbreakEpisode[])
+          : [],
+      );
+      setHaiRates(
+        Array.isArray(haiData.rates) ? (haiData.rates as HaiRate[]) : [],
+      );
+      setHandHygiene(
+        Array.isArray(handData.audits)
+          ? (handData.audits as HandHygieneAudit[])
+          : [],
       );
     } catch (e) {
       setError(
@@ -497,19 +568,45 @@ function InfectionControlTab() {
     load();
   }, [load]);
 
-  const reportCase = async () => {
-    if (!form.description) {
-      alert("Description is required");
+  const createOrder = async () => {
+    if (!form.patient_uid) {
+      alert("Patient UID is required");
       return;
     }
     setSaving(true);
     try {
-      await postJSON("/api/v1/quality/infection-control/cases", form);
-      setReporting(false);
-      setForm({ description: "", pathogen: "", ward: "" });
+      await postJSON("/api/v1/infection-control/isolation-orders", {
+        patient_uid: form.patient_uid,
+        admission_id: form.admission_id ? Number(form.admission_id) : undefined,
+        infection_case_id: form.infection_case_id
+          ? Number(form.infection_case_id)
+          : undefined,
+        precaution_type: form.precaution_type,
+        reason: form.reason || undefined,
+      });
+      setOrdering(false);
+      setForm({
+        patient_uid: "",
+        admission_id: "",
+        infection_case_id: "",
+        precaution_type: "contact",
+        reason: "",
+      });
       load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to report case");
+      alert(e instanceof Error ? e.message : "Failed to create order");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const requestTerminalClean = async (id: number | string) => {
+    setSaving(true);
+    try {
+      await postJSON(`/api/v1/infection-control/isolation-orders/${id}/terminal-clean`, {});
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to request terminal clean");
     } finally {
       setSaving(false);
     }
@@ -527,17 +624,17 @@ function InfectionControlTab() {
             ↻ Refresh
           </button>
           <button
-            onClick={() => setReporting(true)}
+            onClick={() => setOrdering(true)}
             className="px-3 py-1 bg-primary text-white text-sm rounded-lg"
           >
-            + Report Case
+            + Isolation Order
           </button>
         </div>
       </div>
-      {outbreaks.length > 0 && (
+      {outbreaks.some((o) => o.status !== "closed") && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm font-medium">
-          ⚠️ {outbreaks.length} active outbreak{outbreaks.length > 1 ? "s" : ""}{" "}
-          — immediate attention required
+          {outbreaks.filter((o) => o.status !== "closed").length} active outbreak
+          {outbreaks.filter((o) => o.status !== "closed").length > 1 ? "s" : ""} require review
         </div>
       )}
       {loading && (
@@ -548,92 +645,196 @@ function InfectionControlTab() {
           {error}
         </div>
       )}
-      {!loading && cases.length === 0 && !error && (
-        <div className="text-center py-12 text-muted-foreground">
-          No infection cases on record
+      {!loading && !error && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="Isolation Flags" value={isolationRows.length} />
+          <StatCard
+            label="Open Outbreaks"
+            value={outbreaks.filter((o) => o.status !== "closed").length}
+            color={
+              outbreaks.some((o) => o.status !== "closed")
+                ? "text-red-600"
+                : "text-green-700"
+            }
+            bg={
+              outbreaks.some((o) => o.status !== "closed")
+                ? "bg-red-50"
+                : "bg-green-50"
+            }
+          />
+          <StatCard
+            label="HAI Numerator"
+            value={haiRates.reduce((sum, row) => sum + Number(row.numerator), 0)}
+          />
+          <StatCard
+            label="Hand Hygiene"
+            value={
+              handHygiene.length
+                ? `${Math.round(
+                    handHygiene.reduce(
+                      (sum, row) => sum + Number(row.compliance_pct || 0),
+                      0,
+                    ) / handHygiene.length,
+                  )}%`
+                : "—"
+            }
+          />
         </div>
       )}
-      {cases.length > 0 && (
+      {isolationRows.length > 0 && (
         <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left bg-muted/50">
-                <th className="py-2 px-3">ID</th>
-                <th className="py-2 px-3">Description</th>
-                <th className="py-2 px-3">Pathogen</th>
+                <th className="py-2 px-3">Patient</th>
+                <th className="py-2 px-3">Precaution</th>
                 <th className="py-2 px-3">Ward</th>
+                <th className="py-2 px-3">Source</th>
                 <th className="py-2 px-3">Status</th>
-                <th className="py-2 px-3">Reported</th>
+                <th className="py-2 px-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
-              {cases.map((c) => (
+              {isolationRows.map((row, index) => (
                 <tr
-                  key={c.id}
+                  key={`${row.source ?? row.source_kind}-${row.isolation_order_id ?? row.infection_case_id ?? index}`}
                   className="border-b border-border hover:bg-muted/40"
                 >
-                  <td className="py-2 px-3 font-mono text-xs">{c.id}</td>
-                  <td className="py-2 px-3 max-w-xs truncate">
-                    {c.description}
-                  </td>
-                  <td className="py-2 px-3">{c.pathogen ?? "—"}</td>
-                  <td className="py-2 px-3">{c.ward ?? "—"}</td>
                   <td className="py-2 px-3">
-                    <StatusBadge status={c.status} />
+                    <div className="font-medium">{row.patient_name ?? "Patient"}</div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {row.patient_uid}
+                    </div>
                   </td>
-                  <td className="py-2 px-3">{fmtDate(c.reported_at)}</td>
+                  <td className="py-2 px-3">{row.isolation_type ?? "—"}</td>
+                  <td className="py-2 px-3">
+                    {[row.ward, row.bed_number].filter(Boolean).join(" / ") ||
+                      "—"}
+                  </td>
+                  <td className="py-2 px-3">{row.source ?? row.source_kind}</td>
+                  <td className="py-2 px-3">
+                    <StatusBadge
+                      status={row.order_status ?? row.case_status ?? "active"}
+                    />
+                  </td>
+                  <td className="py-2 px-3 text-right">
+                    {row.isolation_order_id ? (
+                      <button
+                        onClick={() => requestTerminalClean(row.isolation_order_id as number | string)}
+                        disabled={saving}
+                        className="px-2 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-50"
+                      >
+                        Clean
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {reporting && (
+      {haiRates.length > 0 && (
+        <div className="overflow-x-auto border border-border rounded-lg">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left bg-muted/50">
+                <th className="py-2 px-3">Indicator</th>
+                <th className="py-2 px-3">Device</th>
+                <th className="py-2 px-3">Cases</th>
+                <th className="py-2 px-3">Denominator</th>
+                <th className="py-2 px-3">Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {haiRates.map((row) => (
+                <tr key={row.hai_type} className="border-b border-border">
+                  <td className="py-2 px-3 font-medium">{row.hai_type}</td>
+                  <td className="py-2 px-3">{row.device_type ?? "—"}</td>
+                  <td className="py-2 px-3">{row.numerator}</td>
+                  <td className="py-2 px-3">{row.device_days}</td>
+                  <td className="py-2 px-3">
+                    {row.rate_per_1000_device_days == null
+                      ? "—"
+                      : Number(row.rate_per_1000_device_days).toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {ordering && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-card rounded-xl max-w-md w-full p-6 space-y-3">
             <div className="flex justify-between">
-              <h3 className="font-bold">Report Infection Case</h3>
+              <h3 className="font-bold">Isolation Order</h3>
               <button
-                onClick={() => setReporting(false)}
+                onClick={() => setOrdering(false)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 ✕
               </button>
             </div>
-            <textarea
-              rows={3}
-              placeholder="Description *"
-              value={form.description}
+            <input
+              placeholder="Patient UID *"
+              value={form.patient_uid}
               onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
+                setForm({ ...form, patient_uid: e.target.value })
               }
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            />
+            <input
+              placeholder="Admission ID"
+              value={form.admission_id}
+              onChange={(e) =>
+                setForm({ ...form, admission_id: e.target.value })
+              }
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            />
+            <input
+              placeholder="Infection case ID"
+              value={form.infection_case_id}
+              onChange={(e) =>
+                setForm({ ...form, infection_case_id: e.target.value })
+              }
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            />
+            <select
+              value={form.precaution_type}
+              onChange={(e) =>
+                setForm({ ...form, precaution_type: e.target.value })
+              }
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            >
+              {["standard", "contact", "droplet", "airborne", "protective", "enteric"].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <textarea
+              rows={2}
+              placeholder="Reason"
+              value={form.reason}
+              onChange={(e) => setForm({ ...form, reason: e.target.value })}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
-            />
-            <input
-              placeholder="Pathogen (optional)"
-              value={form.pathogen}
-              onChange={(e) => setForm({ ...form, pathogen: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-            />
-            <input
-              placeholder="Ward (optional)"
-              value={form.ward}
-              onChange={(e) => setForm({ ...form, ward: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
             />
             <div className="flex gap-2">
               <button
-                onClick={() => setReporting(false)}
+                onClick={() => setOrdering(false)}
                 className="flex-1 py-2 border rounded-lg text-sm"
               >
                 Cancel
               </button>
               <button
-                onClick={reportCase}
+                onClick={createOrder}
                 disabled={saving}
                 className="flex-1 py-2 bg-primary text-white rounded-lg text-sm disabled:opacity-50"
               >
-                {saving ? "Reporting..." : "Report"}
+                {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </div>
