@@ -158,7 +158,12 @@ function runSemgrepFocused() {
   ];
 
   // WS3 B3.4: errors propagate — any semgrep finding fails the stage.
-  run(semgrepBin, args);
+  run(semgrepBin, args, {
+    env: {
+      PYTHONUTF8: '1',
+      PYTHONIOENCODING: 'utf-8',
+    },
+  });
   console.log('Semgrep focused scan complete. Results: output/security/semgrep-focused.sarif');
   return true;
 }
@@ -169,6 +174,7 @@ export async function runSecurityStage() {
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'range'], { env: gitleaksEnv });
+  run(process.execPath, ['scripts/security/check-infra-security-controls.mjs']);
 
   // WS3 B3.4 (2026-06-13): SAST scan with focused VH Health ruleset.
   // Now BLOCKING — any semgrep finding throws and fails this stage.

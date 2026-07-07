@@ -111,6 +111,7 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.images.outputs.backend }}:dalek-${{ github.sha }}
           build-args: |
+            NODE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
             GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=dalek-backend
           cache-to: type=gha,scope=dalek-backend,mode=max

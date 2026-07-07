@@ -69,7 +69,7 @@ is silently bypassed. Full detail: PHASE0 §1 (readonly) + §8 (runtime role).
 (pods can't pull them). Resolve real digests before the first `apps` sync.
 
 - [ ] **C1.** Build + sign + push the first images (GH Actions `release-images.yml`, or tag `backend-v…`/`admin-v…`/`staff-web-v…`). (date / initials): ______
-- [ ] **C2.** `GHCR_TOKEN=<read:packages> node scripts/update-prod-digests.mjs --tag backend-v<v> --tag admin-v<v> --tag staff-web-v<v>` → commit "chore(prod): bootstrap H11 digest pins" → push. *(PHASE0 §5)* (date / initials): ______
+- [ ] **C2.** `GHCR_TOKEN=<read:packages> COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs --tag backend-v<v> --tag admin-v<v> --tag staff-web-v<v>` → verify signatures, commit "chore(prod): bootstrap H11 digest pins" → push. *(PHASE0 §5)* (date / initials): ______
 - [ ] **C3.** Future releases auto-update the pin block via `release-images.yml`; `release-pin-digests.yml` is the manual repair path. (noted)
 
 ---
