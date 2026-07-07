@@ -123,7 +123,14 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 408–410 | NL-5 P2 + indigenous-KB substrate | launched 2026-07-07 (round 4) |
 | 411–412 | N6-10 infusion chairs | launched 2026-07-07 (round 4) |
 | 413–414 | N6-12 mortuary | launched 2026-07-07 (round 4) |
-| 415+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 415–417 | N6-7 ophthalmology | launched 2026-07-07 (round 5) |
+| 418–420 | N6-9 dialysis completion | launched 2026-07-07 (round 5) |
+| 421–423 | N6-13 CSSD | launched 2026-07-07 (round 5) |
+| 424–426 | NL11-S1 migration toolkit P1 | launched 2026-07-07 (Wave C/D round 1) |
+| 427–428 | NL11-S2 developer portal P1 | launched 2026-07-07 (Wave C/D round 1) |
+| 429–431 | NL8-P1 kiosk self-check-in | launched 2026-07-07 (Wave C/D round 1) |
+| — | NL12-S4 SLSA + NL12-S5 Kyverno gate | launched 2026-07-07 — ZERO-MIGRATION slices (no block; any migration need = STOP and ask coordinator) |
+| 432+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -153,6 +160,8 @@ subjects · in-cluster gateway (no dedicated edge node) · alarm defaults 10/30-
 2-of-3 artifact filter, 5-min charting interval, governance-committee ownership · CMMS
 auto-creates work orders from device faults (with open-WO dedupe) · RTLS = contract only until
 a vendor pilot is scheduled.
+
+**LOCKED (Wave C/D, 2026-07-07 — owner: "best, most robust, future-proof"):** every spec recommendation adopted. NL-8: token-only displays; kiosk = QR+OTP primary with per-department supervised-tablet toggle; displays behind existing ingress; stale forecasts hidden. NL-9: patient_consents = single consent source (narrow new types); dedicated NPS table; admin/quality vs care-team approval split; Twilio stays; **RPM pilot cohort = HYPERTENSION** (BP-kit; post-discharge fast-follow). NL-10: Metabase first; BI never reads OLTP; vh_metabase no-BYPASSRLS marts-only; phase-1 internal-only; no native SQL; patient_uid hidden; digest in-app/push; benchmarks internal + cell thresholds. NL-11: phased-hybrid white-label; minimal internal LMS; SMART default-deny w/ super-admin production gating; **interface engine = PEER to NL-7 in v1** (mini-design gate before build); CSV-demographics-first toolkit; entitlements never hard-block urgent care. NL-12: inert evidence-building only; every external ceremony stays operator-gated (ADR-003 posture). Build prompts: `nl8-p*`, `nl9-p*`, `nl10-b*`, `nl11-s*`, `nl12-s*` in build-prompts/ (33 files; blocks assigned at launch).
 
 **OPEN — owner action required (none block currently-launched work):**
 1. ~~Drug-KB vendor~~ **RESOLVED 2026-07-07: INDIGENOUS** — no vendor (lock-in refused; roadmap §7 override recorded there). Content = evidence-gated in-house program: versioned `drug_kb_sources` editions, clinical-governance authoring, acceptance-battery release gate, aushadhi dataset as brand/composition seed. Needs its own design spec before content authoring starts (queue a kickoff prompt when capacity frees). NL-5 P2 re-scoped accordingly (vendor transform dropped).

@@ -101,6 +101,7 @@ describe('canonical clinical platform foundation coverage guard', () => {
       'front_office_workbench',
       'appointments',
       'patient_records',
+      'dental_charting',
       'billing_desk',
       'admissions',
       'bed_board',
