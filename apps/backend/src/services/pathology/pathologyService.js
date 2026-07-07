@@ -74,6 +74,13 @@ function normalizeWireValue(value) {
     return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
   }
   if (value instanceof Date || value == null || typeof value !== 'object') return value;
+  // Prisma returns Postgres NUMERIC (e.g. ap_tat_metrics.elapsed_hours) as
+  // Decimal objects; the generic branch below would destructure them into
+  // their {s, e, d} internals and leak that shape to clients.
+  if (typeof value.toNumber === 'function' && typeof value.toFixed === 'function') {
+    const n = value.toNumber();
+    return Number.isFinite(n) ? n : value.toString();
+  }
   if (Array.isArray(value)) return value.map(normalizeWireValue);
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeWireValue(entry)]));
 }
