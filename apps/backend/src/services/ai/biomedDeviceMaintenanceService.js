@@ -443,6 +443,8 @@ function normalizeDeviceRow(row) {
   if (!row) return row;
   return {
     ...row,
+    installed_at: toNullableDate(row.installed_at),
+    warranty_expires_on: toNullableDate(row.warranty_expires_on),
     usage_hours: toNumber(row.usage_hours, 0),
     fault_events_last_90d: toNumber(row.fault_events_last_90d, 0),
     mean_time_between_failures_hours: row.mean_time_between_failures_hours !== null

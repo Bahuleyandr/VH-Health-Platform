@@ -111,8 +111,8 @@ Static review can't prove tenant isolation is live. Run these against prod
 kustomization in **Audit** mode. *(PHASE0 §6)*
 
 - [ ] **F1.** Install Kyverno ≥ 1.12 (command in the policy file header; the ansible bootstrap does **not** install it yet). (date / initials): ______
-- [ ] **F2.** Watch one full sync in Audit mode → confirm **zero unexpected** image-signature violations. (date / initials): ______
-- [ ] **F3.** Flip `validationFailureAction: Audit → Enforce`. ⚠️ Flipping before a clean audit cycle risks a cluster-wide pod-admission outage. (date / initials): ______
+- [ ] **F2.** Run `node scripts/check-kyverno-enforce-readiness.mjs --live --context <prod-context> --since-hours 24 --min-pass-results 3` and attach the clean Audit-mode output plus raw PolicyReport/ClusterPolicyReport evidence. (date / initials): ______
+- [ ] **F3.** Follow [`KYVERNO_ENFORCE_READINESS.md`](KYVERNO_ENFORCE_READINESS.md) for the operator-only `Audit` to `Enforce` flip, server-side dry-run, observation, and rollback window. Flipping before a clean audit cycle risks a cluster-wide pod-admission outage. (date / initials): ______
 
 ---
 

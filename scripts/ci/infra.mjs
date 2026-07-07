@@ -85,6 +85,8 @@ export function runInfraStage({ install } = {}) {
       env: installedTools?.env,
     });
 
+    run(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
+
     // B0.6 / H11: fail the build if any prod image digest is still the
     // all-zeros fail-closed placeholder when running on `main` (the script
     // auto-detects main via GITHUB_REF/GITHUB_EVENT_NAME and is a no-op
