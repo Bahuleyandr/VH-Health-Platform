@@ -9574,6 +9574,11 @@ model tenants {
   discharge_consults                         discharge_consults[]
   discharge_summary_sections                 discharge_summary_sections[]
   doctors                                    doctors[]
+  donation_events                            donation_events[]
+  donor_consents                             donor_consents[]
+  donor_deferrals                            donor_deferrals[]
+  donor_screenings                           donor_screenings[]
+  donors                                     donors[]
   downtime_snapshots                         downtime_snapshots[]
   drug_return_lines                          drug_return_lines[]
   e_prescriptions                            e_prescriptions[]
@@ -15789,4 +15794,174 @@ model privilege_catalog {
   @@unique([tenant_id, privilege_key], map: "uq_privilege_catalog_key")
   @@index([tenant_id, enforcement_scope], map: "idx_privilege_catalog_scope", where: raw("(enforcement_scope IS NOT NULL)"))
   @@index([tenant_id, status, privilege_key], map: "idx_privilege_catalog_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model donation_events {
+  id                            Int               @id @default(autoincrement())
+  tenant_id                     String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_id                      Int
+  screening_id                  Int?
+  donation_code                 String            @db.VarChar(60)
+  donation_barcode              String            @db.VarChar(80)
+  collection_kind               String            @default("in_house") @db.VarChar(20)
+  camp_name                     String?           @db.VarChar(160)
+  camp_location                 String?
+  pre_vitals                    Json              @default("{}")
+  post_vitals                   Json              @default("{}")
+  volume_ml                     Int
+  status                        String            @default("collected") @db.VarChar(20)
+  collected_at                  DateTime          @default(now()) @db.Timestamptz(6)
+  collected_by                  String?           @db.Uuid
+  barcode_printed_at            DateTime?         @db.Timestamptz(6)
+  barcode_scanned_at            DateTime?         @db.Timestamptz(6)
+  barcode_scan_match            Boolean?
+  adverse_reaction              Boolean           @default(false)
+  adverse_reaction_type         String?           @db.VarChar(60)
+  adverse_reaction_severity     String?           @db.VarChar(20)
+  adverse_reaction_notes        String?
+  adverse_reaction_intervention String?
+  adverse_reaction_outcome      String?
+  created_at                    DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime          @default(now()) @db.Timestamptz(6)
+  metadata                      Json              @default("{}")
+  donors                        donors            @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_donation_events_donor")
+  donor_screenings              donor_screenings? @relation(fields: [screening_id], references: [id], onUpdate: NoAction, map: "fk_donation_events_screening")
+  tenants                       tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donation_events_tenant")
+
+  @@unique([tenant_id, donation_barcode], map: "ux_donation_events_barcode")
+  @@unique([tenant_id, donation_code], map: "ux_donation_events_code")
+  @@index([tenant_id, collection_kind, collected_at(sort: Desc)], map: "idx_donation_events_collection")
+  @@index([tenant_id, donor_id, collected_at(sort: Desc)], map: "idx_donation_events_donor_time")
+  @@index([tenant_id, adverse_reaction, collected_at(sort: Desc)], map: "idx_donation_events_reactions", where: raw("(adverse_reaction = true)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model donor_consents {
+  id                Int      @id @default(autoincrement())
+  tenant_id         String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_id          Int
+  consent_type      String   @default("blood_donation") @db.VarChar(40)
+  consent_version   Int      @default(1)
+  consent_statement String
+  consent_payload   Json     @default("{}")
+  storage_key       String?
+  storage_url       String?
+  mime_type         String?  @db.VarChar(100)
+  file_size         Int?
+  sha256_hash       String   @db.VarChar(64)
+  captured_by       String?  @db.Uuid
+  captured_by_role  String?  @db.VarChar(60)
+  signer_name       String?  @db.VarChar(160)
+  signer_uid        String?  @db.Uuid
+  captured_at       DateTime @default(now()) @db.Timestamptz(6)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  metadata          Json     @default("{}")
+  donors            donors   @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_donor_consents_donor")
+  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donor_consents_tenant")
+
+  @@unique([tenant_id, donor_id, consent_type, consent_version], map: "ux_donor_consents_version")
+  @@index([tenant_id, donor_id, consent_type, consent_version(sort: Desc)], map: "idx_donor_consents_donor_latest")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model donor_deferrals {
+  id                  Int               @id @default(autoincrement())
+  tenant_id           String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_id            Int
+  screening_id        Int?
+  reason_code         String            @db.VarChar(60)
+  reason_text         String
+  deferred_until      DateTime?         @db.Date
+  permanent           Boolean           @default(false)
+  status              String            @default("active") @db.VarChar(20)
+  source              String            @default("auto") @db.VarChar(20)
+  created_by          String?           @db.Uuid
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  reactivated_at      DateTime?         @db.Timestamptz(6)
+  reactivated_by      String?           @db.Uuid
+  reactivation_reason String?
+  metadata            Json              @default("{}")
+  donors              donors            @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_donor_deferrals_donor")
+  donor_screenings    donor_screenings? @relation(fields: [screening_id], references: [id], onUpdate: NoAction, map: "fk_donor_deferrals_screening")
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donor_deferrals_tenant")
+
+  @@index([tenant_id, status, permanent, deferred_until], map: "idx_donor_deferrals_active", where: raw("((status)::text = 'active'::text)"))
+  @@index([tenant_id, donor_id, created_at(sort: Desc)], map: "idx_donor_deferrals_donor_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model donor_screenings {
+  id                   Int               @id @default(autoincrement())
+  tenant_id            String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_id             Int
+  screening_date       DateTime          @default(now()) @db.Timestamptz(6)
+  questionnaire        Json              @default("{}")
+  vitals               Json              @default("{}")
+  weight_kg            Decimal?          @db.Decimal(5, 2)
+  hemoglobin_g_dl      Decimal?          @db.Decimal(4, 1)
+  systolic_bp          Int?
+  diastolic_bp         Int?
+  pulse_per_min        Int?
+  temperature_c        Decimal?          @db.Decimal(4, 1)
+  verdict              String            @db.VarChar(30)
+  verdict_reason       String?
+  deferral_reason_code String?           @db.VarChar(60)
+  deferral_until       DateTime?         @db.Date
+  permanent_deferral   Boolean           @default(false)
+  screened_by          String?           @db.Uuid
+  created_at           DateTime          @default(now()) @db.Timestamptz(6)
+  metadata             Json              @default("{}")
+  donation_events      donation_events[]
+  donor_deferrals      donor_deferrals[]
+  donors               donors            @relation(fields: [donor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_donor_screenings_donor")
+  tenants              tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donor_screenings_tenant")
+
+  @@index([tenant_id, donor_id, screening_date(sort: Desc)], map: "idx_donor_screenings_donor_time")
+  @@index([tenant_id, verdict, screening_date(sort: Desc)], map: "idx_donor_screenings_verdict")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model donors {
+  id                        Int                @id @default(autoincrement())
+  tenant_id                 String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  donor_uid                 String             @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  full_name                 String             @db.VarChar(160)
+  phone                     String?            @db.VarChar(20)
+  email                     String?            @db.VarChar(255)
+  gender                    String?            @db.VarChar(20)
+  date_of_birth             DateTime?          @db.Date
+  age_years                 Int?
+  address                   String?
+  government_id_type        String?            @db.VarChar(40)
+  government_id_ref         String?            @db.VarChar(120)
+  abo_group                 String?            @db.VarChar(2)
+  rh_factor                 String?            @db.VarChar(8)
+  blood_group               String?            @db.VarChar(5)
+  status                    String             @default("registered") @db.VarChar(30)
+  eligibility_status        String             @default("not_screened") @db.VarChar(30)
+  last_screened_at          DateTime?          @db.Timestamptz(6)
+  last_donated_at           DateTime?          @db.Timestamptz(6)
+  duplicate_override_reason String?
+  duplicate_reviewed_by     String?            @db.Uuid
+  registered_by             String?            @db.Uuid
+  registered_at             DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime           @default(now()) @db.Timestamptz(6)
+  metadata                  Json               @default("{}")
+  donation_events           donation_events[]
+  donor_consents            donor_consents[]
+  donor_deferrals           donor_deferrals[]
+  donor_screenings          donor_screenings[]
+  tenants                   tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_donors_tenant")
+
+  @@unique([tenant_id, donor_uid], map: "ux_donors_tenant_uid")
+  @@index([tenant_id, government_id_type, government_id_ref], map: "idx_donors_tenant_government_ref", where: raw("(government_id_ref IS NOT NULL)"))
+  @@index([tenant_id, full_name, date_of_birth], map: "idx_donors_tenant_name_dob", where: raw("(date_of_birth IS NOT NULL)"))
+  @@index([tenant_id, phone], map: "idx_donors_tenant_phone", where: raw("(phone IS NOT NULL)"))
+  @@index([tenant_id, status, eligibility_status, registered_at(sort: Desc)], map: "idx_donors_tenant_status")
 }

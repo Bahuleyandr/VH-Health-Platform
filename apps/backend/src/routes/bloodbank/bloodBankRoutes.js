@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import bloodBankService from '../../services/bloodbank/bloodBankService.js';
+import donorIntakeService from '../../services/bloodbank/donorIntakeService.js';
 import {
   registerUnit,
   listUnits,
@@ -28,6 +29,14 @@ function handleLoopFailure(res, next, err, context) {
   return next(err);
 }
 
+function handleDonorFailure(res, next, err, context) {
+  if (err instanceof AppError || err?.isOperational) {
+    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+  }
+  logger.error(`Donor intake ${context} failed:`, { error: err.message });
+  return next(err);
+}
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
@@ -43,6 +52,83 @@ function bloodBankContext(req) {
     actorRole: req.user?.role || null,
   };
 }
+
+// -- NL-6 N6-2: donor intake cycle -----------------------------------------
+
+router.get('/donors', async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.listDonors(req.query, bloodBankContext(req));
+    return success(res, result.donors, 'Blood donors retrieved', 200, {
+      pagination: result.pagination,
+    });
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'list donors');
+  }
+});
+
+router.post('/donors', async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.registerDonor(req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-registered', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor registered', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'register donor');
+  }
+});
+
+router.post('/donors/:id/screenings', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.screenDonor(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-screened', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor screening recorded', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'screen donor');
+  }
+});
+
+router.get('/deferrals', async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.listDeferrals(req.query, bloodBankContext(req));
+    return success(res, result, 'Blood donor deferrals retrieved');
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'list deferrals');
+  }
+});
+
+router.post('/donors/:id/deferrals/:deferralId/reactivate', paramId(), paramId('deferralId'), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.reactivateDeferral(
+      parseInt(req.params.id, 10),
+      parseInt(req.params.deferralId, 10),
+      req.body,
+      bloodBankContext(req),
+    );
+    emitBloodBankEvent('donor-reactivated', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor deferral reactivated');
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'reactivate donor deferral');
+  }
+});
+
+router.post('/donors/:id/donations', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.recordDonationCollection(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('donation-collected', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donation collection recorded', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'record donation');
+  }
+});
+
+router.post('/donors/:id/consents', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.captureDonorConsent(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-consent-captured', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor consent captured', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'capture donor consent');
+  }
+});
 
 /**
  * POST /blood-bank/request

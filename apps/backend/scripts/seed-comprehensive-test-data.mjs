@@ -32,6 +32,10 @@ const MANUAL_SEED_TABLES = new Set([
   // N6-1 radiology peer review rows must carry distinct reviewer/author
   // humans. The generic auto-seeder assigns one semantic UUID to both.
   'radiology_peer_reviews',
+  // N6-2 donor intake: volume_ml BETWEEN 100 AND 650 and sha256_hash
+  // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
+  'donation_events',
+  'donor_consents',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -203,7 +207,11 @@ function checkedValue(checksByTable, table, column) {
   for (const definition of definitions) {
     if (!definition.toLowerCase().includes(lowerColumn)) continue;
     const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map((match) => match[1]);
-    const cleaned = values.filter((value) => !value.includes('::') && value.length <= 80);
+    const cleaned = values.filter((value) => (
+      !value.includes('::')
+      && value.length <= 80
+      && !/[\\^$[\]{}+*?]/.test(value)
+    ));
     if (cleaned.length) return cleaned[0];
   }
   return null;
@@ -255,6 +263,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('code')) return text(`CODE-${index}`);
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
   if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
+  if (name === 'sha256_hash' || name.endsWith('_sha256_hash')) return text('0'.repeat(64));
   if (name.includes('hash')) return text(`hash_${tablePrefix}_${index}`);
   if (name.includes('url')) return text(`https://example.test/${tablePrefix}/${index}`);
   if (name.includes('name') || name.includes('title') || name.includes('label')) return text(`Seed ${tablePrefix}`);
@@ -274,6 +283,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   }
   if (name.includes('lat')) return 13.02936;
   if (name.includes('lng') || name.includes('lon')) return 80.24409;
+  if (name === 'volume_ml') return 450;
   if (name.includes('amount') || name.includes('cost') || name.includes('rate') || name.includes('score')) return 1;
   if (name.includes('count') || name.includes('total') || name.includes('units') || name.includes('minutes')) return 1;
 
@@ -1187,6 +1197,40 @@ async function seedRadiologyPeerReviews() {
   }]);
 }
 
+async function seedDonorIntakeTables() {
+  // N6-2: constraint-aware seeds — the generic seeder cannot satisfy
+  // chk_donation_events_volume (100..650) or chk_donor_consents_hash
+  // (64 lowercase hex). Mirrors the radiology_peer_reviews precedent.
+  const donor = await first('donors', 'id, tenant_id', 'TRUE', []);
+  if (!donor) return;
+
+  if (!(await tableCount('donation_events'))) {
+    await insertIfEmpty('donation_events', [{
+      tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
+      donor_id: donor.id,
+      donation_code: 'DON-SEED-0001',
+      donation_barcode: 'DONBAR-SEED-0001',
+      collection_kind: 'in_house',
+      volume_ml: 450,
+      status: 'collected',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!(await tableCount('donor_consents'))) {
+    await insertIfEmpty('donor_consents', [{
+      tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
+      donor_id: donor.id,
+      consent_type: 'blood_donation',
+      consent_version: 1,
+      consent_statement: 'Seed donor consent for QA coverage.',
+      consent_payload: JSON.stringify({ seed: true }),
+      sha256_hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1196,6 +1240,7 @@ try {
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
+  await seedDonorIntakeTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
