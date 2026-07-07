@@ -36,16 +36,13 @@ const MANUAL_SEED_TABLES = new Set([
   // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
   'donation_events',
   'donor_consents',
-<<<<<<< HEAD
   // N6-12 mortuary slots enforce occupancy consistency: an available
   // slot cannot carry a current body reference.
   'mortuary_slots',
-=======
   // N6-10 infusion chair coverage needs an active chair plus an ordered,
   // cycle-date-aligned booking window.
   'infusion_chairs',
   'chair_bookings',
->>>>>>> github/main
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1241,7 +1238,6 @@ async function seedDonorIntakeTables() {
   }
 }
 
-<<<<<<< HEAD
 async function seedMortuarySlots() {
   await insertIfEmpty('mortuary_slots', [{
     tenant_id: DEFAULT_TENANT_ID,
@@ -1249,7 +1245,9 @@ async function seedMortuarySlots() {
     display_name: 'Seed mortuary slot',
     status: 'available',
     notes: 'Seed slot for QA coverage',
-=======
+  }]);
+}
+
 async function seedInfusionChairTables() {
   let chair = await first(
     'infusion_chairs',
@@ -1305,7 +1303,6 @@ async function seedInfusionChairTables() {
     status: 'booked',
     warning_codes: [],
     notes: 'Seed booking for QA coverage',
->>>>>>> github/main
   }]);
 }
 
@@ -1319,11 +1316,8 @@ try {
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
   await seedDonorIntakeTables();
-<<<<<<< HEAD
   await seedMortuarySlots();
-=======
   await seedInfusionChairTables();
->>>>>>> github/main
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
