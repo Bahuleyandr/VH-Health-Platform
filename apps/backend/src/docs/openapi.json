@@ -49444,6 +49444,171 @@
         ]
       }
     },
+    "/api/v1/blood-bank/deferrals": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_deferrals",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blood-bank/donors": {
+      "get": {
+        "operationId": "get_api_v1_blood_bank_donors",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donors",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blood-bank/donors/{id}/consents": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donors_by_id_consents",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donors/{id}/deferrals/{deferralId}/reactivate": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donors_by_id_deferrals_by_deferralId_reactivate",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deferralId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donors/{id}/donations": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donors_by_id_donations",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/blood-bank/donors/{id}/screenings": {
+      "post": {
+        "operationId": "post_api_v1_blood_bank_donors_by_id_screenings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/blood-bank/inventory": {
       "get": {
         "operationId": "get_api_v1_blood_bank_inventory",
@@ -59080,6 +59245,82 @@
         }
       }
     },
+    "/api/v1/credentials/approvals": {
+      "get": {
+        "operationId": "get_api_v1_credentials_approvals",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/approvals/{id}/decide": {
+      "post": {
+        "operationId": "post_api_v1_credentials_approvals_by_id_decide",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/credentials/catalog": {
+      "get": {
+        "operationId": "get_api_v1_credentials_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_credentials_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/credentials/check": {
       "get": {
         "operationId": "get_api_v1_credentials_check",
@@ -59114,6 +59355,84 @@
         }
       }
     },
+    "/api/v1/credentials/expiry-alerts": {
+      "get": {
+        "operationId": "get_api_v1_credentials_expiry_alerts",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/expiry-alerts/scan": {
+      "post": {
+        "operationId": "post_api_v1_credentials_expiry_alerts_scan",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/expiry-alerts/{id}/acknowledge": {
+      "patch": {
+        "operationId": "patch_api_v1_credentials_expiry_alerts_by_id_acknowledge",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/credentials/privilege-requests": {
+      "post": {
+        "operationId": "post_api_v1_credentials_privilege_requests",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/credentials/staff/{staffUid}": {
       "get": {
         "operationId": "get_api_v1_credentials_staff_by_staffUid",
@@ -59132,6 +59451,33 @@
         "parameters": [
           {
             "name": "staffUid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/credentials/{id}/document": {
+      "post": {
+        "operationId": "post_api_v1_credentials_by_id_document",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
