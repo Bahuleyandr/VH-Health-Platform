@@ -1,7 +1,7 @@
 # BUILD: N6-2 — Blood bank donor cycle A: donors, screening, deferrals, collection
 
 **Plan:** `docs/superpowers/specs/2026-07-06-nl6-departmental-completion-plan.md` §4.1 (BB-A) + §3 invariants. Read fully, plus `_worker-common.md`. Refine the mini-design from the plan's sketch before coding; keep it within this scope.
-**★ OWNER GATE:** build ONLY if the playbook decision log resolves "blood CENTRE vs storage centre" to full blood centre. If storage-centre, this slice shrinks to a donor directory + camp coordination — re-scope with the coordinator first.
+**GATE RESOLVED 2026-07-07: full blood centre confirmed** (playbook decision log) — build as specced below.
 
 ## Start gate
 ```

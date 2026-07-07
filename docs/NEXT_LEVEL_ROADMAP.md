@@ -248,7 +248,17 @@ Design-first programs (NL-1/2/3/5/7) start with a spec under
 
 ## 7. Do-not-build (even in overkill mode)
 
-Own DDI content database (license it — patient-safety liability) · US RCM/EDI
+Own DDI content database (license it — patient-safety liability) — **OWNER OVERRIDE
+2026-07-07: an indigenous, evidence-gated drug-KB content program replaces licensing
+(no vendor lock-in). Risk is managed, not waived: content ships as versioned
+`drug_kb_sources` editions authored under clinical governance (named clinical
+reviewers, review workflow), gated by the acceptance battery
+(`scripts/drug-kb-acceptance.mjs`) before activation; the eight deterministic floor
+checks in `prescriptionSafetyCheck.js` remain the always-on safety net; the aushadhi
+brand→composition dataset (PR #451 importer) seeds monographs/aliases. The
+production-prescribing go-live gate becomes: current indigenous edition passes the
+battery + named-clinician sign-off + documented coverage metrics. Content authoring
+starts only after a dedicated design spec (own program, NL-5-style).** · US RCM/EDI
 (835/837) · blockchain anything · microservices rewrite · hand-rolled WebRTC stack
 (self-host an SFU) · genomics module (until oncology pull) · voice wake-words ·
 hospital-picker in per-tenant client builds (build = hospital stays).
