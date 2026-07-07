@@ -36,6 +36,9 @@ const MANUAL_SEED_TABLES = new Set([
   // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
   'donation_events',
   'donor_consents',
+  // NL-7 P2 cold-chain units need a fridge-sensor device and an ordered
+  // min/max temperature range before child readings/excursions can seed.
+  'cold_chain_units',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1231,10 +1234,58 @@ async function seedDonorIntakeTables() {
   }
 }
 
+async function seedColdChainTables() {
+  let device = await first(
+    'device_registry',
+    'id',
+    'tenant_id = $1 AND kind = $2',
+    [DEFAULT_TENANT_ID, 'fridge_sensor']
+  );
+
+  if (!device) {
+    await insert('device_registry', {
+      tenant_id: DEFAULT_TENANT_ID,
+      device_code: 'SEED-COLD-FRIDGE-01',
+      display_name: 'Seed cold-chain fridge sensor',
+      kind: 'fridge_sensor',
+      protocol: 'http-json',
+      vendor: 'Seed',
+      model: 'ColdChain',
+      serial_number: 'SEED-COLD-FRIDGE-01',
+      status: 'active',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    });
+    device = await first(
+      'device_registry',
+      'id',
+      'tenant_id = $1 AND kind = $2',
+      [DEFAULT_TENANT_ID, 'fridge_sensor']
+    );
+  }
+
+  if (!device) return;
+
+  await insertIfEmpty('cold_chain_units', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    unit_code: 'SEED-COLD-FRIDGE-01',
+    display_name: 'Seed cold-chain refrigerator',
+    kind: 'fridge',
+    department: 'pharmacy',
+    device_registry_id: device.id,
+    min_temp_c: 2,
+    max_temp_c: 8,
+    excursion_grace_minutes: 15,
+    status: 'active',
+    retention_days: 730,
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
   await seedIdentityProviderTables();
+  await seedColdChainTables();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();

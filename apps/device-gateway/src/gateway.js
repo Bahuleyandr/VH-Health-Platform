@@ -117,9 +117,80 @@ export class GatewayRuntime {
     gatewaySpoolDepth.set({ source }, stats.depth);
     gatewaySpoolOldestAge.set({}, stats.oldestAgeSeconds);
   }
+
+  async acceptColdChainHttp({ payload, deviceToken, tenantId, sourceIp }) {
+    if (!deviceToken) {
+      const err = new Error('cold-chain device bearer token is required');
+      err.status = 401;
+      throw err;
+    }
+    return this.backendClient.ingestColdChain({
+      ...payload,
+      source_ip: sourceIp || payload?.source_ip || null,
+    }, { deviceToken, tenantId });
+  }
 }
 
-export async function startGateway({ listeners, runtime, metricsPort = 9108 }) {
+async function readJsonBody(req, limitBytes = 1024 * 1024) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > limitBytes) {
+      const err = new Error('request body too large');
+      err.status = 413;
+      throw err;
+    }
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    const err = new Error('invalid JSON body');
+    err.status = 400;
+    throw err;
+  }
+}
+
+function bearerFrom(req, body = {}) {
+  const header = req.headers.authorization || '';
+  const match = /^Bearer\s+(.+)$/i.exec(String(header));
+  return match?.[1] || req.headers['x-device-token'] || body.bearer_token || body.sender_bearer_token || null;
+}
+
+function writeJson(res, status, payload) {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(payload));
+}
+
+function createColdChainServer(runtime) {
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', 'http://localhost');
+    if (req.method !== 'POST' || url.pathname !== '/ingest/cold-chain') {
+      writeJson(res, 404, { success: false, message: 'Not found' });
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const result = await runtime.acceptColdChainHttp({
+        payload: body,
+        deviceToken: bearerFrom(req, body),
+        tenantId: req.headers['x-tenant-id'] || body.tenant_id || null,
+        sourceIp: req.socket.remoteAddress?.replace(/^::ffff:/, '') || '',
+      });
+      writeJson(res, 202, { success: true, data: result });
+    } catch (err) {
+      const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
+      writeJson(res, status, {
+        success: false,
+        message: err.message || 'Cold-chain ingest failed',
+      });
+    }
+  });
+}
+
+export async function startGateway({ listeners, runtime, metricsPort = 9108, coldChainIngestPort = 8088 }) {
   await mkdir(runtime.spoolDir, { recursive: true });
   const servers = [];
   for (const listener of listeners) {
@@ -152,7 +223,13 @@ export async function startGateway({ listeners, runtime, metricsPort = 9108 }) {
     res.end(serializeMetrics());
   });
   await new Promise((resolve) => metricsServer.listen(metricsPort, resolve));
-  return { servers, metricsServer };
+  const coldChainServer = coldChainIngestPort !== null && coldChainIngestPort !== false
+    ? createColdChainServer(runtime)
+    : null;
+  if (coldChainServer) {
+    await new Promise((resolve) => coldChainServer.listen(coldChainIngestPort, resolve));
+  }
+  return { servers, metricsServer, coldChainServer };
 }
 
 export function listenerConfigFromEnv() {

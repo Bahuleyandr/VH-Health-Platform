@@ -171,6 +171,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "or-board": { minRank: STAFF },
   maternity: { minRank: STAFF },
   "blood-bank": { minRank: STAFF },
+  "cold-chain": { minRank: STAFF },
   quality: { minRank: STAFF },
   referral: { minRank: STAFF },
   productivity: { minRank: STAFF },

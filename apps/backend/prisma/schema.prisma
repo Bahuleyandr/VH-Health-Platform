@@ -1736,6 +1736,7 @@ model clinical_ai_biomed_devices {
   updated_at                                 DateTime?                                    @default(now()) @db.Timestamptz(6)
   tenants                                    tenants                                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   clinical_ai_biomed_maintenance_predictions clinical_ai_biomed_maintenance_predictions[]
+  cold_chain_units                           cold_chain_units[]
   device_registry                            device_registry[]
 
   @@unique([tenant_id, device_code], map: "uniq_biomed_devices_tenant_code")
@@ -4928,6 +4929,7 @@ model facility_locations {
   created_by               String?              @db.Uuid
   created_at               DateTime             @default(now()) @db.Timestamptz(6)
   updated_at               DateTime             @default(now()) @db.Timestamptz(6)
+  cold_chain_units         cold_chain_units[]
   device_registry          device_registry[]
   facilities               facilities           @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_locations       facility_locations?  @relation("facility_locationsTofacility_locations", fields: [parent_id], references: [id], onUpdate: NoAction)
@@ -9277,39 +9279,40 @@ model task_comments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model tasks {
-  id                    Int             @id @default(autoincrement())
-  tenant_id             String          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   workflow_run_id       Int?
   workflow_step_id      Int?
   parent_task_id        Int?
-  task_kind             String          @default("general") @db.VarChar(60)
-  title                 String          @db.VarChar(500)
+  task_kind             String                  @default("general") @db.VarChar(60)
+  title                 String                  @db.VarChar(500)
   description           String?
-  patient_uid           String?         @db.Uuid
+  patient_uid           String?                 @db.Uuid
   encounter_id          Int?
-  related_resource_type String?         @db.VarChar(60)
-  related_resource_id   String?         @db.VarChar(120)
-  priority              String          @default("normal") @db.VarChar(20)
-  status                String          @default("open") @db.VarChar(20)
-  assigned_to_uid       String?         @db.Uuid
-  assigned_to_role      String?         @db.VarChar(80)
-  created_by            String?         @db.Uuid
-  due_at                DateTime?       @db.Timestamptz(6)
-  completed_at          DateTime?       @db.Timestamptz(6)
-  cancelled_at          DateTime?       @db.Timestamptz(6)
+  related_resource_type String?                 @db.VarChar(60)
+  related_resource_id   String?                 @db.VarChar(120)
+  priority              String                  @default("normal") @db.VarChar(20)
+  status                String                  @default("open") @db.VarChar(20)
+  assigned_to_uid       String?                 @db.Uuid
+  assigned_to_role      String?                 @db.VarChar(80)
+  created_by            String?                 @db.Uuid
+  due_at                DateTime?               @db.Timestamptz(6)
+  completed_at          DateTime?               @db.Timestamptz(6)
+  cancelled_at          DateTime?               @db.Timestamptz(6)
   cancellation_reason   String?
   sla_definition_id     Int?
-  sla_breached_at       DateTime?       @db.Timestamptz(6)
-  metadata              Json            @default("{}")
-  created_at            DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime        @default(now()) @db.Timestamptz(6)
+  sla_breached_at       DateTime?               @db.Timestamptz(6)
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
   approvals             approvals[]
+  cold_chain_excursions cold_chain_excursions[]
   task_comments         task_comments[]
-  tasks                 tasks?          @relation("tasksTotasks", fields: [parent_task_id], references: [id], onUpdate: NoAction)
-  other_tasks           tasks[]         @relation("tasksTotasks")
-  tenants               tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  workflow_runs         workflow_runs?  @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
-  workflow_steps        workflow_steps? @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
+  tasks                 tasks?                  @relation("tasksTotasks", fields: [parent_task_id], references: [id], onUpdate: NoAction)
+  other_tasks           tasks[]                 @relation("tasksTotasks")
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_runs         workflow_runs?          @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
+  workflow_steps        workflow_steps?         @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
 
   @@unique([tenant_id, related_resource_type, related_resource_id], map: "uq_task_open_per_resource", where: raw("(((status)::text = ANY ((ARRAY['open'::character varying, 'in_progress'::character varying, 'blocked'::character varying])::text[])) AND (related_resource_type IS NOT NULL) AND (related_resource_id IS NOT NULL))"))
   @@index([tenant_id, status, priority, due_at], map: "idx_tasks_tenant_status")
@@ -9561,6 +9564,10 @@ model tenants {
   clinical_trial_match_results               clinical_trial_match_results[]
   clinical_trials_catalog                    clinical_trials_catalog[]
   clinical_voice_notes                       clinical_voice_notes[]
+  cold_chain_blood_bank_review_flags         cold_chain_blood_bank_review_flags[]
+  cold_chain_excursions                      cold_chain_excursions[]
+  cold_chain_readings                        cold_chain_readings[]
+  cold_chain_units                           cold_chain_units[]
   composition_search_settings                composition_search_settings?
   consent_signatures                         consent_signatures[]
   consultations                              consultations[]
@@ -14427,27 +14434,28 @@ model workflow_sla_rules {
 }
 
 model workflow_sla_instances {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  rule_id             String?   @db.Uuid
-  rule_code           String    @db.VarChar(100)
-  patient_uid         String?   @db.Uuid
-  encounter_id        String?   @db.Uuid
-  source_table        String?   @db.VarChar(100)
-  source_id           String?   @db.VarChar(120)
-  source_uid          String?   @db.Uuid
-  status              String    @default("active") @db.VarChar(40)
-  priority            String    @default("normal") @db.VarChar(30)
-  started_at          DateTime  @default(now()) @db.Timestamptz(6)
-  due_at              DateTime  @db.Timestamptz(6)
-  completed_at        DateTime? @db.Timestamptz(6)
-  breached_at         DateTime? @db.Timestamptz(6)
-  escalated_at        DateTime? @db.Timestamptz(6)
-  assigned_role_codes String[]  @default([])
-  assigned_user_uid   String?   @db.Uuid
-  metadata            Json      @default("{}")
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  rule_id               String?                 @db.Uuid
+  rule_code             String                  @db.VarChar(100)
+  patient_uid           String?                 @db.Uuid
+  encounter_id          String?                 @db.Uuid
+  source_table          String?                 @db.VarChar(100)
+  source_id             String?                 @db.VarChar(120)
+  source_uid            String?                 @db.Uuid
+  status                String                  @default("active") @db.VarChar(40)
+  priority              String                  @default("normal") @db.VarChar(30)
+  started_at            DateTime                @default(now()) @db.Timestamptz(6)
+  due_at                DateTime                @db.Timestamptz(6)
+  completed_at          DateTime?               @db.Timestamptz(6)
+  breached_at           DateTime?               @db.Timestamptz(6)
+  escalated_at          DateTime?               @db.Timestamptz(6)
+  assigned_role_codes   String[]                @default([])
+  assigned_user_uid     String?                 @db.Uuid
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  cold_chain_excursions cold_chain_excursions[]
 
   @@unique([tenant_id, rule_code, source_table, source_id], map: "idx_workflow_sla_instances_source", where: raw("((source_table IS NOT NULL) AND (source_id IS NOT NULL))"))
   @@index([tenant_id, status, due_at], map: "idx_workflow_sla_instances_due")
@@ -15694,6 +15702,8 @@ model device_registry {
   artifact_filter_required            Int                                 @default(2)
   artifact_filter_window              Int                                 @default(3)
   expected_interval_seconds           Int                                 @default(60)
+  cold_chain_readings                 cold_chain_readings[]
+  cold_chain_units                    cold_chain_units[]
   device_patient_associations         device_patient_associations[]
   clinical_ai_biomed_devices          clinical_ai_biomed_devices?         @relation(fields: [biomed_device_id], references: [id], onUpdate: NoAction)
   facility_locations                  facility_locations?                 @relation(fields: [location_id], references: [id], onUpdate: NoAction)
@@ -16199,6 +16209,27 @@ model content_studio_settings {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cold_chain_blood_bank_review_flags {
+  id                    BigInt                @id @default(autoincrement())
+  tenant_id             String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  excursion_id          BigInt
+  unit_id               Int
+  status                String                @default("open") @db.VarChar(24)
+  review_note           String?
+  reviewed_by           String?               @db.Uuid
+  reviewed_at           DateTime?             @db.Timestamptz(6)
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  cold_chain_excursions cold_chain_excursions @relation(fields: [excursion_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cold_chain_units      cold_chain_units      @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, excursion_id], map: "ux_cold_chain_review_flags_excursion")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_cold_chain_review_flags_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model order_set_import_batches {
   id                  BigInt                @id @default(autoincrement())
   tenant_id           String                @db.Uuid
@@ -16225,6 +16256,45 @@ model order_set_import_batches {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cold_chain_excursions {
+  id                                 BigInt                               @id @default(autoincrement())
+  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_id                            Int
+  breach_started_at                  DateTime                             @db.Timestamptz(6)
+  opened_at                          DateTime                             @default(now()) @db.Timestamptz(6)
+  returned_in_range_at               DateTime?                            @db.Timestamptz(6)
+  closed_at                          DateTime?                            @db.Timestamptz(6)
+  last_out_of_range_at               DateTime?                            @db.Timestamptz(6)
+  breach_direction                   String?                              @db.VarChar(16)
+  peak_temp_c                        Decimal?                             @db.Decimal(5, 2)
+  min_seen_temp_c                    Decimal?                             @db.Decimal(5, 2)
+  max_seen_temp_c                    Decimal?                             @db.Decimal(5, 2)
+  duration_minutes                   Int?
+  severity                           String                               @default("warning") @db.VarChar(24)
+  acknowledged_by                    String?                              @db.Uuid
+  acknowledged_at                    DateTime?                            @db.Timestamptz(6)
+  corrective_action                  String?
+  disposition_note                   String?
+  status                             String                               @default("open") @db.VarChar(24)
+  notification_count                 Int                                  @default(0)
+  task_id                            Int?
+  sla_instance_id                    String?                              @db.Uuid
+  metadata                           Json                                 @default("{}")
+  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  cold_chain_blood_bank_review_flags cold_chain_blood_bank_review_flags[]
+  workflow_sla_instances             workflow_sla_instances?              @relation(fields: [sla_instance_id], references: [id], onUpdate: NoAction)
+  tasks                              tasks?                               @relation(fields: [task_id], references: [id], onUpdate: NoAction)
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cold_chain_units                   cold_chain_units                     @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, unit_id], map: "ux_cold_chain_excursions_open_unit", where: raw("((status)::text = ANY ((ARRAY['open'::character varying, 'acknowledged'::character varying])::text[]))"))
+  @@index([tenant_id, status, severity, opened_at(sort: Desc)], map: "idx_cold_chain_excursions_tenant_status")
+  @@index([tenant_id, unit_id, opened_at(sort: Desc)], map: "idx_cold_chain_excursions_unit_opened")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model order_set_review_events {
   id                  BigInt              @id @default(autoincrement())
   tenant_id           String              @db.Uuid
@@ -16240,4 +16310,61 @@ model order_set_review_events {
 
   @@index([order_set_id, created_at], map: "idx_order_set_review_events_set_created")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_order_set_review_events_tenant_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cold_chain_readings {
+  id                 BigInt           @id @default(autoincrement())
+  tenant_id          String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_id            Int
+  device_registry_id Int
+  temp_c             Decimal          @db.Decimal(5, 2)
+  humidity_pct       Decimal?         @db.Decimal(5, 2)
+  battery_pct        Decimal?         @db.Decimal(5, 2)
+  recorded_at        DateTime         @db.Timestamptz(6)
+  received_at        DateTime         @default(now()) @db.Timestamptz(6)
+  metadata           Json             @default("{}")
+  device_registry    device_registry  @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction)
+  tenants            tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cold_chain_units   cold_chain_units @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+
+  @@index([recorded_at], map: "brin_cold_chain_readings_recorded", type: Brin)
+  @@index([tenant_id, device_registry_id, recorded_at(sort: Desc)], map: "idx_cold_chain_readings_device_recorded")
+  @@index([tenant_id, unit_id, recorded_at(sort: Desc)], map: "idx_cold_chain_readings_unit_recorded")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cold_chain_units {
+  id                                 Int                                  @id @default(autoincrement())
+  tenant_id                          String                               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  unit_code                          String                               @db.VarChar(120)
+  display_name                       String                               @db.VarChar(255)
+  kind                               String                               @db.VarChar(32)
+  department                         String                               @db.VarChar(32)
+  location_id                        Int?
+  biomed_device_id                   Int?
+  device_registry_id                 Int
+  min_temp_c                         Decimal                              @db.Decimal(5, 2)
+  max_temp_c                         Decimal                              @db.Decimal(5, 2)
+  excursion_grace_minutes            Int                                  @default(15)
+  alert_roles                        String[]                             @default([])
+  status                             String                               @default("active") @db.VarChar(24)
+  retention_days                     Int                                  @default(730)
+  metadata                           Json                                 @default("{}")
+  created_by                         String?                              @db.Uuid
+  created_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                             @default(now()) @db.Timestamptz(6)
+  cold_chain_blood_bank_review_flags cold_chain_blood_bank_review_flags[]
+  cold_chain_excursions              cold_chain_excursions[]
+  cold_chain_readings                cold_chain_readings[]
+  clinical_ai_biomed_devices         clinical_ai_biomed_devices?          @relation(fields: [biomed_device_id], references: [id], onUpdate: NoAction)
+  device_registry                    device_registry                      @relation(fields: [device_registry_id], references: [id], onUpdate: NoAction)
+  facility_locations                 facility_locations?                  @relation(fields: [location_id], references: [id], onUpdate: NoAction)
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, unit_code], map: "ux_cold_chain_units_tenant_code")
+  @@unique([tenant_id, device_registry_id], map: "ux_cold_chain_units_tenant_device_active", where: raw("((status)::text = ANY ((ARRAY['active'::character varying, 'paused'::character varying])::text[]))"))
+  @@index([tenant_id, status, department], map: "idx_cold_chain_units_tenant_status")
 }

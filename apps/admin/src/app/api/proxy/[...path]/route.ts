@@ -45,6 +45,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/prescriptions",
   "api/v1/theatre",
   "api/v1/blood-bank",
+  "api/v1/cold-chain",
   "api/v1/compliance",
   "api/v1/referrals",
   "api/v1/consent",
