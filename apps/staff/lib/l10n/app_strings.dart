@@ -6155,8 +6155,7 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "Appointment rescheduled",
       's4.lib.front_office_workbench.appointments': "Appointments",
-      's4.lib.front_office_workbench.arrival_check_in':
-          "Arrival check-in",
+      's4.lib.front_office_workbench.arrival_check_in': "Arrival check-in",
       's4.lib.front_office_workbench.arrival_checked_in':
           "Arrival check-in recorded",
       's4.lib.front_office_workbench.billing': "Billing",
@@ -11256,8 +11255,7 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "अपॉइंटमेंट पुनर्निर्धारित किया गया",
       's4.lib.front_office_workbench.appointments': "अपॉइंटमेंट",
-      's4.lib.front_office_workbench.arrival_check_in':
-          "आगमन चेक इन",
+      's4.lib.front_office_workbench.arrival_check_in': "आगमन चेक इन",
       's4.lib.front_office_workbench.arrival_checked_in':
           "आगमन चेक इन दर्ज किया गया",
       's4.lib.front_office_workbench.billing': "बिलिंग",
@@ -16932,8 +16930,7 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "நேர்முகம் மறுவழங்கப்பட்டது",
       's4.lib.front_office_workbench.appointments': "நேர்முகங்கள்",
-      's4.lib.front_office_workbench.arrival_check_in':
-          "வருகை செக் இன்",
+      's4.lib.front_office_workbench.arrival_check_in': "வருகை செக் இன்",
       's4.lib.front_office_workbench.arrival_checked_in':
           "வருகை செக் இன் பதிவு செய்யப்பட்டது",
       's4.lib.front_office_workbench.billing': "பில்லிங்",
@@ -22661,8 +22658,7 @@ class AppStrings {
       's4.lib.front_office_workbench.appointment_rescheduled':
           "అపాయింట్మెంట్ రీషెడ్యూల్ చేయబడింది",
       's4.lib.front_office_workbench.appointments': "అపాయింట్మెంట్లు",
-      's4.lib.front_office_workbench.arrival_check_in':
-          "రాక చెక్ ఇన్",
+      's4.lib.front_office_workbench.arrival_check_in': "రాక చెక్ ఇన్",
       's4.lib.front_office_workbench.arrival_checked_in':
           "రాక చెక్ ఇన్ నమోదు చేయబడింది",
       's4.lib.front_office_workbench.billing': "బిల్లింగ్",
@@ -24824,8 +24820,7 @@ class AppStrings {
       'dashboard.checked_in': 'ചെക്ക്-ഇൻ ചെയ്തു',
       'dashboard.checked_out': 'ചെക്ക്-ഔട്ട് ചെയ്തു',
       'dashboard.not_checked_in': 'ചെക്ക്-ഇൻ ചെയ്തിട്ടില്ല',
-      's4.lib.front_office_workbench.arrival_check_in':
-          'അറൈവൽ ചെക്ക്-ഇൻ',
+      's4.lib.front_office_workbench.arrival_check_in': 'അറൈവൽ ചെക്ക്-ഇൻ',
       's4.lib.front_office_workbench.arrival_checked_in':
           'അറൈവൽ ചെക്ക്-ഇൻ രേഖപ്പെടുത്തി',
       's4.lib.front_office_workbench.confirm_appointment':
