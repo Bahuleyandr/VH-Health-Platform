@@ -49,6 +49,12 @@ history — PR #427). Your worktree is your world.
   inserts — the GUC default silently stamps the literal default tenant otherwise.
 
 ## Platform invariants
+- **★ Wire-shaping LAW (2026-07-07, from PR #460's smoke failure): Postgres NUMERIC columns
+  fetched via `prisma.$queryRawUnsafe` come back as Prisma `Decimal` OBJECTS. Any
+  response-shaping/normalizer helper MUST convert them (`typeof v.toNumber === 'function'`
+  → `v.toNumber()`) BEFORE JSON serialization — a generic `Object.entries` clone
+  destructures them into `{s,e,d}` internals and crashes React clients. If your service
+  returns NUMERIC/DECIMAL columns, add the guard and a smoke-level assertion.
 - Canonical clinical timeline (`docs/CANONICAL_CLINICAL_TIMELINE.md`): every patient-facing
   clinical write = detail row + `clinical_timeline_events` + `clinical_audit_events` in ONE
   transaction. Non-patient subjects (donors, staff credentials, machine QA) use audit/register

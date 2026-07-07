@@ -119,7 +119,10 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 401–402 | NL-5 P4 pediatric packs | launched 2026-07-07 (round 3) |
 | 403 | N6-8 dental UI (if needed) | launched 2026-07-07 (round 3) |
 | 404–407 | N6-3 donor processing | launched 2026-07-07 (round 3; start gate self-blocks until N6-2 on main) |
-| 408+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 408–410 | NL-5 P2 + indigenous-KB substrate | launched 2026-07-07 (round 4) |
+| 411–412 | N6-10 infusion chairs | launched 2026-07-07 (round 4) |
+| 413–414 | N6-12 mortuary | launched 2026-07-07 (round 4) |
+| 415+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -188,25 +191,25 @@ parallel-safe may overlap.
 | File | Builds | Gate | Status |
 |---|---|---|---|
 | `nl5-p1-terminology-releases.md` | release versioning, tenant settings, ICD-11 flip | spec on main | **MERGED** #453 |
-| `nl5-p2-drugkb-seams.md` | source priority, acceptance harness, admin status | spec on main; re-scoped for indigenous KB | READY |
-| `nl5-p3-content-studio.md` | order-set lifecycle, import format, studio UI | spec on main | **LAUNCHED** (migs 381–382) |
+| `nl5-p2-drugkb-seams.md` | source priority, acceptance harness, admin status **+ indigenous substrate (provenance, editions, lint/diff)** | spec + indigenous-KB spec on main | **LAUNCHED** (migs 408–410) |
+| `nl5-p3-content-studio.md` | order-set lifecycle, import format, studio UI | spec on main | **MERGED** #461 |
 | `nl5-p4-pediatric-packs.md` | growth LMS table + IAP, immunization packs | spec on main | **LAUNCHED** (migs 401–402) |
 | `nl7-p1-device-gateway.md` | MLLP gateway, registry, association, alarm policy | spec on main | **MERGED** #456 |
 | `nl7-p2-cold-chain.md` | cold-chain tables, excursion engine, board | NL-7 P1 merged ✓ | **LAUNCHED** (migs 391–393) |
 | `nl7-p3-cmms.md` | work orders, schedules, calibration certs | NL-7 P1 merged ✓ | **LAUNCHED** (migs 394–396) |
 | `nl7-p4-rtls-hardening.md` | RTLS seam (gated) + pilot hardening | P1–P3 merged + Decision 4 / RTLS pilot | GATED |
 | `nl6-01-radiology-reporting.md` | templates, peer review, TAT, timeline fix | plan on main | **MERGED** #450 |
-| `nl6-02-donor-intake.md` | donors, screening, deferrals, collection | gate RESOLVED: blood centre ✓ | verified PASS; rolled; merging on green (#457) |
+| `nl6-02-donor-intake.md` | donors, screening, deferrals, collection | gate RESOLVED: blood centre ✓ | **MERGED** #457 |
 | `nl6-03-donor-processing.md` | TTI, components, traceability, registers | N6-2 imminent; registers ship "format pending" until Decision 3 | **LAUNCHED** (migs 404–407) |
-| `nl6-04-histopath.md` | AP cases/blocks/slides/reports | N6-1 merged ✓ | **LAUNCHED** (migs 383–386) |
+| `nl6-04-histopath.md` | AP cases/blocks/slides/reports | N6-1 merged ✓ | **MERGED** #460 (coordinator fixed Decimal wire leak) |
 | `nl6-05-credentialing.md` | privilege catalog, approvals, expiry alerts | plan on main | **MERGED** #458 (after coordinator roll — QA-DB contamination fix) |
 | `nl6-06-infection-depth.md` | isolation orders, HAI, outbreaks, hand hygiene | N6-5 merged ✓ | **LAUNCHED** (migs 397–400) |
 | `nl6-07-ophthalmology.md` | encounter link, biometry, cataract bundle, UI | plan on main | READY |
 | `nl6-08-dental-ui.md` | odontogram UI, seeds, billing linkage | plan on main | **LAUNCHED** (mig 403 if needed) |
 | `nl6-09-dialysis-completion.md` | reuse register, machine QA, billing hook | plan on main (register format note) | READY |
-| `nl6-10-infusion-chairs.md` | chairs + bookings on chemo cycles | plan on main | READY |
+| `nl6-10-infusion-chairs.md` | chairs + bookings on chemo cycles | plan on main | **LAUNCHED** (migs 411–412) |
 | `nl6-11-physio.md` | referral→plan→sessions greenfield | plan on main | READY |
-| `nl6-12-mortuary.md` | slots + custody chain on death records | plan on main | READY |
+| `nl6-12-mortuary.md` | slots + custody chain on death records | plan on main | **LAUNCHED** (migs 413–414) |
 | `nl6-13-cssd.md` | instrument sets, sterilization loads | plan on main (N6-5 soft-first) | READY |
 | `nl6-14-linen.md` | par-stock + laundry cycles | plan on main; do LAST | READY |
 | `wave-c-nl8-kickoff.md` | NL-8 patient-flow **design spec** | Wave B build mostly landed | READY (design) |
