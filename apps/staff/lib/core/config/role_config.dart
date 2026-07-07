@@ -699,6 +699,13 @@ class RoleFeatures {
     route: '/dietary',
     color: Color(0xFF00796B),
   );
+  static const DashboardFeature _dentalCharting = DashboardFeature(
+    id: 'dental_charting',
+    titleKey: 'role.feature.dental_charting',
+    icon: Icons.medical_services_outlined,
+    route: '/dental',
+    color: Color(0xFF00838F),
+  );
   static const DashboardFeature _theatre = DashboardFeature(
     id: 'theatre',
     titleKey: 'role.feature.theatre',
@@ -730,6 +737,7 @@ class RoleFeatures {
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
         _opDoctorWorkspace,
+        _dentalCharting,
         _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
@@ -843,6 +851,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _opNursingDashboard,
+        _dentalCharting,
         _clinicalInbox,
         _frontOfficeWorkbench,
         _appointments,
@@ -864,6 +873,7 @@ class RoleFeatures {
         _dutyPreference,
         _opNursingRoster,
         _opNursingDashboard,
+        _dentalCharting,
         _clinicalInbox,
         _frontOfficeWorkbench,
         _appointments,
@@ -933,6 +943,7 @@ class RoleFeatures {
         _appointments,
         _admissions,
         _opDoctorWorkspace,
+        _dentalCharting,
         _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
@@ -967,6 +978,7 @@ class RoleFeatures {
         _appointments,
         _admissions,
         _opDoctorWorkspace,
+        _dentalCharting,
         _clinicalInbox,
         _clinicalAiReviewQueue,
         _patientRecords,
@@ -2037,6 +2049,19 @@ class RoleFeatures {
     };
   }
 
+  static bool hasDentalCharting(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge => true,
+      _ => false,
+    };
+  }
+
   static bool hasClinicalInbox(StaffRole role) {
     return switch (role) {
       StaffRole.admin ||
@@ -2273,6 +2298,18 @@ class RoleFeatures {
           selectedIcon: Icons.fact_check,
           route: '/appointments?context=op&scope=my&workspace=doctor',
           featureId: 'appointments',
+        ),
+      );
+    }
+
+    if (hasDentalCharting(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          labelKey: 'role.nav.dental',
+          icon: Icons.medical_services_outlined,
+          selectedIcon: Icons.medical_services,
+          route: '/dental',
+          featureId: 'dental_charting',
         ),
       );
     }

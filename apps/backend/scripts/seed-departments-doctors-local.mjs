@@ -10,7 +10,7 @@ const DEPARTMENTS = [
   'Obstetrics & Gynaecology', 'Paediatrics', 'Dermatology', 'ENT (Otorhinolaryngology)',
   'Ophthalmology', 'Nephrology', 'Urology', 'Pulmonology', 'Gastroenterology',
   'Oncology', 'Psychiatry', 'Physiotherapy & Rehabilitation', 'Emergency Medicine',
-  'Radiology', 'Pathology',
+  'Radiology', 'Pathology', 'Dentistry',
 ];
 
 const DOCTORS = [
@@ -34,6 +34,7 @@ const DOCTORS = [
   ['9000000018', 'Dr. Ganesh Iyer',     'Physiotherapy & Rehabilitation',   'Orthopaedic Rehab',           8,  400],
   ['9000000019', 'Dr. Kavya Hari',      'Emergency Medicine',               'Critical Care',              15,  500],
   ['9000000020', 'Dr. Arun Raghavan',   'General Medicine',                 'General Medicine',           10,  400],
+  ['9000000021', 'Dr. Nisha Varghese',  'Dentistry',                        'Conservative Dentistry',     12,  600],
 ];
 
 await client.query('BEGIN');
