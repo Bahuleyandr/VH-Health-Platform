@@ -36,6 +36,14 @@ const MANUAL_SEED_TABLES = new Set([
   // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
   'donation_events',
   'donor_consents',
+  // NL-7 P3 biomedical CMMS rows need a valid device -> schedule -> work-order
+  // chain plus timestamp/check-constrained certificate data.
+  'clinical_ai_biomed_devices',
+  'biomed_maintenance_schedules',
+  'biomed_work_orders',
+  'biomed_work_order_updates',
+  'biomed_work_order_recipients',
+  'biomed_calibration_certificates',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1231,6 +1239,118 @@ async function seedDonorIntakeTables() {
   }
 }
 
+async function seedBiomedCmmsTables() {
+  let device = await first('clinical_ai_biomed_devices', 'id, tenant_id', 'TRUE', []);
+  if (!device) {
+    const created = await client.query(
+      `INSERT INTO clinical_ai_biomed_devices (
+         tenant_id, device_code, device_type, manufacturer, model, serial_number,
+         location, installed_at, usage_hours, fault_events_last_90d, status, metadata
+       )
+       VALUES (
+         $1::uuid, 'BIO-SEED-0001', 'ventilator', 'Seed Biomedical', 'Ventilator QA',
+         'BIO-SEED-SN-0001', 'ICU seed bay', CURRENT_DATE - INTERVAL '180 days',
+         1200, 0, 'in_service', '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id`,
+      [DEFAULT_TENANT_ID],
+    );
+    device = created.rows[0];
+  }
+
+  const staffUser = await first('users', 'id, uid', 'role <> $1', ['PATIENT']);
+  if (!staffUser) return;
+
+  let schedule = await first('biomed_maintenance_schedules', 'id, tenant_id', 'TRUE', []);
+  if (!schedule) {
+    const created = await client.query(
+      `INSERT INTO biomed_maintenance_schedules (
+         tenant_id, biomed_device_id, kind, interval_days, next_due_at,
+         assigned_role, assigned_to_id, assigned_to_uid, created_by, metadata
+       )
+       VALUES (
+         $1::uuid, $2, 'preventive', 90, NOW() + INTERVAL '30 days',
+         'BIOMEDICAL_STAFF', $3, $4::uuid, $4::uuid,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id`,
+      [device.tenant_id || DEFAULT_TENANT_ID, device.id, staffUser.id, staffUser.uid],
+    );
+    schedule = created.rows[0];
+  }
+
+  let workOrder = await first('biomed_work_orders', 'id, tenant_id', 'TRUE', []);
+  if (!workOrder) {
+    const created = await client.query(
+      `INSERT INTO biomed_work_orders (
+         tenant_id, biomed_device_id, schedule_id, kind, priority, status,
+         description, assigned_to_id, assigned_to_uid, assigned_to_role,
+         assigned_by, assigned_at, sla_due_at, source, due_window_start,
+         due_window_end, created_by, metadata
+       )
+       VALUES (
+         $1::uuid, $2, $3, 'preventive', 'normal', 'assigned',
+         'Seed preventive maintenance work order for QA coverage.',
+         $4, $5::uuid, 'BIOMEDICAL_STAFF', $5::uuid, NOW(),
+         NOW() + INTERVAL '72 hours', 'schedule', NOW() + INTERVAL '30 days',
+         NOW() + INTERVAL '31 days', $5::uuid,
+         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
+       )
+       RETURNING id, tenant_id`,
+      [schedule.tenant_id || device.tenant_id || DEFAULT_TENANT_ID, device.id, schedule.id, staffUser.id, staffUser.uid],
+    );
+    workOrder = created.rows[0];
+  }
+
+  await client.query(
+    `UPDATE biomed_maintenance_schedules
+        SET last_work_order_id = $1,
+            updated_at = NOW()
+      WHERE id = $2
+        AND last_work_order_id IS NULL`,
+    [workOrder.id, schedule.id],
+  );
+
+  await insertIfEmpty('biomed_work_order_recipients', [{
+    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+    work_order_id: workOrder.id,
+    staff_id: staffUser.id,
+    staff_uid: staffUser.uid,
+    recipient_kind: 'assignee',
+    source: 'seed',
+  }]);
+
+  await insertIfEmpty('biomed_work_order_updates', [{
+    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+    work_order_id: workOrder.id,
+    previous_status: 'open',
+    status: 'assigned',
+    message: 'Seed work-order update for QA coverage.',
+    author_id: staffUser.id,
+    author_uid: staffUser.uid,
+    author_role: 'BIOMEDICAL_STAFF',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+
+  await insertIfEmpty('biomed_calibration_certificates', [{
+    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+    biomed_device_id: device.id,
+    work_order_id: workOrder.id,
+    certificate_number: 'BIO-CERT-SEED-0001',
+    calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
+    due_at: new Date('2027-05-04T09:00:00.000Z'),
+    performed_by: 'Seed Biomedical Engineer',
+    performed_by_uid: staffUser.uid,
+    document_id: 'seed-biomed-calibration-document',
+    document_storage_key: 'seed/biomed/calibration/BIO-CERT-SEED-0001.pdf',
+    document_mime_type: 'application/pdf',
+    result: 'pass',
+    notes: 'Seed calibration certificate for QA coverage.',
+    created_by: staffUser.uid,
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1241,6 +1361,7 @@ try {
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
   await seedDonorIntakeTables();
+  await seedBiomedCmmsTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));

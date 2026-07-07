@@ -26,6 +26,7 @@ enum StaffRole {
   storesPurchaseIncharge('STORES_PURCHASE_INCHARGE'),
   lab('LAB_STAFF'),
   radiologyStaff('RADIOLOGY_STAFF'),
+  biomedicalStaff('BIOMEDICAL_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
   housekeepingIncharge('HOUSEKEEPING_INCHARGE'),
   receptionist('RECEPTIONIST'),
@@ -70,6 +71,17 @@ enum StaffRole {
       'RADIOLOGY_TECHNICIAN',
     }.contains(normalized)) {
       return StaffRole.radiologyStaff;
+    }
+    if (const {
+      'BIOMED',
+      'BIOMEDICAL',
+      'BIOMEDICAL_ENGINEER',
+      'BIOMEDICAL_TECHNICIAN',
+      'BIOMEDICAL_TECH',
+      'BIOMED_TECHNICIAN',
+      'BIOMED_TECH',
+    }.contains(normalized)) {
+      return StaffRole.biomedicalStaff;
     }
     if (const {
       'DMO',
@@ -203,6 +215,7 @@ enum StaffRole {
     StaffRole.storesPurchaseIncharge => const Color(0xFF7C2D12),
     StaffRole.lab => const Color(0xFF0097A7),
     StaffRole.radiologyStaff => const Color(0xFF0277BD),
+    StaffRole.biomedicalStaff => const Color(0xFF1565C0),
     StaffRole.housekeeping => const Color(0xFF007A64),
     StaffRole.housekeepingIncharge => const Color(0xFF00695C),
     StaffRole.receptionist => const Color(0xFF455A64),
@@ -249,7 +262,7 @@ enum StaffRole {
     StaffRole.billingIncharge ||
     StaffRole.financeIncharge => 'billing',
     StaffRole.driver => 'ambulance',
-    StaffRole.maintenance => 'maintenance',
+    StaffRole.maintenance || StaffRole.biomedicalStaff => 'maintenance',
     StaffRole.emergencyResponder => 'ambulance',
     StaffRole.hr ||
     StaffRole.admin ||
@@ -545,6 +558,13 @@ class RoleFeatures {
     route: '/staff-roster/maintenance',
     color: Color(0xFFF9A825),
   );
+  static const DashboardFeature _biomedWorkOrders = DashboardFeature(
+    id: 'biomed_work_orders',
+    titleKey: 'role.feature.biomed_work_orders',
+    icon: Icons.build_circle_outlined,
+    route: '/biomed-work-orders',
+    color: Color(0xFF1565C0),
+  );
   static const DashboardFeature _pharmacyRoster = DashboardFeature(
     id: 'pharmacy_roster',
     titleKey: 'role.feature.pharmacy_roster',
@@ -785,6 +805,7 @@ class RoleFeatures {
         _dischargeHub,
         _bloodBank,
         _dietary,
+        _biomedWorkOrders,
         _leave,
         _staffDirectory,
         _messaging,
@@ -994,6 +1015,7 @@ class RoleFeatures {
         _housekeepingCommand,
         _housekeepingHub,
         _housekeepingTasks,
+        _biomedWorkOrders,
         _messaging,
         _auditLogs,
         _staffDiagnostics,
@@ -1049,6 +1071,17 @@ class RoleFeatures {
         _investigationsUpload,
         _investigationResults,
         _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.biomedicalStaff => [
+        _schedule,
+        _dutyPreference,
+        _maintenanceRoster,
+        _biomedWorkOrders,
+        _clinicalAiReviewQueue,
         _staffDirectory,
         _messaging,
         _profile,
@@ -1139,6 +1172,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _maintenanceRoster,
+        _biomedWorkOrders,
         _staffDirectory,
         _messaging,
         _profile,
@@ -1844,10 +1878,51 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
+      StaffRole.biomedicalStaff || StaffRole.maintenance => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+          ),
+          labelKey: 'role.nav.home',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.build_outlined),
+            activeIcon: Icon(Icons.build),
+          ),
+          labelKey: 'role.nav.work',
+          route: '/biomed-work-orders',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+          ),
+          labelKey: 'role.nav.my_roster',
+          route: '/schedule',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+          ),
+          labelKey: 'role.nav.messages',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+          ),
+          labelKey: 'role.nav.profile',
+          route: '/profile',
+        ),
+      ],
       StaffRole.driver ||
       StaffRole.security ||
-      StaffRole.emergencyResponder ||
-      StaffRole.maintenance => [
+      StaffRole.emergencyResponder => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -2164,6 +2239,7 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent ||
       StaffRole.general ||
       StaffRole.housekeeping ||
+      StaffRole.biomedicalStaff ||
       StaffRole.maintenance ||
       StaffRole.nurse ||
       StaffRole.ipStaffNurse ||

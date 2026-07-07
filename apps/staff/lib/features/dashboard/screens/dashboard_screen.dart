@@ -793,6 +793,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.driver ||
       StaffRole.security ||
       StaffRole.emergencyResponder => {'driver_roster'},
+      StaffRole.biomedicalStaff => {
+        'maintenance_roster',
+        'biomed_work_orders',
+        'clinical_ai_review_queue',
+        'staff_directory',
+      },
       StaffRole.maintenance => {'maintenance_roster', 'staff_directory'},
       StaffRole.general => {'housekeeping_hub', 'housekeeping_tasks'},
     };

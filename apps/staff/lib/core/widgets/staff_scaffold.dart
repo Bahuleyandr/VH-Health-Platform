@@ -591,7 +591,6 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.driver:
       case StaffRole.security:
       case StaffRole.emergencyResponder:
-      case StaffRole.maintenance:
         return [
           const _NavItem(
             'role.nav.home',
@@ -604,6 +603,34 @@ class StaffScaffold extends StatelessWidget {
             Icons.build_outlined,
             Icons.build,
             '/dashboard',
+          ),
+          const _NavItem(
+            'role.nav.messages',
+            Icons.chat_outlined,
+            Icons.chat,
+            '/messaging',
+          ),
+          const _NavItem(
+            'role.nav.profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.biomedicalStaff:
+      case StaffRole.maintenance:
+        return [
+          const _NavItem(
+            'role.nav.home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'role.nav.work',
+            Icons.build_outlined,
+            Icons.build,
+            '/biomed-work-orders',
           ),
           const _NavItem(
             'role.nav.messages',

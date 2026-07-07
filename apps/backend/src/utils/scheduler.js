@@ -188,6 +188,7 @@ import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.j
 
 // Operational forecast alert sweep — Task 4. Advisory; flag-gated.
 import { runSweep } from '../services/ai/operationalAlertService.js';
+import { runBiomedCmmsMaintenanceSweep } from '../services/biomed/biomedCmmsService.js';
 
 // Prior-auth → appeal chain starter sweep — Task 6. Auto-starts the chain
 // for denied prior-auth requests that have no appeal letter / run yet.
@@ -574,6 +575,13 @@ if (process.env.NODE_ENV !== 'test') {
   // guarantee for breach/critical-lab/escalation notices was inert.
   registerCron('*/2 * * * *', withJobLock('notification-outbox-drain', async () => {
     await drainNotificationOutbox({ limit: 100 });
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('biomed-cmms-maintenance-sweep', async () => {
+    const result = await runForEachTenant('biomed-cmms-maintenance-sweep', (tenantId) =>
+      runBiomedCmmsMaintenanceSweep({ tenantId })
+    );
+    logger.info('biomed-cmms-maintenance-sweep complete', result);
   }));
 
   // 📨 Every 2 minutes - drain the event_outbox. publishEvent() writes
