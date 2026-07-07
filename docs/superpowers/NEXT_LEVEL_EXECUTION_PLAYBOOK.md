@@ -123,7 +123,10 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 408–410 | NL-5 P2 + indigenous-KB substrate | launched 2026-07-07 (round 4) |
 | 411–412 | N6-10 infusion chairs | launched 2026-07-07 (round 4) |
 | 413–414 | N6-12 mortuary | launched 2026-07-07 (round 4) |
-| 415+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 415–417 | N6-7 ophthalmology | launched 2026-07-07 (round 5) |
+| 418–420 | N6-9 dialysis completion | launched 2026-07-07 (round 5) |
+| 421–423 | N6-13 CSSD | launched 2026-07-07 (round 5) |
+| 424+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
