@@ -73,6 +73,7 @@ export const ROLES = {
   // Platform / governance
   INTEGRATION_ADMIN: 'INTEGRATION_ADMIN',
   WEBHOOK_CLIENT: 'WEBHOOK_CLIENT',
+  DEVICE_GATEWAY: 'DEVICE_GATEWAY',
   AI_GOVERNANCE_ADMIN: 'AI_GOVERNANCE_ADMIN',
   DATA_PROTECTION_OFFICER: 'DATA_PROTECTION_OFFICER'
 };
@@ -152,9 +153,8 @@ export const FINANCE_REVIEW_ROLES = [
   ROLES.ADMIN,
   'SUPER_ADMIN'
 ];
-// Machine-account role for inbound webhook clients authenticating with
-// API key + signature; never assigned to a human.
-export const MACHINE_ROLES = [ROLES.WEBHOOK_CLIENT];
+// Machine-account roles for non-human integrations; never assigned to a human.
+export const MACHINE_ROLES = [ROLES.WEBHOOK_CLIENT, ROLES.DEVICE_GATEWAY];
 
 export const ALL_STAFF_ROLES = [
   ...CLINICAL_ROLES,
@@ -233,6 +233,7 @@ export const isAmbulanceCoordinator = role => role === ROLES.AMBULANCE_COORDINAT
 export const isStoresPurchaseIncharge = role => role === ROLES.STORES_PURCHASE_INCHARGE;
 export const isIntegrationAdmin = role => role === ROLES.INTEGRATION_ADMIN;
 export const isWebhookClient = role => role === ROLES.WEBHOOK_CLIENT;
+export const isDeviceGateway = role => role === ROLES.DEVICE_GATEWAY;
 export const isAiGovernanceAdmin = role => role === ROLES.AI_GOVERNANCE_ADMIN;
 export const isDataProtectionOfficer = role => role === ROLES.DATA_PROTECTION_OFFICER;
 // B-3 — pathologist tier. Only these roles can sign off lab results

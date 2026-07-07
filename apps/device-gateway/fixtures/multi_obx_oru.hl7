@@ -1,0 +1,7 @@
+MSH|^~\&|MON-ICU-01|ICU||VHHEALTH|20260707090000||ORU^R01|NL7P1-001|P|2.5
+PID|1||aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa||NL7^Patient
+PV1|1|I|BED-01
+OBR|1|||VITALS
+OBX|1|NM|8867-4^Heart rate||118|/min|||||F
+OBX|2|NM|59408-5^SpO2||89|%|||||F
+OBX|3|NM|9279-1^Respiratory rate||28|/min|||||F

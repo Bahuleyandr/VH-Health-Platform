@@ -111,6 +111,13 @@ jobs:
       notification_label: Full Stack Sweep / admin
     secrets: inherit
 
+  device-gateway-lint-and-test:
+    uses: ./.github/workflows/_reusable-device-gateway-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / device gateway
+    secrets: inherit
+
   kubernetes-manifest-validation:
     uses: ./.github/workflows/_reusable-kubernetes-manifests.yml
     with:

@@ -16,6 +16,7 @@ import {
   completeWorkflowSla,
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { endActiveAssociationsForPatient } from '../devices/deviceAssociationService.js';
 
 function tenantOf(options = {}) {
   return options.tenantId || getCurrentTenantId() || null;
@@ -261,6 +262,13 @@ class BedManagementService {
           bedId,
           dischargedBy,
         );
+        await endActiveAssociationsForPatient({
+          tenantId: requireTenantId(tenantId),
+          patientUid: dischargePatientUid,
+          reason: 'discharge',
+          actorUid: dischargedBy,
+          actorRole: 'DISCHARGE',
+        }, { db: tx });
       }
 
       const updated = await tx.$queryRawUnsafe(
@@ -574,6 +582,13 @@ class BedManagementService {
         admission.tenant_id || fromBed.tenant_id,
         patientUid, admission.id, fromBedId, toBedId, reason, transferredBy
       );
+      await endActiveAssociationsForPatient({
+        tenantId: requireTenantId(tenantId),
+        patientUid,
+        reason: 'transfer',
+        actorUid: transferredBy,
+        actorRole,
+      }, { db: tx });
 
       // Atomic cleaning-SLA start (audit §3a): the vacated (from) bed just went
       // to 'cleaning', so start its turnaround clock in THIS tx rather than

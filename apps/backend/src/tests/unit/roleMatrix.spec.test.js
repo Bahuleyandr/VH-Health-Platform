@@ -121,7 +121,7 @@ const GATES = [
   {
     name: 'isMachineRole',
     fn: isMachineRole,
-    allow: new Set(['WEBHOOK_CLIENT'])
+    allow: new Set(['WEBHOOK_CLIENT', 'DEVICE_GATEWAY'])
   },
   {
     name: 'canSignDischargeSummary',
@@ -286,9 +286,9 @@ describe('Role × gate matrix (Phase F3)', () => {
     expect(ALL_ROLES.length).toBeGreaterThanOrEqual(38);
   });
 
-  it('isStaff covers every role except PATIENT and WEBHOOK_CLIENT', () => {
+  it('isStaff covers every human role except PATIENT and machine roles', () => {
     for (const role of ALL_ROLES) {
-      const expected = role !== 'PATIENT' && role !== 'WEBHOOK_CLIENT';
+      const expected = role !== 'PATIENT' && !isMachineRole(role);
       expect(isStaff(role)).toBe(expected);
     }
   });

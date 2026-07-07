@@ -515,6 +515,55 @@ class MedicalApiService {
     });
   }
 
+  /// GET /devices/registry — active clinical devices for bedside association.
+  static Future<List<Map<String, dynamic>>> listClinicalDevices() async {
+    final data = await _get('/devices/registry', query: {'status': 'active'});
+    final rows = data['devices'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  /// GET /devices/associations — active associations for a patient/device.
+  static Future<List<Map<String, dynamic>>> listDeviceAssociations({
+    String? patientUid,
+  }) async {
+    final query = <String, String>{};
+    if (patientUid != null && patientUid.isNotEmpty) {
+      query['patient_uid'] = patientUid;
+    }
+    final data = await _get('/devices/associations', query: query);
+    final rows = data['associations'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  /// POST /devices/associations — scanned bedside device association.
+  static Future<Map<String, dynamic>> associateDevice({
+    required String patientUid,
+    required String deviceCode,
+    String channel = '',
+  }) async {
+    return _post('/devices/associations', {
+      'patient_uid': patientUid,
+      'device_code': deviceCode,
+      'channel': channel,
+      'start_method': 'scan',
+    });
+  }
+
+  /// POST /devices/associations/:id/disconnect.
+  static Future<Map<String, dynamic>> disconnectDeviceAssociation(int id) {
+    return _post('/devices/associations/$id/disconnect', {
+      'end_reason': 'manual',
+    });
+  }
+
   /// GET /clinical/mar/due — nurse "due meds" list within a rolling window.
   /// Returns a list of map rows with keys: id, patient_uid, patient_name,
   /// medication_name, dose, dosage, route, scheduled_time, status, bed_number,

@@ -1,0 +1,6 @@
+MSH|^~\&|MON-ICU-01|ICU||VHHEALTH|20260707090100||ORU^R01|NL7P1-002|P|2.5
+PID|1||aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa||NL7^Patient
+PV1|1|I|BED-01
+OBR|1|||85354-9^Blood pressure panel
+OBX|1|NM|8480-6^Systolic BP||82|mmHg|||||F
+OBX|2|NM|8462-4^Diastolic BP||45|mmHg|||||F

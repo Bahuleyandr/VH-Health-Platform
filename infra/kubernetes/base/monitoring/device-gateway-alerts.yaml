@@ -1,0 +1,51 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vhhealth-device-gateway-alerts
+  namespace: vhhealth-monitoring
+  labels:
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: vhhealth.device-gateway
+      rules:
+        - alert: DeviceGatewaySpoolDepthHigh
+          expr: gateway_spool_depth > 100
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Device gateway spool is backing up
+            description: "gateway_spool_depth has been above 100 for 15 minutes."
+        - alert: DeviceGatewaySpoolOldestAgeHigh
+          expr: gateway_spool_oldest_age_seconds > 900
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Device gateway oldest queued message is stale
+            description: "gateway_spool_oldest_age_seconds is above 15 minutes."
+        - alert: DeviceGatewayForwardFailures
+          expr: increase(gateway_forward_failures_total[10m]) > 5
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Device gateway backend forwarding failures
+            description: "gateway_forward_failures_total is burning over the last 10 minutes."
+        - alert: DeviceSilentDevices
+          expr: device_silent_devices > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: One or more active clinical devices are silent
+            description: "device_silent_devices is non-zero."
+        - alert: DeviceUnassociatedMessages
+          expr: increase(device_unassociated_messages_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Device messages are arriving without active patient association
+            description: "device_unassociated_messages_total increased in the last 15 minutes."

@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: device-gateway
+  namespace: vhhealth-monitoring
+  labels:
+    release: vhhealth-monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - vhhealth
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: device-gateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

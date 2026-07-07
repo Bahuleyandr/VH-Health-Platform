@@ -113,6 +113,37 @@ function proteinuriaIsPositive(value) {
   return ['1+', '2+', '3+', '4+'].includes(v);
 }
 
+export async function classifyVitalAnomalyCandidates(patientId, vitals) {
+  const patientCtx = await resolvePatientContext(patientId);
+  const ranges = pickRanges(patientCtx);
+  const candidates = [];
+  for (const [vitalName, value] of Object.entries(vitals || {})) {
+    if (value === null || value === undefined || !ranges[vitalName]) continue;
+    const rawValue = vitalName === 'temperature'
+      ? normalizeTemperatureC(value, vitals.temperature_unit)
+      : value;
+    const numValue = parseFloat(rawValue);
+    if (Number.isNaN(numValue)) continue;
+    const range = ranges[vitalName];
+    let severity = null;
+    if (numValue <= range.critical_min || numValue >= range.critical_max) {
+      severity = 'CRITICAL';
+    } else if (numValue < range.min || numValue > range.max) {
+      severity = 'WARNING';
+    }
+    if (severity) {
+      candidates.push({
+        vital_name: vitalName,
+        value: numValue,
+        severity,
+        unit: range.unit,
+        normal_range: `${range.min}-${range.max}`,
+      });
+    }
+  }
+  return candidates;
+}
+
 /**
  * Normalize a temperature reading to Celsius — the unit the threshold tables
  * above use (critical_max 40.0, etc.). The alert engine compares against
@@ -236,6 +267,21 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       // D26 — preeclampsia screen always belongs on the CDS dashboard.
       is_pregnancy_bp_signal: true,
     });
+  }
+
+  if (alerts.length > 0 && context.source === 'device') {
+    const filteredAlerts = [];
+    for (const alert of alerts) {
+      const artifactVerdict = context.artifactVerdicts?.[alert.vital_name];
+      if (artifactVerdict && artifactVerdict.corroborated === false) {
+        continue;
+      }
+      if (await hasOpenDeviceRepeat(alert, context)) {
+        continue;
+      }
+      filteredAlerts.push(alert);
+    }
+    alerts.splice(0, alerts.length, ...filteredAlerts);
   }
 
   // PATIENT SAFETY: Alerts are persisted ATOMICALLY — every clinical_alerts
@@ -395,20 +441,25 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         });
       }
 
-      // Dispatch notification to the responsible clinician for CRITICAL alerts
+      // Dispatch notification to the responsible clinician for CRITICAL alerts.
+      // Device-originated vitals deliberately skip recorded_by push delivery:
+      // the results-inbox DUTY-role task below is the ownership surface for
+      // monitor feeds, and DEVICE_GATEWAY must never become a clinician target.
       if (alert.severity === 'CRITICAL') {
-        try {
-          await dispatch({
-            userId: String(alert.recorded_by),
-            title: `CRITICAL Vital Alert — Patient #${alert.patient_id}`,
-            body: alert.message,
-            channels: ['push', 'inapp'],
-            data: { patient_id: String(alert.patient_id), vital_name: alert.vital_name, severity: 'CRITICAL' },
-            type: 'clinical_alert',
-          });
-        } catch (notifyErr) {
-          // Notification failure must not block alert persistence — log and continue
-          logger.error(`Failed to dispatch CRITICAL alert notification for patient ${alert.patient_id}:`, notifyErr.message);
+        if (context.source !== 'device') {
+          try {
+            await dispatch({
+              userId: String(alert.recorded_by),
+              title: `CRITICAL Vital Alert — Patient #${alert.patient_id}`,
+              body: alert.message,
+              channels: ['push', 'inapp'],
+              data: { patient_id: String(alert.patient_id), vital_name: alert.vital_name, severity: 'CRITICAL' },
+              type: 'clinical_alert',
+            });
+          } catch (notifyErr) {
+            // Notification failure must not block alert persistence — log and continue
+            logger.error(`Failed to dispatch CRITICAL alert notification for patient ${alert.patient_id}:`, notifyErr.message);
+          }
         }
 
         // Results-inbox producer hook (design §4.2 — deterministic core). The
@@ -456,9 +507,37 @@ function isCodeBlueVital(name) {
   return CODE_BLUE_VITALS.has(name);
 }
 
+async function hasOpenDeviceRepeat(alert, context) {
+  if (!context.suppressRepeats) return false;
+  const windows = context.suppressionWindows || {};
+  const fallback = alert.severity === 'CRITICAL' ? 10 : 30;
+  const windowMinutes = Math.max(1, Math.min(Number.parseInt(windows[alert.severity] ?? fallback, 10) || fallback, 240));
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM clinical_alerts
+        WHERE patient_id = $1::int
+          AND vital_name = $2
+          AND severity = $3
+          AND COALESCE(acknowledged, false) = false
+          AND acknowledged_at IS NULL
+          AND created_at >= NOW() - ($4::int * INTERVAL '1 minute')
+        LIMIT 1`,
+      alert.patient_id,
+      alert.vital_name,
+      alert.severity,
+      windowMinutes,
+    );
+    return rows.length > 0;
+  } catch (err) {
+    logger.warn(`vitalSignMonitor: repeat-suppression lookup failed for patient=${alert.patient_id}: ${err.message}`);
+    return false;
+  }
+}
+
 // Backward-compat export — callers used to read VITAL_REFERENCE_RANGES
 // directly. Keep it as the adult table since that was the previous single
 // source of truth.
 const VITAL_REFERENCE_RANGES = ADULT_RANGES;
 export { VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
-export default { checkVitalAnomalies, resolvePatientContext, normalizeTemperatureC, VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
+export default { checkVitalAnomalies, classifyVitalAnomalyCandidates, resolvePatientContext, normalizeTemperatureC, VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };

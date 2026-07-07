@@ -1,0 +1,391 @@
+// src/services/devices/deviceAssociationService.js
+
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+
+const START_METHODS = new Set(['scan', 'manual', 'adt']);
+const END_REASONS = new Set(['manual', 'device_reassigned', 'discharge', 'transfer', 'device_retired']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ASSOCIATION_SELECT = `
+  a.id, a.tenant_id, a.device_registry_id, d.device_code, d.display_name AS device_name,
+  d.kind AS device_kind, a.channel, a.patient_uid, a.bed_id, a.started_at,
+  a.started_by, a.start_method, a.ended_at, a.ended_by, a.end_reason, a.metadata
+`;
+
+function safeText(value, max = 255) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function normalizeChannel(value) {
+  return safeText(value, 80) || '';
+}
+
+function normalizeUuid(value, label) {
+  const text = safeText(value, 80);
+  if (!text || !UUID_RE.test(text)) {
+    throw AppError.badRequest(`${label} must be a UUID`);
+  }
+  return text;
+}
+
+function maybeUuid(value, label) {
+  if (value === null || value === undefined || value === '') return null;
+  return normalizeUuid(value, label);
+}
+
+function optionalUuid(value) {
+  const text = safeText(value, 80);
+  return text && UUID_RE.test(text) ? text : null;
+}
+
+function positiveInt(value, label) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw AppError.badRequest(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function startMethod(value) {
+  const text = safeText(value, 20) || 'manual';
+  if (!START_METHODS.has(text)) {
+    throw AppError.badRequest('start_method must be one of: scan, manual, adt');
+  }
+  return text;
+}
+
+function endReason(value) {
+  const text = safeText(value, 40) || 'manual';
+  if (!END_REASONS.has(text)) {
+    throw AppError.badRequest('end_reason must be one of: manual, device_reassigned, discharge, transfer, device_retired');
+  }
+  return text;
+}
+
+function jsonObject(value) {
+  if (value === null || value === undefined) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw AppError.badRequest('metadata must be a JSON object');
+  }
+  return value;
+}
+
+async function resolveDevice(db, tenantId, { deviceId = null, deviceCode = null } = {}) {
+  const filters = ['tenant_id = $1::uuid', 'status = \'active\''];
+  const params = [tenantId];
+  if (deviceId) {
+    params.push(positiveInt(deviceId, 'device_id'));
+    filters.push(`id = $${params.length}`);
+  } else if (safeText(deviceCode, 120)) {
+    params.push(safeText(deviceCode, 120));
+    filters.push(`device_code = $${params.length}`);
+  } else {
+    throw AppError.badRequest('device_id or device_code is required', 'DEVICE_REQUIRED');
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, device_code, display_name, kind
+       FROM device_registry
+      WHERE ${filters.join(' AND ')}
+      LIMIT 1`,
+    ...params,
+  );
+  if (!rows[0]) throw AppError.notFound('Active device not found', 'DEVICE_NOT_FOUND');
+  return rows[0];
+}
+
+async function assertPatient(db, tenantId, patientUid) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT uid FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+    patientUid,
+    tenantId,
+  );
+  if (!rows[0]) throw AppError.notFound('Patient not found', 'DEVICE_ASSOCIATION_PATIENT_NOT_FOUND');
+}
+
+async function assertBed(db, tenantId, bedId) {
+  if (!bedId) return;
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id FROM beds WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    bedId,
+    tenantId,
+  );
+  if (!rows[0]) throw AppError.notFound('Bed not found', 'DEVICE_ASSOCIATION_BED_NOT_FOUND');
+}
+
+async function auditAssociation(db, {
+  tenantId,
+  patientUid,
+  actorUid,
+  actorRole,
+  action,
+  association,
+  beforeState = null,
+  afterState = null,
+  metadata = {},
+}) {
+  await recordClinicalAuditEvent({
+    tenantId,
+    patientUid,
+    action,
+    actorUid,
+    actorRole,
+    resourceType: 'device_association',
+    resourceTable: 'device_patient_associations',
+    resourceId: String(association.id),
+    beforeState,
+    afterState,
+    metadata,
+    idempotencyKey: `${action}:${association.id}:${association.ended_at || association.started_at}`,
+  }, { db });
+}
+
+export async function listAssociations({
+  tenantId,
+  activeOnly = true,
+  patientUid = null,
+  deviceId = null,
+  limit = 100,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const params = [tid];
+  const where = ['a.tenant_id = $1::uuid'];
+  if (activeOnly) where.push('a.ended_at IS NULL');
+  if (patientUid) {
+    params.push(normalizeUuid(patientUid, 'patient_uid'));
+    where.push(`a.patient_uid = $${params.length}::uuid`);
+  }
+  if (deviceId) {
+    params.push(positiveInt(deviceId, 'device_id'));
+    where.push(`a.device_registry_id = $${params.length}`);
+  }
+  params.push(Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 500)));
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${ASSOCIATION_SELECT}
+       FROM device_patient_associations a
+       JOIN device_registry d ON d.id = a.device_registry_id AND d.tenant_id = a.tenant_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY a.started_at DESC
+      LIMIT $${params.length}::int`,
+    ...params,
+  );
+  return { associations: rows, count: rows.length };
+}
+
+export async function resolveActiveAssociation({
+  tenantId,
+  deviceId = null,
+  deviceCode = null,
+  channel = '',
+} = {}, options = {}) {
+  const tid = requireTenantId(tenantId);
+  const db = options.db || prisma;
+  const chan = normalizeChannel(channel);
+  const params = [tid, chan];
+  let deviceFilter;
+  if (deviceId) {
+    params.push(positiveInt(deviceId, 'device_id'));
+    deviceFilter = `d.id = $${params.length}`;
+  } else if (safeText(deviceCode, 120)) {
+    params.push(safeText(deviceCode, 120));
+    deviceFilter = `d.device_code = $${params.length}`;
+  } else {
+    throw AppError.badRequest('device_id or device_code is required', 'DEVICE_REQUIRED');
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT ${ASSOCIATION_SELECT}
+       FROM device_patient_associations a
+       JOIN device_registry d ON d.id = a.device_registry_id AND d.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1::uuid
+        AND a.channel = $2
+        AND a.ended_at IS NULL
+        AND ${deviceFilter}
+      LIMIT 1`,
+    ...params,
+  );
+  return rows[0] || null;
+}
+
+export async function associateDevicePatient(input = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId || input.tenantId);
+  const patientUid = normalizeUuid(input.patient_uid ?? input.patientUid, 'patient_uid');
+  const channel = normalizeChannel(input.channel);
+  const method = startMethod(input.start_method ?? input.startMethod);
+  const bedId = positiveInt(input.bed_id ?? input.bedId, 'bed_id');
+  const metadata = jsonObject(input.metadata);
+  const actorUid = maybeUuid(context.actorUid, 'actor uid');
+  const actorRole = safeText(context.actorRole, 80);
+
+  return setTenantTx(tenantId, async (tx) => {
+    const device = await resolveDevice(tx, tenantId, {
+      deviceId: input.device_id ?? input.deviceId,
+      deviceCode: input.device_code ?? input.deviceCode,
+    });
+    await assertPatient(tx, tenantId, patientUid);
+    await assertBed(tx, tenantId, bedId);
+
+    const priorRows = await tx.$queryRawUnsafe(
+      `UPDATE device_patient_associations
+          SET ended_at = NOW(),
+              ended_by = $5::uuid,
+              end_reason = 'device_reassigned',
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND device_registry_id = $2
+          AND channel = $3
+          AND ended_at IS NULL
+        RETURNING *`,
+      tenantId,
+      device.id,
+      channel,
+      patientUid,
+      actorUid,
+    );
+
+    const inserted = await tx.$queryRawUnsafe(
+      `INSERT INTO device_patient_associations
+         (tenant_id, device_registry_id, channel, patient_uid, bed_id, started_by, start_method, metadata)
+       VALUES ($1::uuid, $2, $3, $4::uuid, $5::int, $6::uuid, $7, $8::jsonb)
+       RETURNING *`,
+      tenantId,
+      device.id,
+      channel,
+      patientUid,
+      bedId,
+      actorUid,
+      method,
+      JSON.stringify(metadata),
+    );
+    const association = inserted[0];
+
+    for (const prior of priorRows) {
+      await auditAssociation(tx, {
+        tenantId,
+        patientUid: prior.patient_uid,
+        actorUid,
+        actorRole,
+        action: 'device.association_ended',
+        association: prior,
+        afterState: { ended_at: prior.ended_at, end_reason: 'device_reassigned' },
+        metadata: { device_code: device.device_code, channel },
+      });
+    }
+    await auditAssociation(tx, {
+      tenantId,
+      patientUid,
+      actorUid,
+      actorRole,
+      action: 'device.associated',
+      association,
+      afterState: { patient_uid: patientUid, device_registry_id: device.id, channel, start_method: method },
+      metadata: { device_code: device.device_code, bed_id: bedId, ...metadata },
+    });
+
+    return {
+      ...association,
+      device_code: device.device_code,
+      device_name: device.display_name,
+      device_kind: device.kind,
+    };
+  });
+}
+
+export async function disconnectAssociation(input = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId || input.tenantId);
+  const associationId = positiveInt(input.id, 'association id');
+  const reason = endReason(input.end_reason ?? input.endReason ?? 'manual');
+  const actorUid = maybeUuid(context.actorUid, 'actor uid');
+  const actorRole = safeText(context.actorRole, 80);
+
+  return setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE device_patient_associations
+          SET ended_at = NOW(),
+              ended_by = $3::uuid,
+              end_reason = $4,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2 AND ended_at IS NULL
+        RETURNING *`,
+      tenantId,
+      associationId,
+      actorUid,
+      reason,
+    );
+    if (!rows[0]) throw AppError.notFound('Active device association not found', 'DEVICE_ASSOCIATION_NOT_FOUND');
+    await auditAssociation(tx, {
+      tenantId,
+      patientUid: rows[0].patient_uid,
+      actorUid,
+      actorRole,
+      action: 'device.association_ended',
+      association: rows[0],
+      afterState: { ended_at: rows[0].ended_at, end_reason: reason },
+      metadata: { reason },
+    });
+    return rows[0];
+  });
+}
+
+export async function endActiveAssociationsForPatient({
+  tenantId,
+  patientUid,
+  reason,
+  actorUid = null,
+  actorRole = null,
+} = {}, options = {}) {
+  const tid = requireTenantId(tenantId);
+  const uid = normalizeUuid(patientUid, 'patient_uid');
+  const cleanReason = endReason(reason);
+  const actor = optionalUuid(actorUid);
+  const db = options.db || prisma;
+  let rows;
+  try {
+    rows = await db.$queryRawUnsafe(
+      `UPDATE device_patient_associations
+          SET ended_at = NOW(),
+              ended_by = $3::uuid,
+              end_reason = $4,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND ended_at IS NULL
+        RETURNING *`,
+      tid,
+      uid,
+      actor,
+      cleanReason,
+    );
+  } catch (err) {
+    const cause = err?.meta?.driverAdapterError?.cause;
+    if (cause?.originalCode === '42P01' || cause?.code === '42P01') {
+      return [];
+    }
+    throw err;
+  }
+  for (const association of rows) {
+    await auditAssociation(db, {
+      tenantId: tid,
+      patientUid: uid,
+      actorUid: actor,
+      actorRole: safeText(actorRole, 80),
+      action: 'device.association_ended',
+      association,
+      afterState: { ended_at: association.ended_at, end_reason: cleanReason },
+      metadata: { reason: cleanReason },
+    });
+  }
+  return rows;
+}
+
+export default {
+  listAssociations,
+  resolveActiveAssociation,
+  associateDevicePatient,
+  disconnectAssociation,
+  endActiveAssociationsForPatient,
+};

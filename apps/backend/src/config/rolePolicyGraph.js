@@ -360,6 +360,7 @@ const DISPLAY_TITLE_OVERRIDES = {
   HR_STAFF: 'HR Staff',
   STORES_PURCHASE_INCHARGE: 'Stores / Purchase Incharge',
   WEBHOOK_CLIENT: 'Webhook Client',
+  DEVICE_GATEWAY: 'Device Gateway',
   AI_GOVERNANCE_ADMIN: 'AI Governance Admin',
   DATA_PROTECTION_OFFICER: 'Data Protection Officer',
 };
