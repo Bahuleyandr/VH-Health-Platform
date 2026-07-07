@@ -8122,38 +8122,43 @@ model quality_incidents {
 }
 
 model radiology_orders {
-  id                      Int       @id @default(autoincrement())
-  patient_uid             String    @db.Uuid
-  encounter_id            Int?
-  modality                String    @db.VarChar(50)
-  body_part               String    @db.VarChar(100)
-  clinical_indication     String
-  priority                String?   @default("routine") @db.VarChar(50)
-  status                  String?   @default("ordered") @db.VarChar(50)
-  ordered_by              String    @db.Uuid
-  radiologist             String?   @db.Uuid
-  report                  String?
-  report_completed_at     DateTime? @db.Timestamptz(6)
-  notes                   String?
-  created_at              DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
-  acquired_at             DateTime? @db.Timestamptz(6)
-  acquired_by             String?   @db.Uuid
-  acquired_by_name        String?   @db.VarChar(160)
-  tech_uid                String?   @db.Uuid
-  tech_name               String?   @db.VarChar(160)
-  report_signed_off_at    DateTime? @db.Timestamptz(6)
-  report_signed_off_by    String?   @db.Uuid
-  tenant_id               String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tech_license_number     String?   @db.VarChar(120)
-  pacs_study_instance_uid String?   @db.VarChar(200)
-  acquisition_evidence    Json      @default("{}")
-  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
+  id                         Int                         @id @default(autoincrement())
+  patient_uid                String                      @db.Uuid
+  encounter_id               Int?
+  modality                   String                      @db.VarChar(50)
+  body_part                  String                      @db.VarChar(100)
+  clinical_indication        String
+  priority                   String?                     @default("routine") @db.VarChar(50)
+  status                     String?                     @default("ordered") @db.VarChar(50)
+  ordered_by                 String                      @db.Uuid
+  radiologist                String?                     @db.Uuid
+  report                     String?
+  report_completed_at        DateTime?                   @db.Timestamptz(6)
+  notes                      String?
+  created_at                 DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime?                   @default(now()) @db.Timestamptz(6)
+  acquired_at                DateTime?                   @db.Timestamptz(6)
+  acquired_by                String?                     @db.Uuid
+  acquired_by_name           String?                     @db.VarChar(160)
+  tech_uid                   String?                     @db.Uuid
+  tech_name                  String?                     @db.VarChar(160)
+  report_signed_off_at       DateTime?                   @db.Timestamptz(6)
+  report_signed_off_by       String?                     @db.Uuid
+  tenant_id                  String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tech_license_number        String?                     @db.VarChar(120)
+  pacs_study_instance_uid    String?                     @db.VarChar(200)
+  acquisition_evidence       Json                        @default("{}")
+  template_id                BigInt?
+  structured_report          Json                        @default("{}")
+  radiology_report_templates radiology_report_templates? @relation(fields: [template_id], references: [id], onUpdate: NoAction, map: "fk_radiology_orders_template")
+  tenants                    tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
+  radiology_peer_reviews     radiology_peer_reviews[]
 
   @@index([tenant_id], map: "idx_radiology_orders_tenant_id")
   @@index([pacs_study_instance_uid], map: "idx_radiology_orders_pacs_study_uid", where: raw("(pacs_study_instance_uid IS NOT NULL)"))
   @@index([status, created_at], map: "idx_radiology_orders_pending_acquisition", where: raw("((status)::text = ANY (ARRAY[('ordered'::character varying)::text, ('acquired'::character varying)::text, ('in_progress'::character varying)::text]))"))
   @@index([report_completed_at], map: "idx_radiology_orders_signoff_pending", where: raw("((report_completed_at IS NOT NULL) AND (report_signed_off_at IS NULL))"))
+  @@index([tenant_id, template_id], map: "idx_radiology_orders_template", where: raw("(template_id IS NOT NULL)"))
 }
 
 model referrals {
@@ -9700,6 +9705,10 @@ model tenants {
   provider_leaves                            provider_leaves[]
   quality_incidents                          quality_incidents[]
   radiology_orders                           radiology_orders[]
+  radiology_peer_review_settings             radiology_peer_review_settings?
+  radiology_peer_reviews                     radiology_peer_reviews[]
+  radiology_report_templates                 radiology_report_templates[]
+  radiology_tat_thresholds                   radiology_tat_thresholds[]
   referrals                                  referrals[]
   remote_prescriptions                       remote_prescriptions[]
   replacement_requests                       replacement_requests[]
@@ -15436,4 +15445,79 @@ model tenant_idp_role_mappings {
   tenants                   tenants?                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_idp_role_mappings_tenant")
 
   @@index([provider_id, status, priority], map: "idx_tenant_idp_role_mappings_provider_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model radiology_peer_review_settings {
+  tenant_id     String   @id @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  sampling_rate Decimal  @default(0.0200) @db.Decimal(5, 4)
+  updated_by    String?  @db.Uuid
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  metadata      Json     @default("{}")
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_radiology_peer_review_settings_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model radiology_peer_reviews {
+  id                      BigInt           @id @default(autoincrement())
+  tenant_id               String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  radiology_order_id      Int
+  reviewer_uid            String           @db.Uuid
+  report_author_uid       String           @db.Uuid
+  discrepancy_score       Int
+  outcome                 String           @default("no_change") @db.VarChar(40)
+  comments                String?
+  addendum_recommendation String?
+  reviewed_at             DateTime         @default(now()) @db.Timestamptz(6)
+  created_at              DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime         @default(now()) @db.Timestamptz(6)
+  metadata                Json             @default("{}")
+  radiology_orders        radiology_orders @relation(fields: [radiology_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_radiology_peer_reviews_order")
+  tenants                 tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_peer_reviews_tenant")
+
+  @@unique([tenant_id, radiology_order_id, reviewer_uid], map: "ux_radiology_peer_reviews_reviewer")
+  @@index([tenant_id, radiology_order_id, reviewed_at(sort: Desc)], map: "idx_radiology_peer_reviews_order")
+  @@index([tenant_id, reviewer_uid, reviewed_at(sort: Desc)], map: "idx_radiology_peer_reviews_reviewer")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model radiology_report_templates {
+  id                  BigInt             @id @default(autoincrement())
+  tenant_id           String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  template_code       String             @db.VarChar(80)
+  name                String             @db.VarChar(160)
+  modality            String             @db.VarChar(50)
+  body_part           String?            @db.VarChar(100)
+  sections            Json               @default("[]")
+  coded_fields_schema Json               @default("{}")
+  is_active           Boolean            @default(true)
+  created_by          String?            @db.Uuid
+  created_at          DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime           @default(now()) @db.Timestamptz(6)
+  radiology_orders    radiology_orders[]
+  tenants             tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_report_templates_tenant")
+
+  @@unique([tenant_id, template_code], map: "ux_radiology_report_templates_code")
+  @@index([tenant_id, modality, body_part], map: "idx_radiology_report_templates_lookup", where: raw("(is_active = true)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model radiology_tat_thresholds {
+  id               BigInt   @id @default(autoincrement())
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  priority         String   @db.VarChar(50)
+  modality         String?  @db.VarChar(50)
+  target_minutes   Int
+  warning_minutes  Int
+  critical_minutes Int
+  is_active        Boolean  @default(true)
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+  metadata         Json     @default("{}")
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_radiology_tat_thresholds_tenant")
 }

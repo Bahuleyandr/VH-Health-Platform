@@ -3,6 +3,7 @@
 
 import { useState, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus, RefreshCw, X } from "lucide-react";
 import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
 import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 
@@ -19,12 +20,47 @@ type RadiologyOrder = {
   notes?: string;
   created_at: string;
   updated_at?: string;
+  report_signed_off_at?: string | null;
 };
 
-// Keys match the real backend radiology_orders.status vocabulary (stored
-// lower-case, upper-cased here by StatusBadge): ordered -> acquired ->
-// completed, or cancelled. The legacy PENDING/IN_PROGRESS/REPORTED keys never
-// matched a real status (part of the same contract drift this slice fixed).
+type PeerReviewRow = {
+  id: number;
+  patient_uid: string;
+  modality: string;
+  body_part?: string | null;
+  priority?: string | null;
+  status: string;
+  radiologist?: string | null;
+  report_signed_off_by?: string | null;
+  report_signed_off_at?: string | null;
+  review_count: number;
+  latest_reviewed_at?: string | null;
+  max_discrepancy_score?: number | null;
+};
+
+type TatMetric = {
+  radiology_order_id: number;
+  patient_uid: string;
+  modality: string;
+  body_part?: string | null;
+  priority: string;
+  status: string;
+  ordered_at?: string | null;
+  acquired_at?: string | null;
+  reported_at?: string | null;
+  signed_at?: string | null;
+  tat_stage: string;
+  current_elapsed_minutes?: number | null;
+  ordered_to_signed_minutes?: number | null;
+  target_minutes?: number | null;
+  warning_minutes?: number | null;
+  critical_minutes?: number | null;
+  threshold_breached: boolean;
+  alert_severity?: string | null;
+};
+
+type ActiveTab = "worklist" | "new" | "peerReview" | "tat";
+
 const STATUS_COLORS: Record<string, string> = {
   ORDERED: "bg-yellow-100 text-yellow-800",
   ACQUIRED: "bg-blue-100 text-blue-800",
@@ -32,18 +68,45 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: "bg-gray-100 text-gray-600",
 };
 
+const PRIORITY_COLORS: Record<string, string> = {
+  STAT: "bg-red-100 text-red-800",
+  URGENT: "bg-amber-100 text-amber-800",
+  ROUTINE: "bg-slate-100 text-slate-700",
+};
+
+function unwrapList<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === "object") {
+    const obj = value as { data?: unknown; items?: unknown };
+    if (Array.isArray(obj.data)) return obj.data as T[];
+    if (Array.isArray(obj.items)) return obj.items as T[];
+  }
+  return [];
+}
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <span
-      className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[status?.toUpperCase()] ?? "bg-gray-100 text-gray-600"}`}
+      className={`inline-flex min-w-20 justify-center rounded-full px-2 py-1 text-xs font-medium ${STATUS_COLORS[status?.toUpperCase()] ?? "bg-gray-100 text-gray-600"}`}
     >
       {status}
     </span>
   );
 }
 
+function PriorityBadge({ priority }: { priority?: string | null }) {
+  const value = priority || "routine";
+  return (
+    <span
+      className={`inline-flex min-w-16 justify-center rounded-full px-2 py-1 text-xs font-medium ${PRIORITY_COLORS[value.toUpperCase()] ?? "bg-slate-100 text-slate-700"}`}
+    >
+      {value}
+    </span>
+  );
+}
+
 function fmtDate(d?: string | null) {
-  if (!d) return "—";
+  if (!d) return "-";
   try {
     return new Date(d).toLocaleDateString("en-IN", {
       day: "2-digit",
@@ -55,6 +118,36 @@ function fmtDate(d?: string | null) {
   }
 }
 
+function fmtDateTime(d?: string | null) {
+  if (!d) return "-";
+  try {
+    return new Date(d).toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return d;
+  }
+}
+
+function fmtMinutes(value?: number | null) {
+  if (value == null || Number.isNaN(Number(value))) return "-";
+  const minutes = Math.max(0, Number(value));
+  if (minutes >= 1440) {
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    return `${days}d ${hours}h`;
+  }
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  }
+  return `${minutes}m`;
+}
+
 function WorklistTab() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<RadiologyOrder | null>(null);
@@ -62,16 +155,16 @@ function WorklistTab() {
 
   const { data: orders = [], isLoading: loading, error, refetch } = useQuery({
     queryKey: ["radiology", "worklist"],
-    queryFn: async () => {
-      const r = await fetchAdminAPI<{ data: RadiologyOrder[] }>("/radiology/worklist");
-      const data = (r as Record<string, unknown>).data ?? r;
-      return Array.isArray(data) ? (data as RadiologyOrder[]) : [];
-    },
+    queryFn: async () => unwrapList<RadiologyOrder>(await fetchAdminAPI<unknown>("/radiology/worklist")),
   });
 
   const reportMut = useMutation({
     mutationFn: (orderId: number) => putJSON(`/api/v1/radiology/${orderId}/report`, { report }),
-    onSuccess: () => { setSelected(null); setReport(""); qc.invalidateQueries({ queryKey: ["radiology"] }); },
+    onSuccess: () => {
+      setSelected(null);
+      setReport("");
+      qc.invalidateQueries({ queryKey: ["radiology"] });
+    },
     onError: (e) => alert(e instanceof Error ? e.message : "Failed to submit report"),
   });
 
@@ -83,65 +176,73 @@ function WorklistTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Radiology Worklist</h2>
         <button
+          type="button"
           onClick={() => refetch()}
-          className="text-sm text-primary hover:underline"
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-foreground hover:bg-muted"
         >
-          ↻ Refresh
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          Refresh
         </button>
       </div>
-      {loading && (
-        <div className="text-center py-8 text-muted-foreground">Loading...</div>
-      )}
+      {loading && <div className="py-8 text-center text-muted-foreground">Loading...</div>}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error instanceof Error ? error.message : "Failed to load worklist"}
         </div>
       )}
       {!loading && orders.length === 0 && !error && (
-        <div className="text-center py-12 text-muted-foreground">
-          No pending orders
-        </div>
+        <div className="py-12 text-center text-muted-foreground">No pending orders</div>
       )}
       {orders.length > 0 && (
-        <div className="overflow-x-auto border border-border rounded-lg">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left bg-muted/50">
-                <th className="py-2 px-3">ID</th>
-                <th className="py-2 px-3">Modality</th>
-                <th className="py-2 px-3">Status</th>
-                <th className="py-2 px-3">Ordered</th>
-                <th className="py-2 px-3">Actions</th>
+              <tr className="border-b border-border bg-muted/50 text-left">
+                <th className="px-3 py-2">ID</th>
+                <th className="px-3 py-2">Modality</th>
+                <th className="px-3 py-2">Priority</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Ordered</th>
+                <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr
-                  key={o.id}
-                  className="border-b border-border hover:bg-muted/40"
-                >
-                  <td className="py-2 px-3 font-mono text-xs">{o.id}</td>
-                  <td className="py-2 px-3 font-medium">{o.modality}</td>
-                  <td className="py-2 px-3">
+                <tr key={o.id} className="border-b border-border hover:bg-muted/40">
+                  <td className="px-3 py-2 font-mono text-xs">{o.id}</td>
+                  <td className="px-3 py-2 font-medium">{o.modality}</td>
+                  <td className="px-3 py-2">
+                    <PriorityBadge priority={o.priority} />
+                  </td>
+                  <td className="px-3 py-2">
                     <StatusBadge status={o.status} />
                   </td>
-                  <td className="py-2 px-3">{fmtDate(o.created_at)}</td>
-                  <td className="py-2 px-3 flex gap-2">
-                    <button
-                      onClick={() => { setSelected(o); setReport(""); }}
-                      className="text-xs text-primary hover:underline"
-                    >
-                      Report
-                    </button>
-                    <button
-                      onClick={() => { if (confirm("Cancel this order?")) cancelMut.mutate(o.id); }}
-                      className="text-xs text-red-500 hover:underline"
-                    >
-                      Cancel
-                    </button>
+                  <td className="px-3 py-2">{fmtDate(o.created_at)}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected(o);
+                          setReport("");
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10"
+                      >
+                        Report
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("Cancel this order?")) cancelMut.mutate(o.id);
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -150,15 +251,17 @@ function WorklistTab() {
         </div>
       )}
       {selected && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl max-w-md w-full p-6 space-y-3">
-            <div className="flex justify-between">
-              <h3 className="font-bold">Add Report — #{selected.id}</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg bg-card p-6 shadow-lg">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="font-bold">Add Report #{selected.id}</h3>
               <button
+                type="button"
                 onClick={() => setSelected(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-muted hover:text-foreground"
+                aria-label="Close"
               >
-                ✕
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
             <textarea
@@ -166,19 +269,21 @@ function WorklistTab() {
               placeholder="Report findings / impression"
               value={report}
               onChange={(e) => setReport(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+              className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
-            <div className="flex gap-2">
+            <div className="mt-3 flex gap-2">
               <button
+                type="button"
                 onClick={() => setSelected(null)}
-                className="flex-1 py-2 border rounded-lg text-sm"
+                className="flex-1 rounded-lg border py-2 text-sm"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => selected && reportMut.mutate(selected.id)}
                 disabled={reportMut.isPending || !report.trim()}
-                className="flex-1 py-2 bg-primary text-white rounded-lg text-sm disabled:opacity-50"
+                className="flex-1 rounded-lg bg-primary py-2 text-sm text-white disabled:opacity-50"
               >
                 {reportMut.isPending ? "Saving..." : "Submit Report"}
               </button>
@@ -197,7 +302,7 @@ function NewOrderTab() {
     modality: "",
     body_part: "",
     clinical_indication: "",
-    priority: "NORMAL",
+    priority: "routine",
     notes: "",
   });
   const [success, setSuccess] = useState(false);
@@ -206,7 +311,7 @@ function NewOrderTab() {
     mutationFn: () => postJSON("/api/v1/radiology/orders", form),
     onSuccess: () => {
       setSuccess(true);
-      setForm({ patient_uid: "", modality: "", body_part: "", clinical_indication: "", priority: "NORMAL", notes: "" });
+      setForm({ patient_uid: "", modality: "", body_part: "", clinical_indication: "", priority: "routine", notes: "" });
       qc.invalidateQueries({ queryKey: ["radiology"] });
     },
     onError: (e) => alert(e instanceof Error ? e.message : "Failed to create order"),
@@ -222,10 +327,10 @@ function NewOrderTab() {
   };
 
   return (
-    <div className="max-w-md space-y-3">
+    <div className="max-w-lg space-y-3">
       <h2 className="text-lg font-semibold">New Radiology Order</h2>
       {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-green-700 text-sm">
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
           Order created successfully.
         </div>
       )}
@@ -233,32 +338,32 @@ function NewOrderTab() {
         placeholder="Patient UID *"
         value={form.patient_uid}
         onChange={(e) => setForm({ ...form, patient_uid: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        className="w-full rounded-lg border border-border px-3 py-2 text-sm"
       />
       <input
-        placeholder="Modality (e.g. X-RAY, CT, MRI) *"
+        placeholder="Modality (xray, CT, MRI, ultrasound) *"
         value={form.modality}
         onChange={(e) => setForm({ ...form, modality: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        className="w-full rounded-lg border border-border px-3 py-2 text-sm"
       />
       <input
-        placeholder="Body part (e.g. Chest, Abdomen) *"
+        placeholder="Body part (Chest, Abdomen) *"
         value={form.body_part}
         onChange={(e) => setForm({ ...form, body_part: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        className="w-full rounded-lg border border-border px-3 py-2 text-sm"
       />
       <input
         placeholder="Clinical indication *"
         value={form.clinical_indication}
         onChange={(e) => setForm({ ...form, clinical_indication: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        className="w-full rounded-lg border border-border px-3 py-2 text-sm"
       />
       <select
         value={form.priority}
         onChange={(e) => setForm({ ...form, priority: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+        className="w-full rounded-lg border border-border px-3 py-2 text-sm"
       >
-        {["NORMAL", "HIGH", "URGENT", "STAT"].map((p) => (
+        {["routine", "urgent", "stat"].map((p) => (
           <option key={p} value={p}>
             {p}
           </option>
@@ -269,48 +374,187 @@ function NewOrderTab() {
         placeholder="Notes (optional)"
         value={form.notes}
         onChange={(e) => setForm({ ...form, notes: e.target.value })}
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm resize-none"
+        className="w-full resize-none rounded-lg border border-border px-3 py-2 text-sm"
       />
       <button
+        type="button"
         onClick={submit}
         disabled={create.isPending}
-        className="w-full py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2 text-sm font-medium text-white disabled:opacity-50"
       >
+        <Plus className="h-4 w-4" aria-hidden="true" />
         {create.isPending ? "Creating..." : "Create Order"}
       </button>
     </div>
   );
 }
 
+function PeerReviewTab() {
+  const { data: rows = [], isLoading, error } = useQuery({
+    queryKey: ["radiology", "peer-reviews"],
+    queryFn: async () => unwrapList<PeerReviewRow>(await fetchAdminAPI<unknown>("/radiology/peer-reviews?limit=50")),
+  });
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold">Peer Review Board</h2>
+      {isLoading && <div className="py-8 text-center text-muted-foreground">Loading...</div>}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error instanceof Error ? error.message : "Failed to load peer-review board"}
+        </div>
+      )}
+      {!isLoading && rows.length === 0 && !error && (
+        <div className="py-12 text-center text-muted-foreground">No signed reports on the board</div>
+      )}
+      {rows.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/50 text-left">
+                <th className="px-3 py-2">Order</th>
+                <th className="px-3 py-2">Modality</th>
+                <th className="px-3 py-2">Priority</th>
+                <th className="px-3 py-2">Signed</th>
+                <th className="px-3 py-2">Reviews</th>
+                <th className="px-3 py-2">Max score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="border-b border-border hover:bg-muted/40">
+                  <td className="px-3 py-2 font-mono text-xs">{row.id}</td>
+                  <td className="px-3 py-2">{row.modality} {row.body_part || ""}</td>
+                  <td className="px-3 py-2">
+                    <PriorityBadge priority={row.priority} />
+                  </td>
+                  <td className="px-3 py-2">{fmtDateTime(row.report_signed_off_at)}</td>
+                  <td className="px-3 py-2">{row.review_count}</td>
+                  <td className="px-3 py-2">{row.max_discrepancy_score ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TatTab() {
+  const [breachedOnly, setBreachedOnly] = useState(false);
+  const path = `/radiology/tat-metrics?limit=50${breachedOnly ? "&breached=true" : ""}`;
+  const { data: rows = [], isLoading, error } = useQuery({
+    queryKey: ["radiology", "tat-metrics", breachedOnly],
+    queryFn: async () => unwrapList<TatMetric>(await fetchAdminAPI<unknown>(path)),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Turnaround Time</h2>
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={breachedOnly}
+            onChange={(e) => setBreachedOnly(e.target.checked)}
+            className="h-4 w-4 rounded border-border"
+          />
+          Breached only
+        </label>
+      </div>
+      {isLoading && <div className="py-8 text-center text-muted-foreground">Loading...</div>}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error instanceof Error ? error.message : "Failed to load TAT metrics"}
+        </div>
+      )}
+      {!isLoading && rows.length === 0 && !error && (
+        <div className="py-12 text-center text-muted-foreground">No TAT metrics found</div>
+      )}
+      {rows.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/50 text-left">
+                <th className="px-3 py-2">Order</th>
+                <th className="px-3 py-2">Modality</th>
+                <th className="px-3 py-2">Priority</th>
+                <th className="px-3 py-2">Stage</th>
+                <th className="px-3 py-2">Elapsed</th>
+                <th className="px-3 py-2">Target</th>
+                <th className="px-3 py-2">Alert</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.radiology_order_id} className="border-b border-border hover:bg-muted/40">
+                  <td className="px-3 py-2 font-mono text-xs">{row.radiology_order_id}</td>
+                  <td className="px-3 py-2">{row.modality} {row.body_part || ""}</td>
+                  <td className="px-3 py-2">
+                    <PriorityBadge priority={row.priority} />
+                  </td>
+                  <td className="px-3 py-2">{row.tat_stage.replaceAll("_", " ")}</td>
+                  <td className="px-3 py-2">{fmtMinutes(row.current_elapsed_minutes)}</td>
+                  <td className="px-3 py-2">{fmtMinutes(row.target_minutes)}</td>
+                  <td className="px-3 py-2">
+                    {row.threshold_breached ? (
+                      <span className="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+                        {row.alert_severity || "BREACHED"}
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+                        On track
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RadiologyContent() {
-  const [tab, setTab] = useState<"worklist" | "new">("worklist");
+  const [tab, setTab] = useState<ActiveTab>("worklist");
   const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(RADIOLOGY_CHANNEL, [["radiology"]]);
   const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
   const liveTitle = subscribed
     ? lastEventAt
-      ? `Real-time via staff:radiology — last update ${new Date(lastEventAt).toLocaleTimeString()}`
+      ? `Real-time via staff:radiology - last update ${new Date(lastEventAt).toLocaleTimeString()}`
       : "Real-time via staff:radiology"
-    : connected ? "Connecting…" : "Offline — refresh manually (real-time unavailable)";
+    : connected ? "Connecting..." : "Offline - refresh manually";
+  const tabs: { key: ActiveTab; label: string }[] = [
+    { key: "worklist", label: "Worklist" },
+    { key: "new", label: "New Order" },
+    { key: "peerReview", label: "Peer Review" },
+    { key: "tat", label: "TAT" },
+  ];
+
   return (
     <div className="p-6">
-      <div className="flex items-center gap-2 mb-6">
+      <div className="mb-6 flex items-center gap-2">
         <h1 className="text-3xl font-bold">Radiology</h1>
-        <span data-testid="radiology-realtime-indicator" role="status"
-          aria-label={subscribed ? "Live — real-time radiology updates active" : "Offline — real-time updates unavailable"}
+        <span
+          data-testid="radiology-realtime-indicator"
+          role="status"
+          aria-label={subscribed ? "Live - real-time radiology updates active" : "Offline - real-time updates unavailable"}
           title={liveTitle}
-          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}>
+          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+        >
           {liveLabel}
         </span>
       </div>
-      <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6">
-        {[
-          { key: "worklist" as const, label: "🔬 Worklist" },
-          { key: "new" as const, label: "+ New Order" },
-        ].map(({ key, label }) => (
+      <div className="mb-6 flex gap-1 rounded-lg bg-muted p-1">
+        {tabs.map(({ key, label }) => (
           <button
             key={key}
+            type="button"
             onClick={() => setTab(key)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${tab === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           >
             {label}
           </button>
@@ -318,6 +562,8 @@ function RadiologyContent() {
       </div>
       {tab === "worklist" && <WorklistTab />}
       {tab === "new" && <NewOrderTab />}
+      {tab === "peerReview" && <PeerReviewTab />}
+      {tab === "tat" && <TatTab />}
     </div>
   );
 }

@@ -22,6 +22,8 @@ import { jest } from '@jest/globals';
 
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawMock,
@@ -37,6 +39,12 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
+jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
+  requireTenantId: (tenantId) => tenantId || DEFAULT_TENANT_ID,
+}));
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+}));
 
 const { default: radiologyService } = await import('../../services/radiology/radiologyService.js');
 
@@ -48,6 +56,8 @@ describe('radiologyService.appendReportAddendum (H D50)', () => {
   beforeEach(() => {
     queryRawMock.mockReset();
     executeRawMock.mockReset();
+    recordCanonicalClinicalEventMock.mockReset();
+    recordCanonicalClinicalEventMock.mockResolvedValue({ timeline: { id: 'tl' }, audit: { id: 'audit' } });
     executeRawMock.mockResolvedValue(1);
   });
 
@@ -107,6 +117,15 @@ describe('radiologyService.appendReportAddendum (H D50)', () => {
     expect(executeRawMock).toHaveBeenCalledWith(
       expect.stringContaining('RADIOLOGY_REPORT_ADDENDUM'),
       RADIOLOGIST_UID, '20', expect.stringContaining('"addendum_text"'),
+    );
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'radiology.report_addendum',
+        resourceTable: 'radiology_orders',
+        resourceId: '20',
+        actorUid: RADIOLOGIST_UID,
+      }),
+      expect.any(Object),
     );
 
     // Returned shape (from the second mock) carries the unchanged

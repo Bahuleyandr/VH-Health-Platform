@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import radiologyService from '../../services/radiology/radiologyService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import { emitRadiologyEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -37,6 +38,14 @@ const requireRadiologySigner = (req, res, next) => {
 
 const router = Router();
 
+function actorRole(req) {
+  return req.user?.rawRole || req.user?.role || null;
+}
+
+function handleOperationalError(res, err) {
+  return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+}
+
 /**
  * POST /radiology/orders
  * Create a new radiology order
@@ -54,12 +63,15 @@ router.post('/orders', requiredUUID('patient_uid'), requiredString('modality', 5
       notes: req.body.notes
     };
 
-    const order = await radiologyService.createOrder(orderData);
+    const order = await radiologyService.createOrder(orderData, {
+      tenantId: resolveTenantOrThrow(req),
+      actorRole: actorRole(req),
+    });
     emitRadiologyEvent('order-created', { tenantId: req.tenantId });
     return success(res, order, 'Radiology order created successfully', 201);
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return handleOperationalError(res, err);
     }
     logger.error('Failed to create radiology order:', { error: err.message });
     next(err);
@@ -76,6 +88,7 @@ router.get('/worklist', async (req, res, next) => {
       status: req.query.status,
       modality: req.query.modality,
       priority: req.query.priority,
+      tenantId: resolveTenantOrThrow(req),
       page: req.query.page,
       limit: req.query.limit
     };
@@ -86,9 +99,93 @@ router.get('/worklist', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return handleOperationalError(res, err);
     }
     logger.error('Failed to get radiology worklist:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /radiology/templates
+ * List active structured report templates.
+ */
+router.get('/templates', async (req, res, next) => {
+  try {
+    const templates = await radiologyService.listReportTemplates({
+      tenantId: resolveTenantOrThrow(req),
+      modality: req.query.modality,
+      body_part: req.query.body_part || req.query.bodyPart,
+    });
+    return success(res, templates, 'Radiology report templates retrieved');
+  } catch (err) {
+    if (err.isOperational) return handleOperationalError(res, err);
+    logger.error('Failed to list radiology report templates:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /radiology/peer-reviews
+ * Read-only peer-review board over signed reports.
+ */
+router.get('/peer-reviews', async (req, res, next) => {
+  try {
+    const result = await radiologyService.listPeerReviewBoard({
+      tenantId: resolveTenantOrThrow(req),
+      status: req.query.status,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+    return success(res, result.reviews, 'Radiology peer-review board retrieved', 200, {
+      pagination: result.pagination,
+    });
+  } catch (err) {
+    if (err.isOperational) return handleOperationalError(res, err);
+    logger.error('Failed to list radiology peer-review board:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /radiology/peer-reviews/sample
+ * Deterministic sample of signed reports needing peer review.
+ */
+router.get('/peer-reviews/sample', async (req, res, next) => {
+  try {
+    const result = await radiologyService.pickPeerReviewSample({
+      tenantId: resolveTenantOrThrow(req),
+      seed: req.query.seed,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Radiology peer-review sample generated');
+  } catch (err) {
+    if (err.isOperational) return handleOperationalError(res, err);
+    logger.error('Failed to pick radiology peer-review sample:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /radiology/tat-metrics
+ * Turnaround-time metrics and threshold breach feed.
+ */
+router.get('/tat-metrics', async (req, res, next) => {
+  try {
+    const result = await radiologyService.getTatMetrics({
+      tenantId: resolveTenantOrThrow(req),
+      priority: req.query.priority,
+      modality: req.query.modality,
+      breached: req.query.breached,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+    return success(res, result.metrics, 'Radiology TAT metrics retrieved', 200, {
+      pagination: result.pagination,
+    });
+  } catch (err) {
+    if (err.isOperational) return handleOperationalError(res, err);
+    logger.error('Failed to load radiology TAT metrics:', { error: err.message });
     next(err);
   }
 });
@@ -105,15 +202,22 @@ router.put('/:id/report', requireRadiologySigner, paramId(), validate, async (re
       findings: req.body.findings,
       impression: req.body.impression,
       images: req.body.images,
+      template_id: req.body.template_id ?? req.body.templateId,
+      structured_report: req.body.structured_report ?? req.body.structuredReport,
+      sections: req.body.sections,
+      coded_fields: req.body.coded_fields ?? req.body.codedFields,
       reported_by: req.user?.uid || null
     };
 
-    const result = await radiologyService.submitReport(parseInt(id, 10), reportData);
+    const result = await radiologyService.submitReport(parseInt(id, 10), reportData, {
+      tenantId: resolveTenantOrThrow(req),
+      actorRole: actorRole(req),
+    });
     emitRadiologyEvent('report-submitted', { tenantId: req.tenantId });
     return success(res, result, 'Radiology report submitted successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return handleOperationalError(res, err);
     }
     logger.error('Failed to submit radiology report:', { error: err.message });
     next(err);
@@ -169,11 +273,13 @@ router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
         instance_count: req.body.instance_count,
         metadata: req.body.metadata,
       },
+      tenantId: resolveTenantOrThrow(req),
+      actorRole: actorRole(req),
     });
     emitRadiologyEvent('order-acquired', { tenantId: req.tenantId });
     return success(res, result, 'Radiology order acquired');
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return handleOperationalError(res, err);
     logger.error('Failed to mark acquired:', { error: err.message });
     next(err);
   }
@@ -187,11 +293,13 @@ router.post('/:id/sign-off', requireRadiologySigner, paramId(), validate, async 
   try {
     const result = await radiologyService.signOffReport(parseInt(req.params.id, 10), {
       signed_off_by: req.user?.uid,
+      tenantId: resolveTenantOrThrow(req),
+      actorRole: actorRole(req),
     });
     emitRadiologyEvent('report-signed-off', { tenantId: req.tenantId });
     return success(res, result, 'Radiology report signed off');
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return handleOperationalError(res, err);
     logger.error('Failed to sign off report:', { error: err.message });
     next(err);
   }
@@ -211,13 +319,46 @@ router.post('/:id/addendum', requireRadiologySigner, paramId(), validate, async 
       {
         addendum: req.body?.addendum,
         addendum_by: req.user?.uid,
+        tenantId: resolveTenantOrThrow(req),
+        actorRole: actorRole(req),
       },
     );
     emitRadiologyEvent('report-addendum', { tenantId: req.tenantId });
     return success(res, result, 'Radiology report addendum appended');
   } catch (err) {
-    if (err.isOperational) return error(res, err.message, err.statusCode);
+    if (err.isOperational) return handleOperationalError(res, err);
     logger.error('Failed to append report addendum:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * POST /radiology/:id/peer-reviews
+ * Record a post-sign-off peer review. This does not mutate report content.
+ */
+router.post('/:id/peer-reviews', requireRadiologySigner, paramId(), validate, async (req, res, next) => {
+  try {
+    const review = await radiologyService.recordPeerReview(
+      parseInt(req.params.id, 10),
+      {
+        reviewer_uid: req.user?.uid,
+        discrepancy_score: req.body.discrepancy_score ?? req.body.discrepancyScore,
+        outcome: req.body.outcome,
+        comments: req.body.comments,
+        addendum_recommendation: req.body.addendum_recommendation ?? req.body.addendumRecommendation,
+        metadata: req.body.metadata,
+      },
+      {
+        tenantId: resolveTenantOrThrow(req),
+        actorUid: req.user?.uid,
+        actorRole: actorRole(req),
+      },
+    );
+    emitRadiologyEvent('peer-review-recorded', { tenantId: req.tenantId });
+    return success(res, review, 'Radiology peer review recorded', 201);
+  } catch (err) {
+    if (err.isOperational) return handleOperationalError(res, err);
+    logger.error('Failed to record radiology peer review:', { error: err.message });
     next(err);
   }
 });
@@ -231,7 +372,8 @@ router.get('/patient/:uid', async (req, res, next) => {
     const { uid } = req.params;
     const filters = {
       page: req.query.page,
-      limit: req.query.limit
+      limit: req.query.limit,
+      tenantId: resolveTenantOrThrow(req),
     };
 
     const result = await radiologyService.getPatientHistory(uid, filters);
@@ -240,7 +382,7 @@ router.get('/patient/:uid', async (req, res, next) => {
     });
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return handleOperationalError(res, err);
     }
     logger.error('Failed to get patient radiology history:', { error: err.message });
     next(err);
@@ -254,11 +396,13 @@ router.get('/patient/:uid', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const order = await radiologyService.getOrderDetail(parseInt(id, 10));
+    const order = await radiologyService.getOrderDetail(parseInt(id, 10), {
+      tenantId: resolveTenantOrThrow(req),
+    });
     return success(res, order, 'Radiology order detail retrieved');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return handleOperationalError(res, err);
     }
     logger.error('Failed to get radiology order detail:', { error: err.message });
     next(err);
@@ -272,12 +416,15 @@ router.get('/:id', async (req, res, next) => {
 router.put('/:id/cancel', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const result = await radiologyService.cancelOrder(parseInt(id, 10), req.user?.uid);
+    const result = await radiologyService.cancelOrder(parseInt(id, 10), req.user?.uid, {
+      tenantId: resolveTenantOrThrow(req),
+      actorRole: actorRole(req),
+    });
     emitRadiologyEvent('order-cancelled', { tenantId: req.tenantId });
     return success(res, result, 'Radiology order cancelled successfully');
   } catch (err) {
     if (err.isOperational) {
-      return error(res, err.message, err.statusCode);
+      return handleOperationalError(res, err);
     }
     logger.error('Failed to cancel radiology order:', { error: err.message });
     next(err);
