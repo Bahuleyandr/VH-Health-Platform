@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, Cpu, Download, Gauge, History, RefreshCw, Save, Settings2, ShieldCheck, Stethoscope, ToggleLeft, ToggleRight } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Download, Gauge, History, Pill, RefreshCw, Save, Settings2, ShieldCheck, Stethoscope, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   getClinicalAiAuditLogs,
@@ -772,6 +772,7 @@ export default function ClinicalAiGovernancePage() {
   const guardrails = status.data?.guardrails;
   const budget = status.data?.budget;
   const adapters = status.data?.adapters ?? [];
+  const drugKb = status.data?.drug_kb_status;
   const opDoctorAssistModules = orderedOpDoctorAssistModules(modules);
 
   return (
@@ -871,6 +872,106 @@ export default function ClinicalAiGovernancePage() {
           </div>
         </div>
       </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Pill className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Drug KB Source Status</h2>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground">Engine</span>
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                drugKb?.kb_available
+                  ? "border-emerald-200 bg-emerald-100 text-emerald-800"
+                  : "border-red-200 bg-red-100 text-red-800"
+              }`}>
+                {drugKb?.kb_available ? "Available" : "Unavailable"}
+              </span>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground">Coverage</span>
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                drugKb?.starter_only === false
+                  ? "border-cyan-200 bg-cyan-100 text-cyan-800"
+                  : "border-amber-200 bg-amber-100 text-amber-800"
+              }`}>
+                {drugKb?.starter_only === false ? "External/indigenous active" : "Starter only"}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Monographs</dt>
+                <dd className="text-lg font-semibold">{fmtNumber(drugKb?.counts?.monographs)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Interactions</dt>
+                <dd className="text-lg font-semibold">{fmtNumber(drugKb?.counts?.interactions)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Dose ranges</dt>
+                <dd className="text-lg font-semibold">{fmtNumber(drugKb?.counts?.dose_ranges)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">IV pairs</dt>
+                <dd className="text-lg font-semibold">{fmtNumber(drugKb?.counts?.iv_compatibility_pairs)}</dd>
+              </div>
+            </dl>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Source</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Family</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Priority</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Edition</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">License</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">State</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(drugKb?.sources ?? []).length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                      No drug KB sources found
+                    </td>
+                  </tr>
+                ) : (
+                  (drugKb?.sources ?? []).map((source) => (
+                    <tr key={source.source_key}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{source.name}</div>
+                        <div className="text-xs text-muted-foreground">{source.source_key}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>{source.source_family ?? "-"}</div>
+                        <div className="text-xs text-muted-foreground">{source.version ?? "-"}</div>
+                      </td>
+                      <td className="px-4 py-3">{source.priority ?? 100}</td>
+                      <td className="px-4 py-3">{source.edition_status ?? "-"}</td>
+                      <td className="px-4 py-3">{source.license_status ?? "-"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          source.is_active
+                            ? "border-emerald-200 bg-emerald-100 text-emerald-800"
+                            : "border-slate-200 bg-slate-100 text-slate-700"
+                        }`}>
+                          {source.is_active ? "Active" : "Inactive"}
+                        </span>
+                        {source.is_starter ? (
+                          <div className="mt-1 text-xs text-muted-foreground">starter</div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">

@@ -107,6 +107,9 @@ import '../../features/bloodbank/screens/transfusion_scan_screen.dart';
 // Dietary
 import '../../features/dietary/screens/dietary_screen.dart';
 
+// Dental
+import '../../features/dental/screens/dental_screen.dart';
+
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
@@ -967,6 +970,19 @@ final GoRouter appRouter = GoRouter(
           name: 'dietary',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DietaryScreen()),
+        ),
+        GoRoute(
+          path: '/dental',
+          name: 'dental',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: DentalScreen(
+                initialPatientUid: q['patient_uid'],
+                initialPatientName: q['name'],
+              ),
+            );
+          },
         ),
 
         // Theatre

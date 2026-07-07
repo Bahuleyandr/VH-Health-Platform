@@ -870,9 +870,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'pharmacy_orders',
         'investigation_results',
         'patient_records',
+        'dental_charting',
       },
       StaffRole.doctor || StaffRole.dutyDoctor => {
         'op_doctor_workspace',
+        'dental_charting',
         'clinical_ai_review_queue',
         'op_ai_assist',
         'patient_records',
@@ -885,6 +887,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.admin || StaffRole.superAdmin => {
         'front_office_workbench',
         'appointments',
+        'dental_charting',
         'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
@@ -1050,6 +1053,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'op_nursing_dashboard',
               'front_office_workbench',
               'appointments',
+              'dental_charting',
               'nursing_notes',
               'lab_bookings',
               'investigation_results',
@@ -1137,6 +1141,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'op_doctor_workspace',
+              'dental_charting',
               'clinical_ai_review_queue',
               'op_ai_assist',
               'patient_records',
@@ -1172,6 +1177,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             [
               'front_office_workbench',
               'appointments',
+              'dental_charting',
               'clinical_ai_review_queue',
               'patient_records',
               'pharmacy_orders',
@@ -1249,6 +1255,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'appointments': '/appointments?context=$context',
     'queue': '/queue?context=$context',
     'patient_records': '/patient-records?context=$context',
+    'dental_charting': '/dental?context=$context',
     'prescriptions': '/prescriptions?context=$context',
     'referrals': '/referrals?context=$context',
     'pharmacy_orders': '/pharmacy?context=$context',

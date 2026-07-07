@@ -59443,6 +59443,197 @@
         ]
       }
     },
+    "/api/v1/cold-chain/dashboard": {
+      "get": {
+        "operationId": "get_api_v1_cold_chain_dashboard",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cold-chain/excursions/{id}/acknowledge": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_excursions_by_id_acknowledge",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/excursions/{id}/corrective-action": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_excursions_by_id_corrective_action",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/ingest": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_ingest",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cold-chain/units": {
+      "get": {
+        "operationId": "get_api_v1_cold_chain_units",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_cold_chain_units",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cold-chain/units/{id}": {
+      "patch": {
+        "operationId": "patch_api_v1_cold_chain_units_by_id",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/units/{id}/register": {
+      "get": {
+        "operationId": "get_api_v1_cold_chain_units_by_id_register",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cold-chain/watchdog/run": {
+      "post": {
+        "operationId": "post_api_v1_cold_chain_watchdog_run",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/compliance/audit/search": {
       "get": {
         "operationId": "get_api_v1_compliance_audit_search",
@@ -60821,6 +61012,55 @@
         }
       }
     },
+    "/api/v1/death-certification/mortuary/board": {
+      "get": {
+        "operationId": "get_api_v1_death_certification_mortuary_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/death-certification/mortuary/slots": {
+      "get": {
+        "operationId": "get_api_v1_death_certification_mortuary_slots",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_death_certification_mortuary_slots",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/death-certification/records": {
       "get": {
         "operationId": "get_api_v1_death_certification_records",
@@ -60883,6 +61123,114 @@
     "/api/v1/death-certification/records/{id}/body-release": {
       "post": {
         "operationId": "post_api_v1_death_certification_records_by_id_body_release",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/death-certification/records/{id}/custody": {
+      "get": {
+        "operationId": "get_api_v1_death_certification_records_by_id_custody",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/death-certification/records/{id}/custody/receive": {
+      "post": {
+        "operationId": "post_api_v1_death_certification_records_by_id_custody_receive",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/death-certification/records/{id}/custody/release": {
+      "post": {
+        "operationId": "post_api_v1_death_certification_records_by_id_custody_release",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/death-certification/records/{id}/custody/store": {
+      "post": {
+        "operationId": "post_api_v1_death_certification_records_by_id_custody_store",
         "responses": {
           "200": {
             "description": "Successful response",
@@ -70345,6 +70693,23 @@
         ]
       }
     },
+    "/api/v1/ingest/cold-chain": {
+      "post": {
+        "operationId": "post_api_v1_ingest_cold_chain",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/insurance/claims": {
       "get": {
         "operationId": "get_api_v1_insurance_claims",
@@ -75257,6 +75622,126 @@
     "/api/v1/oncology/administrations/{id}/withhold": {
       "post": {
         "operationId": "post_api_v1_oncology_administrations_by_id_withhold",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/oncology/chair-bookings": {
+      "post": {
+        "operationId": "post_api_v1_oncology_chair_bookings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oncology/chair-bookings/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_oncology_chair_bookings_by_id_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/oncology/infusion-board": {
+      "get": {
+        "operationId": "get_api_v1_oncology_infusion_board",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oncology/infusion-chairs": {
+      "get": {
+        "operationId": "get_api_v1_oncology_infusion_chairs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_oncology_infusion_chairs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/oncology/infusion-chairs/{id}/status": {
+      "patch": {
+        "operationId": "patch_api_v1_oncology_infusion_chairs_by_id_status",
         "responses": {
           "200": {
             "description": "Successful response",
