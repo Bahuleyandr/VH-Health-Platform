@@ -32,8 +32,17 @@ history — PR #427). Your worktree is your world.
 - Bare DDL at `apps/backend/src/migrations/NNN_*.sql`. Use ONLY the migration numbers your
   prompt assigns (the playbook §5 registry is the allocation authority — never ls-and-take;
   parallel workers hold adjacent blocks).
-- After applying locally: `npx prisma db pull` and commit `prisma/schema.prisma` TOGETHER with
-  the `.sql`. Then `node apps/backend/scripts/check-schema-drift.mjs`.
+- **★ Schema regeneration LAW (2026-07-07, learned from PR #458's red CI): regenerate
+  `schema.prisma` ONLY from a disposable scratch database built from YOUR OWN worktree's
+  migrations — NEVER from the shared QA/dev DB, which may contain OTHER workers' migrations
+  and silently contaminates your schema with models your branch lacks.** Recipe:
+  `psql <server>/postgres -c "CREATE DATABASE my_scratch;"` →
+  `psql .../my_scratch -c "CREATE EXTENSION IF NOT EXISTS vector;" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"`
+  (the baseline requires both) → `DATABASE_URL=.../my_scratch node scripts/ci-setup-db.mjs` →
+  `DATABASE_URL=.../my_scratch npx prisma db pull` → `npx prisma generate` → drop the scratch DB.
+  Commit `prisma/schema.prisma` TOGETHER with the `.sql`. Then
+  `node apps/backend/scripts/check-phi-tenant-id.mjs` and
+  `node apps/backend/scripts/check-schema-drift.mjs`.
 - New PHI tables: copy the mig-356 RLS boilerplate exactly (tenant_id UUID NOT NULL with the
   GUC-aware default, ENABLE + FORCE ROW LEVEL SECURITY, `tenant_isolation` policy, FK to
   tenants). Service writes go through `setTenant`/`setTenantTx` with EXPLICIT tenant_id on
