@@ -31,7 +31,7 @@ const EXEMPT_MOUNTS = {
   '/api/v1/steps': 'patient health-sync (own data only)',
   '/api/v1/rewards': 'patient gamification (own data only)',
   '/api/v1/gamification': 'patient gamification (own data only)',
-  '/api/v1/devices': 'FCM device registration; self-scoped to req.user phone',
+  '/api/v1/devices': 'legacy/mobile FCM registration uses wrapAutoRBAC(deviceRoutes); clinical vitals is a later same-path mount with requireRole',
   '/api/v1/feedback': 'wrapAutoRBAC(feedbackRoutes) inside the router',
   '/api/v1/sos': 'wrapAutoRBAC(sosRoutes) inside the router; emergency surface must stay broad',
   '/api/v1/patient-access/break-glass': 'wrapAutoRBAC(patientAccessBreakGlassRoutes) inside breakGlassRoutes.js — gated to SUPER_ADMIN/ADMIN/CMO/MEDICAL_SUPERINTENDENT (break-glass eligible roles)',
@@ -135,5 +135,13 @@ describe('Phase-3 CI gate — every authenticated /api/v1 mount carries a role g
       .filter(([p, m]) => /requireRole\s*\(/.test(m.statement) && p in EXEMPT_MOUNTS)
       .map(([p]) => p);
     expect(doubled).toEqual([]);
+  });
+
+  test('clinical device-vitals mount includes the DEVICE_GATEWAY role', () => {
+    const deviceMounts = apiMounts.filter((m) => m.path === '/api/v1/devices');
+    const clinicalMount = deviceMounts.find((m) => /deviceVitalsRoutes/.test(m.statement));
+    expect(clinicalMount).toBeTruthy();
+    expect(clinicalMount.statement).toMatch(/requireRole\s*\(/);
+    expect(clinicalMount.statement).toContain("'DEVICE_GATEWAY'");
   });
 });

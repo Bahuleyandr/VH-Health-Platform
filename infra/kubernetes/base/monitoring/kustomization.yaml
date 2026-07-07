@@ -9,6 +9,7 @@ resources:
   - backend-red-alerts.yaml
   - backend-reliability-alerts.yaml
   - backend-slo.yaml
+  - device-gateway-alerts.yaml
 
 configMapGenerator:
   - name: vhhealth-backend-dashboards
@@ -20,3 +21,4 @@ configMapGenerator:
     files:
       - dashboards/vhhealth-backend-red.json
       - dashboards/vhhealth-backend-reliability.json
+      - dashboards/vhhealth-device-gateway.json

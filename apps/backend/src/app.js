@@ -927,7 +927,7 @@ app.use('/api/v1/integrity', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogg
 app.use('/api/v1/hl7-feeds', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('HL7_FEED'), hl7FeedRoutes);
 
 // ICU monitor vitals ingestion + verification queue (roadmap C5).
-app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DEVICE_VITALS'), deviceVitalsRoutes);
+app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES, 'DEVICE_GATEWAY'), phiAccessLogger('DEVICE_VITALS'), deviceVitalsRoutes);
 
 // Scheduling optimization (roadmap D2) — templates, slot grids, waitlist,
 // bookable resources. Reception works this surface alongside clinicians.

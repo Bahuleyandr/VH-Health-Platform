@@ -1,0 +1,27 @@
+name: Device Gateway CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/device-gateway/**'
+      - '.github/workflows/ci-device-gateway.yml'
+      - '.github/workflows/_reusable-device-gateway-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/device-gateway/**'
+      - '.github/workflows/ci-device-gateway.yml'
+      - '.github/workflows/_reusable-device-gateway-ci.yml'
+
+concurrency:
+  group: ci-device-gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    uses: ./.github/workflows/_reusable-device-gateway-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Device Gateway CI
+    secrets: inherit

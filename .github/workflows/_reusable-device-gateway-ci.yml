@@ -1,0 +1,49 @@
+name: Reusable Device Gateway CI
+
+on:
+  workflow_call:
+    inputs:
+      notify_on_failure:
+        required: false
+        type: boolean
+        default: false
+      notification_label:
+        required: false
+        type: string
+        default: Device Gateway CI
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Device gateway lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.15.0'
+          cache: npm
+          cache-dependency-path: apps/device-gateway/package-lock.json
+      - name: Install
+        working-directory: apps/device-gateway
+        run: npm ci
+      - name: Lint
+        working-directory: apps/device-gateway
+        run: npm run lint
+      - name: Test
+        working-directory: apps/device-gateway
+        run: npm test
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

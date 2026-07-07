@@ -441,7 +441,7 @@ export async function recordVitals(data) {
     // Roadmap C5 — provenance labelling: 'staff' (default), 'device'
     // (ICU monitor ORU; unverified until clinician review), 'fhir',
     // 'patient_app'.
-    source, source_device,
+    source, source_device, alertOptions = null,
   } = data;
 
   const normalizedSource = ['staff', 'device', 'fhir', 'patient_app'].includes(source) ? source : 'staff';
@@ -678,6 +678,8 @@ export async function recordVitals(data) {
       if (patientUser?.id) {
         alerts = await checkVitalAnomalies(patientUser.id, vitalsForCheck, {
           recordedBy: recorderUser?.id ?? null,
+          ...(alertOptions && typeof alertOptions === 'object' ? alertOptions : {}),
+          source: normalizedSource,
         });
       }
     }

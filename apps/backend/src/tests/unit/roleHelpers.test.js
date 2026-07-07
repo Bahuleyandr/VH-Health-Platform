@@ -33,6 +33,7 @@ import {
   isConsultant,
   isCounsellor,
   isDataProtectionOfficer,
+  isDeviceGateway,
   isDoctor,
   isIntegrationAdmin,
   isMachineRole,
@@ -56,6 +57,7 @@ describe('Phase F1 role registry', () => {
     expect(ROLES.STORES_PURCHASE_INCHARGE).toBe('STORES_PURCHASE_INCHARGE');
     expect(ROLES.INTEGRATION_ADMIN).toBe('INTEGRATION_ADMIN');
     expect(ROLES.WEBHOOK_CLIENT).toBe('WEBHOOK_CLIENT');
+    expect(ROLES.DEVICE_GATEWAY).toBe('DEVICE_GATEWAY');
     expect(ROLES.AI_GOVERNANCE_ADMIN).toBe('AI_GOVERNANCE_ADMIN');
     expect(ROLES.DATA_PROTECTION_OFFICER).toBe('DATA_PROTECTION_OFFICER');
   });
@@ -116,8 +118,8 @@ describe('Phase F1 role registry', () => {
     expect(canReviewNHCXPaymentNotice('DOCTOR')).toBe(false);
   });
 
-  it('routes WEBHOOK_CLIENT into MACHINE_ROLES (never a human)', () => {
-    expect(MACHINE_ROLES).toEqual(['WEBHOOK_CLIENT']);
+  it('routes machine roles away from human staff gates', () => {
+    expect(MACHINE_ROLES).toEqual(['WEBHOOK_CLIENT', 'DEVICE_GATEWAY']);
   });
 
   it('exposes the stores/purchase predicate without treating it as clinical', () => {
@@ -178,7 +180,9 @@ describe('Specialty role predicates', () => {
     expect(isDataProtectionOfficer('DATA_PROTECTION_OFFICER')).toBe(true);
     expect(isPlatformRole('INTEGRATION_ADMIN')).toBe(true);
     expect(isWebhookClient('WEBHOOK_CLIENT')).toBe(true);
+    expect(isDeviceGateway('DEVICE_GATEWAY')).toBe(true);
     expect(isMachineRole('WEBHOOK_CLIENT')).toBe(true);
+    expect(isMachineRole('DEVICE_GATEWAY')).toBe(true);
     expect(isMachineRole('DOCTOR')).toBe(false);
   });
   it('operations-role predicates', () => {
@@ -261,8 +265,9 @@ describe('isStaff / isClinical respect new specialty roles', () => {
       expect(isStaff(r)).toBe(true);
     }
   });
-  it('isStaff is false for WEBHOOK_CLIENT (machine role)', () => {
+  it('isStaff is false for machine roles', () => {
     expect(isStaff('WEBHOOK_CLIENT')).toBe(false);
+    expect(isStaff('DEVICE_GATEWAY')).toBe(false);
   });
   it('isClinical is true for clinical-grouped new roles', () => {
     expect(isClinical('CONSULTANT')).toBe(true);

@@ -12,6 +12,9 @@ import {
   WifiOff,
   Monitor,
   Tablet,
+  Server,
+  KeyRound,
+  Plus,
 } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,6 +48,21 @@ interface DeviceStatsResponse {
     active_7_days?: number;
     unique_users?: number;
   };
+}
+
+interface ClinicalDevice {
+  id: number;
+  device_code: string;
+  display_name: string;
+  kind: string;
+  protocol: string;
+  status: string;
+  vendor?: string | null;
+  model?: string | null;
+  location_id?: number | null;
+  credential_prefix?: string | null;
+  allowed_source_ips?: string[];
+  last_seen_at?: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -112,6 +130,7 @@ export default function DevicesPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [activeTab, setActiveTab] = useState<"app" | "clinical">("app");
 
   // Fetch devices
   const {
@@ -197,6 +216,32 @@ export default function DevicesPage() {
           <RefreshCw className="h-4 w-4" /> Refresh
         </button>
       </div>
+
+      <div className="inline-flex rounded-md border border-border bg-card p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("app")}
+          className={`inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === "app" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          <Smartphone className="h-4 w-4" />
+          App Devices
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("clinical")}
+          className={`inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === "clinical" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          <Server className="h-4 w-4" />
+          Clinical Devices
+        </button>
+      </div>
+
+      {activeTab === "app" ? (
+        <>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -412,6 +457,184 @@ export default function DevicesPage() {
                         className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+        </>
+      ) : (
+        <ClinicalDeviceRegistry />
+      )}
+    </div>
+  );
+}
+
+function ClinicalDeviceRegistry() {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    device_code: "",
+    display_name: "",
+    kind: "monitor",
+    vendor: "",
+    model: "",
+    allowed_source_ips: "",
+  });
+
+  const { data, isLoading, isError, error } = useQuery<{ devices: ClinicalDevice[]; count: number }>({
+    queryKey: ["clinical-device-registry"],
+    queryFn: () => fetchAdminAPI<{ devices: ClinicalDevice[]; count: number }>("/admin/devices"),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => fetchAdminAPI<{ device: ClinicalDevice; credential_plaintext?: string | null }>("/admin/devices", {
+      method: "POST",
+      body: {
+        ...form,
+        issue_credential: true,
+        allowed_source_ips: form.allowed_source_ips
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      },
+    }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["clinical-device-registry"] });
+      setForm({ device_code: "", display_name: "", kind: "monitor", vendor: "", model: "", allowed_source_ips: "" });
+      toast.success(res.credential_plaintext ? `Credential issued: ${res.credential_plaintext}` : "Device registered");
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to register device"),
+  });
+
+  const rotateMutation = useMutation({
+    mutationFn: (id: number) => fetchAdminAPI<{ device: ClinicalDevice; credential_plaintext?: string | null }>(
+      `/admin/devices/${id}/rotate-credential`,
+      { method: "POST" },
+    ),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["clinical-device-registry"] });
+      toast.success(res.credential_plaintext ? `New credential: ${res.credential_plaintext}` : "Credential rotated");
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to rotate credential"),
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (id: number) => fetchAdminAPI(`/admin/devices/${id}/revoke`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clinical-device-registry"] });
+      toast.success("Device revoked");
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to revoke device"),
+  });
+
+  const devices = data?.devices ?? [];
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-6">
+        <input
+          value={form.device_code}
+          onChange={(event) => setForm((prev) => ({ ...prev, device_code: event.target.value }))}
+          placeholder="Device code"
+          className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        <input
+          value={form.display_name}
+          onChange={(event) => setForm((prev) => ({ ...prev, display_name: event.target.value }))}
+          placeholder="Display name"
+          className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary md:col-span-2"
+        />
+        <select
+          value={form.kind}
+          onChange={(event) => setForm((prev) => ({ ...prev, kind: event.target.value }))}
+          className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="monitor">Monitor</option>
+          <option value="monitor_gateway">Monitor gateway</option>
+          <option value="central_station">Central station</option>
+          <option value="fridge_sensor">Fridge sensor</option>
+          <option value="dialysis_machine">Dialysis machine</option>
+          <option value="rtls_feed">RTLS feed</option>
+          <option value="other">Other</option>
+        </select>
+        <input
+          value={form.allowed_source_ips}
+          onChange={(event) => setForm((prev) => ({ ...prev, allowed_source_ips: event.target.value }))}
+          placeholder="Allowed IPs"
+          className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        <button
+          type="button"
+          disabled={createMutation.isPending || !form.device_code || !form.display_name}
+          onClick={() => createMutation.mutate()}
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" />
+          Add
+        </button>
+      </div>
+
+      {isLoading && <Skeleton className="h-40 w-full rounded-lg" />}
+      {isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error instanceof Error ? error.message : "Failed to load clinical devices"}
+        </div>
+      )}
+
+      {!isLoading && !isError && devices.length === 0 && (
+        <div className="py-12 text-center text-muted-foreground">
+          <Server className="mx-auto mb-3 h-12 w-12 opacity-40" />
+          <p className="text-lg font-medium">No clinical devices registered</p>
+        </div>
+      )}
+
+      {devices.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Device</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Kind</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Allowed IPs</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Credential</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Last Seen</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {devices.map((device) => (
+                <tr key={device.id} className="hover:bg-muted/30">
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{device.display_name}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{device.device_code}</div>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{device.kind}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{device.allowed_source_ips?.join(", ") || "\u2014"}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{device.credential_prefix || "\u2014"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{timeAgo(device.last_seen_at)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => rotateMutation.mutate(device.id)}
+                        disabled={rotateMutation.isPending}
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        Rotate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revokeMutation.mutate(device.id)}
+                        disabled={revokeMutation.isPending || device.status === "revoked"}
+                        className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Revoke
                       </button>
                     </div>
                   </td>

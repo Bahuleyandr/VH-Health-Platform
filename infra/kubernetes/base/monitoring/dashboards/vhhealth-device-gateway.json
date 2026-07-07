@@ -1,0 +1,52 @@
+{
+  "title": "VH Health Device Gateway",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Gateway Spool Depth",
+      "targets": [
+        {
+          "expr": "gateway_spool_depth",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Silent Devices",
+      "targets": [
+        {
+          "expr": "device_silent_devices",
+          "legendFormat": "silent"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Forward Failures",
+      "targets": [
+        {
+          "expr": "increase(gateway_forward_failures_total[5m])",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Suppressed Samples",
+      "targets": [
+        {
+          "expr": "increase(device_samples_suppressed_total[5m])",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}
