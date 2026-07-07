@@ -83,6 +83,7 @@ import {
   MICROBIOLOGY_ROUTE_ROLES,
   NURSING_ASSESSMENT_ROUTE_ROLES,
   PAEDIATRIC_ROUTE_ROLES,
+  PATHOLOGY_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
   PHARMACY_ORDER_ROUTE_ROLES,
@@ -221,6 +222,7 @@ import referralRoutes from './routes/referral/referralRoutes.js';
 
 // Department modules: Radiology, Dietary, Operating Theatre, Blood Bank
 import radiologyRoutes from './routes/radiology/radiologyRoutes.js';
+import pathologyRoutes from './routes/pathology/pathologyRoutes.js';
 import dietaryRoutes from './routes/dietary/dietaryRoutes.js';
 import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
@@ -1125,6 +1127,9 @@ app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), requireSuperAdminStep
 
 // Radiology
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
+
+// Anatomic pathology / cytology
+app.use('/api/v1/pathology', requireRole(...PATHOLOGY_ROUTE_ROLES), patientAccessGuard('PATHOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('PATHOLOGY'), pathologyRoutes);
 
 // Dietary / Nutrition — CAN-050: add the care-team-governed patient guard.
 app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('DIETARY'), dietaryRoutes);
