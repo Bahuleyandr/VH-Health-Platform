@@ -92,6 +92,7 @@ describe('theatreService.completeChecklist', () => {
     };
     queryUnsafeMock
       .mockResolvedValueOnce([rightEyeSchedule()])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 3, pre_op_checklist: checklist }])
       .mockResolvedValueOnce([{ id: 88 }]);
 
@@ -102,8 +103,13 @@ describe('theatreService.completeChecklist', () => {
 
     expect(result.id).toBe(3);
     expect(result.pre_op_check_id).toBe(88);
-    expect(JSON.parse(queryUnsafeMock.mock.calls[1][1])).toMatchObject(checklist);
-    const [sql, ...params] = queryUnsafeMock.mock.calls[2];
+    expect(JSON.parse(queryUnsafeMock.mock.calls[2][1])).toMatchObject({
+      ...checklist,
+      readiness_warnings: [
+        expect.objectContaining({ code: 'CATARACT_BIOMETRY_MISSING' }),
+      ],
+    });
+    const [sql, ...params] = queryUnsafeMock.mock.calls[3];
     expect(sql).toMatch(/INSERT INTO preop_checklists/);
     expect(sql).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\)/);
     expect(params).toContain(142);

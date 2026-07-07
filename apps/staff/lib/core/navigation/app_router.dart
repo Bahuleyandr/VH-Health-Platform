@@ -116,6 +116,7 @@ import '../../features/maternity/screens/partograph_entry_screen.dart';
 import '../../features/maternity/screens/partograph_view_screen.dart';
 
 // Radiology
+import '../../features/ophthalmology/screens/ophthalmology_screen.dart';
 import '../../features/radiology/screens/radiology_screen.dart';
 
 // EMR
@@ -1024,6 +1025,12 @@ final GoRouter appRouter = GoRouter(
         ),
 
         // Radiology
+        GoRoute(
+          path: '/ophthalmology',
+          name: 'ophthalmology',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: OphthalmologyScreen()),
+        ),
         GoRoute(
           path: '/radiology',
           name: 'radiology',

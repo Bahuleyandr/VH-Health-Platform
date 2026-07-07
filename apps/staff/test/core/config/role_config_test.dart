@@ -164,6 +164,7 @@ void main() {
       expect(ids, contains('clinical_inbox'));
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('op_ai_assist'));
+      expect(ids, contains('ophthalmology'));
       expect(ids, contains('ward_mode'));
       expect(ids, isNot(contains('appointments')));
       expect(ids, isNot(contains('prescriptions')));
@@ -190,6 +191,7 @@ void main() {
         expect(ids, contains('patient_command_board'));
         expect(ids, contains('clinical_inbox'));
         expect(ids, contains('ward_mode'));
+        expect(ids, contains('ophthalmology'));
         expect(ids, isNot(contains('vitals')));
         expect(ids, contains('nursing_notes'));
         expect(handover.titleKey, 'role.feature.handover');
@@ -213,6 +215,7 @@ void main() {
           'op_nursing_dashboard',
           'front_office_workbench',
           'appointments',
+          'ophthalmology',
         ]),
       );
       expect(
@@ -221,6 +224,7 @@ void main() {
           'op_nursing_dashboard',
           'front_office_workbench',
           'appointments',
+          'ophthalmology',
         ]),
       );
       expect(opStaffIds, isNot(contains('admissions')));
@@ -309,10 +313,12 @@ void main() {
         expect(ids, contains('staff_management'));
         expect(ids, contains('pharmacy_orders'));
         expect(ids, contains('clinical_ai_review_queue'));
+        expect(ids, contains('ophthalmology'));
         expect(ids, isNot(contains('op_ai_assist')));
         expect(ids, isNot(contains('staff_directory')));
         expect(ids, contains('staff_diagnostics'));
         expect(ids, contains('theatre'));
+        expect(ids, contains('ophthalmology'));
         expect(ids, contains('blood_bank'));
         expect(ids, contains('front_office_workbench'));
         expect(ids, isNot(contains('reception_counter')));
@@ -326,6 +332,7 @@ void main() {
       ).map((f) => f.id).toSet();
 
       expect(ids, contains('op_ai_assist'));
+      expect(ids, contains('ophthalmology'));
       expect(ids, contains('staff_roster'));
       expect(ids, isNot(contains('medical_roster')));
       expect(ids, isNot(contains('nursing_roster')));

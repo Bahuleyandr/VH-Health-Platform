@@ -720,6 +720,13 @@ class RoleFeatures {
     route: '/radiology',
     color: Color(0xFF0277BD),
   );
+  static const DashboardFeature _ophthalmology = DashboardFeature(
+    id: 'ophthalmology',
+    titleKey: 'role.feature.ophthalmology',
+    icon: Icons.visibility_outlined,
+    route: '/ophthalmology',
+    color: Color(0xFF00897B),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -733,6 +740,7 @@ class RoleFeatures {
         _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
+        _ophthalmology,
         _patientRecords,
         _patientCommandBoard,
         _referrals,
@@ -778,6 +786,7 @@ class RoleFeatures {
         _investigationResults,
         _labBookings,
         _radiology,
+        _ophthalmology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -846,6 +855,7 @@ class RoleFeatures {
         _clinicalInbox,
         _frontOfficeWorkbench,
         _appointments,
+        _ophthalmology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -867,6 +877,7 @@ class RoleFeatures {
         _clinicalInbox,
         _frontOfficeWorkbench,
         _appointments,
+        _ophthalmology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -942,6 +953,7 @@ class RoleFeatures {
         _labBookings,
         _cathLab,
         _theatre,
+        _ophthalmology,
         _radiology,
         _patientCommandBoard,
         _referrals,
@@ -977,6 +989,7 @@ class RoleFeatures {
         _labBookings,
         _cathLab,
         _theatre,
+        _ophthalmology,
         _radiology,
         _patientCommandBoard,
         _referrals,
