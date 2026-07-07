@@ -2,7 +2,16 @@
 
 import { _internal } from '../../services/clinical/deathCertificationService.js';
 
-const { STATUS_TRANSITIONS, validateForCertification, VALID_PLACES, VALID_MANNERS } = _internal;
+const {
+  STATUS_TRANSITIONS,
+  validateForCertification,
+  VALID_PLACES,
+  VALID_MANNERS,
+  SLOT_STATUSES,
+  CUSTODY_EVENT_TYPES,
+  RELEASE_METHODS,
+  validateCustodyEventInput,
+} = _internal;
 
 describe('Death certification status walk', () => {
   it('pending → certified or cancelled', () => {
@@ -105,5 +114,41 @@ describe('place + manner allowlists', () => {
     expect(VALID_MANNERS).toEqual(expect.arrayContaining([
       'natural', 'accident', 'suicide', 'homicide', 'pending', 'undetermined',
     ]));
+  });
+});
+
+describe('Mortuary custody chain validation', () => {
+  it('keeps slot statuses operational and finite', () => {
+    expect(SLOT_STATUSES).toEqual(expect.arrayContaining([
+      'available', 'occupied', 'cleaning', 'maintenance', 'retired',
+    ]));
+  });
+
+  it('keeps custody event types to receive/store/release', () => {
+    expect(CUSTODY_EVENT_TYPES).toEqual(['receive', 'store', 'release']);
+  });
+
+  it('requires a slot for store events', () => {
+    expect(validateCustodyEventInput('store', {})).toContain('slot_id required for store events');
+    expect(validateCustodyEventInput('store', { slot_id: 1 })).toEqual([]);
+  });
+
+  it('requires release handover fields for family release events', () => {
+    const errs = validateCustodyEventInput('release', { release_method: 'family' });
+    expect(errs).toEqual(expect.arrayContaining([
+      'body_released_to_name required for release events',
+      'body_released_to_relation required for release events',
+    ]));
+  });
+
+  it('accepts only the release methods used by death_records', () => {
+    expect(RELEASE_METHODS).toEqual(expect.arrayContaining([
+      'family', 'mortuary_van', 'unclaimed_to_municipality',
+    ]));
+    expect(validateCustodyEventInput('release', {
+      body_released_to_name: 'Relative',
+      body_released_to_relation: 'son',
+      release_method: 'courier',
+    })).toContain('release_method must be one of: family, mortuary_van, unclaimed_to_municipality');
   });
 });
