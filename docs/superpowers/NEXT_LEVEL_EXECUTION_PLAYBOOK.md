@@ -1,6 +1,6 @@
 # Next-Level Program — Execution Playbook (coordinator handbook)
 
-**Last updated:** 2026-07-07 at main `59ac7b9c`.
+**Last updated:** 2026-07-07 at main `cdd477fa` (round 2 launch).
 **Purpose:** make the NL-1..NL-12 pipeline survivable across model/agent changes. Everything a
 coordinator needs — state, loop, drills, verification method, migration registry, decision log,
 and the full build-prompt library — lives in this file and `docs/superpowers/build-prompts/`.
@@ -23,13 +23,13 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 
 | Program | Status @ 2026-07-07 |
 |---|---|
-| NL-1 identity | P1–P3 shipped (OIDC admin+staff, SCIM migs 366–367). **P4 SAML IN FLIGHT** (Codex worker, branch `feat/nl1-p4-saml`, mig 368; verify per §8 below) |
+| NL-1 identity | **BUILD-COMPLETE 14/14** — P4 SAML verified+merged PR #452 (`4e864c16`, mig 368, 2026-07-07). Remaining = operator (IdP pilot tenant) |
 | NL-2 NHCX | BUILD-COMPLETE (inert/mock-first; operator gate = sandbox enrolment) |
 | NL-3 teleconsult | BUILD-COMPLETE (recording off; operator gate = LiveKit media edge + deploy) |
 | NL-4 basics | SHIPPED (reschedule, consent signatures mig 356, EMPI hardening) |
-| NL-5 terminology/content | Spec MERGED (`specs/2026-07-06-nl5-…design.md`, verified clean). **P1 LAUNCHED**; P2–P4 prompts ready |
-| NL-6 departmental | Plan MERGED (`specs/2026-07-06-nl6-…plan.md`, 2 fixes applied). **N6-1 LAUNCHED**; N6-2..14 prompts ready (some owner-gated) |
-| NL-7 device gateway | Spec MERGED (`specs/2026-07-06-nl7-…design.md`, 1 fix applied). **P1 LAUNCHED**; P2–P4 prompts ready |
+| NL-5 terminology/content | Spec MERGED. **P1 MERGED** (PR #453 `cdd477fa`, migs 369–370, PASS zero-corrections). **P3 LAUNCHED** (round 2); P2/P4 prompts ready |
+| NL-6 departmental | Plan MERGED. **N6-1 MERGED** (PR #450 `d4b33514`, migs 375–377, PASS zero-corrections). **N6-4 + N6-5 LAUNCHED** (round 2); rest ready (donor slices owner-gated) |
+| NL-7 device gateway | Spec MERGED. **P1 BUILDING** (migs 371–374, last round-1 item); P2/P3 unlock on P1 merge |
 | NL-8..NL-10 (Wave C) | Not started — kickoff design prompts ready in the library |
 | NL-11..NL-12 (Wave D) | Not started — kickoff prompts ready; NL-12 heavily operator-track |
 
@@ -106,10 +106,13 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 |---|---|---|
 | …–367 | shipped through NL-1 P3 SCIM | on main |
 | 368 | NL-1 P4 SAML | in flight |
-| 369–370 | NL-5 P1 | launched 2026-07-07 |
-| 371–374 | NL-7 P1 | launched 2026-07-07 |
-| 375–377 | N6-1 | launched 2026-07-07 |
-| 378+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 369–370 | NL-5 P1 | **on main** (#453) |
+| 371–374 | NL-7 P1 | in flight |
+| 375–377 | N6-1 | **on main** (#450) |
+| 378–380 | N6-5 credentialing | launched 2026-07-07 (round 2) |
+| 381–382 | NL-5 P3 content studio | launched 2026-07-07 (round 2) |
+| 383–386 | N6-4 histopath | launched 2026-07-07 (round 2) |
+| 387+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
@@ -158,7 +161,7 @@ edge + deploy · IdP pilot tenant · cluster activation items from earlier progr
 
 ## 8. In-flight tracker (update on takeover)
 
-- **NL-1 P4 SAML** — branch `feat/nl1-p4-saml` (Codex worktree
+- **NL-1 P4 SAML** — DONE (verified+merged #452 `4e864c16`). Historical: branch `feat/nl1-p4-saml` (Codex worktree
   `D:/Dev/_codex/worktrees/VH-Health-Platform-nl1-p4-saml`), mig 368. Verify the PR per NL-1
   spec `specs/2026-07-05-nl1-enterprise-identity-design.md` §12 P4: both signing modes accepted
   and unsigned rejected; audience/recipient/ACS mismatch rejected; replay cache works
@@ -177,19 +180,19 @@ parallel-safe may overlap.
 
 | File | Builds | Gate | Status |
 |---|---|---|---|
-| `nl5-p1-terminology-releases.md` | release versioning, tenant settings, ICD-11 flip | spec on main | **LAUNCHED** |
+| `nl5-p1-terminology-releases.md` | release versioning, tenant settings, ICD-11 flip | spec on main | **MERGED** #453 |
 | `nl5-p2-drugkb-seams.md` | source priority, acceptance harness, admin status | spec on main; vendor-transform part waits on Decision 1 | READY |
-| `nl5-p3-content-studio.md` | order-set lifecycle, import format, studio UI | spec on main | READY |
+| `nl5-p3-content-studio.md` | order-set lifecycle, import format, studio UI | spec on main | **LAUNCHED** (migs 381–382) |
 | `nl5-p4-pediatric-packs.md` | growth LMS table + IAP, immunization packs | spec on main | READY |
 | `nl7-p1-device-gateway.md` | MLLP gateway, registry, association, alarm policy | spec on main | **LAUNCHED** |
 | `nl7-p2-cold-chain.md` | cold-chain tables, excursion engine, board | NL-7 P1 merged | READY |
 | `nl7-p3-cmms.md` | work orders, schedules, calibration certs | NL-7 P1 merged | READY |
 | `nl7-p4-rtls-hardening.md` | RTLS seam (gated) + pilot hardening | P1–P3 merged + Decision 4 / RTLS pilot | GATED |
-| `nl6-01-radiology-reporting.md` | templates, peer review, TAT, timeline fix | plan on main | **LAUNCHED** |
+| `nl6-01-radiology-reporting.md` | templates, peer review, TAT, timeline fix | plan on main | **MERGED** #450 |
 | `nl6-02-donor-intake.md` | donors, screening, deferrals, collection | **Decision 2 (blood centre)** | GATED |
 | `nl6-03-donor-processing.md` | TTI, components, traceability, registers | N6-2 merged + Decision 3 | GATED |
-| `nl6-04-histopath.md` | AP cases/blocks/slides/reports | N6-1 merged (template pattern) | READY-after-N6-1 |
-| `nl6-05-credentialing.md` | privilege catalog, approvals, expiry alerts | plan on main | READY |
+| `nl6-04-histopath.md` | AP cases/blocks/slides/reports | N6-1 merged ✓ | **LAUNCHED** (migs 383–386) |
+| `nl6-05-credentialing.md` | privilege catalog, approvals, expiry alerts | plan on main | **LAUNCHED** (migs 378–380) |
 | `nl6-06-infection-depth.md` | isolation orders, HAI, outbreaks, hand hygiene | plan on main (N6-5 soft-first) | READY |
 | `nl6-07-ophthalmology.md` | encounter link, biometry, cataract bundle, UI | plan on main | READY |
 | `nl6-08-dental-ui.md` | odontogram UI, seeds, billing linkage | plan on main | READY |
