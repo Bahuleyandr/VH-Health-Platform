@@ -5,6 +5,7 @@ import {
   computeDose,
   applyReduction,
   projectCumulativePerM2,
+  infusionSlotsOverlap,
 } from '../../services/oncology/chemoService.js';
 
 describe('chemo computeBsaMosteller', () => {
@@ -44,5 +45,29 @@ describe('chemo projectCumulativePerM2 (anthracycline ceilings)', () => {
   test('passes under the ceiling and with no ceiling', () => {
     expect(projectCumulativePerM2({ existingPerM2: 300, dosePerM2Planned: 60, ceiling: 450 }).breached).toBe(false);
     expect(projectCumulativePerM2({ existingPerM2: 1000, dosePerM2Planned: 60, ceiling: null }).breached).toBe(false);
+  });
+});
+
+describe('infusion chair slot overlap math', () => {
+  test('treats partially intersecting windows as conflicts', () => {
+    expect(infusionSlotsOverlap(
+      '2026-06-15T09:00:00.000Z',
+      '2026-06-15T11:00:00.000Z',
+      '2026-06-15T10:30:00.000Z',
+      '2026-06-15T12:00:00.000Z',
+    )).toBe(true);
+  });
+
+  test('uses half-open windows so adjacent slots can reuse the chair', () => {
+    expect(infusionSlotsOverlap(
+      '2026-06-15T09:00:00.000Z',
+      '2026-06-15T11:00:00.000Z',
+      '2026-06-15T11:00:00.000Z',
+      '2026-06-15T13:00:00.000Z',
+    )).toBe(false);
+  });
+
+  test('ignores invalid date inputs instead of inventing a conflict', () => {
+    expect(infusionSlotsOverlap('not-a-date', '2026-06-15T11:00:00.000Z', '2026-06-15T10:00:00.000Z', '2026-06-15T12:00:00.000Z')).toBe(false);
   });
 });
