@@ -342,6 +342,15 @@ const EMR_TIMELINE_READ_ROLES = EMR_TIMELINE_READ_ROUTE_ROLES;
 const ADMISSION_SURFACE_ROLES = ADMISSION_SURFACE_ROUTE_ROLES;
 const ADMISSION_OCCUPANCY_ROLES = ADMISSION_OCCUPANCY_ROUTE_ROLES;
 const CLINICAL_AI_CONTROL_ROLES = TECHNICAL_ADMIN_ROUTE_ROLES;
+const ORDER_SET_STUDIO_PARENT_ROLES = [...new Set([...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER'])];
+const ORDER_SET_STUDIO_ACTION_PATH = /^\/api\/v1\/emr\/order-sets\/[^/]+\/(?:new-version|submit|pharmacy-review|approve|reject|retire|rollback)$/;
+const isOrderSetStudioRequest = (req) => {
+  const path = (req.originalUrl || '').split('?')[0];
+  return path === '/api/v1/emr/order-sets/studio'
+    || path === '/api/v1/emr/order-sets/studio/settings'
+    || path === '/api/v1/emr/order-sets/import'
+    || ORDER_SET_STUDIO_ACTION_PATH.test(path);
+};
 const PHARMACY_INVENTORY_PARENT_ROLES = [
   ...new Set([...PHARMACY_ROUTE_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES]),
 ];
@@ -968,7 +977,10 @@ app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeA
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
-app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
+app.use('/api/v1/emr', (req, res, next) => {
+  const roles = isOrderSetStudioRequest(req) ? ORDER_SET_STUDIO_PARENT_ROLES : CLINICAL_STAFF_ROLES;
+  return requireRole(...roles)(req, res, next);
+});
 const EMR_CLINICAL_NOTE_PATHS = [
   '/api/v1/emr/notes',
   '/api/v1/emr/timeline',

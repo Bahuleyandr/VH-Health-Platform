@@ -118,6 +118,20 @@ export const CLINICAL_AI_CONTROL_ROLES = [
   "SYSTEM_ADMIN",
 ];
 
+export const ORDER_SET_STUDIO_ROLES = [
+  "ADMIN",
+  "SUPER_ADMIN",
+  "DOCTOR",
+  "DUTY_DOCTOR",
+  "CONSULTANT",
+  "JUNIOR_DOCTOR",
+  "RESIDENT",
+  "CMO",
+  "MEDICAL_SUPERINTENDENT",
+  "QUALITY_OFFICER",
+  "PHARMACY_INCHARGE",
+];
+
 export interface RoutePolicy {
   /** Minimum ROLE_RANK value required (ignored when `roles` is set). */
   minRank?: number;
@@ -160,6 +174,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   quality: { minRank: STAFF },
   referral: { minRank: STAFF },
   productivity: { minRank: STAFF },
+  "order-set-studio": { roles: ORDER_SET_STUDIO_ROLES },
   messaging: { minRank: STAFF },
   "discharge-summaries": { minRank: STAFF },
   "discharge-summary": { minRank: STAFF },

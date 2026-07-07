@@ -1,9 +1,15 @@
 // src/routes/emr/orderRoutes.js
 import express from 'express';
+import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as orderEntryService from '../../services/emr/orderEntryService.js';
+import * as orderSetGovernanceService from '../../services/emr/orderSetGovernanceService.js';
+import {
+  isContentStudioEnabled,
+  setContentStudioEnabled,
+} from '../../services/emr/orderSetContentStudioSettingsService.js';
 import {
   ACCESS_POLICY_CODES,
   authorizePatientAccessRequest,
@@ -217,7 +223,8 @@ router.post('/orders/apply-set', rejectMobileClinicalWrite, requireIdempotencyKe
       patient_uid,
       encounter_id || null,
       order_set_id,
-      req.user.uid
+      req.user.uid,
+      req.tenantId
     );
 
     logPhiAccess({
@@ -484,5 +491,103 @@ router.post('/order-sets', async (req, res, next) => {
     next(err);
   }
 });
+
+wrapAutoRBAC(router, 'orderSetStudioRoutes', {
+  get: [
+    ['/order-sets/studio', async (req, res) => {
+      const result = await orderSetGovernanceService.listOrderSetsForStudio({
+        tenantId: req.tenantId,
+        status: req.query.status || null,
+      });
+      return success(res, result, 'Order-set studio queue retrieved');
+    }],
+    ['/order-sets/studio/settings', async (req, res) => {
+      const enabled = await isContentStudioEnabled(req.tenantId);
+      return success(res, { tenant_id: req.tenantId, enabled }, 'Content studio settings retrieved');
+    }],
+  ],
+  post: [
+    ['/order-sets/studio/settings', async (req, res) => {
+      const result = await setContentStudioEnabled(req.tenantId, req.body?.enabled === true, {
+        actorUid: req.user.uid,
+        snapshot: req.body?.acceptance_snapshot || null,
+      });
+      return success(res, result, 'Content studio settings updated');
+    }],
+    ['/order-sets/import', async (req, res) => {
+      const result = await orderSetGovernanceService.importOrderSetDocument({
+        tenantId: req.tenantId,
+        document: req.body?.document || req.body,
+        actor: req.user,
+        dryRun: req.body?.dry_run === true,
+        sourceFile: req.body?.source_file || null,
+      });
+      return success(res, result, req.body?.dry_run === true ? 'Order-set import dry run completed' : 'Order-set import landed as draft', 201);
+    }],
+    ['/order-sets/:id/new-version', async (req, res) => {
+      const result = await orderSetGovernanceService.cloneOrderSetVersion({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Order-set draft version created', 201);
+    }],
+    ['/order-sets/:id/submit', async (req, res) => {
+      const result = await orderSetGovernanceService.submitOrderSetForReview({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Order set submitted for review');
+    }],
+    ['/order-sets/:id/pharmacy-review', async (req, res) => {
+      const result = await orderSetGovernanceService.recordPharmacyReview({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Pharmacy review recorded');
+    }],
+    ['/order-sets/:id/approve', async (req, res) => {
+      const result = await orderSetGovernanceService.approveOrderSet({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Order set approved and deployed');
+    }],
+    ['/order-sets/:id/reject', async (req, res) => {
+      const result = await orderSetGovernanceService.rejectOrderSet({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Order set returned to draft');
+    }],
+    ['/order-sets/:id/retire', async (req, res) => {
+      const result = await orderSetGovernanceService.retireOrderSet({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Order set retired');
+    }],
+    ['/order-sets/:id/rollback', async (req, res) => {
+      const result = await orderSetGovernanceService.rollbackOrderSet({
+        tenantId: req.tenantId,
+        orderSetId: req.params.id,
+        actor: req.user,
+        note: req.body?.note || null,
+      });
+      return success(res, result, 'Order set rolled back');
+    }],
+  ],
+}, { requirePhone: false });
 
 export default router;
