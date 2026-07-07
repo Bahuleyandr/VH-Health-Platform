@@ -254,6 +254,12 @@ export const canSignOffLabResults = role => PATHOLOGIST_SIGN_ROLES.includes(role
 export const RADIOLOGY_REPORT_SIGN_ROLES = [ROLES.RADIOLOGIST];
 export const canSignRadiologyReport = role => RADIOLOGY_REPORT_SIGN_ROLES.includes(role);
 
+// Anatomic pathology/cytology report sign-off is a pathologist act. Keep this
+// deliberately narrower than PATHOLOGIST_SIGN_ROLES, which includes lab
+// in-charge/admin override roles for general lab-result finalisation.
+export const AP_REPORT_SIGN_ROLES = [ROLES.PATHOLOGIST];
+export const canSignApReport = role => AP_REPORT_SIGN_ROLES.includes(role);
+
 export const canViewMedicalData = role =>
   isClinical(role) || isAdmin(role) || isMedicalRecords(role);
 export const canViewDischargeSummary = role => DISCHARGE_SUMMARY_VIEW_ROLES.includes(role);

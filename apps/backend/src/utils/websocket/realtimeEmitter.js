@@ -293,6 +293,15 @@ export function emitRadiologyEvent(kind, { tenantId } = {}) {
   }
 }
 
+/** Anatomic-pathology board change (accession, grossing, blocks/slides, report, sign-off, addendum). */
+export function emitPathologyEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:pathology', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitPathologyEvent failed:', err.message);
+  }
+}
+
 /** Appointment/queue board change (book / confirm / no-show / complete / cancel / reschedule / walk-in / status). */
 export function emitAppointmentEvent(kind, { tenantId } = {}) {
   try {

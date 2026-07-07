@@ -6006,6 +6006,7 @@ model investigations {
   collection_patient_match                 Boolean?
   patient_scanned_at                       DateTime?                           @db.Timestamptz(6)
   tube_scanned_at                          DateTime?                           @db.Timestamptz(6)
+  ap_cases                                 ap_cases[]
   clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
   investigation_bookings                   investigation_bookings[]
   tenants                                  tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_investigations_tenant")
@@ -9434,6 +9435,14 @@ model tenants {
   annual_review_reminders                    annual_review_reminders[]
   annual_tax_summaries                       annual_tax_summaries[]
   anomalies                                  anomalies[]
+  ap_blocks                                  ap_blocks[]
+  ap_case_specimens                          ap_case_specimens[]
+  ap_cases                                   ap_cases[]
+  ap_gross_records                           ap_gross_records[]
+  ap_report_addenda                          ap_report_addenda[]
+  ap_reports                                 ap_reports[]
+  ap_slides                                  ap_slides[]
+  ap_tat_thresholds                          ap_tat_thresholds[]
   api_access_logs                            api_access_logs[]
   api_clients                                api_clients[]
   api_keys                                   api_keys[]
@@ -9579,6 +9588,7 @@ model tenants {
   composition_search_settings                composition_search_settings?
   consent_signatures                         consent_signatures[]
   consultations                              consultations[]
+  content_studio_settings                    content_studio_settings?
   credential_document_uploads                credential_document_uploads[]
   credential_expiry_alerts                   credential_expiry_alerts[]
   data_breaches                              data_breaches[]
@@ -9706,6 +9716,8 @@ model tenants {
   nurse_handovers                            nurse_handovers[]
   ophthalmic_exams                           ophthalmic_exams[]
   ophthalmic_refractions                     ophthalmic_refractions[]
+  order_set_import_batches                   order_set_import_batches[]
+  order_set_review_events                    order_set_review_events[]
   ot_schedules                               ot_schedules[]
   otp_logs                                   otp_logs[]
   otp_sessions                               otp_sessions[]
@@ -11194,12 +11206,27 @@ model clinical_order_sets {
   tenant_id                       String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
   updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  family_key                      String                            @db.VarChar(80)
+  version                         Int                               @default(1)
+  status                          String                            @default("approved") @db.VarChar(20)
+  approved_by                     String?                           @db.Uuid
+  approved_at                     DateTime?                         @db.Timestamptz(6)
+  review_note                     String?
+  superseded_by                   Int?
+  source                          String                            @default("authored") @db.VarChar(20)
+  import_batch_id                 BigInt?
   clinical_order_set_applications clinical_order_set_applications[]
   clinical_order_set_items        clinical_order_set_items[]
+  order_set_import_batches        order_set_import_batches?         @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction, map: "fk_clinical_order_sets_import_batch")
+  clinical_order_sets             clinical_order_sets?              @relation("clinical_order_setsToclinical_order_sets", fields: [superseded_by], references: [id], onUpdate: NoAction, map: "fk_clinical_order_sets_superseded_by")
+  other_clinical_order_sets       clinical_order_sets[]             @relation("clinical_order_setsToclinical_order_sets")
+  order_set_review_events         order_set_review_events[]
 
   @@unique([tenant_id, code], map: "uniq_clinical_order_sets_tenant_code")
+  @@unique([tenant_id, family_key], map: "uniq_clinical_order_sets_deployed_family", where: raw("(((status)::text = 'approved'::text) AND (active = true))"))
   @@index([specialty, active], map: "idx_clinical_order_sets_specialty")
   @@index([tenant_id], map: "idx_clinical_order_sets_tenant_id")
+  @@index([tenant_id, family_key, status, active, version(sort: Desc)], map: "idx_clinical_order_sets_family_status")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -14156,6 +14183,8 @@ model lab_specimens {
   barcode                     String?                       @db.VarChar(64)
   label_printed_at            DateTime?                     @db.Timestamptz(6)
   label_printed_by            String?                       @db.Uuid
+  ap_case_specimens           ap_case_specimens[]
+  ap_cases                    ap_cases[]
   lab_interface_messages      lab_interface_messages[]
   lab_results                 lab_results[]
   lab_specimen_status_history lab_specimen_status_history[]
@@ -16025,6 +16054,45 @@ model blood_bank_register_exports {
   @@index([tenant_id, register_type, generated_at(sort: Desc)], map: "idx_blood_bank_register_exports_type_time")
 }
 
+model ap_blocks {
+  id               BigInt            @id @default(autoincrement())
+  tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_case_id       BigInt
+  gross_record_id  BigInt?
+  block_code       String            @db.VarChar(120)
+  sequence_no      Int
+  tissue_site      String?           @db.VarChar(160)
+  cassette_label   String?           @db.VarChar(120)
+  status           String            @default("planned") @db.VarChar(40)
+  created_by       String?           @db.Uuid
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
+  ap_cases         ap_cases          @relation(fields: [ap_case_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_blocks_case")
+  ap_gross_records ap_gross_records? @relation(fields: [gross_record_id], references: [id], onUpdate: NoAction, map: "fk_ap_blocks_gross_record")
+  tenants          tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_blocks_tenant")
+  ap_slides        ap_slides[]
+
+  @@unique([tenant_id, ap_case_id, sequence_no], map: "ux_ap_blocks_case_sequence")
+  @@unique([tenant_id, block_code], map: "ux_ap_blocks_code")
+  @@index([tenant_id, ap_case_id, created_at(sort: Desc)], map: "idx_ap_blocks_case")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ap_case_specimens {
+  id            BigInt        @id @default(autoincrement())
+  tenant_id     String        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_case_id    BigInt
+  specimen_id   Int
+  specimen_role String        @default("primary") @db.VarChar(40)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  ap_cases      ap_cases      @relation(fields: [ap_case_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_case_specimens_case")
+  lab_specimens lab_specimens @relation(fields: [specimen_id], references: [id], onUpdate: NoAction, map: "fk_ap_case_specimens_specimen")
+  tenants       tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_case_specimens_tenant")
+
+  @@unique([tenant_id, ap_case_id, specimen_id], map: "ux_ap_case_specimens_case_specimen")
+  @@index([tenant_id, specimen_id], map: "idx_ap_case_specimens_specimen")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model blood_unit_discard_events {
@@ -16050,6 +16118,38 @@ model blood_unit_discard_events {
 
   @@index([tenant_id, event_type, reason_code, performed_at(sort: Desc)], map: "idx_blood_unit_discards_reason")
   @@index([tenant_id, unit_id, performed_at(sort: Desc)], map: "idx_blood_unit_discards_unit_time")
+}
+
+model ap_cases {
+  id                      BigInt              @id @default(autoincrement())
+  tenant_id               String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_case_uid             String              @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  case_number             String              @db.VarChar(80)
+  patient_uid             String              @db.Uuid
+  encounter_id            String?             @db.Uuid
+  source_investigation_id Int?
+  primary_specimen_id     Int?
+  case_kind               String              @db.VarChar(40)
+  priority                String              @default("routine") @db.VarChar(20)
+  status                  String              @default("accessioned") @db.VarChar(40)
+  clinical_history        String?
+  accessioned_at          DateTime            @default(now()) @db.Timestamptz(6)
+  accessioned_by          String?             @db.Uuid
+  metadata                Json                @default("{}")
+  created_at              DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime            @default(now()) @db.Timestamptz(6)
+  ap_blocks               ap_blocks[]
+  ap_case_specimens       ap_case_specimens[]
+  investigations          investigations?     @relation(fields: [source_investigation_id], references: [id], onUpdate: NoAction, map: "fk_ap_cases_investigation")
+  lab_specimens           lab_specimens?      @relation(fields: [primary_specimen_id], references: [id], onUpdate: NoAction, map: "fk_ap_cases_primary_specimen")
+  tenants                 tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_cases_tenant")
+  ap_gross_records        ap_gross_records[]
+  ap_reports              ap_reports[]
+  ap_slides               ap_slides[]
+
+  @@unique([tenant_id, case_number], map: "ux_ap_cases_case_number")
+  @@index([tenant_id, patient_uid, accessioned_at(sort: Desc)], map: "idx_ap_cases_patient")
+  @@index([tenant_id, status, priority, accessioned_at(sort: Desc)], map: "idx_ap_cases_worklist")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -16080,6 +16180,27 @@ model component_preparations {
   @@index([tenant_id, donation_event_id, prepared_at(sort: Desc)], map: "idx_component_preparations_donation")
 }
 
+model ap_gross_records {
+  id                BigInt      @id @default(autoincrement())
+  tenant_id         String      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_case_id        BigInt
+  gross_text        String
+  specimen_weight_g Decimal?    @db.Decimal(10, 3)
+  dimensions_text   String?     @db.VarChar(255)
+  cassette_count    Int?
+  dictation_ref     String?     @db.VarChar(160)
+  recorded_by       String?     @db.Uuid
+  recorded_at       DateTime    @default(now()) @db.Timestamptz(6)
+  metadata          Json        @default("{}")
+  created_at        DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime    @default(now()) @db.Timestamptz(6)
+  ap_blocks         ap_blocks[]
+  ap_cases          ap_cases    @relation(fields: [ap_case_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_gross_records_case")
+  tenants           tenants     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_gross_records_tenant")
+
+  @@index([tenant_id, ap_case_id, recorded_at(sort: Desc)], map: "idx_ap_gross_records_case")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model donor_camps {
@@ -16105,6 +16226,21 @@ model donor_camps {
 
   @@unique([tenant_id, camp_code], map: "ux_donor_camps_code")
   @@index([tenant_id, status, scheduled_date(sort: Desc)], map: "idx_donor_camps_status_date")
+}
+
+model ap_report_addenda {
+  id            BigInt     @id @default(autoincrement())
+  tenant_id     String     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_report_id  BigInt
+  addendum_text String
+  addendum_by   String?    @db.Uuid
+  addendum_at   DateTime   @default(now()) @db.Timestamptz(6)
+  metadata      Json       @default("{}")
+  created_at    DateTime   @default(now()) @db.Timestamptz(6)
+  ap_reports    ap_reports @relation(fields: [ap_report_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_report_addenda_report")
+  tenants       tenants    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_report_addenda_tenant")
+
+  @@index([tenant_id, ap_report_id, addendum_at(sort: Desc)], map: "idx_ap_report_addenda_report")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -16146,4 +16282,134 @@ model tti_tests {
   @@unique([tenant_id, donation_event_id, repeat_sequence], map: "ux_tti_tests_donation_repeat")
   @@index([tenant_id, donor_id, created_at(sort: Desc)], map: "idx_tti_tests_donor_time")
   @@index([tenant_id, status, overall_result, created_at(sort: Desc)], map: "idx_tti_tests_status")
+}
+
+model ap_reports {
+  id                BigInt              @id @default(autoincrement())
+  tenant_id         String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_case_id        BigInt
+  report_status     String              @default("draft") @db.VarChar(40)
+  gross_text        String?
+  microscopic_text  String?
+  diagnosis_text    String?
+  synoptic_fields   Json                @default("{}")
+  malignancy_flag   String              @default("not_assessed") @db.VarChar(40)
+  report_author_uid String?             @db.Uuid
+  preliminary_at    DateTime?           @db.Timestamptz(6)
+  preliminary_by    String?             @db.Uuid
+  signed_at         DateTime?           @db.Timestamptz(6)
+  signed_by         String?             @db.Uuid
+  amended_at        DateTime?           @db.Timestamptz(6)
+  metadata          Json                @default("{}")
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  ap_report_addenda ap_report_addenda[]
+  ap_cases          ap_cases            @relation(fields: [ap_case_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_reports_case")
+  tenants           tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_reports_tenant")
+
+  @@unique([tenant_id, ap_case_id], map: "ux_ap_reports_case")
+  @@index([tenant_id, report_status, updated_at(sort: Desc)], map: "idx_ap_reports_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ap_slides {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ap_case_id       BigInt
+  block_id         BigInt
+  slide_code       String    @db.VarChar(140)
+  barcode          String    @db.VarChar(160)
+  sequence_no      Int
+  stain_type       String    @default("h_and_e") @db.VarChar(40)
+  stain_name       String?   @db.VarChar(120)
+  status           String    @default("planned") @db.VarChar(40)
+  label_printed_at DateTime? @db.Timestamptz(6)
+  label_printed_by String?   @db.Uuid
+  created_by       String?   @db.Uuid
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  ap_blocks        ap_blocks @relation(fields: [block_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_slides_block")
+  ap_cases         ap_cases  @relation(fields: [ap_case_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ap_slides_case")
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_slides_tenant")
+
+  @@unique([tenant_id, barcode], map: "ux_ap_slides_barcode")
+  @@unique([tenant_id, block_id, sequence_no], map: "ux_ap_slides_block_sequence")
+  @@unique([tenant_id, slide_code], map: "ux_ap_slides_code")
+  @@index([tenant_id, block_id, created_at(sort: Desc)], map: "idx_ap_slides_block")
+  @@index([tenant_id, ap_case_id, created_at(sort: Desc)], map: "idx_ap_slides_case")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ap_tat_thresholds {
+  id           BigInt   @id @default(autoincrement())
+  tenant_id    String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_kind    String   @db.VarChar(40)
+  priority     String   @db.VarChar(20)
+  target_hours Decimal  @db.Decimal(8, 2)
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  tenants      tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ap_tat_thresholds_tenant")
+
+  @@unique([tenant_id, case_kind, priority], map: "ux_ap_tat_thresholds_scope")
+  @@index([tenant_id, case_kind, priority], map: "idx_ap_tat_thresholds_active", where: raw("(is_active = true)"))
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model content_studio_settings {
+  tenant_id           String    @id @db.Uuid
+  enabled             Boolean   @default(false)
+  enabled_at          DateTime? @db.Timestamptz(6)
+  enabled_by          String?   @db.Uuid
+  acceptance_snapshot Json?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model order_set_import_batches {
+  id                  BigInt                @id @default(autoincrement())
+  tenant_id           String                @db.Uuid
+  import_key          String                @db.VarChar(120)
+  format              String                @default("vh-order-set/1") @db.VarChar(40)
+  source_file         String?
+  dry_run             Boolean               @default(false)
+  status              String                @default("pending") @db.VarChar(20)
+  row_count           Int                   @default(0)
+  imported_count      Int                   @default(0)
+  warning_count       Int                   @default(0)
+  error_count         Int                   @default(0)
+  metadata            Json                  @default("{}")
+  actor_uid           String?               @db.Uuid
+  started_at          DateTime              @default(now()) @db.Timestamptz(6)
+  completed_at        DateTime?             @db.Timestamptz(6)
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  clinical_order_sets clinical_order_sets[]
+  tenants             tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, import_key], map: "uniq_order_set_import_batches_tenant_key")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_order_set_import_batches_tenant_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model order_set_review_events {
+  id                  BigInt              @id @default(autoincrement())
+  tenant_id           String              @db.Uuid
+  order_set_id        Int
+  action              String              @db.VarChar(20)
+  actor_uid           String?             @db.Uuid
+  actor_role          String?             @db.VarChar(80)
+  note                String?
+  metadata            Json                @default("{}")
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  clinical_order_sets clinical_order_sets @relation(fields: [order_set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([order_set_id, created_at], map: "idx_order_set_review_events_set_created")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_order_set_review_events_tenant_created")
 }

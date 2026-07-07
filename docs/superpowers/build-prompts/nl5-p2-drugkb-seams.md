@@ -13,7 +13,18 @@ Exit 0 → proceed. Exit 1 → STOP and report.
 ## Workspace
 Worktree `VH-Health-Platform-nl5-p2`, branch `feat/nl5-p2-drugkb-seams` (per `_worker-common.md`). Backend only.
 
-## Scope (spec §2.2 — and NOTHING from §2.1's content side)
+## Scope A — indigenous-KB substrate (from `docs/superpowers/specs/2026-07-07-indigenous-drugkb-program-design.md` §Next Implementation Slice; read that spec too)
+1. **Row-level provenance columns** on every `drug_kb_*` content table (source references,
+   license status, author, reviewer, approval trail — JSONB `provenance` + typed status
+   columns per the spec's Provenance Schema Seam; 1–2 migrations from your block).
+2. **Immutable-edition modeling** for `vh_indigenous`: `drug_kb_sources` rows as versioned
+   editions (version label, license_note = internal provenance, acceptance snapshot in
+   metadata before activation; rollback = re-activate prior edition).
+3. **Structural lint + diff tools**: `scripts/drug-kb-lint.mjs` (schema/reference validation,
+   NO clinical judgment) and an edition-diff report for reviewer workflows.
+4. **Author NO drug content — none.** Substrate only, per the spec's gate.
+
+## Scope B (original P2 — spec §2.2, NOTHING from §2.1's content side)
 1. **Source precedence** (1 migration, number assigned at launch): `drug_kb_sources.priority INTEGER NOT NULL DEFAULT 100`; `loadKb()` (`drugKnowledgeBaseService.js:134–171`) dedupes per dataset key (interaction pair a<b, dose (drug,route,population), caution (drug,icd10_prefix), allergy group, IV pair) keeping the highest-priority row. Preserves the documented starter-cutover drill while making the overlap window deterministic.
 2. **Acceptance harness** `apps/backend/scripts/drug-kb-acceptance.mjs`: fixed clinical scenario battery (known contraindicated pair, pediatric overdose, CKD NSAID, penicillin cross-reactivity, IV ceftriaxone+Ringer's-lactate) run through `evaluateDrugKb` against the active sources; emits a snapshot; document the starter-deactivation step recording that snapshot into `drug_kb_sources.metadata` (mirror the mig-351 `acceptance_snapshot` pattern).
 3. **Indigenous-edition import contract**: a doc (`apps/backend/docs/RUNBOOKS/drug-kb-import.md`) defining how indigenous KB editions ship — the seven neutral CSVs `drug-kb-import.mjs` already accepts, one `drug_kb_sources` row per edition (source_key like `vh_indigenous`, version label, license_note = internal provenance/citations), the acceptance-battery pass recorded into `drug_kb_sources.metadata` before activation, and the aushadhi brand→composition artifact (importer merged in PR #451) named as the monograph/alias seed path. Include a synthetic "indigenous-shaped" fixture edition for tests.

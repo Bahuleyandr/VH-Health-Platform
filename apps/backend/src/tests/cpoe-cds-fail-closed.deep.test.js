@@ -42,7 +42,7 @@ jest.unstable_mockModule('../utils/clinical/prescriptionSafetyCheck.js', () => (
 
 const prismaModule = await import('../lib/prisma.js');
 const prisma = prismaModule.default;
-const { createOrder, createOrdersBulk, verifyOrder } = await import('../services/emr/orderEntryService.js');
+const { applyOrderSet, createOrder, createOrdersBulk, verifyOrder } = await import('../services/emr/orderEntryService.js');
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -67,6 +67,19 @@ async function cleanup() {
     PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_order_set_items
+      WHERE order_set_id IN (
+        SELECT id FROM clinical_order_sets
+         WHERE tenant_id = $1::uuid AND family_key = 'CDS-APPLY-FAIL-CLOSED'
+      )`,
+    TENANT_ID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_order_sets
+      WHERE tenant_id = $1::uuid AND family_key = 'CDS-APPLY-FAIL-CLOSED'`,
+    TENANT_ID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ORDERER_UID,
@@ -189,6 +202,42 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
 
     // Atomic: NOT EVEN the valid lab order persisted.
     expect(await orderCount()).toBe(before);
+  });
+
+  test('applyOrderSet reports the CDS blocker and does not create the medication order', async () => {
+    const before = await orderCount();
+    const created = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_order_sets
+         (tenant_id, code, family_key, version, status, active, title, specialty,
+          condition_codes, description, created_by, source)
+       VALUES ($1::uuid, 'CDS-APPLY-FAIL-CLOSED-V1', 'CDS-APPLY-FAIL-CLOSED',
+               1, 'approved', TRUE, 'CDS apply fail-closed', 'General Medicine',
+               ARRAY[]::text[], 'CDS apply-set fixture', $2::uuid, 'authored')
+       RETURNING id`,
+      TENANT_ID,
+      ORDERER_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_order_set_items
+         (tenant_id, order_set_id, display_order, kind, payload, default_selected)
+       VALUES ($1::uuid, $2::int, 1, 'med', $3::jsonb, TRUE)`,
+      TENANT_ID,
+      Number(created[0].id),
+      JSON.stringify({ medication_name: 'Metformin', dose: '500mg', route: 'PO' }),
+    );
+    safetyControl.throwError = new Error('simulated safety-screen DB fault');
+
+    const result = await applyOrderSet(PATIENT_UID, null, created[0].id, ORDERER_UID, TENANT_ID);
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        kind: 'med',
+        code: 'CDS_BLOCKER',
+        error: 'Order template could not be applied',
+      }),
+    ]);
+    expect(await orderCount()).toBe(before);
+    expect(validatePrescriptionSafetySpy).toHaveBeenCalledTimes(1);
   });
 
   test('concurrent verifyOrder on the same order → exactly one verifies (M6 TOCTOU)', async () => {
