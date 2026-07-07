@@ -34,6 +34,7 @@ import {
 import { requireTenantId } from '../tenant/tenantService.js';
 import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
 import { recordBrandSubstitutionAudit } from '../pharmacy/compositionSubstitutionAudit.js';
+import { isContentStudioEnabled } from './orderSetContentStudioSettingsService.js';
 
 
 // ===================================================================
@@ -45,7 +46,7 @@ import { recordBrandSubstitutionAudit } from '../pharmacy/compositionSubstitutio
 // differentiation the receiving department's worklist needs — a STAT ECG
 // (door-to-balloon clock) must not land in the same bucket as a routine
 // blood test. Finding: 2026-05-09-emergency-walk-in-doctor-no-ecg-order-type.
-const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation', 'ecg', 'radiology', 'procedure'];
+export const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation', 'ecg', 'radiology', 'procedure'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
 
 // Structured medication route (migration 229). Maps the free-text
@@ -1518,7 +1519,7 @@ function inferTestType(payload) {
   }
   return null;
 }
-function orderRequestFromItem(item, orderSetTitle) {
+export function orderRequestFromItem(item, orderSetTitle) {
   const payload = item.payload && typeof item.payload === 'object'
     ? { ...item.payload } : {};
   const priority = typeof payload.urgency === 'string' && VALID_PRIORITIES.includes(payload.urgency.toLowerCase())
@@ -1570,28 +1571,44 @@ function shapeOrderSetForResponse(set, items = []) {
  * @param {string|null} encounterId
  * @param {number} orderSetId
  * @param {string} orderedBy - UID
+ * @param {string|null} [tenantId]
  * @returns {Array} Created orders
  */
-export async function applyOrderSet(patientUid, encounterId, orderSetId, orderedBy) {
+export async function applyOrderSet(patientUid, encounterId, orderSetId, orderedBy, tenantId = null) {
   if (!patientUid || !orderSetId || !orderedBy) {
     throw AppError.badRequest('patientUid, orderSetId, and orderedBy are required');
   }
 
-  const set = await prisma.clinical_order_sets.findUnique({
-    where: { id: Number(orderSetId) },
-    select: { id: true, title: true, active: true },
+  const scopedTenantId = tenantId ? requireTenantId(tenantId) : null;
+  const set = await prisma.clinical_order_sets.findFirst({
+    where: {
+      id: Number(orderSetId),
+      ...(scopedTenantId ? { tenant_id: scopedTenantId } : {}),
+    },
+    select: {
+      id: true,
+      code: true,
+      title: true,
+      active: true,
+      family_key: true,
+      version: true,
+      status: true,
+    },
   });
 
   if (!set) {
     throw AppError.notFound('Order set not found');
   }
 
-  if (!set.active) {
-    throw AppError.badRequest('Order set is inactive');
+  if (!set.active || set.status !== 'approved') {
+    throw AppError.badRequest('Order set is not deployed');
   }
 
   const items = await prisma.clinical_order_set_items.findMany({
-    where: { order_set_id: set.id },
+    where: {
+      order_set_id: set.id,
+      ...(scopedTenantId ? { tenant_id: scopedTenantId } : {}),
+    },
     orderBy: { display_order: 'asc' },
   });
 
@@ -1604,16 +1621,22 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
   for (const item of items) {
     try {
       const req = orderRequestFromItem(item, set.title);
+      const details = {
+        ...req.details,
+        order_set_family: set.family_key || set.code,
+        order_set_version: set.version || 1,
+      };
       const result = await createOrder({
         encounter_id: encounterId || null,
         patient_uid: patientUid,
         order_type: req.order_type,
         priority: req.priority,
-        details: req.details,
+        details,
         ordered_by: orderedBy,
         start_date: null,
         end_date: null,
         notes: req.notes,
+        tenantId: scopedTenantId,
       });
       createdOrders.push(result);
     } catch (err) {
@@ -1621,7 +1644,12 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
       // surface err.message to the response (per CLAUDE.md security
       // checklist); the caller sees the count of successful orders.
       logger.warn(`Failed to create order from set template (kind=${item.kind}): ${err.message}`);
-      createdOrders.push({ error: 'Order template could not be applied', kind: item.kind });
+      createdOrders.push({
+        error: 'Order template could not be applied',
+        kind: item.kind,
+        code: err.code || 'ORDER_SET_ITEM_FAILED',
+        statusCode: err.statusCode || 500,
+      });
     }
   }
 
@@ -1640,7 +1668,7 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
  * @returns {Array} Order sets
  */
 export async function getOrderSets(category) {
-  const where = { active: true };
+  const where = { active: true, status: 'approved' };
   if (category) {
     // The legacy API accepted free-form category strings ('emergency',
     // 'cardiology'); migrate that to substring match against `specialty`
@@ -1718,10 +1746,19 @@ export async function createOrderSet(data) {
   // tenant_isolation policy, so the insert must run with app.current_tenant_id
   // set. tenantId is threaded from the caller's req.tenantId; default keeps
   // single-tenant / test callers green.
-  const created = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+  const scopedTenantId = requireTenantId(tenantId);
+  const studioEnabled = await isContentStudioEnabled(scopedTenantId);
+  const initialStatus = studioEnabled ? 'draft' : 'approved';
+  const created = await setTenantTx(scopedTenantId, async (tx) => {
     const set = await tx.clinical_order_sets.create({
       data: {
         code: code.slice(0, 60),
+        family_key: code.slice(0, 60),
+        version: 1,
+        status: initialStatus,
+        approved_by: studioEnabled ? null : created_by,
+        approved_at: studioEnabled ? null : new Date(),
+        source: 'authored',
         title: name,
         specialty: category,
         description: description ?? null,

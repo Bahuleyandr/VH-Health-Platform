@@ -42,7 +42,8 @@ import {
   FINANCE_INCHARGE,
   INSURANCE_COORDINATOR,
   ADMISSION_OFFICER,
-  IPD_COUNSELLOR
+  IPD_COUNSELLOR,
+  QUALITY_OFFICER
 } from '../utils/roles.js';
 
 export default {
@@ -146,6 +147,19 @@ export default {
   ],
   // Pharmacy formulary write access is intentionally narrower.
   pharmacyCatalogAdminRoutes: [PHARMACY_INCHARGE, ADMIN],
+  orderSetStudioRoutes: [
+    SUPER_ADMIN,
+    ADMIN,
+    DOCTOR,
+    DUTY_DOCTOR,
+    'CONSULTANT',
+    'JUNIOR_DOCTOR',
+    'RESIDENT',
+    CMO,
+    MEDICAL_SUPERINTENDENT,
+    QUALITY_OFFICER,
+    PHARMACY_INCHARGE
+  ],
 
   // PHI-access break-glass activation/revocation (CareTeam ABAC design §5).
   // Deliberately the CURRENT break-glass-eligible set only

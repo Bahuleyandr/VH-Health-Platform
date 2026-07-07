@@ -5,6 +5,8 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import bloodBankService from '../../services/bloodbank/bloodBankService.js';
+import donorIntakeService from '../../services/bloodbank/donorIntakeService.js';
+import donorProcessingService from '../../services/bloodbank/donorProcessingService.js';
 import {
   registerUnit,
   listUnits,
@@ -28,6 +30,22 @@ function handleLoopFailure(res, next, err, context) {
   return next(err);
 }
 
+function handleDonorFailure(res, next, err, context) {
+  if (err instanceof AppError || err?.isOperational) {
+    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+  }
+  logger.error(`Donor intake ${context} failed:`, { error: err.message });
+  return next(err);
+}
+
+function handleProcessingFailure(res, next, err, context) {
+  if (err instanceof AppError || err?.isOperational) {
+    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+  }
+  logger.error(`Donor processing ${context} failed:`, { error: err.message });
+  return next(err);
+}
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
@@ -43,6 +61,160 @@ function bloodBankContext(req) {
     actorRole: req.user?.role || null,
   };
 }
+
+// -- NL-6 N6-2: donor intake cycle -----------------------------------------
+
+router.get('/donors', async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.listDonors(req.query, bloodBankContext(req));
+    return success(res, result.donors, 'Blood donors retrieved', 200, {
+      pagination: result.pagination,
+    });
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'list donors');
+  }
+});
+
+router.post('/donors', async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.registerDonor(req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-registered', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor registered', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'register donor');
+  }
+});
+
+router.post('/donors/:id/screenings', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.screenDonor(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-screened', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor screening recorded', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'screen donor');
+  }
+});
+
+router.get('/deferrals', async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.listDeferrals(req.query, bloodBankContext(req));
+    return success(res, result, 'Blood donor deferrals retrieved');
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'list deferrals');
+  }
+});
+
+router.post('/donors/:id/deferrals/:deferralId/reactivate', paramId(), paramId('deferralId'), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.reactivateDeferral(
+      parseInt(req.params.id, 10),
+      parseInt(req.params.deferralId, 10),
+      req.body,
+      bloodBankContext(req),
+    );
+    emitBloodBankEvent('donor-reactivated', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor deferral reactivated');
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'reactivate donor deferral');
+  }
+});
+
+router.post('/donors/:id/donations', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.recordDonationCollection(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('donation-collected', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donation collection recorded', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'record donation');
+  }
+});
+
+router.post('/donors/:id/consents', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorIntakeService.captureDonorConsent(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-consent-captured', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor consent captured', 201);
+  } catch (err) {
+    return handleDonorFailure(res, next, err, 'capture donor consent');
+  }
+});
+
+// -- NL-6 N6-3: donor processing, traceability, and registers ---------------
+
+router.get('/donor-camps', async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.listDonorCamps(req.query, bloodBankContext(req));
+    return success(res, result, 'Blood donor camps retrieved');
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'list donor camps');
+  }
+});
+
+router.post('/donor-camps', async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.createDonorCamp(req.body, bloodBankContext(req));
+    emitBloodBankEvent('donor-camp-recorded', { tenantId: req.tenantId });
+    return success(res, result, 'Blood donor camp recorded', 201);
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'create donor camp');
+  }
+});
+
+router.post('/donations/:id/tti-tests', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.recordTtiTest(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('tti-test-recorded', { tenantId: req.tenantId });
+    return success(res, result, 'Donation TTI test recorded', 201);
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'record TTI test');
+  }
+});
+
+router.post('/donations/:id/components', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.prepareComponents(parseInt(req.params.id, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('components-prepared', { tenantId: req.tenantId });
+    return success(res, result, 'Blood components prepared', 201);
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'prepare components');
+  }
+});
+
+router.get('/units/traceability', async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.getTraceability({
+      unitId: req.query.unit_id || null,
+      unitNumber: req.query.unit_number || null,
+    }, bloodBankContext(req));
+    return success(res, result, 'Blood unit traceability retrieved');
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'trace unit');
+  }
+});
+
+router.post('/units/:unitId/discard-confirmation', paramId('unitId'), validate, async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.confirmDiscard(parseInt(req.params.unitId, 10), req.body, bloodBankContext(req));
+    emitBloodBankEvent('unit-discard-confirmed', { tenantId: req.tenantId });
+    return success(res, result, 'Blood unit discard confirmed');
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'confirm discard');
+  }
+});
+
+router.get('/registers/:registerType', async (req, res, next) => {
+  try {
+    const result = await donorProcessingService.exportRegister(req.params.registerType, req.query, bloodBankContext(req));
+    if (result.buffer) {
+      res.setHeader('Content-Type', result.content_type);
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      return res.status(200).send(result.buffer);
+    }
+    return success(res, result, 'Blood-bank register exported');
+  } catch (err) {
+    return handleProcessingFailure(res, next, err, 'export register');
+  }
+});
 
 /**
  * POST /blood-bank/request
@@ -157,6 +329,8 @@ router.post('/units', requiredEnum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+'
       collectedDate: req.body.collected_date || null,
       volumeMl: req.body.volume_ml ?? null,
       donorRef: req.body.donor_ref || null,
+      donorId: req.body.donor_id ?? null,
+      donationEventId: req.body.donation_event_id ?? null,
       sourceBloodBank: req.body.source_blood_bank || null,
     }, bloodBankContext(req));
     emitBloodBankEvent('unit-registered', { tenantId: req.tenantId });

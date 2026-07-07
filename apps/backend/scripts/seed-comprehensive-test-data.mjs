@@ -32,6 +32,17 @@ const MANUAL_SEED_TABLES = new Set([
   // N6-1 radiology peer review rows must carry distinct reviewer/author
   // humans. The generic auto-seeder assigns one semantic UUID to both.
   'radiology_peer_reviews',
+  // N6-2 donor intake: volume_ml BETWEEN 100 AND 650 and sha256_hash
+  // ~ '^[0-9a-f]{64}$' CHECKs reject the generic seeder's values.
+  'donation_events',
+  'donor_consents',
+  // N6-12 mortuary slots enforce occupancy consistency: an available
+  // slot cannot carry a current body reference.
+  'mortuary_slots',
+  // N6-10 infusion chair coverage needs an active chair plus an ordered,
+  // cycle-date-aligned booking window.
+  'infusion_chairs',
+  'chair_bookings',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -203,7 +214,11 @@ function checkedValue(checksByTable, table, column) {
   for (const definition of definitions) {
     if (!definition.toLowerCase().includes(lowerColumn)) continue;
     const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map((match) => match[1]);
-    const cleaned = values.filter((value) => !value.includes('::') && value.length <= 80);
+    const cleaned = values.filter((value) => (
+      !value.includes('::')
+      && value.length <= 80
+      && !/[\\^$[\]{}+*?]/.test(value)
+    ));
     if (cleaned.length) return cleaned[0];
   }
   return null;
@@ -255,6 +270,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('code')) return text(`CODE-${index}`);
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
   if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
+  if (name === 'sha256_hash' || name.endsWith('_sha256_hash')) return text('0'.repeat(64));
   if (name.includes('hash')) return text(`hash_${tablePrefix}_${index}`);
   if (name.includes('url')) return text(`https://example.test/${tablePrefix}/${index}`);
   if (name.includes('name') || name.includes('title') || name.includes('label')) return text(`Seed ${tablePrefix}`);
@@ -274,6 +290,7 @@ function semanticValue(column, table, index, ctx, maxLength) {
   }
   if (name.includes('lat')) return 13.02936;
   if (name.includes('lng') || name.includes('lon')) return 80.24409;
+  if (name === 'volume_ml') return 450;
   if (name.includes('amount') || name.includes('cost') || name.includes('rate') || name.includes('score')) return 1;
   if (name.includes('count') || name.includes('total') || name.includes('units') || name.includes('minutes')) return 1;
 
@@ -1187,6 +1204,108 @@ async function seedRadiologyPeerReviews() {
   }]);
 }
 
+async function seedDonorIntakeTables() {
+  // N6-2: constraint-aware seeds — the generic seeder cannot satisfy
+  // chk_donation_events_volume (100..650) or chk_donor_consents_hash
+  // (64 lowercase hex). Mirrors the radiology_peer_reviews precedent.
+  const donor = await first('donors', 'id, tenant_id', 'TRUE', []);
+  if (!donor) return;
+
+  if (!(await tableCount('donation_events'))) {
+    await insertIfEmpty('donation_events', [{
+      tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
+      donor_id: donor.id,
+      donation_code: 'DON-SEED-0001',
+      donation_barcode: 'DONBAR-SEED-0001',
+      collection_kind: 'in_house',
+      volume_ml: 450,
+      status: 'collected',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+
+  if (!(await tableCount('donor_consents'))) {
+    await insertIfEmpty('donor_consents', [{
+      tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
+      donor_id: donor.id,
+      consent_type: 'blood_donation',
+      consent_version: 1,
+      consent_statement: 'Seed donor consent for QA coverage.',
+      consent_payload: JSON.stringify({ seed: true }),
+      sha256_hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+}
+
+async function seedMortuarySlots() {
+  await insertIfEmpty('mortuary_slots', [{
+    tenant_id: DEFAULT_TENANT_ID,
+    slot_code: 'MORT-SEED-0001',
+    display_name: 'Seed mortuary slot',
+    status: 'available',
+    notes: 'Seed slot for QA coverage',
+  }]);
+}
+
+async function seedInfusionChairTables() {
+  let chair = await first(
+    'infusion_chairs',
+    'id, tenant_id',
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
+
+  if (!chair) {
+    const created = await client.query(
+      `INSERT INTO infusion_chairs (
+         tenant_id, unit_name, chair_code, display_name, status, location_note
+       )
+       VALUES (
+         $1::uuid, 'Day Care', 'SEED-CHAIR-1', 'Seed Chair 1',
+         'active', 'Seed chair for QA coverage'
+       )
+       ON CONFLICT (tenant_id, unit_name, chair_code)
+       DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         status = 'active',
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING id, tenant_id`,
+      [DEFAULT_TENANT_ID],
+    );
+    chair = created.rows[0];
+  }
+
+  if (await tableCount('chair_bookings')) return;
+
+  const cycleResult = await client.query(
+    `SELECT c.id, c.tenant_id, c.scheduled_date, p.patient_uid
+       FROM chemo_cycles c
+       JOIN chemo_treatment_plans p ON p.id = c.plan_id
+      ORDER BY c.id
+      LIMIT 1`,
+  );
+  const cycle = cycleResult.rows[0];
+  if (!chair || !cycle?.patient_uid) return;
+
+  const scheduledDate =
+    cycle.scheduled_date instanceof Date
+      ? cycle.scheduled_date.toISOString().slice(0, 10)
+      : String(cycle.scheduled_date).slice(0, 10);
+
+  await insertIfEmpty('chair_bookings', [{
+    tenant_id: cycle.tenant_id || chair.tenant_id || DEFAULT_TENANT_ID,
+    chair_id: chair.id,
+    cycle_id: cycle.id,
+    patient_uid: cycle.patient_uid,
+    start_at: `${scheduledDate}T09:00:00.000Z`,
+    end_at: `${scheduledDate}T10:00:00.000Z`,
+    status: 'booked',
+    warning_codes: [],
+    notes: 'Seed booking for QA coverage',
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1196,6 +1315,9 @@ try {
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();
+  await seedDonorIntakeTables();
+  await seedMortuarySlots();
+  await seedInfusionChairTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
