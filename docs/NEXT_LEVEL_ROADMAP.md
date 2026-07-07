@@ -234,6 +234,23 @@ cross-site DR replica, 500-bed load profile (k6 + SLO re-baseline), accessibilit
 completion (screen-reader plan automation + font scaling), SLSA-L3 finish,
 zero-trust network (Cloudflare Access, Cilium L7, per-tenant NetworkPolicy).
 
+**NL-13 Quaternary specialty suites [design-first] (L).** Added 2026-07-07. Invasive
+cardiology/cath-lab workflow (procedure log, hemodynamics record, EP/TAVR seams; device
+data via the NL-7 gateway), neuro/stroke pathway (code-stroke activation, thrombolysis
+timers, structured NIHSS), transplant program management (NOTTO-aligned recipient/donor
+workflow on the N6-2/N6-3 rails), oncology completion (TNM/AJCC staging + CTCAE toxicity +
+tumor board), CTVS/perfusion record seam, nuclear-medicine/radiotherapy COORDINATION seams
+(integrate planning systems — never rebuild them). Kickoff:
+`docs/superpowers/build-prompts/wave-e-nl13-kickoff.md`.
+
+**NL-14 Critical-care & emergency depth [design-first] (L).** Added 2026-07-07. ICU
+flowsheet depth fed by the NL-7 gateway (ventilation/weaning, sedation/RASS, lines-tubes-
+drains feeding N6-6 HAI device-days), ED/trauma depth (structured triage, trauma
+activations, MLC completeness), code-blue documentation, ambulance/pre-hospital seam,
+NICU/PICU depth (ties the NL-5 P4 IAP packs), burns charting (protocol content through the
+NL-5 P3 studio — no hardcoded clinical math). Kickoff:
+`docs/superpowers/build-prompts/wave-e-nl14-kickoff.md`.
+
 ## 6. Wave sequencing
 
 | Wave | Programs | Rationale |
@@ -241,9 +258,10 @@ zero-trust network (Cloudflare Access, Cilium L7, per-tenant NetworkPolicy).
 | **A** | NL-1, NL-2, NL-3, NL-4 | Enterprise trust + India money rail + the demo table stakes. Everything afterwards demos better. |
 | **B** | NL-5, NL-6, NL-7 | Clinical content + the physical hospital — the "complete HIS" claim. |
 | **C** | NL-8, NL-9, NL-10 | Flow, engagement, intelligence — the "modern platform" claim. |
+| **E** | NL-13, NL-14 | Quaternary depth — the specialty + acute backbone of a tertiary/quaternary centre. Starts once Wave B is substantially landed; runs parallel to C/D tails. |
 | **D** | NL-11, NL-12 | Packaging + proof — the "you can buy and trust this" claim. Runs partly parallel to B/C. |
 
-Design-first programs (NL-1/2/3/5/7) start with a spec under
+Design-first programs (NL-1/2/3/5/7, and all of Wave E: NL-13/14) start with a spec under
 `docs/superpowers/specs/` and a decision review before any code.
 
 ## 7. Do-not-build (even in overkill mode)
@@ -290,5 +308,7 @@ one-commit-per-item for bisectability.
 | NL-10 Embedded BI | C | ☐ not started |
 | NL-11 Productization | D | ☐ not started |
 | NL-12 Assurance & scale | D | ☐ not started |
+| NL-13 Quaternary specialty suites | E | ☐ not started |
+| NL-14 Critical-care & emergency depth | E | ☐ not started |
 
 Tick with PR ranges + main SHAs as programs land, mirroring `ROADMAP.md` §0 style.
