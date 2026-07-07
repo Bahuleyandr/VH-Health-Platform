@@ -1,0 +1,16 @@
+{
+  "source_key": "vh_indigenous_fixture_v1",
+  "source_family": "vh_indigenous",
+  "version": "fixture.v1",
+  "license_status": "hospital_owned",
+  "row_review_status": "approved",
+  "datasets": {
+    "monographs": "monographs.csv",
+    "interactions": "interactions.csv",
+    "allergy-groups": "allergy-groups.csv",
+    "cross-reactivity": "cross-reactivity.csv",
+    "condition-cautions": "condition-cautions.csv",
+    "dose-ranges": "dose-ranges.csv",
+    "iv-compatibility": "iv-compatibility.csv"
+  }
+}
