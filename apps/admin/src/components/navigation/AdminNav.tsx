@@ -114,6 +114,7 @@ const navSections: NavSection[] = [
       { name: "Anesthesia chart", href: "/dashboard/anesthesia-chart" },
       { name: "Dietary", href: "/dashboard/dietary" },
       { name: "Theatre", href: "/dashboard/theatre" },
+      { name: "CSSD", href: "/dashboard/cssd" },
       { name: "OR Board", href: "/dashboard/or-board" },
       { name: "Maternity", href: "/dashboard/maternity" },
       { name: "Blood Bank", href: "/dashboard/blood-bank" },

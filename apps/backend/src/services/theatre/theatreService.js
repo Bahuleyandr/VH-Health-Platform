@@ -6,6 +6,7 @@ import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { assertPrivilegeForGate, isGateEnabled } from '../staff/credentialingService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { getOtSterilityWarnings } from '../cssd/cssdService.js';
 
 // Postgres exclusion_violation — raised by migration 319's
 // excl_ot_schedules_room_no_overlap when an insert/update would create a
@@ -524,13 +525,23 @@ class TheatreService {
       conditions.push(`status = $${params.length}`);
     }
 
-    return prisma.$queryRawUnsafe(
+    const schedules = await prisma.$queryRawUnsafe(
       `SELECT ${OT_RETURNING}
        FROM ot_schedules
        WHERE ${conditions.join(' AND ')}
        ORDER BY scheduled_time ASC NULLS LAST, created_at ASC`,
       ...params
     );
+    if (!schedules.length) return schedules;
+
+    const warningsBySchedule = await getOtSterilityWarnings({
+      tenantId,
+      scheduleIds: schedules.map((schedule) => schedule.id),
+    });
+    return schedules.map((schedule) => ({
+      ...schedule,
+      cssd_warnings: warningsBySchedule.get(Number(schedule.id)) || [],
+    }));
   }
 
   async updateStatus(id, newStatus, updatedBy, options = {}) {

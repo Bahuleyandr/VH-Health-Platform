@@ -6754,6 +6754,7 @@ model ot_schedules {
   postop_complication_alerts postop_complication_alerts[]
   postop_notes               postop_notes[]
   preop_checklists           preop_checklists[]
+  set_issue_log              set_issue_log[]
   surgical_implants          surgical_implants[]
   surgical_safety_checklists surgical_safety_checklists[]
 
@@ -9672,6 +9673,7 @@ model tenants {
   incident_reports                           incident_reports[]
   india_compliance_evidence                  india_compliance_evidence[]
   infection_cases                            infection_cases[]
+  instrument_sets                            instrument_sets[]
   insurance_claim_caps                       insurance_claim_caps[]
   insurance_claims                           insurance_claims[]
   insurance_preauth_responses                insurance_preauth_responses[]
@@ -9815,6 +9817,7 @@ model tenants {
   salary_revisions                           salary_revisions[]
   scheduled_notifications                    scheduled_notifications[]
   service_catalog                            service_catalog[]
+  set_issue_log                              set_issue_log[]
   sla_definitions                            sla_definitions[]
   smart_access_tokens                        smart_access_tokens[]
   smart_apps                                 smart_apps[]
@@ -9853,6 +9856,7 @@ model tenants {
   step_profiles                              step_profiles[]
   step_rewards                               step_rewards[]
   step_sessions                              step_sessions[]
+  sterilization_loads                        sterilization_loads[]
   surgical_implants                          surgical_implants[]
   surgical_safety_checklists                 surgical_safety_checklists[]
   tariff_items                               tariff_items[]
@@ -16632,4 +16636,131 @@ model outbreak_episodes {
   @@unique([tenant_id, episode_code], map: "uq_outbreak_episode_code")
   @@index([tenant_id, organism, ward, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_organism_ward")
   @@index([tenant_id, status, suspected_at(sort: Desc)], map: "idx_outbreak_episodes_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model instrument_sets {
+  id                                                                                     BigInt               @id @default(autoincrement())
+  tenant_id                                                                              String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  set_code                                                                               String               @db.VarChar(80)
+  barcode                                                                                String               @db.VarChar(80)
+  display_name                                                                           String               @db.VarChar(180)
+  set_type                                                                               String               @default("instrument_set") @db.VarChar(40)
+  specialty                                                                              String?              @db.VarChar(80)
+  storage_location                                                                       String?              @db.VarChar(120)
+  contents                                                                               Json                 @default("[]")
+  status                                                                                 String               @default("available") @db.VarChar(40)
+  usable                                                                                 Boolean              @default(true)
+  requires_reprocessing                                                                  Boolean              @default(false)
+  last_issued_at                                                                         DateTime?            @db.Timestamptz(6)
+  last_returned_at                                                                       DateTime?            @db.Timestamptz(6)
+  last_sterilized_at                                                                     DateTime?            @db.Timestamptz(6)
+  retired_at                                                                             DateTime?            @db.Timestamptz(6)
+  retired_by                                                                             String?              @db.Uuid
+  retirement_reason                                                                      String?
+  label_printed_at                                                                       DateTime?            @db.Timestamptz(6)
+  label_printed_by                                                                       String?              @db.Uuid
+  notes                                                                                  String?
+  metadata                                                                               Json                 @default("{}")
+  created_by                                                                             String?              @db.Uuid
+  updated_by                                                                             String?              @db.Uuid
+  created_at                                                                             DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at                                                                             DateTime             @default(now()) @db.Timestamptz(6)
+  current_sterilization_load_id                                                          BigInt?
+  last_passed_load_id                                                                    BigInt?
+  sterilization_loads_instrument_sets_current_sterilization_load_idTosterilization_loads sterilization_loads? @relation("instrument_sets_current_sterilization_load_idTosterilization_loads", fields: [current_sterilization_load_id], references: [id], onUpdate: NoAction, map: "fk_instrument_sets_current_sterilization_load")
+  sterilization_loads_instrument_sets_last_passed_load_idTosterilization_loads           sterilization_loads? @relation("instrument_sets_last_passed_load_idTosterilization_loads", fields: [last_passed_load_id], references: [id], onUpdate: NoAction, map: "fk_instrument_sets_last_passed_load")
+  tenants                                                                                tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_instrument_sets_tenant")
+  set_issue_log                                                                          set_issue_log[]
+
+  @@index([tenant_id, current_sterilization_load_id], map: "idx_instrument_sets_current_load", where: raw("(current_sterilization_load_id IS NOT NULL)"))
+  @@index([tenant_id, last_passed_load_id], map: "idx_instrument_sets_last_passed_load", where: raw("(last_passed_load_id IS NOT NULL)"))
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_instrument_sets_tenant_status")
+  @@index([tenant_id, usable, requires_reprocessing, updated_at(sort: Desc)], map: "idx_instrument_sets_tenant_usable")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model set_issue_log {
+  id                     BigInt               @id @default(autoincrement())
+  tenant_id              String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  issue_code             String               @db.VarChar(80)
+  instrument_set_id      BigInt
+  ot_schedule_id         Int
+  status                 String               @default("issued") @db.VarChar(40)
+  issued_at              DateTime             @default(now()) @db.Timestamptz(6)
+  issued_by              String?              @db.Uuid
+  theatre_use_started_at DateTime?            @db.Timestamptz(6)
+  theatre_use_started_by String?              @db.Uuid
+  returned_at            DateTime?            @db.Timestamptz(6)
+  returned_by            String?              @db.Uuid
+  decontaminated_at      DateTime?            @db.Timestamptz(6)
+  decontaminated_by      String?              @db.Uuid
+  sterilized_at          DateTime?            @db.Timestamptz(6)
+  sterilized_by          String?              @db.Uuid
+  sterilization_load_id  BigInt?
+  return_due_at          DateTime?            @db.Timestamptz(6)
+  return_condition       String?              @db.VarChar(40)
+  issue_warning_codes    String[]             @default([])
+  warn_only              Boolean              @default(true)
+  enforcement_enabled    Boolean              @default(false)
+  contamination_notes    String?
+  notes                  String?
+  metadata               Json                 @default("{}")
+  created_at             DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime             @default(now()) @db.Timestamptz(6)
+  instrument_sets        instrument_sets      @relation(fields: [instrument_set_id], references: [id], onUpdate: NoAction, map: "fk_set_issue_log_instrument_set")
+  ot_schedules           ot_schedules         @relation(fields: [ot_schedule_id], references: [id], onUpdate: NoAction, map: "fk_set_issue_log_ot_schedule")
+  sterilization_loads    sterilization_loads? @relation(fields: [sterilization_load_id], references: [id], onUpdate: NoAction, map: "fk_set_issue_log_sterilization_load")
+  tenants                tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_set_issue_log_tenant")
+
+  @@unique([tenant_id, instrument_set_id], map: "ux_set_issue_log_open_set", where: raw("((status)::text = ANY ((ARRAY['issued'::character varying, 'in_theatre'::character varying, 'returned'::character varying, 'awaiting_sterilization'::character varying])::text[]))"))
+  @@index([tenant_id, ot_schedule_id, status, issued_at(sort: Desc)], map: "idx_set_issue_log_ot_schedule")
+  @@index([tenant_id, return_due_at], map: "idx_set_issue_log_overdue_returns", where: raw("(((status)::text = ANY ((ARRAY['issued'::character varying, 'in_theatre'::character varying])::text[])) AND (return_due_at IS NOT NULL))"))
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_set_issue_log_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model sterilization_loads {
+  id                                                                                 BigInt            @id @default(autoincrement())
+  tenant_id                                                                          String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  load_code                                                                          String            @db.VarChar(80)
+  sterilizer_id                                                                      String?           @db.VarChar(80)
+  sterilizer_name                                                                    String?           @db.VarChar(160)
+  cycle_type                                                                         String            @default("steam") @db.VarChar(40)
+  cycle_number                                                                       String?           @db.VarChar(80)
+  status                                                                             String            @default("planned") @db.VarChar(40)
+  started_at                                                                         DateTime?         @db.Timestamptz(6)
+  completed_at                                                                       DateTime?         @db.Timestamptz(6)
+  released_at                                                                        DateTime?         @db.Timestamptz(6)
+  operator_uid                                                                       String?           @db.Uuid
+  released_by                                                                        String?           @db.Uuid
+  temperature_c                                                                      Decimal?          @db.Decimal(6, 2)
+  pressure_kpa                                                                       Decimal?          @db.Decimal(8, 2)
+  exposure_minutes                                                                   Int?
+  drying_minutes                                                                     Int?
+  biological_indicator_result                                                        String            @default("pending") @db.VarChar(30)
+  chemical_indicator_result                                                          String            @default("pending") @db.VarChar(30)
+  mechanical_indicator_result                                                        String            @default("pending") @db.VarChar(30)
+  indicator_lot                                                                      String?           @db.VarChar(120)
+  set_ids                                                                            BigInt[]          @default([])
+  load_contents                                                                      Json              @default("[]")
+  failure_reason                                                                     String?
+  notes                                                                              String?
+  metadata                                                                           Json              @default("{}")
+  created_by                                                                         String?           @db.Uuid
+  updated_by                                                                         String?           @db.Uuid
+  created_at                                                                         DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                                                                         DateTime          @default(now()) @db.Timestamptz(6)
+  instrument_sets_instrument_sets_current_sterilization_load_idTosterilization_loads instrument_sets[] @relation("instrument_sets_current_sterilization_load_idTosterilization_loads")
+  instrument_sets_instrument_sets_last_passed_load_idTosterilization_loads           instrument_sets[] @relation("instrument_sets_last_passed_load_idTosterilization_loads")
+  set_issue_log                                                                      set_issue_log[]
+  tenants                                                                            tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sterilization_loads_tenant")
+
+  @@index([set_ids], map: "idx_sterilization_loads_set_ids", type: Gin)
 }

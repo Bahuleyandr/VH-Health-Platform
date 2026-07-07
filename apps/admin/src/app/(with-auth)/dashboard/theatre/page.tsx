@@ -12,6 +12,11 @@ type TheatreSchedule = {
   status: string;
   theatre_number?: string;
   scheduled_at?: string;
+  cssd_warnings?: Array<{
+    code: string;
+    message: string;
+    set_code?: string;
+  }>;
   checklist?: Record<string, boolean>;
   notes?: string;
   created_at: string;
@@ -137,6 +142,7 @@ function TodayTab() {
                 <th className="py-2 px-3">Theatre</th>
                 <th className="py-2 px-3">Scheduled</th>
                 <th className="py-2 px-3">Status</th>
+                <th className="py-2 px-3">CSSD</th>
                 <th className="py-2 px-3">Actions</th>
               </tr>
             </thead>
@@ -152,6 +158,24 @@ function TodayTab() {
                   <td className="py-2 px-3">{fmtDate(s.scheduled_at)}</td>
                   <td className="py-2 px-3">
                     <StatusBadge status={s.status} />
+                  </td>
+                  <td className="py-2 px-3">
+                    {s.cssd_warnings?.length ? (
+                      <div className="space-y-1">
+                        {s.cssd_warnings.map((warning) => (
+                          <div
+                            key={`${warning.code}-${warning.set_code ?? ""}`}
+                            className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800"
+                            title={warning.message}
+                          >
+                            {warning.set_code ? `${warning.set_code}: ` : ""}
+                            {warning.message}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
                   </td>
                   <td className="py-2 px-3 flex gap-2">
                     <select
