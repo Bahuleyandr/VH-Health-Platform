@@ -148,6 +148,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 
   // ── Clinical services (nurses + clinical staff + up) ─────────────────────
   radiology: { minRank: STAFF },
+  pathology: { minRank: STAFF },
   lab: { minRank: STAFF },
   microbiology: { minRank: STAFF },
   "anesthesia-chart": { minRank: STAFF },
