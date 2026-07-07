@@ -46,18 +46,24 @@ jobs:
         with:
           version: v1.34.1
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Resolve image digests into staging app overlay
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BACKEND_TAG: ${{ inputs.backend_tag }}
           ADMIN_TAG: ${{ inputs.admin_tag }}
           STAFF_WEB_TAG: ${{ inputs.staff_web_tag }}
+          COSIGN_CERTIFICATE_IDENTITY_REGEXP: '^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$'
+          COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
         run: |
           node scripts/update-prod-digests.mjs \
             --kustomization infra/kubernetes/overlays/staging/apps/kustomization.yaml \
             --tag "${BACKEND_TAG}" \
             --tag "${ADMIN_TAG}" \
-            --tag "${STAFF_WEB_TAG}"
+            --tag "${STAFF_WEB_TAG}" \
+            --evidence-file "output/staging-digest-pins/verified-digests.json"
 
       - name: Validate staging kustomize paths
         run: |
@@ -84,6 +90,14 @@ jobs:
           git push origin main
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-digest-pins
+          path: output/staging-digest-pins
+          if-no-files-found: ignore
 
       - name: Write manual deploy summary
         env:

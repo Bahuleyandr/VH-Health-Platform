@@ -22,14 +22,15 @@ resources:
 # The Deployments in this tree ship `:0.0.0-placeholder` / mutable tags; the
 # cluster MUST deploy immutable @sha256 digests (matching the already-pinned
 # platform images). These digests are WRITTEN BY AUTOMATION:
-#   - scripts/update-prod-digests.mjs resolves a released tag to its digest
-#     and rewrites this block;
+#   - scripts/update-prod-digests.mjs resolves a released tag to its digest,
+#     verifies the signed image ref with cosign, and rewrites this block only
+#     after verification passes;
 #   - .forgejo/workflows/release-images.yml runs it after every signed
 #     backend-v* / admin-v* / staff-web-v* release; .forgejo/workflows/
 #     release-pin-digests.yml is the manual repair path. Both commit the bump
 #     (GitOps write-back), which the ArgoCD `apps` Application then syncs.
 # OPERATOR: before the first sync after this change, run
-#   node scripts/update-prod-digests.mjs --tag backend-vX.Y.Z --tag admin-vX.Y.Z --tag staff-web-vX.Y.Z
+#   COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs --tag backend-vX.Y.Z --tag admin-vX.Y.Z --tag staff-web-vX.Y.Z
 # to replace the placeholders with the currently-deployed releases.
 # An all-zeros digest is an intentional FAIL-CLOSED placeholder — pods cannot
 # pull it, so an unpinned tree can never silently deploy a mutable tag.
