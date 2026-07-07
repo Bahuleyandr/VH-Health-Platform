@@ -25,6 +25,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/notifications",
   "api/v1/records",
   "api/v1/staff",
+  "api/v1/credentials",
   "api/v1/investigations",
   "api/v1/sos",
   "api/v1/analytics",

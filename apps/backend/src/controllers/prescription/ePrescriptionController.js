@@ -26,6 +26,10 @@ import { success, error } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  assertPrivilegeForGate,
+  isGateEnabled,
+} from '../../services/staff/credentialingService.js';
 
 // ─── Frequency label map ─────────────────────────────────────────────────────
 const FREQ_LABELS = {
@@ -44,6 +48,9 @@ const FREQ_LABELS = {
 const VALID_VISIT_TYPES = ['outpatient', 'inpatient'];
 const TERMINAL_PRESCRIPTION_STATUSES = new Set(['fulfilled', 'cancelled', 'canceled']);
 const PRIVILEGED_PRESCRIPTION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+const CONTROLLED_SUBSTANCE_GATE = 'CONTROLLED_SUBSTANCE_REQUIRE_PRESCRIBE_PRIVILEGE';
+const CONTROLLED_SUBSTANCE_RE =
+  /\b(controlled|narcotic|opioid|opiate|psychotropic|ndps|schedule\s*(?:ii|iii|iv|v|2|3|4|5))\b/i;
 
 async function bestEffortPrescriptionCanonical(label, fn) {
   try {
@@ -348,6 +355,52 @@ function normalizeRole(role) {
 function normalizeMedicationList(value) {
   const parsed = parseJsonField(value, []);
   return Array.isArray(parsed) ? parsed : [];
+}
+
+function medicationIndicatesControlledSubstance(med) {
+  if (!med || typeof med !== 'object') return false;
+  if (
+    med.controlled_substance === true ||
+    med.is_controlled === true ||
+    med.requires_controlled_substance_privilege === true ||
+    med.ndps === true
+  ) {
+    return true;
+  }
+
+  const values = [
+    med.controlled_substance,
+    med.is_controlled,
+    med.requires_controlled_substance_privilege,
+    med.schedule,
+    med.schedule_code,
+    med.scheduleClass,
+    med.drug_class,
+    med.classification,
+    med.category,
+    med.tags,
+    med.flags,
+    med.name,
+    med.medication_name,
+    med.drug_name,
+    med.display_name,
+    med.instructions,
+    med.notes,
+  ].flatMap((value) => Array.isArray(value) ? value : [value]);
+
+  return values.some((value) => CONTROLLED_SUBSTANCE_RE.test(String(value || '')));
+}
+
+async function assertControlledSubstancePrivilege({ medications, doctorUid, tenantId }) {
+  if (!isGateEnabled(CONTROLLED_SUBSTANCE_GATE)) return;
+  if (!Array.isArray(medications) || !medications.some(medicationIndicatesControlledSubstance)) return;
+  await assertPrivilegeForGate({
+    staffUid: doctorUid,
+    privilegeName: 'controlled_substance_prescribe',
+    tenantId,
+    gate: 'controlled_substance_erx',
+    enabled: true,
+  });
 }
 
 function isPrescriptionOwner(req, rx) {
@@ -1053,6 +1106,12 @@ export const createPrescription = async (req, res) => {
     const patientUid = patientRow[0].uid ?? null;
     const doctorUid = doctorRow[0].uid ?? null;
 
+    await assertControlledSubstancePrivilege({
+      medications,
+      doctorUid,
+      tenantId: rxTenantId,
+    });
+
     // Validate the linked admission exists and belongs to this patient —
     // an admission_id pointing at a different patient's stay is exactly
     // the IPD/OPD mix-up that routes an IV order to the wrong bed.
@@ -1376,6 +1435,9 @@ export const createPrescription = async (req, res) => {
       HTTP_STATUS.CREATED
     );
   } catch (err) {
+    if (err instanceof AppError) {
+      return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    }
     // Log enough context to actually diagnose the next swarm 500. The
     // previous catch logged the bare Error and surfaced a generic
     // "Failed to create prescription" — every subsequent tick filed
@@ -1441,6 +1503,12 @@ export const updatePrescription = async (req, res) => {
         });
       }
     }
+
+    await assertControlledSubstancePrivilege({
+      medications,
+      doctorUid: existing.doctor_uid,
+      tenantId: rxTenantId,
+    });
 
     const diagnosis = req.body.diagnosis !== undefined ? req.body.diagnosis : existing.diagnosis;
     const clinicalNotes =
@@ -1569,6 +1637,9 @@ export const updatePrescription = async (req, res) => {
 
     success(res, updated, 'Prescription updated');
   } catch (err) {
+    if (err instanceof AppError) {
+      return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+    }
     logger.error('Update prescription error:', err);
     error(res, 'Failed to update prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

@@ -889,6 +889,7 @@ model approvals {
   tenants               tenants        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workflow_runs         workflow_runs? @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, approval_kind, subject_resource_type, subject_resource_id], map: "uq_pending_credential_privilege_approval", where: raw("(((approval_kind)::text = 'credential_privilege_grant'::text) AND ((status)::text = 'pending'::text) AND (subject_resource_id IS NOT NULL))"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_approvals_tenant_status")
   @@index([task_id], map: "idx_approvals_task", where: raw("(task_id IS NOT NULL)"))
   @@index([workflow_run_id], map: "idx_approvals_workflow", where: raw("(workflow_run_id IS NOT NULL)"))
@@ -8747,29 +8748,48 @@ model staff_grievances {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model staff_credentials {
-  id                  Int       @id @default(autoincrement())
-  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  staff_uid           String    @db.Uuid
-  credential_type     String    @db.VarChar(20)
-  name                String    @db.VarChar(200)
-  issuing_body        String?   @db.VarChar(200)
-  registration_number String?   @db.VarChar(120)
-  valid_from          DateTime? @db.Date
-  valid_until         DateTime? @db.Date
-  status              String    @default("active") @db.VarChar(20)
-  document_ref        String?   @db.VarChar(255)
-  verified_by         String?   @db.Uuid
-  verified_at         DateTime? @db.Timestamptz(6)
-  notes               String?   @db.VarChar(400)
-  metadata            Json      @default("{}")
-  created_by          String?   @db.Uuid
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
-  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_credentials_tenant")
+  id                          Int                           @id @default(autoincrement())
+  tenant_id                   String                        @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  staff_uid                   String                        @db.Uuid
+  credential_type             String                        @db.VarChar(20)
+  name                        String                        @db.VarChar(200)
+  issuing_body                String?                       @db.VarChar(200)
+  registration_number         String?                       @db.VarChar(120)
+  valid_from                  DateTime?                     @db.Date
+  valid_until                 DateTime?                     @db.Date
+  status                      String                        @default("active") @db.VarChar(20)
+  document_ref                String?                       @db.VarChar(255)
+  verified_by                 String?                       @db.Uuid
+  verified_at                 DateTime?                     @db.Timestamptz(6)
+  notes                       String?                       @db.VarChar(400)
+  metadata                    Json                          @default("{}")
+  created_by                  String?                       @db.Uuid
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  privilege_catalog_id        BigInt?
+  requested_by                String?                       @db.Uuid
+  approved_by                 String?                       @db.Uuid
+  approved_at                 DateTime?                     @db.Timestamptz(6)
+  review_cadence_days         Int?
+  renewal_due_at              DateTime?                     @db.Date
+  renewal_status              String                        @default("current") @db.VarChar(20)
+  renewal_requested_at        DateTime?                     @db.Timestamptz(6)
+  renewal_completed_at        DateTime?                     @db.Timestamptz(6)
+  document_storage_key        String?
+  document_storage_url        String?
+  document_mime_type          String?                       @db.VarChar(100)
+  document_file_size          Int?
+  document_sha256_hash        String?                       @db.VarChar(64)
+  document_uploaded_at        DateTime?                     @db.Timestamptz(6)
+  credential_document_uploads credential_document_uploads[]
+  credential_expiry_alerts    credential_expiry_alerts[]
+  privilege_catalog           privilege_catalog?            @relation(fields: [privilege_catalog_id], references: [id], onUpdate: NoAction, map: "fk_staff_credentials_privilege_catalog")
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_credentials_tenant")
 
   @@unique([tenant_id, staff_uid, name], map: "uq_staff_credentials_active_privilege", where: raw("(((credential_type)::text = 'privilege'::text) AND ((status)::text = 'active'::text))"))
   @@index([staff_uid, credential_type, status], map: "idx_staff_credentials_staff")
   @@index([valid_until], map: "idx_staff_credentials_expiry", where: raw("((valid_until IS NOT NULL) AND ((status)::text = 'active'::text))"))
+  @@index([tenant_id, privilege_catalog_id, status], map: "idx_staff_credentials_privilege_catalog", where: raw("(privilege_catalog_id IS NOT NULL)"))
 }
 
 model staff_queries {
@@ -9535,6 +9555,8 @@ model tenants {
   composition_search_settings                composition_search_settings?
   consent_signatures                         consent_signatures[]
   consultations                              consultations[]
+  credential_document_uploads                credential_document_uploads[]
+  credential_expiry_alerts                   credential_expiry_alerts[]
   data_breaches                              data_breaches[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
@@ -9704,6 +9726,7 @@ model tenants {
   preop_checklists                           preop_checklists[]
   prescription_safety_overrides              prescription_safety_overrides[]
   prescriptions                              prescriptions[]
+  privilege_catalog                          privilege_catalog[]
   problem_episode_links                      problem_episode_links[]
   problem_list_snapshots                     problem_list_snapshots[]
   provider_availability_templates            provider_availability_templates[]
@@ -15692,4 +15715,78 @@ model device_vitals_control_ids {
 
   @@unique([tenant_id, device_registry_id, control_id], map: "ux_device_vitals_control_id")
   @@index([expires_at], map: "idx_device_vitals_control_ids_expires")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model credential_document_uploads {
+  id                  BigInt            @id @default(autoincrement())
+  tenant_id           String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  staff_credential_id Int
+  staff_uid           String            @db.Uuid
+  version             Int               @default(1)
+  storage_key         String
+  storage_url         String?
+  mime_type           String            @db.VarChar(100)
+  file_size           Int
+  sha256_hash         String            @db.VarChar(64)
+  uploaded_by         String?           @db.Uuid
+  uploaded_at         DateTime          @default(now()) @db.Timestamptz(6)
+  metadata            Json              @default("{}")
+  staff_credentials   staff_credentials @relation(fields: [staff_credential_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_credential_documents_credential")
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_credential_documents_tenant")
+
+  @@unique([tenant_id, staff_credential_id, version], map: "uq_credential_documents_version")
+  @@index([tenant_id, staff_credential_id, version(sort: Desc)], map: "idx_credential_documents_credential_latest")
+  @@index([tenant_id, staff_uid, uploaded_at(sort: Desc)], map: "idx_credential_documents_staff")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model credential_expiry_alerts {
+  id                  BigInt            @id @default(autoincrement())
+  tenant_id           String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  staff_credential_id Int
+  staff_uid           String            @db.Uuid
+  alert_kind          String            @default("credential_expiry") @db.VarChar(30)
+  due_date            DateTime          @db.Date
+  days_remaining      Int
+  severity            String            @default("medium") @db.VarChar(20)
+  status              String            @default("open") @db.VarChar(20)
+  acknowledged_by     String?           @db.Uuid
+  acknowledged_at     DateTime?         @db.Timestamptz(6)
+  resolution          String?           @db.VarChar(120)
+  resolved_at         DateTime?         @db.Timestamptz(6)
+  metadata            Json              @default("{}")
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
+  staff_credentials   staff_credentials @relation(fields: [staff_credential_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_credential_alerts_credential")
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_credential_alerts_tenant")
+
+  @@unique([tenant_id, staff_credential_id, alert_kind, due_date], map: "uq_credential_alerts_open", where: raw("((status)::text = 'open'::text)"))
+  @@index([tenant_id, staff_uid, status, due_date], map: "idx_credential_alerts_staff")
+  @@index([tenant_id, status, due_date], map: "idx_credential_alerts_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model privilege_catalog {
+  id                        BigInt              @id @default(autoincrement())
+  tenant_id                 String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  privilege_key             String              @db.VarChar(120)
+  display_name              String              @db.VarChar(200)
+  description               String?
+  required_credential_types String[]            @default([])
+  review_cadence_days       Int                 @default(365)
+  enforcement_scope         String?             @db.VarChar(80)
+  status                    String              @default("active") @db.VarChar(20)
+  metadata                  Json                @default("{}")
+  created_by                String?             @db.Uuid
+  created_at                DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime            @default(now()) @db.Timestamptz(6)
+  tenants                   tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_privilege_catalog_tenant")
+  staff_credentials         staff_credentials[]
+
+  @@unique([tenant_id, privilege_key], map: "uq_privilege_catalog_key")
+  @@index([tenant_id, enforcement_scope], map: "idx_privilege_catalog_scope", where: raw("(enforcement_scope IS NOT NULL)"))
+  @@index([tenant_id, status, privilege_key], map: "idx_privilege_catalog_tenant_status")
 }

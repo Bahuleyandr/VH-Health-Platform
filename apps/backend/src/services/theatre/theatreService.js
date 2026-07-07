@@ -4,6 +4,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { assertPrivilegeForGate, isGateEnabled } from '../staff/credentialingService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 // Postgres exclusion_violation — raised by migration 319's
@@ -419,6 +420,13 @@ class TheatreService {
       throw AppError.badRequest('Missing required fields: patient_uid, surgeon, procedure_name, scheduled_date');
     }
     await assertPatientInTenant(tenantId, patient_uid);
+    await assertPrivilegeForGate({
+      staffUid: surgeon,
+      privilegeName: 'primary_surgeon',
+      tenantId,
+      gate: 'theatre_booking_surgeon',
+      enabled: isGateEnabled('THEATRE_REQUIRE_PRIMARY_SURGEON_PRIVILEGE'),
+    });
 
     // ot_schedules.encounter_id is INTEGER (legacy HL7 visit_no column),
     // but admissions.encounter_id is UUID. Callers pass the admission's
@@ -638,7 +646,7 @@ class TheatreService {
   async completeChecklist(id, checklist, { tenantId = null, completedBy = null } = {}) {
     const tid = tenantOr(tenantId);
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, tenant_id, status, procedure_name, procedure_code, patient_uid
+      `SELECT id, tenant_id, status, procedure_name, procedure_code, patient_uid, surgeon
          FROM ot_schedules
         WHERE id = $1 AND tenant_id = $2::uuid`,
       requireIntId(id), tid);
@@ -665,6 +673,13 @@ class TheatreService {
           'DIABETIC_GLUCOSE_CHECK_REQUIRED'
         );
       }
+      await assertPrivilegeForGate({
+        staffUid: existing[0].surgeon,
+        privilegeName: 'primary_surgeon',
+        tenantId: tid,
+        gate: 'theatre_ot_ready_surgeon',
+        enabled: isGateEnabled('THEATRE_REQUIRE_OT_READY_SURGEON_PRIVILEGE'),
+      });
     }
 
     // Canonical clinical write: the checklist update + structured preop row +

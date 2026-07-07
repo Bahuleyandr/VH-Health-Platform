@@ -188,6 +188,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   reporting: { minRank: HR_PLUS },
   investigations: { minRank: HR_PLUS },
   "staff-roster": { minRank: HR_PLUS },
+  credentialing: { minRank: HR_PLUS },
 
   // ── Administration (ADMIN | SUPER_ADMIN) ──────────────────────────────────
   users: { minRank: ADMIN_ONLY },
