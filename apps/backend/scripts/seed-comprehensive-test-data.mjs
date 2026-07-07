@@ -29,6 +29,9 @@ const MANUAL_SEED_TABLES = new Set([
   // that the generic relaxed seeder cannot infer safely.
   'tenant_identity_providers',
   'tenant_idp_role_mappings',
+  // N6-1 radiology peer review rows must carry distinct reviewer/author
+  // humans. The generic auto-seeder assigns one semantic UUID to both.
+  'radiology_peer_reviews',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1128,6 +1131,62 @@ async function seedPillarDWorkflowTables() {
   }
 }
 
+async function seedRadiologyPeerReviews() {
+  if (await tableCount('radiology_peer_reviews')) return;
+
+  const refs = await getCoreRefs();
+  const fallbackAuthorUid = refs.doctor?.uid || refs.staff?.uid;
+  if (!refs.patient?.uid || !fallbackAuthorUid) return;
+
+  let order = await first(
+    'radiology_orders',
+    'id, tenant_id, ordered_by, radiologist, report_signed_off_by',
+    'TRUE',
+    [],
+  );
+
+  if (!order) {
+    const created = await client.query(
+      `INSERT INTO radiology_orders (
+         tenant_id, patient_uid, modality, body_part, clinical_indication,
+         priority, status, ordered_by, radiologist, report, report_completed_at,
+         report_signed_off_at, report_signed_off_by, structured_report
+       )
+       VALUES (
+         $1::uuid, $2::uuid, 'xray', 'chest', 'Seed chest radiograph review',
+         'routine', 'signed_off', $3::uuid, $4::uuid,
+         'Findings: No acute cardiopulmonary abnormality.\n\nImpression: No acute abnormality.',
+         NOW() - INTERVAL '20 minutes', NOW(), $4::uuid,
+         '{"sections":{"findings":"No acute cardiopulmonary abnormality.","impression":"No acute abnormality."}}'::jsonb
+       )
+       RETURNING id, tenant_id, ordered_by, radiologist, report_signed_off_by`,
+      [DEFAULT_TENANT_ID, refs.patient.uid, refs.staff?.uid || fallbackAuthorUid, fallbackAuthorUid],
+    );
+    order = created.rows[0];
+  }
+
+  const reportAuthorUid = order.report_signed_off_by || order.radiologist || fallbackAuthorUid;
+  const reviewerUid = [
+    refs.secondStaff?.uid,
+    refs.staff?.uid,
+    refs.doctor?.uid,
+    refs.generatedUuid,
+  ].find((uid) => uid && uid !== reportAuthorUid);
+
+  if (!reviewerUid) return;
+
+  await insertIfEmpty('radiology_peer_reviews', [{
+    tenant_id: order.tenant_id || DEFAULT_TENANT_ID,
+    radiology_order_id: order.id,
+    reviewer_uid: reviewerUid,
+    report_author_uid: reportAuthorUid,
+    discrepancy_score: 1,
+    outcome: 'no_change',
+    comments: 'Seed peer review for QA coverage',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+  }]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1136,6 +1195,7 @@ try {
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();
+  await seedRadiologyPeerReviews();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));

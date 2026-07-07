@@ -80885,6 +80885,74 @@
         ]
       }
     },
+    "/api/v1/radiology/peer-reviews": {
+      "get": {
+        "operationId": "get_api_v1_radiology_peer_reviews",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/radiology/peer-reviews/sample": {
+      "get": {
+        "operationId": "get_api_v1_radiology_peer_reviews_sample",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/radiology/tat-metrics": {
+      "get": {
+        "operationId": "get_api_v1_radiology_tat_metrics",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/radiology/templates": {
+      "get": {
+        "operationId": "get_api_v1_radiology_templates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/radiology/worklist": {
       "get": {
         "operationId": "get_api_v1_radiology_worklist",
@@ -80986,6 +81054,33 @@
     "/api/v1/radiology/{id}/cancel": {
       "put": {
         "operationId": "put_api_v1_radiology_by_id_cancel",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/radiology/{id}/peer-reviews": {
+      "post": {
+        "operationId": "post_api_v1_radiology_by_id_peer_reviews",
         "responses": {
           "200": {
             "description": "Successful response",
