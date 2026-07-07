@@ -23,6 +23,7 @@ for kubeconfig setup. Commands assume your current context is
 | TPA enhancement chain stuck or cap-alert missing | [`tpa-enhancement-stuck.md`](./tpa-enhancement-stuck.md) | **P2** (degraded TPA workflow) |
 | Patient portal PDF / clinical-notes endpoints failing | [`patient-portal-pdf-fail.md`](./patient-portal-pdf-fail.md) | **P2** (degraded patient experience) |
 | Teleconsult TURN/firewall/media smoke or held LiveKit activation | [`teleconsult-media-ops.md`](./teleconsult-media-ops.md) | **P2** (degraded teleconsult) |
+| Terminology release import / rollback / binding coverage | [`terminology-releases.md`](./terminology-releases.md) | **P2** (degraded terminology) |
 
 ## How to use a runbook
 

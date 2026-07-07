@@ -20,6 +20,10 @@ import {
   suggestCatalogBindings,
   coverageReport,
 } from '../../services/terminology/terminologyService.js';
+import {
+  getTenantTerminologySettings,
+  setTenantTerminologySettings,
+} from '../../services/terminology/terminologySettingsService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
@@ -64,6 +68,37 @@ router.get('/code-systems', async (req, res) => {
   }
 });
 
+// GET /settings - tenant-scoped UI preferences; defaults are inert.
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await getTenantTerminologySettings(req.tenantId || req.user?.tenant_id || req.user?.tenantId);
+    return success(res, { settings }, 'Tenant terminology settings');
+  } catch (err) {
+    return handleFailure(res, err, 'fetch terminology settings');
+  }
+});
+
+// PUT /settings - operator/curator-maintained tenant preference row.
+router.put('/settings', async (req, res) => {
+  try {
+    if (!isCurator(req.user?.role)) {
+      return error(res, 'Only catalog curators can update terminology settings', HTTP_STATUS.FORBIDDEN);
+    }
+    const settings = await setTenantTerminologySettings(
+      req.tenantId || req.user?.tenant_id || req.user?.tenantId,
+      {
+        preferred_diagnosis_system: req.body.preferred_diagnosis_system,
+        enabled_systems: req.body.enabled_systems,
+        snomed_pickers_enabled: req.body.snomed_pickers_enabled,
+      },
+      { actorUid: req.user?.uid || null },
+    );
+    return success(res, { settings }, 'Tenant terminology settings updated');
+  } catch (err) {
+    return handleFailure(res, err, 'update terminology settings');
+  }
+});
+
 // GET /search?system=ICD10&q=fever&limit=20
 router.get('/search', async (req, res) => {
   try {
@@ -71,6 +106,7 @@ router.get('/search', async (req, res) => {
       system: req.query.system,
       q: req.query.q,
       limit: req.query.limit,
+      tenantId: req.tenantId || req.user?.tenant_id || req.user?.tenantId,
     });
     return success(res, { concepts, count: concepts.length }, 'Concept search results');
   } catch (err) {

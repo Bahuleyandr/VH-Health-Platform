@@ -24,6 +24,7 @@ import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { isValidStructure as isValidLoincStructure } from '../hl7/loincValidator.js';
 import whoIcdClient from './whoIcdClient.js';
+import { isTerminologySystemEnabledForTenant } from './terminologySettingsService.js';
 
 // ── System keys ────────────────────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ export const SYSTEM_KEYS = Object.freeze({
   LOINC: 'LOINC',
   ATC: 'ATC',
 });
+
+export const ICD11_LOCAL_FIRST_CONCEPT_THRESHOLD = 1000;
 
 const SYSTEM_ALIASES = Object.freeze({
   icd10: 'ICD10',
@@ -196,6 +199,48 @@ async function localSearchConcepts({ systemKey, query, limit }) {
   );
 }
 
+async function conceptCountForSystem(systemKey) {
+  const rows = await prismaReadOnly.$queryRawUnsafe(
+    `SELECT concept_count FROM terminology_code_systems WHERE system_key = $1`,
+    systemKey,
+  );
+  return Number(rows[0]?.concept_count) || 0;
+}
+
+async function shouldSearchIcd11LocalFirst() {
+  const conceptCount = await conceptCountForSystem('ICD11');
+  return conceptCount > ICD11_LOCAL_FIRST_CONCEPT_THRESHOLD;
+}
+
+async function assertSystemEnabledForTenant({ tenantId, systemKey }) {
+  const enabled = await isTerminologySystemEnabledForTenant(tenantId, systemKey);
+  if (!enabled) {
+    throw AppError.badRequest(
+      `Terminology system '${systemKey}' is disabled for this tenant`,
+      'TERMINOLOGY_SYSTEM_DISABLED',
+    );
+  }
+}
+
+async function whoIcd11Search({ query, limit }) {
+  const concepts = await whoIcdClient.searchIcd11(query, { limit });
+  await cacheIcd11Concepts(concepts);
+  return concepts.map((concept, index) => ({
+    system_key: 'ICD11',
+    code: concept.code,
+    display: concept.display,
+    category: concept.category,
+    semantic_tag: concept.semantic_tag,
+    status: concept.status || 'active',
+    match_rank: index,
+    release_id: concept.release_id,
+    language: concept.language,
+    linearization_uri: concept.linearization_uri,
+    foundation_uri: concept.foundation_uri,
+    source: 'who_icd_api',
+  }));
+}
+
 // ── Code systems ───────────────────────────────────────────────────────────
 
 export async function listCodeSystems() {
@@ -214,31 +259,31 @@ export async function listCodeSystems() {
  * display-prefix matches, then substring matches; shorter displays first
  * inside each rank so "Fever" outranks "Fever with chills".
  */
-export async function searchConcepts({ system, q, limit } = {}) {
+export async function searchConcepts({ system, q, limit, tenantId = null } = {}) {
   const systemKey = requireSystemKey(system);
+  await assertSystemEnabledForTenant({ tenantId, systemKey });
   const query = q == null ? '' : String(q).trim();
   if (query.length < 2) {
     throw AppError.badRequest('Search text must be at least 2 characters', 'TERMINOLOGY_QUERY_TOO_SHORT');
   }
   const max = clampLimit(limit);
   if (systemKey === 'ICD11' && whoIcdClient.isConfigured()) {
+    if (await shouldSearchIcd11LocalFirst()) {
+      const local = await localSearchConcepts({ systemKey, query, limit: max });
+      if (local.length > 0) return local;
+      try {
+        return await whoIcd11Search({ query, limit: max });
+      } catch (err) {
+        logger.warn('WHO ICD-11 search failed after local miss', {
+          message: err?.message,
+          status: err?.status,
+        });
+        return local;
+      }
+    }
+
     try {
-      const concepts = await whoIcdClient.searchIcd11(query, { limit: max });
-      await cacheIcd11Concepts(concepts);
-      return concepts.map((concept, index) => ({
-        system_key: 'ICD11',
-        code: concept.code,
-        display: concept.display,
-        category: concept.category,
-        semantic_tag: concept.semantic_tag,
-        status: concept.status || 'active',
-        match_rank: index,
-        release_id: concept.release_id,
-        language: concept.language,
-        linearization_uri: concept.linearization_uri,
-        foundation_uri: concept.foundation_uri,
-        source: 'who_icd_api',
-      }));
+      return await whoIcd11Search({ query, limit: max });
     } catch (err) {
       logger.warn('WHO ICD-11 search failed; falling back to local cache', {
         message: err?.message,
@@ -308,11 +353,7 @@ export async function validateCode(system, code) {
     };
   }
 
-  const counts = await prismaReadOnly.$queryRawUnsafe(
-    `SELECT concept_count FROM terminology_code_systems WHERE system_key = $1`,
-    systemKey,
-  );
-  const conceptCount = Number(counts[0]?.concept_count) || 0;
+  const conceptCount = await conceptCountForSystem(systemKey);
   if (conceptCount > 0) {
     return { valid: false, mode: 'catalog', reason: 'code_not_found', concept: null };
   }
@@ -586,7 +627,7 @@ export async function suggestCatalogBindings({ catalogType, system = null, limit
  * standard-code binding. The roadmap-B8 exit metric.
  */
 export async function coverageReport() {
-  const out = [];
+  const catalogBindings = [];
   for (const [catalogType, target] of Object.entries(CATALOG_TARGETS)) {
     const rows = await prismaReadOnly.$queryRawUnsafe(
       `SELECT
@@ -601,7 +642,7 @@ export async function coverageReport() {
     const row = rows[0] || {};
     const catalogRows = Number(row.catalog_rows) || 0;
     const confirmed = Number(row.confirmed) || 0;
-    out.push({
+    catalogBindings.push({
       catalog_type: catalogType,
       table: target.table,
       default_system: target.defaultSystem,
@@ -612,11 +653,40 @@ export async function coverageReport() {
       confirmed_pct: catalogRows > 0 ? Math.round((confirmed / catalogRows) * 1000) / 10 : 0,
     });
   }
-  return out;
+
+  const mapRows = await prismaReadOnly.$queryRawUnsafe(
+    `SELECT source_system, target_system,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE relationship = 'equivalent')::int AS equivalent,
+            COUNT(*) FILTER (WHERE relationship = 'broader')::int AS broader,
+            COUNT(*) FILTER (WHERE relationship = 'narrower')::int AS narrower,
+            COUNT(*) FILTER (WHERE relationship = 'related')::int AS related
+       FROM terminology_concept_maps
+      GROUP BY source_system, target_system
+      ORDER BY source_system, target_system`,
+  );
+
+  const conceptMaps = mapRows.map((row) => ({
+    source_system: row.source_system,
+    target_system: row.target_system,
+    total: Number(row.total) || 0,
+    relationships: {
+      equivalent: Number(row.equivalent) || 0,
+      broader: Number(row.broader) || 0,
+      narrower: Number(row.narrower) || 0,
+      related: Number(row.related) || 0,
+    },
+  }));
+
+  return {
+    catalog_bindings: catalogBindings,
+    concept_maps: conceptMaps,
+  };
 }
 
 export default {
   SYSTEM_KEYS,
+  ICD11_LOCAL_FIRST_CONCEPT_THRESHOLD,
   CATALOG_TARGETS,
   normalizeSystemKey,
   listCodeSystems,

@@ -9776,6 +9776,7 @@ model tenants {
   tenant_identity_providers                  tenant_identity_providers[]
   tenant_idp_role_mappings                   tenant_idp_role_mappings[]
   tenant_interop_secrets                     tenant_interop_secrets[]
+  tenant_terminology_settings                tenant_terminology_settings?
   tpa_claim_correspondence                   tpa_claim_correspondence[]
   tpa_claim_documents                        tpa_claim_documents[]
   tpas                                       tpas[]
@@ -9831,21 +9832,26 @@ model terminology_code_systems {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model terminology_concepts {
-  id                       BigInt                   @id @default(autoincrement())
-  system_key               String                   @db.VarChar(40)
-  code                     String                   @db.VarChar(80)
-  display                  String
-  category                 String?                  @db.VarChar(255)
-  semantic_tag             String?                  @db.VarChar(120)
-  status                   String                   @default("active") @db.VarChar(20)
-  properties               Json                     @default("{}")
-  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
-  terminology_code_systems terminology_code_systems @relation(fields: [system_key], references: [system_key], onDelete: NoAction)
+  id                         BigInt                      @id @default(autoincrement())
+  system_key                 String                      @db.VarChar(40)
+  code                       String                      @db.VarChar(80)
+  display                    String
+  category                   String?                     @db.VarChar(255)
+  semantic_tag               String?                     @db.VarChar(120)
+  status                     String                      @default("active") @db.VarChar(20)
+  properties                 Json                        @default("{}")
+  created_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  last_seen_release          String?                     @db.VarChar(120)
+  last_import_batch_id       BigInt?
+  terminology_import_batches terminology_import_batches? @relation(fields: [last_import_batch_id], references: [id], onUpdate: NoAction)
+  terminology_code_systems   terminology_code_systems    @relation(fields: [system_key], references: [system_key], onDelete: NoAction)
 
   @@unique([system_key, code], map: "terminology_concepts_system_code_key")
   @@index([code], map: "idx_terminology_concepts_code")
   @@index([system_key, status, category], map: "idx_terminology_concepts_category", where: raw("(category IS NOT NULL)"))
+  @@index([last_import_batch_id], map: "idx_terminology_concepts_last_import_batch", where: raw("(last_import_batch_id IS NOT NULL)"))
+  @@index([system_key, last_seen_release], map: "idx_terminology_concepts_last_seen_release", where: raw("(last_seen_release IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -14954,6 +14960,7 @@ model terminology_import_batches {
   metadata                 Json                     @default("{}")
   created_at               DateTime                 @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  terminology_concepts     terminology_concepts[]
   terminology_code_systems terminology_code_systems @relation(fields: [system_key], references: [system_key], onDelete: NoAction)
 
   @@index([system_key, created_at(sort: Desc)], map: "idx_tib_system_created")
@@ -15552,4 +15559,17 @@ model radiology_tat_thresholds {
   updated_at       DateTime @default(now()) @db.Timestamptz(6)
   metadata         Json     @default("{}")
   tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_radiology_tat_thresholds_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tenant_terminology_settings {
+  tenant_id                  String   @id @db.Uuid
+  preferred_diagnosis_system String   @default("ICD11") @db.VarChar(40)
+  enabled_systems            String[] @default(["ICD10", "ICD11", "SNOMED_CT", "LOINC", "ATC"])
+  snomed_pickers_enabled     Boolean  @default(false)
+  updated_by                 String?  @db.Uuid
+  created_at                 DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime @default(now()) @db.Timestamptz(6)
+  tenants                    tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
