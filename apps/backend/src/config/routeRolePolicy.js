@@ -164,6 +164,31 @@ export const APPOINTMENT_STAFF_ROUTE_ROLES = APPOINTMENT_ROUTE_ROLES.filter(
   (role) => role !== 'PATIENT',
 );
 
+export const PATIENT_FLOW_SUPERVISED_ROUTE_ROLES = mergeRoles(
+  APPOINTMENT_STAFF_ROUTE_ROLES,
+  rolesFrom([
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'MEDICAL_RECORDS',
+  ]),
+);
+
+export const PATIENT_FLOW_ROUTE_ROLES = mergeRoles(
+  PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
+  rolesFrom(['PATIENT']),
+);
+
+export const PATIENT_FLOW_SETTINGS_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  rolesFrom([
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'CMO',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
 export const PHARMACY_ORDER_ROUTE_ROLES = mergeRoles(
   PHARMACY_ROUTE_ROLES,
   getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
@@ -265,6 +290,12 @@ export const COMPLIANCE_ROUTE_ROLES = mergeRoles(
 export const DIALYSIS_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'specialty_services']),
   rolesFrom(['DOCTOR']),
+);
+
+export const CSSD_ROUTE_ROLES = mergeRoles(
+  THEATRE_ROUTE_ROLES,
+  getRolesForCapabilityGroups(['supply_chain', 'notifications_audit']),
+  rolesFrom(['STORES_PURCHASE_INCHARGE', 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER']),
 );
 
 export const BLOOD_BANK_ROUTE_ROLES = mergeRoles(

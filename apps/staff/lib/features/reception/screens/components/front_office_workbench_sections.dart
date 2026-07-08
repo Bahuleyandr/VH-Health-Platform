@@ -561,6 +561,11 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
     final selected = _queueRowMatchesSelectedPatient(row);
     final terminal = frontOfficeAppointmentStatusIsTerminal(status);
     final canConfirm = _canManageOpQueue && status == 'SCHEDULED';
+    final canArrivalCheckIn =
+        _canManageOpQueue &&
+        (status == 'SCHEDULED' ||
+            status == 'CONFIRMED' ||
+            status == 'IN_PROGRESS');
     final canComplete =
         _canCompleteOpQueue &&
         (status == 'CONFIRMED' || status == 'IN_PROGRESS');
@@ -571,10 +576,17 @@ extension _FrontOfficeWorkbenchSections on _FrontOfficeWorkbenchScreenState {
         !terminal &&
         (canConfirm || canComplete || canNoShow || canReschedule || canCancel);
     final actions = <Widget>[
+      if (canArrivalCheckIn)
+        _QueueActionButton(
+          icon: Icons.fact_check_outlined,
+          label: s.lookup('s4.lib.front_office_workbench.arrival_check_in'),
+          color: AppTheme.primaryTeal,
+          onPressed: busy ? null : () => _arrivalCheckInQueueAppointment(row),
+        ),
       if (canConfirm)
         _QueueActionButton(
           icon: Icons.check,
-          label: s.lookup('s4.lib.front_office_workbench.check_in'),
+          label: s.lookup('s4.lib.front_office_workbench.confirm_appointment'),
           color: AppTheme.primaryTeal,
           onPressed: busy ? null : () => _confirmQueueAppointment(row),
         ),
