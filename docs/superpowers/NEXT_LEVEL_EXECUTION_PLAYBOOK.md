@@ -92,6 +92,11 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   lease push) to clear secret-scan RANGE false positives: the range scan walks every PR
   commit, so a follow-up rename never cleans history (#499). We squash-merge anyway —
   intra-PR history is disposable. Only after the worker session is stood down.
+- **Design kickoffs self-gate on their OUTPUT artifact.** Before launching any design/docs
+  prompt, check `git ls-tree github/main:docs/superpowers/specs` for its deliverable — a
+  kickoff run twice produces a duplicate spec (#509 vs #463). Every design prompt must open
+  with a STOP-IF-DONE gate on its own output path, and the coordinator checks §9 status
+  before handing out a kickoff line.
 - **"Suite failed to run" ≠ regression.** A `Cannot find module` load failure in a worker or
   coordinator tree means STALE node_modules (deps merged since the last install — e.g.
   @node-saml after Wave A). `npm install` and re-run before escalating; a real main
