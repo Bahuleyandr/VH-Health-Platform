@@ -88,6 +88,7 @@ import {
   PATIENT_FLOW_ROUTE_ROLES,
   PATHOLOGY_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
+  PHYSIO_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
   PHARMACY_ORDER_ROUTE_ROLES,
   PHARMACY_SUPPLY_ROUTE_ROLES,
@@ -279,6 +280,7 @@ import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
 import dentalRoutes from './routes/clinical/dentalRoutes.js';
 import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
+import physioRoutes from './routes/clinical/physioRoutes.js';
 import resultReleaseRoutes from './routes/lab/resultReleaseRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
@@ -983,6 +985,10 @@ app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyS
 
 // Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
 app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
+
+// Physiotherapy and rehabilitation (NL6-11) — follow-up intake, rehab plans,
+// structured sessions, and patient-visible outcome progress.
+app.use('/api/v1/physio', requireRole(...PHYSIO_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('PHYSIOTHERAPY'), physioRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
