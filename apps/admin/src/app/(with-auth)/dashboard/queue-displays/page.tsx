@@ -49,12 +49,6 @@ function BoardTile({ item, size }: { item: QueueDisplayBoardItem; size: string }
 
 export default function QueueDisplaysPage() {
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
-  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(
-    APPOINTMENTS_CHANNEL,
-    selectedProfileId ? [["queue-displays", "board", selectedProfileId]] : [],
-    { enabled: selectedProfileId != null },
-  );
-
   const settingsQuery = useQuery({
     queryKey: ["queue-displays", "settings"],
     queryFn: getQueueDisplaySettings,
@@ -71,21 +65,30 @@ export default function QueueDisplaysPage() {
     setSelectedProfileId(firstActive.id);
   }, [profiles, selectedProfileId]);
 
+  const selectedProfile = useMemo(
+    () => profiles.find((profile) => profile.id === selectedProfileId) ?? null,
+    [profiles, selectedProfileId],
+  );
+  const settings = settingsQuery.data;
+  const queueDisplayDisabled = settings?.enabled === false;
+  const selectedProfileInactive = selectedProfile != null && !selectedProfile.isActive;
+  const canLoadBoard = settings?.enabled === true && selectedProfileId != null && !selectedProfileInactive;
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(
+    APPOINTMENTS_CHANNEL,
+    selectedProfileId ? [["queue-displays", "board", selectedProfileId]] : [],
+    { enabled: canLoadBoard },
+  );
+
   const boardQuery = useQuery({
     queryKey: ["queue-displays", "board", selectedProfileId],
     queryFn: () => getQueueDisplayBoard(selectedProfileId as number),
-    enabled: selectedProfileId != null,
+    enabled: canLoadBoard,
     refetchInterval: settingsQuery.data?.enabled
       ? Math.max(settingsQuery.data.pollIntervalSeconds, 5) * 1000
       : false,
     retry: false,
   });
 
-  const selectedProfile = useMemo(
-    () => profiles.find((profile) => profile.id === selectedProfileId) ?? null,
-    [profiles, selectedProfileId],
-  );
-  const settings = settingsQuery.data;
   const board = boardQuery.data;
   const items = board?.items ?? [];
   const size = selectedProfile?.accessibilitySize ?? settings?.defaultAccessibilitySize ?? "standard";
@@ -114,8 +117,11 @@ export default function QueueDisplaysPage() {
           </span>
           <button
             type="button"
-            onClick={() => void boardQuery.refetch()}
-            className="inline-flex items-center gap-2 rounded bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            onClick={() => {
+              if (canLoadBoard) void boardQuery.refetch();
+            }}
+            disabled={!canLoadBoard}
+            className="inline-flex items-center gap-2 rounded bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
           >
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
             Refresh
@@ -164,6 +170,14 @@ export default function QueueDisplaysPage() {
         <Skeleton className="h-96 w-full" />
       ) : profiles.length === 0 ? (
         <div className="rounded border bg-white p-12 text-center text-slate-600">No queue display profiles configured.</div>
+      ) : queueDisplayDisabled ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-8 text-amber-900">
+          Queue displays are disabled for this tenant.
+        </div>
+      ) : selectedProfileInactive ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-8 text-amber-900">
+          Queue display profile is inactive.
+        </div>
       ) : boardQuery.isError ? (
         <div className="rounded border border-amber-300 bg-amber-50 p-8 text-amber-900">
           {boardQuery.error instanceof Error ? boardQuery.error.message : "Queue display unavailable"}
