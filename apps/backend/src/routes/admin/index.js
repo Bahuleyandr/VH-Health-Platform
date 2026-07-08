@@ -32,6 +32,7 @@ import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
 import clinicalGovernanceRoutes from './clinicalGovernanceRoutes.js';
 import databaseRoutes from './databaseRoutes.js';
 import deviceRegistryRoutes from './deviceRegistryRoutes.js';
+import developerPortalRoutes from './developerPortalRoutes.js';
 import ledgerReportsRoutes from './ledgerReportsRoutes.js';
 import migrationToolkitRoutes from './migrationToolkitRoutes.js';
 import edRoutes from './edRoutes.js';
@@ -122,6 +123,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
 router.use('/audit', auditRoutes);
 router.use('/database', databaseRoutes);
 router.use('/devices', deviceRegistryRoutes);
+router.use('/developer-portal', developerPortalRoutes);
 router.use('/ledger', ledgerReportsRoutes);
 router.use('/migration-toolkit', migrationToolkitRoutes);
 router.use('/events', eventOutboxRoutes);

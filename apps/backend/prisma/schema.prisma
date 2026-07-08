@@ -700,49 +700,53 @@ model api_access_logs {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model api_clients {
-  id                 Int        @id @default(autoincrement())
-  tenant_id          String     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  client_code        String     @db.VarChar(120)
-  display_name       String     @db.VarChar(255)
-  description        String?
-  client_kind        String     @default("integration") @db.VarChar(40)
-  status             String     @default("active") @db.VarChar(20)
-  scopes             String[]   @default([])
-  allowed_ips        String[]   @default([])
-  rate_limit_profile String?    @db.VarChar(40)
-  contact_email      String?    @db.VarChar(255)
-  contact_phone      String?    @db.VarChar(40)
-  metadata           Json       @default("{}")
-  created_by         String?    @db.Uuid
-  created_at         DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime   @default(now()) @db.Timestamptz(6)
-  tenants            tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  api_keys           api_keys[]
+  id                            Int                             @id @default(autoincrement())
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  client_code                   String                          @db.VarChar(120)
+  display_name                  String                          @db.VarChar(255)
+  description                   String?
+  client_kind                   String                          @default("integration") @db.VarChar(40)
+  status                        String                          @default("active") @db.VarChar(20)
+  scopes                        String[]                        @default([])
+  allowed_ips                   String[]                        @default([])
+  rate_limit_profile            String?                         @db.VarChar(40)
+  contact_email                 String?                         @db.VarChar(255)
+  contact_phone                 String?                         @db.VarChar(40)
+  metadata                      Json                            @default("{}")
+  created_by                    String?                         @db.Uuid
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  environment                   String                          @default("sandbox") @db.VarChar(20)
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  api_keys                      api_keys[]
+  developer_portal_audit_events developer_portal_audit_events[]
 
   @@unique([tenant_id, client_code])
   @@index([tenant_id, client_kind, status], map: "idx_api_clients_kind")
   @@index([tenant_id, status, display_name], map: "idx_api_clients_tenant_status")
+  @@index([tenant_id, environment, status, display_name], map: "idx_api_clients_environment_status")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model api_keys {
-  id             Int         @id @default(autoincrement())
-  tenant_id      String      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  api_client_id  Int
-  key_hash       String      @unique @db.VarChar(128)
-  key_prefix     String      @db.VarChar(16)
-  display_name   String?     @db.VarChar(255)
-  status         String      @default("active") @db.VarChar(20)
-  expires_at     DateTime?   @db.Timestamptz(6)
-  last_used_at   DateTime?   @db.Timestamptz(6)
-  last_used_ip   String?     @db.VarChar(64)
-  revoked_at     DateTime?   @db.Timestamptz(6)
-  revoked_reason String?
-  created_by     String?     @db.Uuid
-  created_at     DateTime    @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
-  api_clients    api_clients @relation(fields: [api_client_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tenants        tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                            Int                             @id @default(autoincrement())
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  api_client_id                 Int
+  key_hash                      String                          @unique @db.VarChar(128)
+  key_prefix                    String                          @db.VarChar(16)
+  display_name                  String?                         @db.VarChar(255)
+  status                        String                          @default("active") @db.VarChar(20)
+  expires_at                    DateTime?                       @db.Timestamptz(6)
+  last_used_at                  DateTime?                       @db.Timestamptz(6)
+  last_used_ip                  String?                         @db.VarChar(64)
+  revoked_at                    DateTime?                       @db.Timestamptz(6)
+  revoked_reason                String?
+  created_by                    String?                         @db.Uuid
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  api_clients                   api_clients                     @relation(fields: [api_client_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  developer_portal_audit_events developer_portal_audit_events[]
 
   @@index([api_client_id, status], map: "idx_api_keys_client_status")
   @@index([tenant_id, key_prefix], map: "idx_api_keys_prefix")
@@ -9741,6 +9745,7 @@ model tenants {
   dental_tooth_findings                      dental_tooth_findings[]
   department_audit_log                       department_audit_log[]
   departments                                departments[]
+  developer_portal_audit_events              developer_portal_audit_events[]
   device_presence_logs                       device_presence_logs[]
   devices                                    devices[]
   diagnoses                                  diagnoses[]
@@ -17709,4 +17714,29 @@ model patient_flow_kiosk_settings {
 
   @@id([tenant_id, department_key], map: "patient_flow_kiosk_settings_pk")
   @@index([tenant_id, self_service_enabled, supervised_mode_enabled], map: "idx_patient_flow_kiosk_settings_enabled")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model developer_portal_audit_events {
+  id            BigInt       @id @default(autoincrement())
+  tenant_id     String       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  api_client_id Int?
+  api_key_id    Int?
+  event_type    String       @db.VarChar(60)
+  outcome       String       @default("success") @db.VarChar(20)
+  actor_uid     String?      @db.Uuid
+  actor_role    String?      @db.VarChar(80)
+  ip_address    String?      @db.VarChar(64)
+  user_agent    String?      @db.VarChar(255)
+  summary       String?
+  metadata      Json         @default("{}")
+  created_at    DateTime     @default(now()) @db.Timestamptz(6)
+  api_clients   api_clients? @relation(fields: [api_client_id], references: [id], onUpdate: NoAction)
+  api_keys      api_keys?    @relation(fields: [api_key_id], references: [id], onUpdate: NoAction)
+  tenants       tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, api_client_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_client_time", where: raw("(api_client_id IS NOT NULL)"))
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_tenant_time")
+  @@index([tenant_id, event_type, created_at(sort: Desc)], map: "idx_developer_portal_audit_type_time")
 }

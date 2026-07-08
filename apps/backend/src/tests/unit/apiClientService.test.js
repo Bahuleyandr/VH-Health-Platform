@@ -7,6 +7,7 @@ import { jest } from '@jest/globals';
 const queryUnsafeMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
+__prismaDefaultMock.$transaction = async (fn) => fn(__prismaDefaultMock);
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
@@ -20,6 +21,7 @@ const {
   issueApiKey,
   listApiClients,
   listApiKeys,
+  rotateApiKey,
   revokeApiKey,
   upsertApiClient,
   __testing__,
@@ -94,6 +96,48 @@ describe('issueApiKey', () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('insert or update violates foreign key constraint'));
     await expect(issueApiKey({ tenantId: TENANT, apiClientId: 999 }))
       .rejects.toThrow(/Invalid api_client_id/);
+  });
+
+  it('rejects an api_client_id outside the current tenant', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    await expect(issueApiKey({ tenantId: TENANT, apiClientId: 999 }))
+      .rejects.toThrow(/Invalid api_client_id/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/FROM api_clients c/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/c\.tenant_id = \$1::uuid/);
+  });
+});
+
+describe('rotateApiKey', () => {
+  it('revokes the old active key and returns a new plaintext once', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 4, api_client_id: 2, status: 'revoked' }])
+      .mockResolvedValueOnce([{ id: 5, api_client_id: 2, key_prefix: 'vh_new', status: 'active' }]);
+
+    const result = await rotateApiKey({
+      tenantId: TENANT,
+      apiClientId: 2,
+      id: 4,
+      displayName: 'rotated',
+      revokedReason: 'scheduled rotation',
+    });
+
+    expect(result.plaintext).toMatch(/^vh_/);
+    expect(result.revoked_key.id).toBe(4);
+    expect(result.key.id).toBe(5);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/UPDATE api_keys/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/status = 'active'/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/FROM api_clients c/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/c\.tenant_id = \$1::uuid/);
+
+    const insertParams = queryUnsafeMock.mock.calls[1].slice(1);
+    expect(insertParams.some((p) => p === result.plaintext)).toBe(false);
+    expect(insertParams.some((p) => typeof p === 'string' && /^[0-9a-f]{64}$/.test(p))).toBe(true);
+  });
+
+  it('throws 404 when the old key is not active in the tenant/client', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    await expect(rotateApiKey({ tenantId: TENANT, apiClientId: 2, id: 4 }))
+      .rejects.toMatchObject({ statusCode: 404 });
   });
 });
 

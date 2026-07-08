@@ -26,6 +26,7 @@ jest.unstable_mockModule('../../services/auth/apiClientService.js', () => ({
   issueApiKey: jest.fn(),
   listApiClients: jest.fn(),
   listApiKeys: jest.fn(),
+  rotateApiKey: jest.fn(),
   revokeApiKey: jest.fn(),
   upsertApiClient: jest.fn(),
 }));

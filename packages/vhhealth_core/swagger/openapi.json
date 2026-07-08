@@ -27530,6 +27530,41 @@
         ]
       }
     },
+    "/api/v1/admin/api-clients/{clientId}/keys/{keyId}/rotate": {
+      "post": {
+        "operationId": "post_api_v1_admin_api_clients_by_clientId_keys_by_keyId_rotate",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/appointments/analytics": {
       "get": {
         "operationId": "get_api_v1_admin_appointments_analytics",
@@ -36747,6 +36782,163 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/admin/developer-portal": {
+      "get": {
+        "operationId": "get_api_v1_admin_developer_portal",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/developer-portal/api-clients": {
+      "put": {
+        "operationId": "put_api_v1_admin_developer_portal_api_clients",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/developer-portal/api-clients/{clientId}/keys": {
+      "post": {
+        "operationId": "post_api_v1_admin_developer_portal_api_clients_by_clientId_keys",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/developer-portal/api-clients/{clientId}/keys/{keyId}/rotate": {
+      "post": {
+        "operationId": "post_api_v1_admin_developer_portal_api_clients_by_clientId_keys_by_keyId_rotate",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/developer-portal/api-keys/{id}/revoke": {
+      "patch": {
+        "operationId": "patch_api_v1_admin_developer_portal_api_keys_by_id_revoke",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/developer-portal/audit-events": {
+      "get": {
+        "operationId": "get_api_v1_admin_developer_portal_audit_events",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/developer-portal/openapi": {
+      "get": {
+        "operationId": "get_api_v1_admin_developer_portal_openapi",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/devices": {

@@ -235,6 +235,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   audit: { minRank: ADMIN_ONLY },
   "audit-explorer": { minRank: ADMIN_ONLY },
   integrations: { minRank: ADMIN_ONLY },
+  "developer-portal": { minRank: ADMIN_ONLY },
   abdm: { minRank: ADMIN_ONLY },
   compliance: { minRank: ADMIN_ONLY },
   "system-logs": { minRank: ADMIN_ONLY },

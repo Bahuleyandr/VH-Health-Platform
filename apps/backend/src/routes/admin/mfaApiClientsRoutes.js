@@ -20,6 +20,7 @@ import {
   issueApiKey,
   listApiClients,
   listApiKeys,
+  rotateApiKey,
   revokeApiKey,
   upsertApiClient,
 } from '../../services/auth/apiClientService.js';
@@ -141,6 +142,7 @@ apiClientsRouter.put('/', async (req, res, next) => {
       description: b.description,
       clientKind: b.client_kind,
       status: b.status,
+      environment: b.environment,
       scopes: b.scopes,
       allowedIps: b.allowed_ips,
       rateLimitProfile: b.rate_limit_profile,
@@ -159,6 +161,7 @@ apiClientsRouter.get('/', async (req, res, next) => {
       tenantId: req.tenantId,
       status: req.query.status || null,
       clientKind: req.query.client_kind || null,
+      environment: req.query.environment || null,
     });
     return success(res, result, 'API clients retrieved');
   } catch (err) { return next(err); }
@@ -185,6 +188,21 @@ apiClientsRouter.get('/:clientId/keys', async (req, res, next) => {
       status: req.query.status || null,
     });
     return success(res, result, 'API keys retrieved');
+  } catch (err) { return next(err); }
+});
+
+apiClientsRouter.post('/:clientId/keys/:keyId/rotate', async (req, res, next) => {
+  try {
+    const result = await rotateApiKey({
+      tenantId: req.tenantId,
+      apiClientId: req.params.clientId,
+      id: req.params.keyId,
+      displayName: req.body?.display_name,
+      expiresAt: req.body?.expires_at,
+      revokedReason: req.body?.revoked_reason || 'rotated',
+      createdBy: req.user?.uid || null,
+    });
+    return success(res, result, 'API key rotated. Store the new plaintext securely — it cannot be shown again.');
   } catch (err) { return next(err); }
 });
 
