@@ -85,6 +85,7 @@ import {
   MICROBIOLOGY_ROUTE_ROLES,
   NURSING_ASSESSMENT_ROUTE_ROLES,
   PAEDIATRIC_ROUTE_ROLES,
+  PATIENT_FLOW_ROUTE_ROLES,
   PATHOLOGY_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
@@ -145,6 +146,7 @@ import investigationRoutes from './routes/investigation/index.js';
 import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
+import patientFlowRoutes from './routes/patientFlow/kioskCheckinRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
 import pharmacyInventoryV2Routes from './routes/pharmacy/inventoryV2Routes.js';
 import pharmacySupplyRoutes from './routes/admin/pharmacySupplyRoutes.js';
@@ -692,6 +694,7 @@ app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_O
 app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PHARMACY_ORDER', { careTeamModeGoverned: true }), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PRESCRIPTION', { careTeamModeGoverned: true }), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
 app.use('/api/v1/delivery', patientRateLimiter, requireRole(...DELIVERY_ROUTE_ROLES), deliveryRoutes);
+app.use('/api/v1/patient-flow', patientRateLimiter, requireRole(...PATIENT_FLOW_ROUTE_ROLES), phiAccessLogger('PATIENT_FLOW_CHECKIN'), patientFlowRoutes);
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);

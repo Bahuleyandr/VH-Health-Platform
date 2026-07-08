@@ -164,6 +164,31 @@ export const APPOINTMENT_STAFF_ROUTE_ROLES = APPOINTMENT_ROUTE_ROLES.filter(
   (role) => role !== 'PATIENT',
 );
 
+export const PATIENT_FLOW_SUPERVISED_ROUTE_ROLES = mergeRoles(
+  APPOINTMENT_STAFF_ROUTE_ROLES,
+  rolesFrom([
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'MEDICAL_RECORDS',
+  ]),
+);
+
+export const PATIENT_FLOW_ROUTE_ROLES = mergeRoles(
+  PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
+  rolesFrom(['PATIENT']),
+);
+
+export const PATIENT_FLOW_SETTINGS_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  rolesFrom([
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'CMO',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
 export const PHARMACY_ORDER_ROUTE_ROLES = mergeRoles(
   PHARMACY_ROUTE_ROLES,
   getRolesForCapabilityGroups(['ip_flow', 'op_flow']),

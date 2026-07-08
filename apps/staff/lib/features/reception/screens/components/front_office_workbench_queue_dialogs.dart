@@ -85,6 +85,20 @@ extension _FrontOfficeWorkbenchQueueDialogs
     );
   }
 
+  Future<void> _arrivalCheckInQueueAppointment(Map<String, dynamic> row) async {
+    final s = AppStrings.of(context);
+    await _runQueueAction(
+      row,
+      successMessage: s.lookup(
+        's4.lib.front_office_workbench.arrival_checked_in',
+      ),
+      action: (id) => ScheduleApiService.supervisedKioskCheckIn(
+        appointmentId: id,
+        department: _queueDepartment(row),
+      ).then((_) {}),
+    );
+  }
+
   Future<void> _completeQueueAppointment(Map<String, dynamic> row) async {
     final s = AppStrings.of(context);
     final successMessage = s.apptQueueCompletedToast;
