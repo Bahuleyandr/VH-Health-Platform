@@ -9835,6 +9835,14 @@ model tenants {
   integration_credentials                    integration_credentials[]
   integration_logs                           integration_logs[]
   integrations                               integrations[]
+  interop_channel_versions                   interop_channel_versions[]
+  interop_channels                           interop_channels[]
+  interop_message_attempts                   interop_message_attempts[]
+  interop_messages                           interop_messages[]
+  interop_replay_batches                     interop_replay_batches[]
+  interop_systems                            interop_systems[]
+  interop_transform_tests                    interop_transform_tests[]
+  interop_worker_leases                      interop_worker_leases[]
   intraop_notes                              intraop_notes[]
   investigation_booking_history              investigation_booking_history[]
   investigation_bookings                     investigation_bookings[]
@@ -18349,4 +18357,226 @@ model feedback_nps_rollups {
   @@unique([tenant_id, grain, period_start, dimension_type, dimension_key], map: "uq_feedback_nps_rollups_slice")
   @@index([tenant_id, dimension_type, dimension_key, period_start(sort: Desc)], map: "idx_feedback_nps_rollups_dimension")
   @@index([tenant_id, grain, period_start(sort: Desc)], map: "idx_feedback_nps_rollups_tenant_period")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_channel_versions {
+  id                                                                            Int                        @id @default(autoincrement())
+  tenant_id                                                                     String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  channel_id                                                                    Int
+  version_number                                                                Int
+  status                                                                        String                     @default("draft") @db.VarChar(20)
+  connector_config                                                              Json                       @default("{}")
+  validation_profile                                                            Json                       @default("{}")
+  transform_dsl                                                                 Json                       @default("{}")
+  routing_policy                                                                Json                       @default("{}")
+  redaction_profile                                                             Json                       @default("{}")
+  activated_by                                                                  String?                    @db.Uuid
+  activated_at                                                                  DateTime?                  @db.Timestamptz(6)
+  retired_at                                                                    DateTime?                  @db.Timestamptz(6)
+  created_by                                                                    String?                    @db.Uuid
+  created_at                                                                    DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                                                                    DateTime                   @default(now()) @db.Timestamptz(6)
+  tenants                                                                       tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_channel_versions_tenant")
+  interop_channels_interop_channel_versions_channel_idTointerop_channels        interop_channels           @relation("interop_channel_versions_channel_idTointerop_channels", fields: [channel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  interop_channels_interop_channels_active_version_idTointerop_channel_versions interop_channels[]         @relation("interop_channels_active_version_idTointerop_channel_versions")
+  interop_message_attempts                                                      interop_message_attempts[]
+  interop_messages                                                              interop_messages[]
+  interop_transform_tests                                                       interop_transform_tests[]
+
+  @@unique([tenant_id, channel_id, version_number], map: "ux_interop_channel_versions_number")
+  @@index([tenant_id, channel_id, status], map: "idx_interop_channel_versions_channel")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_channels {
+  id                                                                                    Int                        @id @default(autoincrement())
+  tenant_id                                                                             String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  channel_key                                                                           String                     @db.VarChar(100)
+  display_name                                                                          String                     @db.VarChar(180)
+  source_system_id                                                                      Int?
+  target_system_id                                                                      Int?
+  direction                                                                             String                     @db.VarChar(20)
+  connector_kind                                                                        String                     @db.VarChar(40)
+  protocol                                                                              String                     @db.VarChar(30)
+  message_types                                                                         String[]                   @default([])
+  status                                                                                String                     @default("draft") @db.VarChar(20)
+  active_version_id                                                                     Int?
+  auth_kind                                                                             String                     @default("tenant_interop_secret") @db.VarChar(40)
+  auth_sender_identifier                                                                String?                    @db.VarChar(255)
+  retention_days                                                                        Int                        @default(30)
+  max_attempts                                                                          Int                        @default(7)
+  retry_policy                                                                          Json                       @default("{\"backoff\": \"exponential\", \"maxDelayMinutes\": 60}")
+  dead_letter_policy                                                                    Json                       @default("{\"onMaxAttempts\": \"dead\"}")
+  metadata                                                                              Json                       @default("{}")
+  created_by                                                                            String?                    @db.Uuid
+  created_at                                                                            DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                                                                            DateTime                   @default(now()) @db.Timestamptz(6)
+  interop_channel_versions_interop_channel_versions_channel_idTointerop_channels        interop_channel_versions[] @relation("interop_channel_versions_channel_idTointerop_channels")
+  interop_channel_versions_interop_channels_active_version_idTointerop_channel_versions interop_channel_versions?  @relation("interop_channels_active_version_idTointerop_channel_versions", fields: [active_version_id], references: [id], onUpdate: NoAction, map: "fk_interop_channels_active_version")
+  tenants                                                                               tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_channels_tenant")
+  interop_systems_interop_channels_source_system_idTointerop_systems                    interop_systems?           @relation("interop_channels_source_system_idTointerop_systems", fields: [source_system_id], references: [id], onUpdate: NoAction)
+  interop_systems_interop_channels_target_system_idTointerop_systems                    interop_systems?           @relation("interop_channels_target_system_idTointerop_systems", fields: [target_system_id], references: [id], onUpdate: NoAction)
+  interop_messages                                                                      interop_messages[]
+  interop_replay_batches                                                                interop_replay_batches[]
+  interop_worker_leases                                                                 interop_worker_leases[]
+
+  @@unique([auth_kind, auth_sender_identifier], map: "ux_interop_channels_auth_sender", where: raw("(((auth_kind)::text = 'tenant_interop_secret'::text) AND (auth_sender_identifier IS NOT NULL) AND ((status)::text <> 'archived'::text))"))
+  @@unique([tenant_id, channel_key], map: "ux_interop_channels_key")
+  @@index([tenant_id, status, connector_kind], map: "idx_interop_channels_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_message_attempts {
+  id                       Int                      @id @default(autoincrement())
+  tenant_id                String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  message_id               Int
+  channel_version_id       Int
+  attempt_number           Int                      @default(1)
+  phase                    String                   @db.VarChar(40)
+  status                   String                   @db.VarChar(20)
+  started_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  finished_at              DateTime?                @db.Timestamptz(6)
+  duration_ms              Int?
+  request_id               String?                  @db.VarChar(120)
+  backend_idempotency_key  String?                  @db.VarChar(240)
+  response_status          Int?
+  safe_error               String?
+  metrics                  Json                     @default("{}")
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_message_attempts_tenant")
+  interop_channel_versions interop_channel_versions @relation(fields: [channel_version_id], references: [id], onUpdate: NoAction)
+  interop_messages         interop_messages         @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, message_id, attempt_number(sort: Desc)], map: "idx_interop_message_attempts_message")
+  @@index([tenant_id, phase, status, created_at(sort: Desc)], map: "idx_interop_message_attempts_phase_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_messages {
+  id                       Int                        @id @default(autoincrement())
+  tenant_id                String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  channel_id               Int
+  channel_version_id       Int
+  direction                String                     @db.VarChar(20)
+  protocol                 String                     @db.VarChar(30)
+  message_type             String?                    @db.VarChar(80)
+  external_control_id      String?                    @db.VarChar(160)
+  dedupe_key               String?                    @db.VarChar(240)
+  payload_hash             String                     @db.VarChar(64)
+  raw_payload_ciphertext   String?
+  raw_payload_retained     Boolean                    @default(true)
+  redacted_preview         String?
+  parsed_summary           Json                       @default("{}")
+  patient_uid              String?                    @db.Uuid
+  source_table             String?                    @db.VarChar(80)
+  source_id                String?                    @db.VarChar(80)
+  status                   String                     @default("received") @db.VarChar(30)
+  last_error_code          String?                    @db.VarChar(80)
+  last_error_safe          String?
+  retention_until          DateTime?                  @db.Timestamptz(6)
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  interop_message_attempts interop_message_attempts[]
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_messages_tenant")
+  interop_channels         interop_channels           @relation(fields: [channel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  interop_channel_versions interop_channel_versions   @relation(fields: [channel_version_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, channel_id, dedupe_key], map: "ux_interop_messages_dedupe", where: raw("(dedupe_key IS NOT NULL)"))
+  @@index([tenant_id, channel_id, status, created_at(sort: Desc)], map: "idx_interop_messages_channel_status")
+  @@index([tenant_id, status, updated_at], map: "idx_interop_messages_due_outbound", where: raw("(((direction)::text = ANY ((ARRAY['outbound'::character varying, 'bidirectional'::character varying])::text[])) AND ((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])))"))
+  @@index([tenant_id, payload_hash], map: "idx_interop_messages_payload_hash")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_replay_batches {
+  id               Int              @id @default(autoincrement())
+  tenant_id        String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  channel_id       Int
+  requested_by     String?          @db.Uuid
+  reason           String
+  selection_filter Json             @default("{}")
+  mode             String           @db.VarChar(40)
+  status           String           @default("queued") @db.VarChar(40)
+  message_count    Int              @default(0)
+  safe_summary     String?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  started_at       DateTime?        @db.Timestamptz(6)
+  completed_at     DateTime?        @db.Timestamptz(6)
+  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_replay_batches_tenant")
+  interop_channels interop_channels @relation(fields: [channel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, channel_id, created_at(sort: Desc)], map: "idx_interop_replay_batches_channel")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_systems {
+  id                                                                  Int                @id @default(autoincrement())
+  tenant_id                                                           String             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  system_key                                                          String             @db.VarChar(80)
+  display_name                                                        String             @db.VarChar(160)
+  kind                                                                String             @db.VarChar(40)
+  direction                                                           String             @db.VarChar(20)
+  status                                                              String             @default("draft") @db.VarChar(20)
+  allowed_source_ips                                                  String[]           @default([])
+  metadata                                                            Json               @default("{}")
+  created_by                                                          String?            @db.Uuid
+  created_at                                                          DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at                                                          DateTime           @default(now()) @db.Timestamptz(6)
+  interop_channels_interop_channels_source_system_idTointerop_systems interop_channels[] @relation("interop_channels_source_system_idTointerop_systems")
+  interop_channels_interop_channels_target_system_idTointerop_systems interop_channels[] @relation("interop_channels_target_system_idTointerop_systems")
+  tenants                                                             tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_systems_tenant")
+
+  @@unique([tenant_id, system_key], map: "ux_interop_systems_key")
+  @@index([tenant_id, status, kind], map: "idx_interop_systems_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_transform_tests {
+  id                         Int                      @id @default(autoincrement())
+  tenant_id                  String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  channel_version_id         Int
+  name                       String                   @db.VarChar(160)
+  message_type               String?                  @db.VarChar(80)
+  input_payload_ciphertext   String
+  input_payload_is_synthetic Boolean                  @default(true)
+  expected_output            Json                     @default("{}")
+  expected_findings          Json                     @default("[]")
+  last_run_status            String?                  @db.VarChar(20)
+  last_run_at                DateTime?                @db.Timestamptz(6)
+  last_run_summary           Json                     @default("{}")
+  created_by                 String?                  @db.Uuid
+  created_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_transform_tests_tenant")
+  interop_channel_versions   interop_channel_versions @relation(fields: [channel_version_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, channel_version_id, name], map: "ux_interop_transform_tests_name")
+  @@index([tenant_id, channel_version_id, last_run_status], map: "idx_interop_transform_tests_version")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model interop_worker_leases {
+  id               Int               @id @default(autoincrement())
+  tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  lease_key        String            @db.VarChar(180)
+  channel_id       Int?
+  owner_id         String            @db.VarChar(160)
+  heartbeat_at     DateTime          @default(now()) @db.Timestamptz(6)
+  expires_at       DateTime          @db.Timestamptz(6)
+  metadata         Json              @default("{}")
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
+  tenants          tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_worker_leases_tenant")
+  interop_channels interop_channels? @relation(fields: [channel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, lease_key], map: "ux_interop_worker_leases_key")
+  @@index([tenant_id, expires_at], map: "idx_interop_worker_leases_expires")
 }

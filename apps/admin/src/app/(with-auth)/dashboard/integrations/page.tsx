@@ -47,12 +47,35 @@ import {
   type WebhookSigningAlgorithm,
   type WebhookSubscription,
 } from "@/lib/api/integrationAdmin";
+import {
+  activateInterfaceVersion,
+  createInterfaceChannel,
+  createInterfaceReplayBatch,
+  createInterfaceTransformTest,
+  createInterfaceVersion,
+  dispatchInterfaceOutbound,
+  getInterfaceMessage,
+  listInterfaceChannels,
+  listInterfaceMessages,
+  listInterfaceReplayBatches,
+  markInterfaceMessageDead,
+  runInterfaceTransformTest,
+  type InteropConnectorKind,
+  type InteropDirection,
+  type InteropMessage,
+  type InteropMessageStatus,
+  type InteropProtocol,
+} from "@/lib/api/interfaceEngine";
 
 const INTEGRATION_STATUSES: IntegrationStatus[] = ["active", "paused", "failed", "archived"];
 const DELIVERY_STATUSES: WebhookDeliveryStatus[] = ["pending", "in_flight", "succeeded", "failed", "dead"];
 const SIGNING_ALGORITHMS: WebhookSigningAlgorithm[] = ["hmac-sha256", "hmac-sha512", "none"];
+const INTEROP_CONNECTORS: InteropConnectorKind[] = ["http_inbound", "mllp_listener", "http_outbound", "manual_upload", "file_sftp_poll", "internal_backend"];
+const INTEROP_DIRECTIONS: InteropDirection[] = ["inbound", "outbound", "bidirectional"];
+const INTEROP_PROTOCOLS: InteropProtocol[] = ["hl7v2", "csv", "json", "fhir_json", "other"];
+const INTEROP_MESSAGE_STATUSES: InteropMessageStatus[] = ["failed", "dead", "queued", "received", "transformed", "delivered", "ignored_duplicate"];
 
-type Tab = "integrations" | "deliveries" | "debug";
+type Tab = "integrations" | "deliveries" | "debug" | "interface-engine";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -115,6 +138,7 @@ export default function IntegrationsPage() {
       <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
         {([
           { key: "integrations", label: "Integrations", icon: BookOpen },
+          { key: "interface-engine", label: "Interface Engine", icon: Network },
           { key: "deliveries", label: "Deliveries", icon: ArrowRightCircle },
           { key: "debug", label: "Debug", icon: Send },
         ] as const).map(({ key, label, icon: Icon }) => (
@@ -135,6 +159,7 @@ export default function IntegrationsPage() {
       </div>
 
       {tab === "integrations" ? <IntegrationsTab /> : null}
+      {tab === "interface-engine" ? <InterfaceEngineTab /> : null}
       {tab === "deliveries" ? <DeliveriesTab /> : null}
       {tab === "debug" ? <DebugTab /> : null}
     </div>
@@ -884,5 +909,405 @@ function DebugTab() {
         </div>
       </div>
     </section>
+  );
+}
+
+// ===========================================================================
+// Interface Engine tab
+// ===========================================================================
+const DEFAULT_HL7 = "MSH|^~\\&|ACME_HIS|ACME_FAC|VH|VH_HOSP|202607080930||ADT^A01|CTRL123|P|2.5\rPID|||11111111-1111-4111-8111-111111111111||KUMAR^Asha\rPV1||I|WARD^101^A||||DR01";
+const DEFAULT_DSL = `{
+  "kind": "hl7v2-to-backend-adapter",
+  "output": {
+    "patientUid": { "select": "PID.3" },
+    "messageType": { "select": "MSH.9" },
+    "controlId": { "select": "MSH.10" },
+    "ward": { "select": "PV1.3" }
+  },
+  "validate": [
+    { "path": "patientUid", "required": true },
+    { "path": "controlId", "required": true }
+  ],
+  "emit": {
+    "adapter": "backend.interop.preview",
+    "idempotencyKey": ["channel", "MSH.10", "messageType"]
+  }
+}`;
+
+function parseJsonObject(text: string, label: string) {
+  try {
+    const parsed = JSON.parse(text || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`${label} must be a JSON object`);
+    }
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : `${label} must be valid JSON`);
+  }
+}
+
+function InterfaceEngineTab() {
+  const queryClient = useQueryClient();
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
+  const [messageStatus, setMessageStatus] = useState<InteropMessageStatus | "all">("failed");
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [lastVersionId, setLastVersionId] = useState<number | null>(null);
+  const [lastTestId, setLastTestId] = useState<number | null>(null);
+  const [channelDraft, setChannelDraft] = useState({
+    channel_key: "his-adt-inbound",
+    display_name: "HIS ADT inbound",
+    direction: "inbound" as InteropDirection,
+    connector_kind: "http_inbound" as InteropConnectorKind,
+    protocol: "hl7v2" as InteropProtocol,
+    message_types: "ADT^A01,ADT^A03",
+    auth_sender_identifier: "VH_HOSP",
+  });
+  const [versionDraft, setVersionDraft] = useState({
+    connector_config: '{ "endpointPath": "/api/v1/interface-engine/channels/his-adt-inbound/hl7", "ackMode": "durable_accept" }',
+    transform_dsl: DEFAULT_DSL,
+  });
+  const [testDraft, setTestDraft] = useState({
+    name: "ADT A01 synthetic fixture",
+    message_type: "ADT^A01",
+    input_payload: DEFAULT_HL7,
+    expected_output: '{ "patientUid": "11111111-1111-4111-8111-111111111111", "messageType": "ADT^A01", "controlId": "CTRL123", "ward": "WARD^101^A" }',
+  });
+
+  const channelsQuery = useQuery({
+    queryKey: ["interface-engine", "channels"],
+    queryFn: () => listInterfaceChannels({ limit: 100 }),
+  });
+  const channels = useMemo(() => channelsQuery.data?.channels ?? [], [channelsQuery.data?.channels]);
+  const selectedChannel = channels.find((row) => row.id === selectedChannelId) ?? channels[0] ?? null;
+  const effectiveChannelId = selectedChannel?.id ?? null;
+
+  useEffect(() => {
+    if (selectedChannelId == null && channels.length) setSelectedChannelId(channels[0].id);
+  }, [channels, selectedChannelId]);
+
+  const messagesQuery = useQuery({
+    queryKey: ["interface-engine", "messages", effectiveChannelId, messageStatus],
+    queryFn: () => listInterfaceMessages({
+      channel_id: effectiveChannelId ?? undefined,
+      status: messageStatus === "all" ? undefined : messageStatus,
+      limit: 100,
+    }),
+    enabled: effectiveChannelId != null,
+  });
+  const detailQuery = useQuery({
+    queryKey: ["interface-engine", "message", detailId],
+    queryFn: () => getInterfaceMessage(detailId as number),
+    enabled: detailId != null,
+  });
+  const replayQuery = useQuery({
+    queryKey: ["interface-engine", "replay-batches", effectiveChannelId],
+    queryFn: () => listInterfaceReplayBatches({ channel_id: effectiveChannelId ?? undefined, limit: 10 }),
+    enabled: effectiveChannelId != null,
+  });
+
+  const createChannelMutation = useMutation({
+    mutationFn: () => createInterfaceChannel({
+      ...channelDraft,
+      message_types: channelDraft.message_types.split(",").map((v) => v.trim()).filter(Boolean),
+      auth_kind: channelDraft.connector_kind === "http_inbound" || channelDraft.connector_kind === "mllp_listener"
+        ? "tenant_interop_secret"
+        : "none",
+      auth_sender_identifier: channelDraft.auth_sender_identifier.trim() || null,
+    }),
+    onSuccess: (row) => {
+      toast.success("Channel created");
+      setSelectedChannelId(row.id);
+      queryClient.invalidateQueries({ queryKey: ["interface-engine", "channels"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Channel create failed"),
+  });
+
+  const createVersionMutation = useMutation({
+    mutationFn: () => {
+      if (!effectiveChannelId) throw new Error("Select a channel first");
+      return createInterfaceVersion(effectiveChannelId, {
+        connector_config: parseJsonObject(versionDraft.connector_config, "connector_config"),
+        transform_dsl: parseJsonObject(versionDraft.transform_dsl, "transform_dsl"),
+        routing_policy: { adapter: "backend.interop.preview" },
+      });
+    },
+    onSuccess: (row) => {
+      toast.success(`Version ${row.version_number} created`);
+      setLastVersionId(row.id);
+    },
+    onError: (err: Error) => toast.error(err.message || "Version create failed"),
+  });
+
+  const createTestMutation = useMutation({
+    mutationFn: () => {
+      if (!lastVersionId) throw new Error("Create a candidate version first");
+      return createInterfaceTransformTest(lastVersionId, {
+        name: testDraft.name,
+        message_type: testDraft.message_type,
+        input_payload: testDraft.input_payload,
+        input_payload_is_synthetic: true,
+        expected_output: parseJsonObject(testDraft.expected_output, "expected_output"),
+      });
+    },
+    onSuccess: (row) => {
+      toast.success("Transform test saved");
+      setLastTestId(row.id);
+    },
+    onError: (err: Error) => toast.error(err.message || "Transform test create failed"),
+  });
+
+  const runTestMutation = useMutation({
+    mutationFn: () => {
+      if (!lastTestId) throw new Error("Create a transform test first");
+      return runInterfaceTransformTest(lastTestId);
+    },
+    onSuccess: (row) => toast.success(`Transform test ${row.last_run_status}`),
+    onError: (err: Error) => toast.error(err.message || "Transform test failed"),
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: () => {
+      if (!lastVersionId) throw new Error("Create a candidate version first");
+      return activateInterfaceVersion(lastVersionId);
+    },
+    onSuccess: () => {
+      toast.success("Version activated");
+      queryClient.invalidateQueries({ queryKey: ["interface-engine", "channels"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Activation failed"),
+  });
+
+  const markDeadMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string | null }) =>
+      markInterfaceMessageDead(id, { reason }),
+    onSuccess: () => {
+      toast.success("Message moved to dead-letter");
+      queryClient.invalidateQueries({ queryKey: ["interface-engine", "messages"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Dead-letter failed"),
+  });
+
+  const replayMutation = useMutation({
+    mutationFn: () => {
+      if (!effectiveChannelId) throw new Error("Select a channel first");
+      return createInterfaceReplayBatch({
+        channel_id: effectiveChannelId,
+        reason: "Operator retry from interface engine dashboard",
+        mode: "retry_delivery",
+        selection_filter: { statuses: ["failed", "dead"], limit: 50 },
+      });
+    },
+    onSuccess: (row) => {
+      toast.success(`Replay queued ${row.message_count} message${row.message_count === 1 ? "" : "s"}`);
+      queryClient.invalidateQueries({ queryKey: ["interface-engine", "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["interface-engine", "replay-batches"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Replay failed"),
+  });
+
+  const dispatchMutation = useMutation({
+    mutationFn: () => dispatchInterfaceOutbound({ batch_size: 25 }),
+    onSuccess: (result) => {
+      toast.success(`Picked ${result.picked} · delivered ${result.delivered} · failed ${result.failed} · dead ${result.dead}`);
+      queryClient.invalidateQueries({ queryKey: ["interface-engine", "messages"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Dispatch failed"),
+  });
+
+  const rows = messagesQuery.data?.messages ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="grid gap-3 xl:grid-cols-3">
+        <div className="rounded-md border border-border bg-card p-3">
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Channels</p>
+          <div className="space-y-2">
+            <input value={channelDraft.channel_key} onChange={(e) => setChannelDraft({ ...channelDraft, channel_key: e.target.value })} className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono" />
+            <input value={channelDraft.display_name} onChange={(e) => setChannelDraft({ ...channelDraft, display_name: e.target.value })} className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={channelDraft.direction} onChange={(e) => setChannelDraft({ ...channelDraft, direction: e.target.value as InteropDirection })} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                {INTEROP_DIRECTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+              <select value={channelDraft.connector_kind} onChange={(e) => setChannelDraft({ ...channelDraft, connector_kind: e.target.value as InteropConnectorKind })} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                {INTEROP_CONNECTORS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+              <select value={channelDraft.protocol} onChange={(e) => setChannelDraft({ ...channelDraft, protocol: e.target.value as InteropProtocol })} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                {INTEROP_PROTOCOLS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+              <input value={channelDraft.auth_sender_identifier} onChange={(e) => setChannelDraft({ ...channelDraft, auth_sender_identifier: e.target.value })} className="rounded-md border border-border bg-background px-3 py-2 text-xs font-mono" />
+            </div>
+            <input value={channelDraft.message_types} onChange={(e) => setChannelDraft({ ...channelDraft, message_types: e.target.value })} className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono" />
+            <button type="button" onClick={() => createChannelMutation.mutate()} disabled={createChannelMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">
+              <Plus className="h-3.5 w-3.5" />
+              Create channel
+            </button>
+          </div>
+          <div className="mt-3 space-y-1">
+            {channelsQuery.isLoading ? <p className="text-xs text-muted-foreground">Loading…</p> : channels.map((channel) => (
+              <button key={channel.id} type="button" onClick={() => setSelectedChannelId(channel.id)} className={`w-full rounded-md border px-3 py-2 text-left text-xs ${effectiveChannelId === channel.id ? "border-emerald-300 bg-emerald-50" : "border-border bg-background hover:bg-accent"}`}>
+                <span className="font-semibold">{channel.display_name}</span>
+                <span className={`ml-2 rounded-full border px-2 py-0.5 ${statusPillClass(channel.status)}`}>{channel.status}</span>
+                <p className="mt-0.5 font-mono text-[0.65rem] text-muted-foreground">{channel.channel_key} · {channel.connector_kind} · v{channel.active_version_id ?? "-"}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-3 xl:col-span-2">
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Version and transform fixture</p>
+          <div className="grid gap-2 lg:grid-cols-2">
+            <textarea value={versionDraft.connector_config} onChange={(e) => setVersionDraft({ ...versionDraft, connector_config: e.target.value })} rows={6} spellCheck={false} className="rounded-md border border-border bg-background px-3 py-2 font-mono text-[0.7rem]" />
+            <textarea value={versionDraft.transform_dsl} onChange={(e) => setVersionDraft({ ...versionDraft, transform_dsl: e.target.value })} rows={6} spellCheck={false} className="rounded-md border border-border bg-background px-3 py-2 font-mono text-[0.7rem]" />
+            <input value={testDraft.name} onChange={(e) => setTestDraft({ ...testDraft, name: e.target.value })} className="rounded-md border border-border bg-background px-3 py-2 text-xs" />
+            <input value={testDraft.message_type} onChange={(e) => setTestDraft({ ...testDraft, message_type: e.target.value })} className="rounded-md border border-border bg-background px-3 py-2 text-xs font-mono" />
+            <textarea value={testDraft.input_payload} onChange={(e) => setTestDraft({ ...testDraft, input_payload: e.target.value })} rows={4} spellCheck={false} className="rounded-md border border-border bg-background px-3 py-2 font-mono text-[0.7rem]" />
+            <textarea value={testDraft.expected_output} onChange={(e) => setTestDraft({ ...testDraft, expected_output: e.target.value })} rows={4} spellCheck={false} className="rounded-md border border-border bg-background px-3 py-2 font-mono text-[0.7rem]" />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            <button type="button" onClick={() => createVersionMutation.mutate()} disabled={createVersionMutation.isPending || !effectiveChannelId} className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 disabled:opacity-50">Create version</button>
+            <button type="button" onClick={() => createTestMutation.mutate()} disabled={createTestMutation.isPending || !lastVersionId} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 disabled:opacity-50">Save test</button>
+            <button type="button" onClick={() => runTestMutation.mutate()} disabled={runTestMutation.isPending || !lastTestId} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 disabled:opacity-50">Run test</button>
+            <button type="button" onClick={() => activateMutation.mutate()} disabled={activateMutation.isPending || !lastVersionId} className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 disabled:opacity-50">Activate</button>
+            {lastVersionId ? <span className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">version #{lastVersionId}</span> : null}
+            {lastTestId ? <span className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">test #{lastTestId}</span> : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border bg-card p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1">
+            {(["all", ...INTEROP_MESSAGE_STATUSES] as const).map((value) => (
+              <button key={value} type="button" onClick={() => setMessageStatus(value)} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${messageStatus === value ? "border-emerald-200 bg-emerald-100 text-emerald-800" : "border-border bg-background hover:bg-accent"}`}>
+                {value}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            <button type="button" onClick={() => replayMutation.mutate()} disabled={replayMutation.isPending || !effectiveChannelId} className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 disabled:opacity-50">
+              <RefreshCw className="h-3 w-3" />
+              Replay failed
+            </button>
+            <button type="button" onClick={() => dispatchMutation.mutate()} disabled={dispatchMutation.isPending} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 disabled:opacity-50">
+              <Send className="h-3 w-3" />
+              Dispatch
+            </button>
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">No interface messages.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">id</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">type</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">status</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">preview</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">error</th>
+                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-3 py-1.5 font-mono">
+                      <button type="button" onClick={() => setDetailId(row.id)} className="hover:underline">#{row.id}</button>
+                    </td>
+                    <td className="px-3 py-1.5 font-mono">{row.message_type ?? row.protocol}</td>
+                    <td className="px-3 py-1.5"><span className={`rounded-full border px-2 py-0.5 ${statusPillClass(row.status)}`}>{row.status}</span></td>
+                    <td className="px-3 py-1.5 font-mono text-[0.65rem] text-muted-foreground">{row.redacted_preview ?? "-"}</td>
+                    <td className="px-3 py-1.5 font-mono text-[0.65rem] text-red-700">{row.last_error_safe ?? "-"}</td>
+                    <td className="px-3 py-1.5 text-right">
+                      {row.status !== "dead" ? (
+                        <button type="button" onClick={() => markDeadMutation.mutate({ id: row.id, reason: "Operator dead-letter from dashboard" })} disabled={markDeadMutation.isPending} className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 disabled:opacity-50">Mark dead</button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {detailId != null ? (
+        <InterfaceMessageDetail
+          message={detailQuery.data ?? null}
+          loading={detailQuery.isLoading}
+          onClose={() => setDetailId(null)}
+        />
+      ) : null}
+
+      {(replayQuery.data?.batches ?? []).length > 0 ? (
+        <div className="rounded-md border border-border bg-card p-3">
+          <p className="mb-1 text-xs font-semibold text-muted-foreground">Replay batches</p>
+          <div className="space-y-1">
+            {(replayQuery.data?.batches ?? []).map((batch) => (
+              <p key={batch.id} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                <span className="font-mono">#{batch.id}</span> · {batch.mode} · {batch.message_count} · {fmt(batch.created_at)}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function InterfaceMessageDetail({
+  message, loading, onClose,
+}: {
+  message: InteropMessage | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-card p-3">
+      <div className="flex items-center justify-between">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          Interface message
+        </h3>
+        <button type="button" onClick={onClose} className="rounded-md border border-border bg-card p-1 hover:bg-accent">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      {loading || !message ? (
+        <p className="mt-2 text-xs text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="mt-2 space-y-2 text-xs">
+          <p className="font-mono">#{message.id} · {message.direction} · {message.protocol} · {message.message_type ?? "-"}</p>
+          <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/30 p-2 font-mono text-[0.7rem]">
+            {JSON.stringify(message.parsed_summary ?? {}, null, 2)}
+          </pre>
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">attempt</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">phase</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">status</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">safe error</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(message.attempts ?? []).map((attempt) => (
+                  <tr key={attempt.id}>
+                    <td className="px-3 py-1.5 font-mono">{attempt.attempt_number}</td>
+                    <td className="px-3 py-1.5 font-mono">{attempt.phase}</td>
+                    <td className="px-3 py-1.5">{attempt.status}</td>
+                    <td className="px-3 py-1.5 font-mono text-[0.65rem] text-red-700">{attempt.safe_error ?? "-"}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{fmt(attempt.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
