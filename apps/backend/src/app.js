@@ -75,6 +75,7 @@ import {
   DIALYSIS_ROUTE_ROLES,
   ED_ROUTE_ROLES,
   EMR_TIMELINE_READ_ROUTE_ROLES,
+  ENGAGEMENT_ROUTE_ROLES,
   FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES,
   HOUSEKEEPING_VISIBILITY_ROUTE_ROLES,
   ICU_ROUTE_ROLES,
@@ -148,6 +149,7 @@ import internalRoutes from './routes/internalRoutes.js';
 import investigationRoutes from './routes/investigation/index.js';
 import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
+import engagementRoutes from './routes/engagement/engagementRoutes.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import patientFlowRoutes from './routes/patientFlow/kioskCheckinRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
@@ -707,6 +709,7 @@ app.use('/api/v1/patient-flow', patientRateLimiter, requireRole(...PATIENT_FLOW_
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/engagement', requireRole(...ENGAGEMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ENGAGEMENT'), engagementRoutes);
 // Staff-side patient lookup (Cmd+K picker and workbench search). Kept
 // explicit in config so clinical, front-office, billing, and records access
 // stay aligned with PHI governance. Patient self-search isn't applicable.
