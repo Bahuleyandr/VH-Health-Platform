@@ -138,6 +138,63 @@ Action:
    There's a rare race where a stuck job reprocesses vitals from hours
    earlier.
 
+For device-originated rows, also check the gateway policy evidence before
+changing any alert thresholds. The P4 pilot posture is: artifact filter first,
+then one corroborated alert, then repeat suppression while the alert remains
+unacknowledged.
+
+```bash
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
+    SELECT source, source_device, device_verified, recorded_at, recorded_by
+    FROM vitals_chart
+    WHERE id = <VITALS_CHART_ID>
+      AND source = 'device';"
+```
+
+```bash
+kubectl -n vhhealth exec statefulset/vhhealth-pg -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
+    SELECT d.device_code, d.charting_interval_minutes,
+           d.critical_suppression_window_minutes,
+           d.warning_suppression_window_minutes,
+           d.artifact_filter_required, d.artifact_filter_window,
+           d.metadata
+    FROM device_registry d
+    WHERE d.device_code = '<SOURCE_DEVICE>';"
+```
+
+```bash
+kubectl -n vhhealth exec statefulset/vhhealth-pg -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
+    SELECT reason, count, updated_at
+    FROM device_vital_suppression_counters
+    ORDER BY updated_at DESC
+    LIMIT 20;"
+```
+
+If the row came through an association, confirm the binding did not expire or
+point to a prior patient:
+
+```bash
+kubectl -n vhhealth exec statefulset/vhhealth-pg -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
+    SELECT d.device_code, a.channel, a.patient_uid, a.started_at,
+           a.ended_at, a.end_reason
+    FROM device_patient_associations a
+    JOIN device_registry d ON d.id = a.device_registry_id
+    WHERE d.device_code = '<SOURCE_DEVICE>'
+    ORDER BY a.started_at DESC
+    LIMIT 10;"
+```
+
+If the alert followed a spool backlog or replay, run the device-gateway triage
+runbook before concluding that the vital threshold is wrong:
+
+```bash
+kubectl -n vhhealth exec deployment/device-gateway -c device-gateway -- sh -lc 'ls -lah /var/spool/vhhealth-device-gateway && wc -l /var/spool/vhhealth-device-gateway/*.ndjson 2>/dev/null || true'
+```
+
 ### 5. Determine the downstream blast radius
 
 How many devices actually received the push?

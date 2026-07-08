@@ -8,6 +8,8 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src ./src
+COPY scripts ./scripts
+COPY fixtures ./fixtures
 COPY package.json ./
 USER node
 EXPOSE 2575 9108
