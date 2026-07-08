@@ -326,3 +326,12 @@ export function emitAppointmentEvent(kind, { tenantId } = {}) {
     logger.warn('emitAppointmentEvent failed:', err.message);
   }
 }
+
+/** Patient transport board change (task lifecycle / assignment / SLA escalation). */
+export function emitTransportEvent(kind, { tenantId } = {}) {
+  try {
+    broadcast('staff:transport', { kind, at: new Date().toISOString() }, { tenantId });
+  } catch (err) {
+    logger.warn('emitTransportEvent failed:', err.message);
+  }
+}
