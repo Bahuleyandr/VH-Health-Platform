@@ -182,7 +182,9 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 470 | NL11-S06 demo tenant P1 | assigned 2026-07-08 (round 9 bench) |
 | 471–472 | NL11-S07 manuals/LMS P1 | assigned 2026-07-08 (round 9 bench) |
 | 473–474 | N6-14 linen (deliberate Wave-B tail) | assigned 2026-07-08 (hold until Wave B tail) |
-| 475+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
+| 475–477 | NL11-S11 interface engine P1 (gate S10 passed #513) | launched 2026-07-08 (round 10) |
+| 478–481 | NL8-P4 scheduling optimization | assigned 2026-07-08 (round 10 bench) |
+| 482+ | UNASSIGNED — coordinator assigns the next contiguous block at prompt launch and records it here (update this table in the same PR that launches, or the next docs PR) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
