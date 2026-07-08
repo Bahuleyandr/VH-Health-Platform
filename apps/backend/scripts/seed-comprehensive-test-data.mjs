@@ -59,6 +59,11 @@ const MANUAL_SEED_TABLES = new Set([
   // carry 64-lowercase-hex CHECKs.
   'migration_source_files',
   'migration_import_records',
+  // NL12-S2 SIEM: transport/severity/source enums + CHAR(64) hex hashes +
+  // a redaction CHECK that forbids raw_payload_exported=true.
+  'siem_export_targets',
+  'siem_export_events',
+  'siem_export_delivery_attempts',
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -1654,6 +1659,50 @@ async function seedMigrationToolkitTables() {
   }
 }
 
+async function seedSiemExportTables() {
+  // NL12-S2: constraint-aware seeds (transport/severity/source enums,
+  // CHAR(64) hex hashes, minimized_payload redaction invariant).
+  const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+  if (!(await tableCount('siem_export_targets'))) {
+    await insertIfEmpty('siem_export_targets', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      target_key: 'seed-siem-webhook',
+      display_name: 'Seed SIEM webhook target',
+      transport: 'webhook',
+      status: 'draft',
+      min_severity: 'high',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+  const target = await first('siem_export_targets', 'id, tenant_id', 'TRUE', []);
+  if (!target) return;
+  if (!(await tableCount('siem_export_events'))) {
+    await insertIfEmpty('siem_export_events', [{
+      tenant_id: target.tenant_id || DEFAULT_TENANT_ID,
+      source_name: 'synthetic',
+      source_id: 'seed-event-1',
+      event_type: 'seed.security.event',
+      severity: 'high',
+      payload_sha256: hex64,
+      minimized_payload: JSON.stringify({ redaction: { raw_payload_exported: false }, seed: true }),
+      metadata: JSON.stringify({ seed: true }),
+    }]);
+  }
+  const event = await first('siem_export_events', 'id, tenant_id', 'TRUE', []);
+  if (!event) return;
+  if (!(await tableCount('siem_export_delivery_attempts'))) {
+    await insertIfEmpty('siem_export_delivery_attempts', [{
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      event_id: event.id,
+      target_id: target.id,
+      transport: 'webhook',
+      status: 'pending',
+      payload_sha256: hex64,
+      metadata: JSON.stringify({ seed: true }),
+    }]);
+  }
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -1669,6 +1718,7 @@ try {
   await seedMortuarySlots();
   await seedInfusionChairTables();
   await seedMigrationToolkitTables();
+  await seedSiemExportTables();
   await seedMergedMainCoverageTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
