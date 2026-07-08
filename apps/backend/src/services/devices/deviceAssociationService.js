@@ -6,7 +6,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 const START_METHODS = new Set(['scan', 'manual', 'adt']);
-const END_REASONS = new Set(['manual', 'device_reassigned', 'discharge', 'transfer', 'device_retired']);
+const END_REASONS = new Set(['manual', 'device_reassigned', 'discharge', 'transfer', 'device_retired', 'ttl_expired']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ASSOCIATION_SELECT = `
@@ -14,6 +14,7 @@ const ASSOCIATION_SELECT = `
   d.kind AS device_kind, a.channel, a.patient_uid, a.bed_id, a.started_at,
   a.started_by, a.start_method, a.ended_at, a.ended_by, a.end_reason, a.metadata
 `;
+const ASSOCIATION_SELECT_WITH_POLICY = `${ASSOCIATION_SELECT}, d.metadata AS device_metadata`;
 
 function safeText(value, max = 255) {
   if (value === null || value === undefined) return null;
@@ -63,7 +64,7 @@ function startMethod(value) {
 function endReason(value) {
   const text = safeText(value, 40) || 'manual';
   if (!END_REASONS.has(text)) {
-    throw AppError.badRequest('end_reason must be one of: manual, device_reassigned, discharge, transfer, device_retired');
+    throw AppError.badRequest('end_reason must be one of: manual, device_reassigned, discharge, transfer, device_retired, ttl_expired');
   }
   return text;
 }
@@ -145,6 +146,62 @@ async function auditAssociation(db, {
   }, { db });
 }
 
+function configuredTtlMinutes(deviceMetadata = {}) {
+  const metadata = deviceMetadata && typeof deviceMetadata === 'object' ? deviceMetadata : {};
+  const nested = metadata.association_reconfirm && typeof metadata.association_reconfirm === 'object'
+    ? metadata.association_reconfirm
+    : {};
+  if (nested.enabled === false || metadata.association_reconfirm_enabled === false) return null;
+  const raw = nested.ttl_minutes
+    ?? nested.ttlMinutes
+    ?? metadata.association_reconfirm_ttl_minutes
+    ?? metadata.associationReconfirmTtlMinutes;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const minutes = Number.parseInt(raw, 10);
+  if (!Number.isInteger(minutes) || minutes <= 0) return null;
+  return Math.min(minutes, 7 * 24 * 60);
+}
+
+async function expireAssociationIfStale(db, association) {
+  const ttlMinutes = configuredTtlMinutes(association?.device_metadata);
+  if (!ttlMinutes || !association?.started_at) return false;
+  const startedAt = new Date(association.started_at).getTime();
+  if (!Number.isFinite(startedAt)) return false;
+  if (Date.now() - startedAt < ttlMinutes * 60 * 1000) return false;
+
+  const rows = await db.$queryRawUnsafe(
+    `UPDATE device_patient_associations
+        SET ended_at = NOW(),
+            ended_by = NULL,
+            end_reason = 'ttl_expired',
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2
+        AND ended_at IS NULL
+      RETURNING *`,
+    association.tenant_id,
+    association.id,
+  );
+  const expired = rows[0];
+  if (!expired) return true;
+  await auditAssociation(db, {
+    tenantId: association.tenant_id,
+    patientUid: association.patient_uid,
+    actorUid: null,
+    actorRole: 'DEVICE_ASSOCIATION_TTL',
+    action: 'device.association_ended',
+    association: expired,
+    afterState: { ended_at: expired.ended_at, end_reason: 'ttl_expired' },
+    metadata: {
+      reason: 'ttl_expired',
+      ttl_minutes: ttlMinutes,
+      device_code: association.device_code,
+      channel: association.channel || '',
+    },
+  });
+  return true;
+}
+
 export async function listAssociations({
   tenantId,
   activeOnly = true,
@@ -198,7 +255,7 @@ export async function resolveActiveAssociation({
     throw AppError.badRequest('device_id or device_code is required', 'DEVICE_REQUIRED');
   }
   const rows = await db.$queryRawUnsafe(
-    `SELECT ${ASSOCIATION_SELECT}
+    `SELECT ${ASSOCIATION_SELECT_WITH_POLICY}
        FROM device_patient_associations a
        JOIN device_registry d ON d.id = a.device_registry_id AND d.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1::uuid
@@ -208,7 +265,10 @@ export async function resolveActiveAssociation({
       LIMIT 1`,
     ...params,
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  if (await expireAssociationIfStale(db, rows[0])) return null;
+  const { device_metadata: _deviceMetadata, ...association } = rows[0];
+  return association;
 }
 
 export async function associateDevicePatient(input = {}, context = {}) {

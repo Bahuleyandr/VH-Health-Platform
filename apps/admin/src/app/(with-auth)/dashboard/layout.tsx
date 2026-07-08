@@ -58,6 +58,7 @@ const navigation: NavItem[] = [
   { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Database', href: '/dashboard/database', requiredRole: 'SUPER_ADMIN' },
   { name: 'Feature Flags', href: '/dashboard/feature-flags', requiredRole: 'ADMIN' },
+  { name: 'Entitlements', href: '/dashboard/entitlements', requiredRole: 'ADMIN' },
   { name: 'Compliance', href: '/dashboard/compliance', requiredRole: 'ADMIN' },
   { name: 'Clinical AI', href: '/dashboard/clinical-ai', requiredRole: 'ADMIN' },
   { name: 'CSSD', href: '/dashboard/cssd', minRole: 'STAFF' },
