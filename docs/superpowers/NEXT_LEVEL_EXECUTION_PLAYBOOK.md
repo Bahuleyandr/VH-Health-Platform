@@ -97,7 +97,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
   #497 and #500 on 2026-07-08); (b) smoke route-crawl "Test timeout ... net::ERR_ABORTED /
   frame was detached" on routes the PR does not touch (dev-server collapse on a loaded
   runner, hit #512); (c) runner ENETUNREACH/ETIMEDOUT to Azure/Microsoft endpoints.
-   then re-arm the gate.
+  `gh run rerun <run-id> --failed` then re-arm the gate.
 - **Design kickoffs self-gate on their OUTPUT artifact.** Before launching any design/docs
   prompt, check `git ls-tree github/main:docs/superpowers/specs` for its deliverable — a
   kickoff run twice produces a duplicate spec (#509 vs #463). Every design prompt must open
