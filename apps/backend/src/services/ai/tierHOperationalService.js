@@ -256,10 +256,18 @@ export async function generatePatientFeedbackSummary({
 } = {}) {
   const days = normalizeId(periodDays, 'period_days', { min: 7, max: 365, fallback: 30 });
   const feedback = await safeQuery(
-    `SELECT id, comment, rating, nps_score, created_at
-     FROM feedback
-     WHERE created_at >= NOW() - $1::int * INTERVAL '1 day'
-     ORDER BY created_at DESC LIMIT 200`, [days],
+    `SELECT n.id::text AS id,
+            COALESCE(n.comment, f.comment) AS comment,
+            f.rating,
+            n.score AS nps_score,
+            n.nps_bucket,
+            n.submitted_at AS created_at
+       FROM feedback_nps_responses n
+       LEFT JOIN feedback f ON f.id = n.feedback_id AND f.tenant_id = n.tenant_id
+      WHERE ($1::uuid IS NULL OR n.tenant_id = $1::uuid)
+        AND n.submitted_at >= NOW() - $2::int * INTERVAL '1 day'
+      ORDER BY n.submitted_at DESC
+      LIMIT 200`, [tenantId, days],
   );
   if (!feedback.length) {
     throw AppError.notFound(`No feedback in the last ${days} days`);

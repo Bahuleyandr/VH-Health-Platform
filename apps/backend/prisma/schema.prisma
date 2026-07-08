@@ -852,6 +852,7 @@ model appointments {
   tenants                              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
   bed_inspections                      bed_inspections[]
   clinical_notes                       clinical_notes[]
+  feedback_nps_responses               feedback_nps_responses[]
   investigation_bookings               investigation_bookings[]
   ophthalmic_biometry                  ophthalmic_biometry[]
   ophthalmic_exams                     ophthalmic_exams[]
@@ -5190,23 +5191,24 @@ model family_members {
 }
 
 model feedback {
-  id              Int       @id @default(autoincrement())
-  uid             String?   @db.Uuid
-  phone           String    @db.VarChar(15)
-  rating          Int       @db.SmallInt
-  comment         String?
-  category        String?   @default("GENERAL") @db.VarChar(50)
-  department_id   Int?
-  doctor_id       Int?
-  appointment_id  Int?
-  is_anonymous    Boolean   @default(false)
-  status          String    @default("PENDING") @db.VarChar(50)
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-  updated_at      DateTime  @db.Timestamp(6)
-  responded_at    DateTime? @db.Timestamp(6)
-  response_status String?   @db.VarChar(50)
-  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_feedback_tenant")
+  id                     Int                      @id @default(autoincrement())
+  uid                    String?                  @db.Uuid
+  phone                  String                   @db.VarChar(15)
+  rating                 Int                      @db.SmallInt
+  comment                String?
+  category               String?                  @default("GENERAL") @db.VarChar(50)
+  department_id          Int?
+  doctor_id              Int?
+  appointment_id         Int?
+  is_anonymous           Boolean                  @default(false)
+  status                 String                   @default("PENDING") @db.VarChar(50)
+  created_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @db.Timestamp(6)
+  responded_at           DateTime?                @db.Timestamp(6)
+  response_status        String?                  @db.VarChar(50)
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_feedback_tenant")
+  feedback_nps_responses feedback_nps_responses[]
 
   @@index([category])
   @@index([phone])
@@ -7074,31 +7076,32 @@ model patient_chat_messages {
 }
 
 model patient_consents {
-  id                 Int                  @id @default(autoincrement())
-  patient_uid        String               @db.Uuid
-  consent_type       String               @db.VarChar(100)
-  granted            Boolean?             @default(false)
-  status             String?              @default("active") @db.VarChar(50)
-  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime?            @default(now()) @db.Timestamptz(6)
-  granted_at         DateTime?            @db.Timestamptz(6)
-  revoked_at         DateTime?            @db.Timestamptz(6)
-  expires_at         DateTime?            @db.Timestamptz(6)
-  granted_by         String?              @db.VarChar(100)
-  revoked_by         String?              @db.VarChar(100)
-  ip_address         String?              @db.VarChar(45)
-  notes              String?
-  purpose            String?
-  data_categories    Json                 @default("[]")
-  version            String               @default("v1") @db.VarChar(30)
-  source             String               @default("portal") @db.VarChar(50)
-  consent_method     String?              @db.VarChar(20)
-  witness_name       String?              @db.VarChar(160)
-  witness_uid        String?              @db.Uuid
-  form_language      String?              @db.VarChar(20)
-  tenant_id          String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consent_signatures consent_signatures[]
-  tenants            tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
+  id                     Int                      @id @default(autoincrement())
+  patient_uid            String                   @db.Uuid
+  consent_type           String                   @db.VarChar(100)
+  granted                Boolean?                 @default(false)
+  status                 String?                  @default("active") @db.VarChar(50)
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  granted_at             DateTime?                @db.Timestamptz(6)
+  revoked_at             DateTime?                @db.Timestamptz(6)
+  expires_at             DateTime?                @db.Timestamptz(6)
+  granted_by             String?                  @db.VarChar(100)
+  revoked_by             String?                  @db.VarChar(100)
+  ip_address             String?                  @db.VarChar(45)
+  notes                  String?
+  purpose                String?
+  data_categories        Json                     @default("[]")
+  version                String                   @default("v1") @db.VarChar(30)
+  source                 String                   @default("portal") @db.VarChar(50)
+  consent_method         String?                  @db.VarChar(20)
+  witness_name           String?                  @db.VarChar(160)
+  witness_uid            String?                  @db.Uuid
+  form_language          String?                  @db.VarChar(20)
+  tenant_id              String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consent_signatures     consent_signatures[]
+  feedback_nps_responses feedback_nps_responses[]
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_patient_consents_patient_created")
   @@index([consent_type, status], map: "idx_patient_consents_type_status")
@@ -9791,6 +9794,8 @@ model tenants {
   family_members                             family_members[]
   federated_identities                       federated_identities[]
   feedback                                   feedback[]
+  feedback_nps_responses                     feedback_nps_responses[]
+  feedback_nps_rollups                       feedback_nps_rollups[]
   file_access_logs                           file_access_logs[]
   file_deletion_log                          file_deletion_log[]
   file_metadata                              file_metadata[]
@@ -10531,6 +10536,7 @@ model users {
   device_vital_sample_observations                                                 device_vital_sample_observations[]
   doctors                                                                          doctors[]
   family_members                                                                   family_members[]
+  feedback_nps_responses                                                           feedback_nps_responses[]
   full_final_settlements                                                           full_final_settlements[]
   geofence_breaches_geofence_breaches_staff_idTousers                              geofence_breaches[]                @relation("geofence_breaches_staff_idTousers")
   geofence_breaches_geofence_breaches_staff_uidTousers                             geofence_breaches[]                @relation("geofence_breaches_staff_uidTousers")
@@ -18269,4 +18275,78 @@ model migration_merge_queue_items {
   @@unique([tenant_id, commit_batch_id, import_record_id, conflict_kind], map: "ux_migration_merge_queue_items_record")
   @@index([tenant_id, candidate_patient_uid], map: "idx_migration_merge_queue_items_candidate", where: raw("(candidate_patient_uid IS NOT NULL)"))
   @@index([tenant_id, job_id, status, created_at(sort: Desc)], map: "idx_migration_merge_queue_items_job")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model feedback_nps_responses {
+  id                           BigInt            @id @default(autoincrement())
+  tenant_id                    String            @db.Uuid
+  patient_uid                  String            @db.Uuid
+  feedback_id                  Int?
+  appointment_id               Int?
+  encounter_type               String            @default("appointment") @db.VarChar(40)
+  encounter_ref                String?           @db.VarChar(120)
+  score                        Int               @db.SmallInt
+  nps_bucket                   String            @db.VarChar(20)
+  channel                      String            @default("app") @db.VarChar(30)
+  consent_id                   Int?
+  comment                      String?
+  comment_redaction_status     String            @default("not_reviewed") @db.VarChar(30)
+  comment_redaction_metadata   Json              @default("{}")
+  source_campaign_recipient_id BigInt?
+  dedupe_key                   String            @db.VarChar(160)
+  department_id                Int?
+  department_display_name      String?           @db.VarChar(255)
+  doctor_id                    Int?
+  doctor_display_name          String?           @db.VarChar(255)
+  service_line                 String?           @db.VarChar(120)
+  submitted_at                 DateTime          @default(now()) @db.Timestamptz(6)
+  created_by                   String?           @db.Uuid
+  created_at                   DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime          @default(now()) @db.Timestamptz(6)
+  appointments                 appointments?     @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
+  patient_consents             patient_consents? @relation(fields: [consent_id], references: [id], onUpdate: NoAction)
+  feedback                     feedback?         @relation(fields: [feedback_id], references: [id], onUpdate: NoAction)
+  users                        users             @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction)
+  tenants                      tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, dedupe_key], map: "uq_feedback_nps_responses_dedupe")
+  @@index([tenant_id, appointment_id], map: "idx_feedback_nps_appointment", where: raw("(appointment_id IS NOT NULL)"))
+  @@index([tenant_id, department_id, submitted_at(sort: Desc)], map: "idx_feedback_nps_department", where: raw("(department_id IS NOT NULL)"))
+  @@index([tenant_id, doctor_id, submitted_at(sort: Desc)], map: "idx_feedback_nps_doctor", where: raw("(doctor_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, submitted_at(sort: Desc)], map: "idx_feedback_nps_patient")
+  @@index([tenant_id, nps_bucket, score, submitted_at(sort: Desc)], map: "idx_feedback_nps_score_bucket")
+  @@index([tenant_id, submitted_at(sort: Desc)], map: "idx_feedback_nps_tenant_submitted")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model feedback_nps_rollups {
+  id                  BigInt   @id @default(autoincrement())
+  tenant_id           String   @db.Uuid
+  grain               String   @db.VarChar(10)
+  period_start        DateTime @db.Date
+  period_end          DateTime @db.Date
+  dimension_type      String   @default("tenant") @db.VarChar(40)
+  dimension_key       String   @default("all") @db.VarChar(120)
+  dimension_label     String?  @db.VarChar(255)
+  response_count      Int      @default(0)
+  request_count       Int      @default(0)
+  promoter_count      Int      @default(0)
+  passive_count       Int      @default(0)
+  detractor_count     Int      @default(0)
+  nps_score           Decimal? @db.Decimal(6, 2)
+  response_rate       Decimal? @db.Decimal(6, 2)
+  minimum_sample_size Int      @default(5)
+  sample_visible      Boolean  @default(false)
+  source_range        Json     @default("{}")
+  computed_at         DateTime @default(now()) @db.Timestamptz(6)
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, grain, period_start, dimension_type, dimension_key], map: "uq_feedback_nps_rollups_slice")
+  @@index([tenant_id, dimension_type, dimension_key, period_start(sort: Desc)], map: "idx_feedback_nps_rollups_dimension")
+  @@index([tenant_id, grain, period_start(sort: Desc)], map: "idx_feedback_nps_rollups_tenant_period")
 }
