@@ -239,6 +239,13 @@ export const STAFF_PATIENT_MESSAGING_ROUTE_ROLES = mergeRoles(
   rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT']),
 );
 
+export const ENGAGEMENT_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  NOTIFICATION_AUDIT_ROUTE_ROLES,
+  STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
+  rolesFrom(['QUALITY_OFFICER', 'CARE_COORDINATOR']),
+);
+
 export const ALL_STAFF_MESSAGING_ROUTE_ROLES = getStaffRosterRoleCodes({ includeAdmin: true });
 
 export const STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES = getRolesForCapabilityGroups('phone_self_service');

@@ -6699,21 +6699,22 @@ model notification_delivery_log {
 }
 
 model notification_outbox {
-  id              Int       @id @default(autoincrement())
-  type            String
-  recipient_id    String?
-  recipient_phone String?
-  title           String
-  body            String
-  payload         Json?
-  status          String    @default("PENDING")
-  retry_count     Int       @default(0)
-  failure_reason  String?
-  last_attempt_at DateTime?
-  sent_at         DateTime?
-  created_at      DateTime  @default(now())
-  tenant_id       String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
+  id                             Int                              @id @default(autoincrement())
+  type                           String
+  recipient_id                   String?
+  recipient_phone                String?
+  title                          String
+  body                           String
+  payload                        Json?
+  status                         String                           @default("PENDING")
+  retry_count                    Int                              @default(0)
+  failure_reason                 String?
+  last_attempt_at                DateTime?
+  sent_at                        DateTime?
+  created_at                     DateTime                         @default(now())
+  tenant_id                      String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  engagement_campaign_recipients engagement_campaign_recipients[]
+  tenants                        tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
 
   @@index([created_at])
   @@index([status, retry_count])
@@ -6722,19 +6723,20 @@ model notification_outbox {
 }
 
 model notification_templates {
-  id               Int      @id @default(autoincrement())
-  name             String   @db.VarChar(255)
-  title_template   String
-  message_template String
-  type             String   @db.VarChar(50)
-  priority         String   @db.VarChar(20)
-  variables        Json?
-  description      String?
-  is_active        Boolean  @default(true)
-  created_at       DateTime @default(now()) @db.Timestamp(6)
-  updated_at       DateTime @db.Timestamp(6)
-  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_templates_tenant")
+  id                   Int                    @id @default(autoincrement())
+  name                 String                 @db.VarChar(255)
+  title_template       String
+  message_template     String
+  type                 String                 @db.VarChar(50)
+  priority             String                 @db.VarChar(20)
+  variables            Json?
+  description          String?
+  is_active            Boolean                @default(true)
+  created_at           DateTime               @default(now()) @db.Timestamp(6)
+  updated_at           DateTime               @db.Timestamp(6)
+  tenant_id            String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  engagement_templates engagement_templates[]
+  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_templates_tenant")
 
   @@index([type])
   @@index([tenant_id], map: "idx_notification_templates_tenant_id")
@@ -7067,35 +7069,37 @@ model patient_chat_messages {
 }
 
 model patient_consents {
-  id                 Int                  @id @default(autoincrement())
-  patient_uid        String               @db.Uuid
-  consent_type       String               @db.VarChar(100)
-  granted            Boolean?             @default(false)
-  status             String?              @default("active") @db.VarChar(50)
-  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime?            @default(now()) @db.Timestamptz(6)
-  granted_at         DateTime?            @db.Timestamptz(6)
-  revoked_at         DateTime?            @db.Timestamptz(6)
-  expires_at         DateTime?            @db.Timestamptz(6)
-  granted_by         String?              @db.VarChar(100)
-  revoked_by         String?              @db.VarChar(100)
-  ip_address         String?              @db.VarChar(45)
-  notes              String?
-  purpose            String?
-  data_categories    Json                 @default("[]")
-  version            String               @default("v1") @db.VarChar(30)
-  source             String               @default("portal") @db.VarChar(50)
-  consent_method     String?              @db.VarChar(20)
-  witness_name       String?              @db.VarChar(160)
-  witness_uid        String?              @db.Uuid
-  form_language      String?              @db.VarChar(20)
-  tenant_id          String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consent_signatures consent_signatures[]
-  tenants            tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
+  id                             Int                              @id @default(autoincrement())
+  patient_uid                    String                           @db.Uuid
+  consent_type                   String                           @db.VarChar(100)
+  granted                        Boolean?                         @default(false)
+  status                         String?                          @default("active") @db.VarChar(50)
+  created_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  granted_at                     DateTime?                        @db.Timestamptz(6)
+  revoked_at                     DateTime?                        @db.Timestamptz(6)
+  expires_at                     DateTime?                        @db.Timestamptz(6)
+  granted_by                     String?                          @db.VarChar(100)
+  revoked_by                     String?                          @db.VarChar(100)
+  ip_address                     String?                          @db.VarChar(45)
+  notes                          String?
+  purpose                        String?
+  data_categories                Json                             @default("[]")
+  version                        String                           @default("v1") @db.VarChar(30)
+  source                         String                           @default("portal") @db.VarChar(50)
+  consent_method                 String?                          @db.VarChar(20)
+  witness_name                   String?                          @db.VarChar(160)
+  witness_uid                    String?                          @db.Uuid
+  form_language                  String?                          @db.VarChar(20)
+  tenant_id                      String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consent_signatures             consent_signatures[]
+  engagement_campaign_recipients engagement_campaign_recipients[]
+  tenants                        tenants                          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_patient_consents_patient_created")
   @@index([consent_type, status], map: "idx_patient_consents_type_status")
   @@index([tenant_id], map: "idx_patient_consents_tenant_id")
+  @@index([tenant_id, patient_uid, consent_type, granted_at(sort: Desc)], map: "idx_patient_consents_engagement_active", where: raw("(((consent_type)::text = ANY ((ARRAY['marketing_whatsapp'::character varying, 'care_reminder_whatsapp'::character varying, 'rpm_monitoring'::character varying, 'nps_survey'::character varying, 'teleconsult_followup'::character varying])::text[])) AND (granted = true) AND (revoked_at IS NULL))"))
 }
 
 model consent_signatures {
@@ -9771,6 +9775,12 @@ model tenants {
   e_prescriptions                            e_prescriptions[]
   emergency_visits                           emergency_visits[]
   encryption_keys                            encryption_keys[]
+  engagement_audience_snapshots              engagement_audience_snapshots[]
+  engagement_campaign_recipients             engagement_campaign_recipients[]
+  engagement_campaigns                       engagement_campaigns[]
+  engagement_settings                        engagement_settings?
+  engagement_suppression_events              engagement_suppression_events[]
+  engagement_templates                       engagement_templates[]
   escalation_rules                           escalation_rules[]
   event_outbox                               event_outbox[]
   external_system_mappings                   external_system_mappings[]
@@ -17739,4 +17749,172 @@ model developer_portal_audit_events {
   @@index([tenant_id, api_client_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_client_time", where: raw("(api_client_id IS NOT NULL)"))
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_developer_portal_audit_tenant_time")
   @@index([tenant_id, event_type, created_at(sort: Desc)], map: "idx_developer_portal_audit_type_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_audience_snapshots {
+  id                             BigInt                           @id @default(autoincrement())
+  tenant_id                      String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  campaign_id                    BigInt
+  snapshot_kind                  String                           @default("dry_run") @db.VarChar(20)
+  cohort_source                  Json                             @default("{}")
+  cohort_hash                    String                           @db.VarChar(128)
+  materialized_count             Int                              @default(0)
+  eligible_count                 Int                              @default(0)
+  suppressed_count               Int                              @default(0)
+  source_tables                  String[]                         @default([])
+  minimum_cohort_size            Int                              @default(1)
+  created_by                     String?                          @db.Uuid
+  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  engagement_campaigns           engagement_campaigns             @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                        tenants                          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_engagement_audience_snapshots_tenant")
+  engagement_campaign_recipients engagement_campaign_recipients[]
+
+  @@index([tenant_id, campaign_id, created_at(sort: Desc)], map: "idx_engagement_audience_snapshots_campaign")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_campaign_recipients {
+  id                            BigInt                         @id @default(autoincrement())
+  tenant_id                     String                         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  campaign_id                   BigInt
+  audience_snapshot_id          BigInt?
+  patient_uid                   String                         @db.Uuid
+  consent_id                    Int?
+  required_consent_type         String                         @db.VarChar(100)
+  channel                       String                         @db.VarChar(20)
+  contact_route                 String?
+  due_at                        DateTime                       @default(now()) @db.Timestamptz(6)
+  status                        String                         @default("eligible") @db.VarChar(30)
+  suppression_reason            String?                        @db.VarChar(80)
+  outbox_id                     Int?
+  idempotency_key               String                         @db.VarChar(180)
+  retry_count                   Int                            @default(0)
+  variables                     Json                           @default("{}")
+  delivery_metadata             Json                           @default("{}")
+  materialized_at               DateTime                       @default(now()) @db.Timestamptz(6)
+  last_consent_checked_at       DateTime?                      @db.Timestamptz(6)
+  queued_at                     DateTime?                      @db.Timestamptz(6)
+  sent_at                       DateTime?                      @db.Timestamptz(6)
+  failed_at                     DateTime?                      @db.Timestamptz(6)
+  created_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  engagement_audience_snapshots engagement_audience_snapshots? @relation(fields: [audience_snapshot_id], references: [id], onUpdate: NoAction)
+  engagement_campaigns          engagement_campaigns           @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patient_consents              patient_consents?              @relation(fields: [consent_id], references: [id], onUpdate: NoAction)
+  notification_outbox           notification_outbox?           @relation(fields: [outbox_id], references: [id], onUpdate: NoAction)
+  tenants                       tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_engagement_campaign_recipients_tenant")
+
+  @@unique([tenant_id, idempotency_key], map: "ux_engagement_recipient_idempotency")
+  @@index([tenant_id, status, due_at], map: "idx_engagement_recipients_due", where: raw("((status)::text = 'eligible'::text)"))
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_engagement_recipients_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_campaigns {
+  id                             BigInt                           @id @default(autoincrement())
+  tenant_id                      String                           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  campaign_type                  String                           @db.VarChar(60)
+  objective                      String
+  status                         String                           @default("draft") @db.VarChar(30)
+  template_id                    BigInt
+  channels                       String[]                         @default([])
+  schedule_policy                Json                             @default("{}")
+  rate_policy                    Json                             @default("{}")
+  audience_kind                  String                           @default("cohort") @db.VarChar(20)
+  approval_required_role         String                           @default("care_team") @db.VarChar(30)
+  created_by                     String?                          @db.Uuid
+  submitted_by                   String?                          @db.Uuid
+  submitted_at                   DateTime?                        @db.Timestamptz(6)
+  approved_by                    String?                          @db.Uuid
+  approved_at                    DateTime?                        @db.Timestamptz(6)
+  scheduled_at                   DateTime?                        @db.Timestamptz(6)
+  started_at                     DateTime?                        @db.Timestamptz(6)
+  completed_at                   DateTime?                        @db.Timestamptz(6)
+  cancelled_at                   DateTime?                        @db.Timestamptz(6)
+  frozen_audience_hash           String?                          @db.VarChar(128)
+  current_audience_snapshot_id   BigInt?
+  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  engagement_audience_snapshots  engagement_audience_snapshots[]
+  engagement_campaign_recipients engagement_campaign_recipients[]
+  engagement_templates           engagement_templates             @relation(fields: [template_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                        tenants                          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_engagement_campaigns_tenant")
+  engagement_suppression_events  engagement_suppression_events[]
+
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_engagement_campaigns_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_settings {
+  tenant_id                  String    @id @db.Uuid
+  enabled                    Boolean   @default(false)
+  enabled_at                 DateTime? @db.Timestamptz(6)
+  enabled_by                 String?   @db.Uuid
+  acceptance_snapshot        Json?
+  emergency_stop             Boolean   @default(false)
+  quiet_hours_start          DateTime  @default(dbgenerated("'21:00:00'::time without time zone")) @db.Time(6)
+  quiet_hours_end            DateTime  @default(dbgenerated("'08:00:00'::time without time zone")) @db.Time(6)
+  tenant_daily_cap           Int       @default(250)
+  per_patient_cooldown_hours Int       @default(48)
+  consent_max_age_days       Int       @default(365)
+  channel_caps               Json      @default("{\"sms\": 100, \"push\": 250, \"email\": 100, \"inapp\": 250, \"whatsapp\": 100}")
+  default_consent_map        Json      @default("{\"no_show_recall\": \"care_reminder_whatsapp\", \"appointment_recall\": \"care_reminder_whatsapp\", \"feedback_nps_request\": \"nps_survey\", \"rpm_enrollment_reminder\": \"rpm_monitoring\", \"generic_follow_up_reminder\": \"teleconsult_followup\"}")
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                    tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_suppression_events {
+  id                   BigInt                @id @default(autoincrement())
+  tenant_id            String                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  campaign_id          BigInt?
+  patient_uid          String?               @db.Uuid
+  event_type           String                @db.VarChar(40)
+  channel              String?               @db.VarChar(20)
+  reason_code          String                @db.VarChar(80)
+  reason               String?
+  active               Boolean               @default(true)
+  source               String                @default("system") @db.VarChar(40)
+  created_by           String?               @db.Uuid
+  expires_at           DateTime?             @db.Timestamptz(6)
+  metadata             Json                  @default("{}")
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  engagement_campaigns engagement_campaigns? @relation(fields: [campaign_id], references: [id], onUpdate: NoAction)
+  tenants              tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_engagement_suppression_events_tenant")
+
+  @@index([tenant_id, patient_uid, active, expires_at], map: "idx_engagement_suppressions_active_patient", where: raw("(active = true)"))
+  @@index([tenant_id, campaign_id, created_at(sort: Desc)], map: "idx_engagement_suppressions_campaign")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model engagement_templates {
+  id                       BigInt                 @id @default(autoincrement())
+  tenant_id                String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  notification_template_id Int
+  template_kind            String                 @db.VarChar(60)
+  channel                  String                 @db.VarChar(20)
+  variables_schema         Json                   @default("{\"allowed\": []}")
+  allowed_variables        String[]               @default([])
+  phi_classification       String                 @default("minimal") @db.VarChar(30)
+  locale                   String                 @default("en-IN") @db.VarChar(20)
+  approved_by              String?                @db.Uuid
+  approved_at              DateTime?              @db.Timestamptz(6)
+  retired_at               DateTime?              @db.Timestamptz(6)
+  created_by               String?                @db.Uuid
+  created_at               DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime               @default(now()) @db.Timestamptz(6)
+  engagement_campaigns     engagement_campaigns[]
+  notification_templates   notification_templates @relation(fields: [notification_template_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenants                  tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_engagement_templates_tenant")
+
+  @@unique([tenant_id, notification_template_id, channel, locale], map: "ux_engagement_templates_active_copy", where: raw("(retired_at IS NULL)"))
+  @@index([tenant_id, template_kind, channel], map: "idx_engagement_templates_tenant_kind", where: raw("(retired_at IS NULL)"))
 }

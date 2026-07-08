@@ -15544,6 +15544,10 @@
           "invoice_type": {
             "type": "string"
           },
+          "migration_source_key": {
+            "type": "string",
+            "nullable": true
+          },
           "patient_state": {
             "type": "string",
             "nullable": true
@@ -15684,6 +15688,10 @@
           },
           "invoice_type": {
             "type": "string"
+          },
+          "migration_source_key": {
+            "type": "string",
+            "nullable": true
           },
           "patient_state": {
             "type": "string",
@@ -68814,6 +68822,207 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/engagement/campaigns": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/approve": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_approve",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/dry-run": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_dry_run",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/materialize": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_materialize",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/queue-due": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_queue_due",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/campaigns/{campaignId}/submit-approval": {
+      "post": {
+        "operationId": "post_api_v1_engagement_campaigns_by_campaignId_submit_approval",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/engagement/settings": {
+      "get": {
+        "operationId": "get_api_v1_engagement_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_engagement_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engagement/templates": {
+      "post": {
+        "operationId": "post_api_v1_engagement_templates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/feedback": {
